@@ -8,7 +8,7 @@ x-logging: &logging
 
 services:
   ott:
-    image: ott-next:0.15.0-cn2
+    image: ott-next:0.15.0-cn3
     build:
       context: ${OTT_SOURCE_DIR:-./source}
       dockerfile: deploy/next.Dockerfile

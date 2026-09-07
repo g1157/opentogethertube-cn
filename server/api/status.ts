@@ -2,6 +2,7 @@ import { getLogger } from "../logger.js";
 import express from "express";
 import { register } from "prom-client";
 import { conf } from "../ott-config.js";
+import { setNoStoreHeaders } from "../client-assets.js";
 
 const router = express.Router();
 // biome-ignore lint/correctness/noUnusedVariables: biome migration
@@ -11,6 +12,11 @@ router.get("/", (req, res) => {
 	res.json({
 		status: "ok",
 	});
+});
+
+router.get("/version", (_req, res) => {
+	setNoStoreHeaders(res);
+	res.json({ revision: process.env.OTT_CLIENT_REVISION ?? null });
 });
 
 router.get("/metrics", async (req, res) => {
