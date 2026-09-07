@@ -23,6 +23,7 @@ import session, { type SessionOptions } from "express-session";
 import RedisStore from "connect-redis";
 import { setupPostgresMetricsCollection } from "./storage.metrics.js";
 import cookieparser from "cookie-parser";
+import { clientStaticFiles, setNoStoreHeaders } from "./client-assets.js";
 
 const app = express();
 
@@ -131,14 +132,7 @@ export async function main() {
 
 	if (fs.existsSync("../client/dist")) {
 		// serve static files without creating a bunch of sessions
-		app.use(
-			conf.get("base_url"),
-			express.static("../client/dist", {
-				maxAge: "1 year",
-				redirect: false,
-				index: false,
-			}),
-		);
+		app.use(conf.get("base_url"), clientStaticFiles("../client/dist"));
 	} else {
 		log.warn("no dist folder found");
 	}
@@ -202,6 +196,7 @@ export async function main() {
 	});
 
 	function serveBuiltFiles(req, res) {
+		setNoStoreHeaders(res);
 		fs.readFile("../client/dist/index.html", (err, contents) => {
 			res.setHeader("Content-type", "text/html");
 			if (contents) {

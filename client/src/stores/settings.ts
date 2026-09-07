@@ -34,9 +34,12 @@ export enum Theme {
 
 export const ALL_THEMES = Object.keys(Theme).filter(key => Theme[key]);
 
+const DEFAULT_LOCALE_VERSION = "v0.15.0-cn3";
+type StoredSettings = Partial<SettingsState> & { defaultLocaleVersion?: string };
+
 export const settingsModule: Module<SettingsState, unknown> = {
 	namespaced: true,
-	state: {
+	state: () => ({
 		volume: 100,
 		muted: false,
 		audioBoost: 100,
@@ -47,14 +50,22 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		sfxVolume: 0.8,
 		enableAdapterSelector: false,
 		swipeSeekSeconds: 10,
-	},
+	}),
 	mutations: {
 		UPDATE(state, settings: Partial<SettingsState>) {
 			Object.assign(state, settings);
 			if (![5, 10, 30].includes(state.swipeSeekSeconds)) {
 				state.swipeSeekSeconds = 10;
 			}
-			localStorage.setItem("settings", JSON.stringify(state));
+			try {
+				// Keep the migration marker and language in one write so they cannot diverge.
+				localStorage.setItem(
+					"settings",
+					JSON.stringify({ ...state, defaultLocaleVersion: DEFAULT_LOCALE_VERSION }),
+				);
+			} catch {
+				// Private browsing or storage limits must not prevent settings from working in memory.
+			}
 
 			// apply some global settings
 			if (settings.theme !== undefined) {
@@ -71,8 +82,24 @@ export const settingsModule: Module<SettingsState, unknown> = {
 	},
 	actions: {
 		load(context) {
-			const loaded = JSON.parse(localStorage.getItem("settings") ?? "{}");
-			context.commit("UPDATE", loaded);
+			let loaded: StoredSettings = {};
+			try {
+				const value: unknown = JSON.parse(localStorage.getItem("settings") ?? "{}");
+				if (value && typeof value === "object" && !Array.isArray(value)) {
+					loaded = value as StoredSettings;
+				}
+			} catch {
+				// Invalid or unavailable browser storage falls back to this release's defaults.
+			}
+			const { defaultLocaleVersion, ...settings } = loaded;
+			if (
+				defaultLocaleVersion !== DEFAULT_LOCALE_VERSION ||
+				typeof settings.locale !== "string" ||
+				settings.locale.trim() === ""
+			) {
+				settings.locale = "zh-CN";
+			}
+			context.commit("UPDATE", settings);
 		},
 	},
 };
