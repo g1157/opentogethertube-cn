@@ -2,6 +2,8 @@
 	<div class="direct">
 		<video
 			ref="videoElem"
+			playsinline
+			webkit-playsinline
 			preload="auto"
 			crossorigin="anonymous"
 			@canplay="onCanPlay"

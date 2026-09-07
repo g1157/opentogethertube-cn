@@ -18,6 +18,7 @@ describe("room state types", () => {
 			| "isPlaying"
 			| "playbackPosition"
 			| "playbackSpeed"
+			| "temporaryPlaybackSpeed"
 			| "grants"
 			| "hasOwner"
 			| "voteCounts"

@@ -2,8 +2,18 @@
 	<v-card class="user-list">
 		<v-card-title>
 			{{ $t("room.users.title") }}
-			<v-btn icon size="x-small" @click="openEditName" aria-label="toggle edit name">
-				<v-icon :icon="mdiWrench" />
+			<v-btn
+				variant="text"
+				size="small"
+				:prepend-icon="mdiPencilOutline"
+				@click="openEditName"
+				:aria-label="$t('room.users.rename-hint')"
+				:aria-expanded="showEditName"
+			>
+				{{ $t("room.users.rename") }}
+				<v-tooltip activator="parent" location="top">{{
+					$t("room.users.rename-hint")
+				}}</v-tooltip>
 			</v-btn>
 		</v-card-title>
 		<v-list-item v-if="showEditName">
@@ -11,6 +21,7 @@
 				v-model="inputUsername"
 				@change="onEditNameChange"
 				:placeholder="$t('room.users.set')"
+				:label="$t('room.users.rename-hint')"
 				:loading="setUsernameLoading"
 				:error-messages="setUsernameFailureText"
 				:counter="USERNAME_LENGTH_MAX"
@@ -113,6 +124,7 @@ import {
 	mdiProgressDownload,
 	mdiCheckBold,
 	mdiExclamation,
+	mdiPencilOutline,
 } from "@mdi/js";
 import { ref, inject } from "vue";
 import { API } from "@/common-http";

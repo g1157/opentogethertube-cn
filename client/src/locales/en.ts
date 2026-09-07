@@ -197,6 +197,8 @@ export default {
 			settings: "Settings",
 		},
 		users: {
+			rename: "Rename",
+			"rename-hint": "Change your username or guest display name",
 			title: "Users",
 			set: "Set your name",
 			empty: "There seems to be nobody else here. Invite some friends!",
@@ -211,6 +213,8 @@ export default {
 	},
 	chat: {
 		title: "Chat",
+		open: "Open chat without focusing the input",
+		close: "Close chat",
 		"type-here": "Type your message here...",
 	},
 	"share-invite": {
@@ -450,6 +454,40 @@ export default {
 		BadApiArgumentException: "Bad API Argument. This is likely a bug, please report it.",
 	},
 	player: {
+		"now-playing": "Now playing",
+		episode: "Episode {episode}",
+		"season-episode": "Season {season} · Episode {episode}",
+		interactions: {
+			"toggle-controls": "Show or hide playback controls",
+			"swipe-step": "Swipe seek interval",
+			seconds: "{count} sec",
+			"seek-preview": "{delta} sec → {time}, release to seek",
+			"seek-denied": "You do not have permission to seek in this room",
+			"speed-denied": "You do not have permission to change this room's speed",
+			"speed-busy": "Another viewer is holding to speed up playback",
+			"speed-unavailable": "Hold to speed up is unavailable right now",
+			holding: "Playing at 2×, release to restore speed",
+			"room-holding": "This room is temporarily playing at 2×",
+		},
+		shortcuts: {
+			title: "Playback gestures and shortcuts",
+			gestures:
+				"Tap the picture to show or hide controls. Swipe to preview a time jump, then release to seek. Hold for 0.5 seconds to play at 2× and release to restore speed. Double-click on desktop to toggle fullscreen.",
+			"chat-hint":
+				"Opening chat does not focus the input. Tap the input to type. Closing chat keeps your unsent draft.",
+			"play-pause": "Play / pause",
+			"seek-five": "Seek back / forward 5 seconds",
+			"seek-ten": "Seek back / forward 10 seconds",
+			volume: "Volume up / down 5%",
+			mute: "Mute / unmute",
+			fullscreen: "Toggle player fullscreen",
+			escape: "Close overlay / exit fullscreen",
+			chat: "Open / close chat",
+			start: "Seek to the beginning",
+			skip: "Skip the current video",
+			help: "Show this help",
+			scope: "Playback, seeking and speed changes affect everyone and respect room permissions. Volume, chat and fullscreen are personal. Shortcuts are disabled while editing text, composing characters or using dialogs. Unseekable live streams do not support swipe seeking.",
+		},
 		"buffer-warn": {
 			spans: "You haven't buffered enough of the video yet. Current time ranges buffered: {ranges}",
 		},

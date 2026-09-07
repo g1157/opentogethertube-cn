@@ -195,6 +195,8 @@ export default {
 			settings: "设置",
 		},
 		users: {
+			rename: "改名",
+			"rename-hint": "修改你的用户名或访客昵称",
 			title: "用户",
 			set: "设置你的名字",
 			empty: "这里似乎没有其他人。邀请一些朋友吧！",
@@ -209,6 +211,8 @@ export default {
 	},
 	chat: {
 		title: "聊天",
+		open: "展开聊天（不会自动打开键盘）",
+		close: "收起聊天",
 		"type-here": "在此输入你的消息…",
 	},
 	"share-invite": {
@@ -435,6 +439,39 @@ export default {
 		BadApiArgumentException: "API 参数错误。这很可能是个 Bug，请报告。",
 	},
 	player: {
+		"now-playing": "正在播放",
+		episode: "第 {episode} 集",
+		"season-episode": "第 {season} 季 · 第 {episode} 集",
+		interactions: {
+			"toggle-controls": "显示或收起播放控件",
+			"swipe-step": "左右滑动跳转时长",
+			seconds: "{count} 秒",
+			"seek-preview": "{delta} 秒 → {time}，松手跳转",
+			"seek-denied": "你没有调整房间播放进度的权限",
+			"speed-denied": "你没有调整房间倍速的权限",
+			"speed-busy": "其他观众正在长按倍速播放",
+			"speed-unavailable": "当前无法使用长按倍速",
+			holding: "2 倍速播放中，松手恢复",
+			"room-holding": "房间正在临时 2 倍速播放",
+		},
+		shortcuts: {
+			title: "播放手势与快捷键",
+			gestures:
+				"点击画面显示或收起控件；左右滑动按设定时长跳转，松手执行；长按约 0.5 秒进入 2 倍速，松手恢复。电脑双击画面切换全屏。",
+			"chat-hint": "展开聊天不会弹出键盘，点击输入框才开始输入。收起聊天会保留未发送的草稿。",
+			"play-pause": "播放 / 暂停",
+			"seek-five": "后退 / 前进 5 秒",
+			"seek-ten": "后退 / 前进 10 秒",
+			volume: "音量增加 / 减少 5%",
+			mute: "静音 / 取消静音",
+			fullscreen: "切换播放器全屏",
+			escape: "关闭当前浮层 / 退出全屏",
+			chat: "展开 / 收起聊天",
+			start: "跳到视频开头",
+			skip: "跳过当前视频",
+			help: "显示这份说明",
+			scope: "播放、跳转和倍速同步全房间，并遵守房间权限。音量、聊天和全屏只影响你的设备。输入文字、使用输入法或操作弹窗时，不会触发播放快捷键。直播等不可拖动的视频不支持滑动跳转。",
+		},
 		"buffer-warn": {
 			spans: "你还没有缓冲足够的视频内容。当前已缓冲的时间范围：{ranges}",
 		},

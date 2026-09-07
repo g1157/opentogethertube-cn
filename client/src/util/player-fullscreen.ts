@@ -141,7 +141,15 @@ export function createPlayerFullscreen(
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
-		if (event.key === "Escape" && activeTarget && fallback) {
+		if (
+			event.key === "Escape" &&
+			activeTarget &&
+			fallback &&
+			!event.defaultPrevented &&
+			!doc.querySelector(
+				".chat.activated, .settings-menu-container, .v-dialog.v-overlay--active, .v-menu.v-overlay--active",
+			)
+		) {
 			event.preventDefault();
 			void exit();
 		}

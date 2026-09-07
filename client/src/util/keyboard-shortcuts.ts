@@ -1,9 +1,12 @@
-import { inject, type InjectionKey, onUnmounted } from "vue";
+import { getCurrentInstance, inject, type InjectionKey, onUnmounted } from "vue";
 import _ from "lodash";
 
 const BINDING_DEFAULTS = {
 	ctrlKey: false,
 	shiftKey: false,
+	altKey: false,
+	metaKey: false,
+	repeat: false,
 };
 
 export class KeyboardShortcuts {
@@ -15,7 +18,7 @@ export class KeyboardShortcuts {
 				this.bind(b, action);
 			}
 		} else {
-			const bindStrict: KeyBindingStrict = _.defaults(binding, BINDING_DEFAULTS);
+			const bindStrict: KeyBindingStrict = _.defaults({ ...binding }, BINDING_DEFAULTS);
 
 			// don't allow duplicate bindings
 			for (const [b] of this.shortcuts) {
@@ -27,18 +30,16 @@ export class KeyboardShortcuts {
 
 			this.shortcuts.push([bindStrict, action]);
 
-			try {
+			if (getCurrentInstance()) {
 				onUnmounted(() => {
 					this.unbind(binding);
 				});
-			} catch (e) {
-				console.warn("could not set up onUnmounted hook for keybind", binding, e);
 			}
 		}
 	}
 
 	unbind(binding: KeyBinding) {
-		const bindStrict: KeyBindingStrict = _.defaults(binding, BINDING_DEFAULTS);
+		const bindStrict: KeyBindingStrict = _.defaults({ ...binding }, BINDING_DEFAULTS);
 
 		this.shortcuts = this.shortcuts.filter(s => {
 			return !_.isEqual(s[0], bindStrict);
@@ -46,8 +47,22 @@ export class KeyboardShortcuts {
 	}
 
 	handleKeyDown(event: KeyboardEvent) {
+		if (event.defaultPrevented || event.isComposing || event.keyCode === 229) {
+			return;
+		}
+		if (
+			document.querySelector(
+				'.v-dialog.v-overlay--active, .v-menu.v-overlay--active, [role="dialog"][aria-modal="true"], dialog[open]',
+			)
+		) {
+			return;
+		}
 		if (event.target instanceof Element) {
-			if (event.target.nodeName === "INPUT" || event.target.nodeName === "TEXTAREA") {
+			if (
+				event.target.closest(
+					'input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="slider"], [role="button"], [role="menu"], [data-player-shortcuts="off"]',
+				)
+			) {
 				return;
 			}
 		}
@@ -55,7 +70,6 @@ export class KeyboardShortcuts {
 		for (const [binding, action] of this.shortcuts) {
 			if (this.eventMatches(event, binding)) {
 				event.preventDefault();
-				console.debug("found matching binding", binding);
 				action(event);
 				return;
 			}
@@ -66,7 +80,10 @@ export class KeyboardShortcuts {
 		return (
 			event.code === binding.code &&
 			event.ctrlKey === binding.ctrlKey &&
-			event.shiftKey === binding.shiftKey
+			event.shiftKey === binding.shiftKey &&
+			event.altKey === binding.altKey &&
+			event.metaKey === binding.metaKey &&
+			(!event.repeat || binding.repeat)
 		);
 	}
 }
@@ -76,12 +93,18 @@ export const RoomKeyboardShortcutsKey: InjectionKey<KeyboardShortcuts> = Symbol(
 interface KeyBinding {
 	shiftKey?: boolean;
 	ctrlKey?: boolean;
+	altKey?: boolean;
+	metaKey?: boolean;
+	repeat?: boolean;
 	code: string;
 }
 
 interface KeyBindingStrict {
 	shiftKey: boolean;
 	ctrlKey: boolean;
+	altKey: boolean;
+	metaKey: boolean;
+	repeat: boolean;
 	code: string;
 }
 

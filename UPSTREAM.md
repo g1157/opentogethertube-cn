@@ -10,4 +10,7 @@ separate cookie names for the parallel instance, and WebSocket input validation.
 Player fullscreen now targets the video and its controls, locks background scrolling,
 and restores the previous page position when leaving fullscreen.
 
-The original server deployment on ports 80/8080 is independent and remains available.
+Deployment can start on an independent port and later replace an existing entry point.
+Keep the previous application's image, configuration and separate data volumes for
+rollback; the two instances do not automatically merge subsequent data changes.
+See DEPLOYMENT.md for port switching, source distribution and rollback instructions.

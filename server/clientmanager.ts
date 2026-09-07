@@ -40,6 +40,28 @@ import { UnloadReason } from "./generated.js";
 
 const log = getLogger("clientmanager");
 
+// Membership and identity updates are server lifecycle events, never client requests.
+const CLIENT_ROOM_REQUEST_TYPES = new Set<RoomRequestType>([
+	RoomRequestType.PlaybackRequest,
+	RoomRequestType.SkipRequest,
+	RoomRequestType.SeekRequest,
+	RoomRequestType.AddRequest,
+	RoomRequestType.RemoveRequest,
+	RoomRequestType.OrderRequest,
+	RoomRequestType.VoteRequest,
+	RoomRequestType.PromoteRequest,
+	RoomRequestType.ChatRequest,
+	RoomRequestType.UndoRequest,
+	RoomRequestType.ApplySettingsRequest,
+	RoomRequestType.PlayNowRequest,
+	RoomRequestType.ShuffleRequest,
+	RoomRequestType.PlaybackSpeedRequest,
+	RoomRequestType.RestoreQueueRequest,
+	RoomRequestType.KickRequest,
+	RoomRequestType.UpdateQueueItemRequest,
+	RoomRequestType.TemporaryPlaybackSpeedRequest,
+]);
+
 const connections: Client[] = [];
 const roomJoins: Map<string, Client[]> = new Map();
 export async function setup(): Promise<void> {
@@ -195,6 +217,16 @@ async function onClientMessage(client: Client, msg: ClientMessage) {
 			};
 			await makeRoomRequest(client, request);
 		} else if (msg.action === "req") {
+			if (
+				!msg.request ||
+				typeof msg.request !== "object" ||
+				Array.isArray(msg.request) ||
+				!CLIENT_ROOM_REQUEST_TYPES.has(msg.request.type)
+			) {
+				log.warn(`Rejecting invalid or internal room request from client ${client.id}`);
+				client.kick(OttWebsocketError.UNKNOWN);
+				return;
+			}
 			await makeRoomRequest(client, msg.request);
 		} else if (msg.action === "notify") {
 			if (msg.message === "usernameChanged") {

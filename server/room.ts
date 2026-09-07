@@ -28,6 +28,8 @@ import type {
 	PlaybackSpeedRequest,
 	KickRequest,
 	UpdateQueueItemRequest,
+	TemporaryPlaybackSpeed,
+	TemporaryPlaybackSpeedRequest,
 } from "ott-common/models/messages.js";
 import { RoomRequestType } from "ott-common/models/messages.js";
 import _ from "lodash";
@@ -58,6 +60,7 @@ import {
 	VideoAlreadyQueuedException,
 	VideoNotFoundException,
 	UnsupportedSubtitleType,
+	BadApiArgumentException,
 } from "./exceptions.js";
 import storage from "./storage.js";
 import tokens, { type SessionInfo } from "./auth/tokens.js";
@@ -77,8 +80,14 @@ import { type Result, countEligibleVoters, err, ok, voteSkipThreshold } from "ot
 import type { ClientManagerCommand } from "./clientmanager.js";
 import { canKickUser } from "ott-common/userutils.js";
 import { conf } from "./ott-config.js";
-import { ALL_SKIP_CATEGORIES } from "ott-common/constants.js";
+import {
+	ALL_SKIP_CATEGORIES,
+	TEMPORARY_PLAYBACK_SPEED,
+	TEMPORARY_PLAYBACK_SPEED_LEASE_MS,
+} from "ott-common/constants.js";
 import { Mutex } from "@divine/synchronization";
+
+const TEMPORARY_PLAYBACK_GESTURE_ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
 
 /**
  * Represents a User from the Room's perspective.
@@ -134,6 +143,7 @@ export interface RoomState extends RoomOptions, RoomStateComputed {
 	isPlaying: boolean;
 	playbackPosition: number;
 	playbackSpeed: number;
+	temporaryPlaybackSpeed: TemporaryPlaybackSpeed | null;
 	users: RoomUserInfo[];
 	votes: Map<string, Set<ClientId>>;
 	votesToSkip: Set<ClientId>;
@@ -156,7 +166,7 @@ export type RoomStateSyncable = Omit<RoomState, "owner" | "votes" | "userRoles" 
 // Only these should be stored in redis
 export type RoomStateStorable = Omit<
 	RoomState,
-	"hasOwner" | "votes" | "voteCounts" | "users" | "votesToSkip"
+	"hasOwner" | "votes" | "voteCounts" | "users" | "votesToSkip" | "temporaryPlaybackSpeed"
 > & { _playbackStart: Dayjs | null };
 
 const syncableProps: (keyof RoomStateSyncable)[] = [
@@ -171,6 +181,7 @@ const syncableProps: (keyof RoomStateSyncable)[] = [
 	"isPlaying",
 	"playbackPosition",
 	"playbackSpeed",
+	"temporaryPlaybackSpeed",
 	"grants",
 	"hasOwner",
 	"voteCounts",
@@ -214,6 +225,7 @@ export type RoomStatePersistable = Omit<
 	| "isPlaying"
 	| "playbackPosition"
 	| "playbackSpeed"
+	| "temporaryPlaybackSpeed"
 	| "users"
 	| "votes"
 	| "videoSegments"
@@ -242,6 +254,8 @@ export class Room implements RoomState {
 	_isPlaying = false;
 	_playbackPosition = 0;
 	_playbackSpeed = 1;
+	private temporarySpeed: (TemporaryPlaybackSpeed & { previousSpeed: number }) | null = null;
+	private temporarySpeedTimer: ReturnType<typeof setTimeout> | null = null;
 	realusers: RoomUser[] = [];
 	/**
 	 * Map of videos in the format service + id to a set of client votes.
@@ -414,6 +428,7 @@ export class Room implements RoomState {
 	}
 
 	public set currentSource(value: QueueItem | null) {
+		this.endTemporaryPlaybackSpeed();
 		this._currentSource = value;
 		this.markDirty("currentSource");
 	}
@@ -423,6 +438,9 @@ export class Room implements RoomState {
 	}
 
 	public set isPlaying(value: boolean) {
+		if (!value) {
+			this.endTemporaryPlaybackSpeed();
+		}
 		this._isPlaying = value;
 		this.markDirty("isPlaying");
 	}
@@ -443,6 +461,14 @@ export class Room implements RoomState {
 	public set playbackSpeed(value: number) {
 		this._playbackSpeed = value;
 		this.markDirty("playbackSpeed");
+	}
+
+	public get temporaryPlaybackSpeed(): TemporaryPlaybackSpeed | null {
+		if (!this.temporarySpeed) {
+			return null;
+		}
+		const { clientId, gestureId, speed } = this.temporarySpeed;
+		return { clientId, gestureId, speed };
 	}
 
 	public get owner(): User | null {
@@ -738,6 +764,12 @@ export class Room implements RoomState {
 	}
 
 	public async update(): Promise<void> {
+		if (this.temporarySpeed) {
+			const owner = this.getUser(this.temporarySpeed.clientId);
+			if (!owner || !this.grants.granted(this.getRole(owner), "playback.speed")) {
+				this.endTemporaryPlaybackSpeed();
+			}
+		}
 		if (this.currentSource === undefined) {
 			this.currentSource = null; // sanity check
 		}
@@ -828,13 +860,27 @@ export class Room implements RoomState {
 		}
 	}
 
-	throttledSync = _.debounce(this.sync, 50, { trailing: true });
+	throttledSync = _.debounce(
+		() =>
+			this.sync().catch(error => {
+				// syncDirty retains the checkpoint; the room manager will retry it.
+				this.log.error(`Background room checkpoint failed: ${error}`);
+			}),
+		50,
+		{ trailing: true },
+	);
 
 	/**
 	 * Serialize the room's state so that it can be stored in redis
 	 */
 	public serializeState(): string {
 		const state: RoomStateStorable = _.pick(this, ...storableProps);
+		if (this.temporarySpeed) {
+			// A crash/restart must never turn a held gesture into a permanent speed setting.
+			state.playbackSpeed = this.temporarySpeed.previousSpeed;
+			state.playbackPosition = this.realPlaybackPosition;
+			state._playbackStart = this.isPlaying ? dayjs() : null;
+		}
 
 		return JSON.stringify(state, replacer);
 	}
@@ -932,7 +978,10 @@ export class Room implements RoomState {
 				await this.publish(msg);
 			}
 			if (!this.isTemporary && !_.isEmpty(settings)) {
-				await storage.updateRoom({ name: this.name, ...settings });
+				const persisted = await storage.updateRoom({ name: this.name, ...settings });
+				if (!persisted) {
+					throw new Error("Failed to persist permanent room state");
+				}
 			}
 		} catch (error) {
 			for (const prop of dirty) {
@@ -954,6 +1003,7 @@ export class Room implements RoomState {
 	}
 
 	public async onBeforeUnload(): Promise<void> {
+		this.endTemporaryPlaybackSpeed();
 		if (!this.isTemporary) {
 			await this.pause();
 			// Force a final checkpoint through the same lock as background saves.
@@ -1128,6 +1178,7 @@ export class Room implements RoomState {
 			[RoomRequestType.PlaybackSpeedRequest]: "setPlaybackSpeed",
 			[RoomRequestType.RestoreQueueRequest]: "restoreQueue",
 			[RoomRequestType.KickRequest]: "kickUser",
+			[RoomRequestType.TemporaryPlaybackSpeedRequest]: "setTemporaryPlaybackSpeed",
 		};
 
 		const handler = handlers[request.type];
@@ -1163,6 +1214,7 @@ export class Room implements RoomState {
 	}
 
 	public async pause(): Promise<void> {
+		this.endTemporaryPlaybackSpeed();
 		if (!this.isPlaying) {
 			this.log.silly("already paused");
 			return;
@@ -1373,6 +1425,9 @@ export class Room implements RoomState {
 		if (context.clientId === undefined) {
 			throw new Error("context.clientId was undefined");
 		}
+		if (this.temporarySpeed?.clientId === context.clientId) {
+			this.endTemporaryPlaybackSpeed();
+		}
 		const removed = this.getUserInfo(context.clientId);
 		// We must publish the event before removing the user, otherwise publishing the event will fail because the user is gone.
 		await this.publishRoomEvent(request, context, { user: removed });
@@ -1432,7 +1487,7 @@ export class Room implements RoomState {
 		// FIXME: room event type definitions suck ass, and needs to be reworked
 		switch (request.event.request.type) {
 			case RoomRequestType.SeekRequest:
-				if (request.event.additional.prevPosition) {
+				if (request.event.additional.prevPosition !== undefined) {
 					await this.processRequest(
 						{
 							type: request.event.request.type,
@@ -1443,15 +1498,24 @@ export class Room implements RoomState {
 				}
 				break;
 			case RoomRequestType.SkipRequest:
+				// Undo events arrive from the client. Check every operation they can cause.
+				this.grants.check(context.role, "playback.skip");
+				this.grants.check(context.role, "playback.seek");
+				this.grants.check(context.role, "manage-queue.add");
+				this.grants.check(context.role, "manage-queue.play-now");
 				if (this.currentSource) {
-					this.queue.pushTop(this.currentSource);
+					await this.queue.pushTop(this.currentSource);
 				}
-				if (request.event.additional.video && request.event.additional.prevPosition) {
+				if (
+					request.event.additional.video &&
+					request.event.additional.prevPosition !== undefined
+				) {
 					this.currentSource = request.event.additional.video;
 					this.playbackPosition = request.event.additional.prevPosition;
 				}
 				break;
 			case RoomRequestType.AddRequest:
+				this.grants.check(context.role, "manage-queue.remove");
 				if (this.queue.length > 0 && request.event.request.video) {
 					const removeReq: RemoveRequest = {
 						type: RoomRequestType.RemoveRequest,
@@ -1459,15 +1523,18 @@ export class Room implements RoomState {
 					};
 					await this.processRequest(removeReq, context);
 				} else {
+					this.grants.check(context.role, "playback.skip");
 					this.currentSource = null;
 				}
 				break;
 			case RoomRequestType.RemoveRequest:
+				this.grants.check(context.role, "manage-queue.add");
+				this.grants.check(context.role, "manage-queue.order");
 				if (
 					request.event.additional.video &&
 					request.event.additional.queueIdx !== undefined
 				) {
-					this.queue.insert(
+					await this.queue.insert(
 						request.event.additional.video,
 						request.event.additional.queueIdx,
 					);
@@ -1504,6 +1571,16 @@ export class Room implements RoomState {
 	}
 
 	public async promoteUser(request: PromoteRequest, context: RoomRequestContext): Promise<void> {
+		if (
+			!Number.isInteger(request.role) ||
+			request.role < Role.RegisteredUser ||
+			request.role > Role.Administrator
+		) {
+			throw new BadApiArgumentException(
+				"role",
+				"Expected an assignable registered-user role",
+			);
+		}
 		const targetUser = this.getUser(request.targetClientId);
 		if (!targetUser) {
 			throw new OttException("Client not found.");
@@ -1549,7 +1626,7 @@ export class Room implements RoomState {
 			this.grants.check(context.role, demotePerm);
 		}
 
-		if (targetCurrentRole === Role.UnregisteredUser) {
+		if (targetCurrentRole === Role.UnregisteredUser || targetCurrentRole === Role.Owner) {
 			throw new ImpossiblePromotionException();
 		}
 		if (targetUser.user_id !== undefined) {
@@ -1754,14 +1831,112 @@ export class Room implements RoomState {
 		request: PlaybackSpeedRequest,
 		context: RoomRequestContext,
 	): Promise<void> {
+		if (!Number.isFinite(request.speed) || request.speed < 0.25 || request.speed > 4) {
+			throw new BadApiArgumentException(
+				"speed",
+				"Expected a finite playback speed from 0.25 to 4",
+			);
+		}
+		// A later explicit change wins over a previously started long press, including 2x.
+		this.endTemporaryPlaybackSpeed(false);
 		this.flushPlaybackPosition();
 		this.playbackSpeed = request.speed;
 	}
 
+	private renewTemporaryPlaybackSpeed(): void {
+		if (this.temporarySpeedTimer) {
+			clearTimeout(this.temporarySpeedTimer);
+		}
+		this.temporarySpeedTimer = setTimeout(
+			() => this.endTemporaryPlaybackSpeed(),
+			TEMPORARY_PLAYBACK_SPEED_LEASE_MS,
+		);
+		this.temporarySpeedTimer.unref();
+	}
+
+	private endTemporaryPlaybackSpeed(restore = true): void {
+		if (this.temporarySpeedTimer) {
+			clearTimeout(this.temporarySpeedTimer);
+			this.temporarySpeedTimer = null;
+		}
+		const previous = this.temporarySpeed;
+		if (!previous) {
+			return;
+		}
+		this.temporarySpeed = null;
+		if (restore) {
+			this.flushPlaybackPosition();
+			this.playbackSpeed = previous.previousSpeed;
+		}
+		this.markDirty("temporaryPlaybackSpeed");
+	}
+
+	public async setTemporaryPlaybackSpeed(
+		request: TemporaryPlaybackSpeedRequest,
+		context: RoomRequestContext,
+	): Promise<void> {
+		if (
+			typeof request.gestureId !== "string" ||
+			!TEMPORARY_PLAYBACK_GESTURE_ID_REGEX.test(request.gestureId) ||
+			!["start", "renew", "stop"].includes(request.action)
+		) {
+			throw new BadApiArgumentException(
+				"gesture",
+				"Invalid temporary playback speed request",
+			);
+		}
+		if (!context.clientId || !this.getUser(context.clientId)) {
+			throw new ClientNotFoundInRoomException(this.name);
+		}
+		const ownsGesture =
+			this.temporarySpeed?.clientId === context.clientId &&
+			this.temporarySpeed?.gestureId === request.gestureId;
+		if (request.action === "stop") {
+			// The owner can release a gesture even if their speed permission was revoked.
+			if (ownsGesture) {
+				this.endTemporaryPlaybackSpeed();
+			}
+			return;
+		}
+		this.grants.check(context.role, "playback.speed");
+		if (request.action === "renew") {
+			// A delayed heartbeat must never restart a cancelled/overridden gesture.
+			if (ownsGesture) {
+				this.renewTemporaryPlaybackSpeed();
+			}
+			return;
+		}
+		if (
+			!this.isPlaying ||
+			!this.currentSource ||
+			!Number.isFinite(this.currentSource.length) ||
+			(this.currentSource.length ?? 0) <= 0 ||
+			this.currentSource.service !== request.video?.service ||
+			this.currentSource.id !== request.video?.id ||
+			this.temporarySpeed
+		) {
+			return;
+		}
+		this.flushPlaybackPosition();
+		this.temporarySpeed = {
+			clientId: context.clientId,
+			gestureId: request.gestureId,
+			speed: TEMPORARY_PLAYBACK_SPEED,
+			previousSpeed: this.playbackSpeed,
+		};
+		this.playbackSpeed = TEMPORARY_PLAYBACK_SPEED;
+		this.markDirty("temporaryPlaybackSpeed");
+		this.renewTemporaryPlaybackSpeed();
+	}
+
 	public async restoreQueue(
 		request: RestoreQueueRequest,
-		_context: RoomRequestContext,
+		context: RoomRequestContext,
 	): Promise<void> {
+		this.grants.check(
+			context.role,
+			request.discard ? "manage-queue.remove" : "manage-queue.add",
+		);
 		if (this.prevQueue === null) {
 			throw new Error("No previous queue to restore");
 		}

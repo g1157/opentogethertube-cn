@@ -1,11 +1,16 @@
 <template>
-	<v-btn variant="text" class="media-control" aria-label="Playback Speed" :disabled="!supported">
+	<v-btn
+		variant="text"
+		class="media-control"
+		:aria-label="$t('room.playback-speed')"
+		:disabled="!supported || !granted('playback.speed')"
+	>
 		{{ formatRate(playbackRate.playbackRate.value) }}
 
 		<v-tooltip activator="parent" location="bottom">
 			<span>{{ $t("room.playback-speed") }}</span>
 		</v-tooltip>
-		<v-menu location="top" activator="parent" offset="+30px">
+		<v-menu v-model="menuOpen" location="top" activator="parent" offset="+30px">
 			<v-list class="playback-rate-menu">
 				<v-list-item
 					v-for="(rate, index) in playbackRate.availablePlaybackRates.value"
@@ -24,10 +29,16 @@
 import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
 import { usePlaybackRate } from "../composables";
+import { ref } from "vue";
+import { useGrants } from "../composables/grants";
+import { usePlayerControlsActivity } from "@/util/player-controls";
 
 const connection = useConnection();
 const roomApi = useRoomApi(connection);
 const playbackRate = usePlaybackRate();
+const granted = useGrants();
+const menuOpen = ref(false);
+usePlayerControlsActivity(menuOpen);
 
 function formatRate(rate: number) {
 	return `${rate.toLocaleString(undefined, {

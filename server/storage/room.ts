@@ -96,6 +96,10 @@ export async function updateRoom(room: Partial<RoomStatePersistable>): Promise<b
 	}
 	try {
 		const options = roomToDbPartial(room);
+		// Sequelize reports zero affected rows for an empty update, even if the room exists.
+		if (_.isEmpty(options)) {
+			return await isRoomNameTaken(room.name);
+		}
 		log.debug(`updating room ${room.name} in database ${JSON.stringify(options)}`);
 		const result = await DbRoomModel.update(options, {
 			where: buildFindRoomWhere(room.name),

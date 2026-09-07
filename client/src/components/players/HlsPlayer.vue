@@ -2,6 +2,8 @@
 	<div class="hls">
 		<video
 			id="hlsplayer"
+			playsinline
+			webkit-playsinline
 			preload="auto"
 			crossorigin="anonymous"
 			:poster="thumbnail || ''"

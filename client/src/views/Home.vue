@@ -14,12 +14,9 @@
 						<v-btn elevation="12" size="x-large" to="/rooms">{{
 							$t("landing.hero.btns.browse")
 						}}</v-btn>
-						<v-btn
-							elevation="12"
-							size="x-large"
-							href="https://github.com/dyc3/opentogethertube"
-							>{{ $t("landing.hero.btns.source") }}</v-btn
-						>
+						<v-btn elevation="12" size="x-large" :href="sourceUrl">{{
+							$t("landing.hero.btns.source")
+						}}</v-btn>
 					</div>
 				</div>
 			</v-row>
@@ -188,6 +185,7 @@ import { isOfficialSite } from "@/util/misc";
 const store = useStore();
 
 const gitCommit = __COMMIT_HASH__;
+const sourceUrl = import.meta.env.VITE_SOURCE_URL || "https://github.com/dyc3/opentogethertube";
 
 async function createTempRoom() {
 	await createRoomHelper(store);

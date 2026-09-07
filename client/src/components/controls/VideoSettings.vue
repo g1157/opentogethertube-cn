@@ -1,5 +1,5 @@
 <template>
-	<div class="video-settings-wrapper">
+	<div class="video-settings-wrapper" @keydown.esc.stop.prevent="closeMenu">
 		<v-btn
 			variant="text"
 			icon
@@ -13,18 +13,18 @@
 			</v-tooltip>
 		</v-btn>
 
-		<v-container v-if="isMenuOpen" v-click-outside="closeMenu" class="settings-menu-container">
+		<v-container
+			v-if="isMenuOpen"
+			v-click-outside="closeMenu"
+			class="settings-menu-container"
+			data-player-shortcuts="off"
+		>
 			<div class="menu-container">
 				<transition name="menu-resize" mode="out-in" slim>
 					<!-- Found the following hack in Room.vue -->
 					<!-- HACK: For some reason, safari really doesn't like typescript enums. As a result, we are forced to not use the enums, and use their literal values instead. -->
 					<!-- Main menu -->
-					<v-list
-						v-if="currentMenu === 'main'"
-						key="main"
-						class="menu-content"
-						min-width="300px"
-					>
+					<v-list v-if="currentMenu === 'main'" key="main" class="menu-content">
 						<v-list-item
 							link
 							class="menu-item"
@@ -55,6 +55,30 @@
 									{{ currentQualityDisplay }}
 								</span>
 							</div>
+						</v-list-item>
+						<v-list-item>
+							<v-list-item-title>{{
+								$t("player.interactions.swipe-step")
+							}}</v-list-item-title>
+							<v-btn-toggle
+								v-model="swipeSeekSeconds"
+								mandatory
+								density="compact"
+								color="primary"
+								class="swipe-step-options"
+							>
+								<v-btn
+									v-for="seconds in [5, 10, 30]"
+									:key="seconds"
+									:value="seconds"
+									size="small"
+								>
+									{{ $t("player.interactions.seconds", { count: seconds }) }}
+								</v-btn>
+							</v-btn-toggle>
+						</v-list-item>
+						<v-list-item link :prepend-icon="mdiKeyboardOutline" @click="showShortcuts">
+							{{ $t("player.shortcuts.title") }}
 						</v-list-item>
 					</v-list>
 
@@ -130,7 +154,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useCaptions, useQualities } from "../composables";
 import {
 	mdiCog,
@@ -139,13 +163,38 @@ import {
 	mdiTune,
 	mdiChevronLeft,
 	mdiChevronRight,
+	mdiKeyboardOutline,
 } from "@mdi/js";
 import { getFriendlyResolutionLabel } from "@/util/misc";
 import type { VideoTrack, CaptionTrack } from "@/models/media-tracks";
+import { usePlayerControlsActivity } from "@/util/player-controls";
+import { useStore } from "@/store";
+
+const emit = defineEmits(["show-shortcuts"]);
+const store = useStore();
+const swipeSeekSeconds = computed({
+	get: () => store.state.settings.swipeSeekSeconds,
+	set: value => store.commit("settings/UPDATE", { swipeSeekSeconds: value }),
+});
 
 // Menu types - using literal string values instead of enum due to Safari compatibility issues
 const currentMenu = ref<"main" | "quality" | "subtitle">("main");
 const isMenuOpen = ref<boolean>(false);
+usePlayerControlsActivity(isMenuOpen);
+
+function onMenuKeyDown(event: KeyboardEvent) {
+	if (event.key === "Escape" && isMenuOpen.value && !event.isComposing) {
+		event.preventDefault();
+		closeMenu();
+	}
+}
+onMounted(() => window.addEventListener("keydown", onMenuKeyDown));
+onUnmounted(() => window.removeEventListener("keydown", onMenuKeyDown));
+
+function showShortcuts() {
+	closeMenu();
+	emit("show-shortcuts");
+}
 
 const qualities = useQualities();
 const captions = useCaptions();
@@ -255,20 +304,24 @@ function selectSubtitleTrack(track: number): void {
 <style lang="scss">
 @use "./media-controls.scss";
 
-.video-settings-wrapper {
-	position: relative;
-}
-
 .settings-menu-container {
 	position: absolute;
-	bottom: media-controls.$video-controls-height;
-	right: -90px;
+	// Anchor to the entire control bar, because the settings button can wrap to another row.
+	bottom: calc(100% + 8px);
+	right: 8px;
 	z-index: 9999;
 	background: media-controls.$menu-background;
 	border-radius: media-controls.$menu-radius;
 	padding: 0;
-	width: auto;
+	width: min(320px, calc(100% - 16px));
 	box-shadow: 0 4px 20px rgba(var(--v-theme-surface), 0.3);
+	max-height: min(70vh, 420px, calc(100vh - var(--player-controls-height, 90px) - 24px));
+	max-height: min(70dvh, 420px, calc(100dvh - var(--player-controls-height, 90px) - 24px));
+	overflow-y: auto;
+}
+
+.swipe-step-options {
+	margin: 8px 0;
 }
 
 .menu-container {

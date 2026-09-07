@@ -2,6 +2,8 @@
 	<div class="dash">
 		<video
 			id="dashplayer"
+			playsinline
+			webkit-playsinline
 			preload="auto"
 			crossorigin="anonymous"
 			:poster="thumbnail || ''"

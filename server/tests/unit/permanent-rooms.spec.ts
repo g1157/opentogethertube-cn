@@ -4,9 +4,11 @@ import { BehaviorOption, Role, Visibility } from "ott-common/models/types.js";
 import { RoomRequestType } from "ott-common/models/messages.js";
 import { Room, RoomUser } from "../../room.js";
 import { loadModels, Room as DbRoom } from "../../models/index.js";
-import { buildClients } from "../../redisclient.js";
+import { buildClients, redisClient } from "../../redisclient.js";
 import storage from "../../storage.js";
 import { conf } from "../../ott-config.js";
+import roommanager from "../../roommanager.js";
+import { UnloadReason } from "../../generated.js";
 
 describe("permanent room persistence", () => {
 	const rooms: Room[] = [];
@@ -19,6 +21,9 @@ describe("permanent room persistence", () => {
 		vi.restoreAllMocks();
 		for (const room of rooms.splice(0)) {
 			room.throttledSync.cancel();
+			if (roommanager.rooms.includes(room)) {
+				await roommanager.unloadRoom(room.name, UnloadReason.Admin);
+			}
 			await room.saveStateToRedisDebounced.flush();
 			room.saveStateToRedisDebounced.cancel();
 			await DbRoom.destroy({ where: { name: room.name } });
@@ -75,12 +80,19 @@ describe("permanent room persistence", () => {
 	});
 
 	it("keeps saved public rooms discoverable while hiding unlisted rooms", async () => {
-		await createRoom("public-room");
-		await createRoom("unlisted-room", Visibility.Unlisted);
-		expect((await storage.getPermanentRoomList()).map(room => room.name)).toEqual([
-			"public-room",
-		]);
-		expect(await storage.getPermanentRoomList(true)).toHaveLength(2);
+		const publicRoom = await createRoom("retention-list-public");
+		const unlistedRoom = await createRoom("retention-list-unlisted", Visibility.Unlisted);
+		const privateRoom = await createRoom("retention-list-private", Visibility.Private);
+		const fixtureNames = new Set([publicRoom.name, unlistedRoom.name, privateRoom.name]);
+		// Parallel test files share SQLite; only assert visibility for this test's fixtures.
+		const publicNames = (await storage.getPermanentRoomList())
+			.map(room => room.name)
+			.filter(name => fixtureNames.has(name));
+		expect(publicNames).toEqual([publicRoom.name]);
+		const allNames = (await storage.getPermanentRoomList(true))
+			.map(room => room.name)
+			.filter(name => fixtureNames.has(name));
+		expect(new Set(allNames)).toEqual(fixtureNames);
 	});
 
 	it("does not resurrect links after the current video and queue are explicitly cleared", async () => {
@@ -137,5 +149,96 @@ describe("permanent room persistence", () => {
 		expect(saved?.enableVoteSkip).toBe(false);
 		expect(saved?.restoreQueueBehavior).toBe(BehaviorOption.Never);
 		expect(saved?.description).toBe("");
+	});
+
+	it.each([
+		"false result",
+		"rejected write",
+	])("keeps a failed checkpoint dirty and saves the latest queue on retry: %s", async failure => {
+		const room = await createRoom("retry-failed-checkpoint");
+		await room.sync();
+		room.throttledSync.cancel();
+		room.currentSource = { service: "direct", id: "first.mp4", length: 120 };
+		await room.queue.enqueue({ service: "direct", id: "second.mp4", length: 120 });
+		room.throttledSync.cancel();
+		const update = vi.spyOn(storage, "updateRoom");
+		if (failure === "false result") {
+			update.mockResolvedValueOnce(false);
+		} else {
+			update.mockRejectedValueOnce(new Error("test database outage"));
+		}
+		await expect(room.sync()).rejects.toThrow();
+		expect(room._dirty.has("currentSource")).toBe(true);
+		expect(room._dirty.has("queue")).toBe(true);
+		await room.queue.enqueue({ service: "direct", id: "third.mp4", length: 120 });
+		await room.sync();
+		const saved = await storage.getRoomByName(room.name);
+		expect(saved?.prevQueue?.map(item => item.id)).toEqual([
+			"first.mp4",
+			"second.mp4",
+			"third.mp4",
+		]);
+		expect(room._dirty.size).toBe(0);
+	});
+
+	it("handles a background checkpoint failure without losing the retry state", async () => {
+		const room = await createRoom("background-failed-checkpoint");
+		await room.sync();
+		room.throttledSync.cancel();
+		vi.spyOn(storage, "updateRoom").mockResolvedValueOnce(false);
+		const logged = vi.spyOn(room.log, "error");
+		room.currentSource = { service: "direct", id: "first.mp4", length: 120 };
+		await expect(room.throttledSync.flush()).resolves.toBeUndefined();
+		expect(logged).toHaveBeenCalledWith(
+			expect.stringContaining("Background room checkpoint failed"),
+		);
+		expect(room._dirty.has("currentSource")).toBe(true);
+		await room.sync();
+		expect((await storage.getRoomByName(room.name))?.prevQueue?.[0].id).toBe("first.mp4");
+	});
+
+	it("accepts a no-op checkpoint only when its permanent room still exists", async () => {
+		const room = await createRoom("empty-update-checkpoint");
+		expect(await storage.updateRoom({ name: room.name, owner: null })).toBe(true);
+		expect(
+			await storage.updateRoom({ name: "missing-empty-update-checkpoint", owner: null }),
+		).toBe(false);
+	});
+
+	it("retains the loaded room and Redis until its final database checkpoint succeeds", async () => {
+		const roomName = "failed-unload-checkpoint";
+		await roommanager.createRoom({ name: roomName, isTemporary: false });
+		const room = (await roommanager.getRoom(roomName)).unwrap();
+		rooms.push(room);
+		room.currentSource = { service: "direct", id: "first.mp4", length: 120 };
+		room.playbackPosition = 42;
+		await room.queue.enqueue({ service: "direct", id: "second.mp4", length: 120 });
+		await room.sync();
+		room.throttledSync.cancel();
+		await room.saveStateToRedisDebounced.flush();
+		const previousRedis = await redisClient.get(`room:${roomName}`);
+		expect(previousRedis).not.toBeNull();
+		const update = vi.spyOn(storage, "updateRoom").mockResolvedValue(false);
+		await expect(roommanager.unloadRoom(roomName, UnloadReason.Keepalive)).rejects.toThrow(
+			"Failed to persist permanent room state",
+		);
+		expect((await roommanager.getRoom(roomName, { mustAlreadyBeLoaded: true })).unwrap()).toBe(
+			room,
+		);
+		expect(await redisClient.get(`room:${roomName}`)).toBe(previousRedis);
+		expect(room._dirty.has("currentSource")).toBe(true);
+		await room.queue.enqueue({ service: "direct", id: "third.mp4", length: 120 });
+		room.throttledSync.cancel();
+		update.mockRestore();
+		await roommanager.unloadRoom(roomName, UnloadReason.Keepalive);
+		expect(roommanager.rooms).not.toContain(room);
+		expect(await redisClient.exists(`room:${roomName}`)).toBe(0);
+		const saved = await storage.getRoomByName(roomName);
+		expect(saved?.prevQueue?.map(item => item.id)).toEqual([
+			"first.mp4",
+			"second.mp4",
+			"third.mp4",
+		]);
+		expect(saved?.prevQueue?.[0].startAt).toBe(42);
 	});
 });

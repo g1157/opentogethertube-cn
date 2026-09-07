@@ -15,8 +15,17 @@ node_modules
 !.yarn/versions
 
 # local env files
+.env
+.env.*
+!.env.example
 .env.local
 .env.*.local
+*.dump
+*.sqlite
+*.sqlite-*
+*.pem
+*.key
+/backups/
 
 # Log files
 npm-debug.log*

@@ -1,5 +1,9 @@
 import type { OttRoomConnection } from "@/plugins/connection";
-import { type ClientMessageNotify, RoomRequestType } from "ott-common/models/messages";
+import {
+	type ClientMessageNotify,
+	type TemporaryPlaybackSpeedRequest,
+	RoomRequestType,
+} from "ott-common/models/messages";
 import type { ClientId, Role } from "ott-common/models/types";
 import type { VideoId } from "ott-common/models/video";
 
@@ -128,6 +132,22 @@ class RoomApi {
 			request: {
 				type: RoomRequestType.PlaybackSpeedRequest,
 				speed: rate,
+			},
+		});
+	}
+
+	temporaryPlaybackRate(
+		action: TemporaryPlaybackSpeedRequest["action"],
+		gestureId: string,
+		video: VideoId,
+	) {
+		this.connection.send({
+			action: "req",
+			request: {
+				type: RoomRequestType.TemporaryPlaybackSpeedRequest,
+				action,
+				gestureId,
+				video: { service: video.service, id: video.id },
 			},
 		});
 	}

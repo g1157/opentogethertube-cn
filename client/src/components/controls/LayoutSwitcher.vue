@@ -39,10 +39,9 @@
 
 <script lang="ts" setup>
 import { mdiSquareOutline, mdiFullscreen, mdiFullscreenExit } from "@mdi/js";
-import { computed, inject, onMounted, shallowRef } from "vue";
+import { computed, inject, shallowRef } from "vue";
 import { useStore } from "@/store";
 import { RoomLayoutMode } from "@/stores/settings";
-import { useRoomKeyboardShortcuts } from "@/util/keyboard-shortcuts";
 import { PlayerFullscreenKey } from "@/util/player-fullscreen";
 
 const store = useStore();
@@ -64,15 +63,6 @@ function rotateRoomLayout() {
 	store.commit("settings/UPDATE", { roomLayout: newLayout });
 	layoutTooltip.value = false;
 }
-
-const shortcuts = useRoomKeyboardShortcuts();
-onMounted(() => {
-	if (shortcuts) {
-		shortcuts.bind({ code: "KeyF" }, () => toggleFullscreen());
-	} else {
-		console.warn("No keyboard shortcuts available");
-	}
-});
 </script>
 
 <!-- biome-ignore lint/nursery/useScopedStyles: biome migration -->

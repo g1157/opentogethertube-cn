@@ -4,7 +4,7 @@ import { Grants } from "ott-common/permissions";
 import { QueueMode, Visibility } from "ott-common/models/types";
 import type { QueueItem } from "ott-common/models/video";
 import dayjs, { type Dayjs } from "dayjs";
-import type { ServerMessageSync } from "ott-common/models/messages";
+import type { ServerMessageSync, TemporaryPlaybackSpeed } from "ott-common/models/messages";
 import { deserializeMap, deserializeSet } from "ott-common/serialize";
 import type { FullOTTStoreState } from "@/store";
 
@@ -20,6 +20,7 @@ export interface RoomState {
 	isPlaying: boolean;
 	playbackPosition: number;
 	playbackSpeed: number;
+	temporaryPlaybackSpeed: TemporaryPlaybackSpeed | null;
 	hasOwner: boolean;
 	voteCounts?: Map<string, number>;
 	playbackStartTime: Dayjs | undefined;
@@ -49,6 +50,7 @@ export const roomModule: Module<RoomState, FullOTTStoreState> = {
 		isPlaying: false,
 		playbackPosition: 0,
 		playbackSpeed: 1,
+		temporaryPlaybackSpeed: null,
 		hasOwner: false,
 		voteCounts: undefined,
 		playbackStartTime: undefined,

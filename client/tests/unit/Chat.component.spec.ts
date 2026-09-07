@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { nextTick } from "vue";
 import {
 	RoomRequestType,
 	type ClientMessageRoomRequest,
@@ -9,6 +10,43 @@ import Chat from "@/components/Chat.vue";
 import { mountComponent } from "./component-test-utils";
 
 describe("Chat component", () => {
+	it("opens without focus, permits deliberate input focus, and preserves a closed draft", async () => {
+		const { wrapper } = mountComponent(Chat);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		await nextTick();
+		const input = wrapper.get('[data-cy="chat-input"] input');
+		expect(document.activeElement).not.toBe(input.element);
+		(input.element as HTMLInputElement).focus();
+		expect(document.activeElement).toBe(input.element);
+		await input.setValue("未发送的草稿");
+		await wrapper.get('[data-cy="chat-deactivate"]').trigger("click");
+		expect(document.activeElement).not.toBe(input.element);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		expect(
+			(wrapper.get('[data-cy="chat-input"] input').element as HTMLInputElement).value,
+		).toBe("未发送的草稿");
+		expect(document.activeElement).not.toBe(
+			wrapper.get('[data-cy="chat-input"] input').element,
+		);
+	});
+
+	it("lets Chinese IME confirm a candidate before Enter sends", async () => {
+		const { wrapper, connection } = mountComponent(Chat);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		const input = wrapper.get('[data-cy="chat-input"] input');
+		await input.setValue("中文消息");
+		await input.trigger("compositionstart");
+		await input.trigger("keydown", { key: "Enter" });
+		expect(connection.sent).toEqual([]);
+		await input.trigger("compositionend");
+		await input.trigger("keydown", { key: "Enter", isComposing: true });
+		await input.trigger("keydown", { key: "Enter", keyCode: 229 });
+		expect(connection.sent).toEqual([]);
+		await input.trigger("keydown", { key: "Enter" });
+		expect(connection.sent).toEqual([
+			{ action: "req", request: { type: RoomRequestType.ChatRequest, text: "中文消息" } },
+		]);
+	});
 	it("opens and closes from the buttons", async () => {
 		const { wrapper } = mountComponent(Chat);
 

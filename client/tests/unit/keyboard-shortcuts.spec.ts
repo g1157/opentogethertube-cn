@@ -1,9 +1,61 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { KeyboardShortcuts } from "../../src/util/keyboard-shortcuts";
 import { mount } from "@vue/test-utils";
 import { defineComponent, h } from "vue";
 
 describe("KeyboardShortcuts", () => {
+	afterEach(() => {
+		document.onkeydown = null;
+		document.body.innerHTML = "";
+	});
+
+	it.each([
+		{ metaKey: true },
+		{ altKey: true },
+		{ ctrlKey: true },
+		{ isComposing: true },
+		{ keyCode: 229 },
+		{ repeat: true },
+	])("does not hijack a browser/input combination %s", modifiers => {
+		const shortcuts = new KeyboardShortcuts();
+		const action = vi.fn();
+		shortcuts.bind({ code: "KeyK" }, action);
+		const event = new KeyboardEvent("keydown", {
+			code: "KeyK",
+			cancelable: true,
+			...modifiers,
+		});
+		shortcuts.handleKeyDown(event);
+		expect(action).not.toHaveBeenCalled();
+		expect(event.defaultPrevented).toBe(false);
+	});
+	it.each([
+		'<div contenteditable="true"><span>text</span></div>',
+		"<button><span>button</span></button>",
+		"<select></select>",
+		'<div role="slider"><span>slider</span></div>',
+		'<a href="#"><span>link</span></a>',
+	])("preserves keyboard behavior of interactive elements: %s", html => {
+		document.body.innerHTML = html;
+		const shortcuts = new KeyboardShortcuts();
+		const action = vi.fn();
+		shortcuts.bind({ code: "KeyK" }, action);
+		document.onkeydown = event => shortcuts.handleKeyDown(event);
+		const target = document.querySelector("span") ?? document.body.firstElementChild!;
+		target.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyK", bubbles: true }));
+		expect(action).not.toHaveBeenCalled();
+	});
+	it("does not trigger behind a modal and allows explicit repeat for seek keys", () => {
+		const shortcuts = new KeyboardShortcuts();
+		const action = vi.fn();
+		shortcuts.bind({ code: "ArrowRight", repeat: true }, action);
+		document.body.innerHTML = '<div role="dialog" aria-modal="true"></div>';
+		shortcuts.handleKeyDown(new KeyboardEvent("keydown", { code: "ArrowRight" }));
+		expect(action).not.toHaveBeenCalled();
+		document.body.innerHTML = "";
+		shortcuts.handleKeyDown(new KeyboardEvent("keydown", { code: "ArrowRight", repeat: true }));
+		expect(action).toHaveBeenCalledOnce();
+	});
 	it("should bind and unbind", () => {
 		const shortcuts = new KeyboardShortcuts();
 		const binding = { code: "KeyA" };

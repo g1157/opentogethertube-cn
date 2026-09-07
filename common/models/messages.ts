@@ -45,6 +45,7 @@ export interface ServerMessageSync extends ServerMessageBase {
 	prevQueue?: QueueItem[] | null;
 	grants?: [Role, number][];
 	playbackSpeed?: number;
+	temporaryPlaybackSpeed?: TemporaryPlaybackSpeed | null;
 	voteCounts?: [string, number][];
 	hasOwner?: boolean;
 	enableVoteSkip?: boolean;
@@ -205,7 +206,8 @@ export type RoomRequest =
 	| PlaybackSpeedRequest
 	| RestoreQueueRequest
 	| KickRequest
-	| UpdateQueueItemRequest;
+	| UpdateQueueItemRequest
+	| TemporaryPlaybackSpeedRequest;
 
 export enum RoomRequestType {
 	JoinRequest,
@@ -228,6 +230,7 @@ export enum RoomRequestType {
 	RestoreQueueRequest,
 	KickRequest,
 	UpdateQueueItemRequest,
+	TemporaryPlaybackSpeedRequest,
 }
 
 export interface RoomRequestBase {
@@ -331,6 +334,20 @@ export interface ShuffleRequest extends RoomRequestBase {
 export interface PlaybackSpeedRequest extends RoomRequestBase {
 	type: RoomRequestType.PlaybackSpeedRequest;
 	speed: number;
+}
+
+/** A room-wide speed override owned by one connected viewer's current gesture. */
+export interface TemporaryPlaybackSpeed {
+	clientId: ClientId;
+	gestureId: string;
+	speed: number;
+}
+
+export interface TemporaryPlaybackSpeedRequest extends RoomRequestBase {
+	type: RoomRequestType.TemporaryPlaybackSpeedRequest;
+	action: "start" | "renew" | "stop";
+	gestureId: string;
+	video: VideoId;
 }
 
 export interface RestoreQueueRequest extends RoomRequestBase {

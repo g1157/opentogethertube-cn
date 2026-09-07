@@ -17,7 +17,7 @@ describe("Room manager", () => {
 	});
 
 	afterEach(async () => {
-		for (const room of roommanager.rooms) {
+		for (const room of [...roommanager.rooms]) {
 			await roommanager.unloadRoom(room.name, UnloadReason.Admin);
 		}
 		roommanager.clearRooms();
@@ -46,6 +46,7 @@ describe("Room manager", () => {
 				expect(room?.["role-admin"]).toBeInstanceOf(Array);
 				expect(room?.["role-mod"]).toBeInstanceOf(Array);
 				expect(room?.["role-trusted"]).toBeInstanceOf(Array);
+				await roommanager.unloadRoom(roomName, UnloadReason.Admin);
 				await room?.destroy();
 			},
 			{ retry: 2 },
@@ -72,6 +73,7 @@ describe("Room manager", () => {
 					visibility: Visibility.Unlisted,
 					queueMode: QueueMode.Vote,
 				});
+				await roommanager.unloadRoom(roomName, UnloadReason.Admin);
 				await room?.destroy();
 			},
 			{ retry: 2 },
@@ -142,6 +144,9 @@ describe("Room manager", () => {
 				expect(loaded.prevQueue).toBeNull();
 				expect(loaded.queue.items.map(item => item.id)).toEqual(["foo"]);
 			} finally {
+				if (roommanager.rooms.some(room => room.name === roomName)) {
+					await roommanager.unloadRoom(roomName, UnloadReason.Admin);
+				}
 				await DbRoom.destroy({ where: { name: roomName } });
 			}
 		});

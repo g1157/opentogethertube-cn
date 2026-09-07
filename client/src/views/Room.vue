@@ -43,8 +43,13 @@
 				</div>
 			</div>
 			<div class="video-container">
-				<div class="video-subcontainer" ref="fullscreenContainer">
-					<div class="player-container" ref="playerContainer">
+				<div
+					class="video-subcontainer"
+					ref="fullscreenContainer"
+					:style="{ '--player-controls-height': `${controlsHeight}px` }"
+					@pointermove.capture="controls.mouseMove"
+				>
+					<div class="player-container">
 						<OmniPlayer
 							:source="store.state.room.currentSource"
 							@apiready="onPlayerApiReady"
@@ -52,10 +57,44 @@
 							@paused="onPlaybackChange(false)"
 							@ready="onPlayerReady"
 						/>
-						<div id="mouse-event-swallower" :class="{ hide: controlsVisible }"></div>
-						<div class="in-video-chat" v-if="controlsMode === 'in-video'">
-							<Chat ref="chat" @link-click="setAddPreviewText" />
+						<div
+							v-if="currentSource?.id && store.state.playerStatus !== 'error'"
+							class="player-gesture-surface"
+							:class="{ 'controls-hidden': !controlsVisible }"
+							data-cy="player-gesture-surface"
+							aria-hidden="true"
+							@pointerdown="gestures.pointerDown"
+							@pointermove="gestures.pointerMove"
+							@pointerup="gestures.pointerUp"
+							@pointercancel="gestures.pointerCancel"
+							@lostpointercapture="gestures.pointerCancel"
+							@pointerleave="gestures.pointerCancel"
+							@contextmenu.prevent
+							@click.prevent
+							@dblclick.prevent
+						></div>
+						<div
+							class="player-gesture-hint"
+							v-if="gestureHint"
+							role="status"
+							aria-live="polite"
+						>
+							{{ gestureHint }}
 						</div>
+						<div
+							class="now-playing"
+							v-if="currentSource?.id && controlsVisible"
+							data-cy="now-playing"
+						>
+							<span>{{ $t("player.now-playing") }}</span>
+							<strong v-if="episodeLabel">{{ episodeLabel }}</strong>
+							<span class="now-playing-title">{{ nowPlaying.title }}</span>
+						</div>
+						<div
+							class="in-video-chat"
+							ref="inVideoChatTarget"
+							v-show="chatInside"
+						></div>
 						<div class="playback-blocked-prompt" v-if="mediaPlaybackBlocked">
 							<v-btn
 								:prepend-icon="mdiPlay"
@@ -74,15 +113,23 @@
 							:controls-visible="controlsVisible"
 							:key="currentSource?.id"
 							:mode="controlsMode"
+							@show-shortcuts="shortcutHelp = true"
+							@resize="controlsHeight = $event"
 						/>
+						<PlayerShortcutsDialog v-model="shortcutHelp" />
 					</v-defaults-provider>
 				</div>
-				<div
-					class="out-video-chat"
-					v-if="controlsMode === 'outside-video' && !store.state.fullscreen"
-				>
-					<Chat ref="chat" @link-click="setAddPreviewText" />
-				</div>
+				<div class="out-video-chat" ref="outVideoChatTarget" v-show="!chatInside"></div>
+				<Teleport v-if="chatTarget" :to="chatTarget">
+					<Chat
+						ref="chat"
+						:draft="chatDraft"
+						@update:draft="chatDraft = $event"
+						:controls-visible="controlsVisible"
+						@activation-change="chatOpen = $event"
+						@link-click="setAddPreviewText"
+					/>
+				</Teleport>
 			</div>
 			<div class="banners" v-show="!store.state.fullscreen">
 				<RestoreQueue />
@@ -256,7 +303,7 @@ import { useStore } from "@/store";
 import { useI18n } from "vue-i18n";
 import { useRouter, useRoute } from "vue-router";
 import type { ServerMessageSync } from "ott-common/models/messages";
-import { useScreenOrientation, useMouseInElement } from "@vueuse/core";
+import { useScreenOrientation } from "@vueuse/core";
 import { KeyboardShortcuts, RoomKeyboardShortcutsKey } from "@/util/keyboard-shortcuts";
 import VideoControls from "@/components/controls/VideoControls.vue";
 import RestoreQueue from "@/components/RestoreQueue.vue";
@@ -264,13 +311,17 @@ import VoteSkip from "@/components/VoteSkip.vue";
 import { waitForToken } from "@/util/token";
 import { useSfx } from "@/plugins/sfx";
 import { secondsToTimestamp } from "@/util/timestamp";
-import { useCaptions, useMediaPlayer, useVolume } from "@/components/composables";
+import { useCaptions, useMediaPlayer, usePlaybackRate, useVolume } from "@/components/composables";
 import { useGrants } from "@/components/composables/grants";
 import { isOfficialSite } from "@/util/misc";
-import { Visibility } from "ott-common/models/types";
+import { PlayerStatus, Visibility } from "ott-common/models/types";
 import { createPlayerFullscreen, PlayerFullscreenKey } from "@/util/player-fullscreen";
-
-const VIDEO_CONTROLS_HIDE_TIMEOUT = 3000;
+import { PlayerControlsActivityKey, usePlayerControls } from "@/util/player-controls";
+import { createPlayerGestures } from "@/util/player-gestures";
+import { useTemporaryPlaybackSpeed } from "@/util/temporary-playback-speed";
+import { TEMPORARY_PLAYBACK_SPEED } from "ott-common/constants";
+import PlayerShortcutsDialog from "@/components/PlayerShortcutsDialog.vue";
+import { nowPlayingDetails } from "@/util/now-playing";
 
 // biome-ignore lint/nursery/noVueOptionsApi: TODO: convert to setup
 export default defineComponent({
@@ -291,6 +342,7 @@ export default defineComponent({
 		WorkaroundUserStateNotifier,
 		RestoreQueue,
 		VoteSkip,
+		PlayerShortcutsDialog,
 	},
 	setup() {
 		const store = useStore();
@@ -300,11 +352,40 @@ export default defineComponent({
 		const router = useRouter();
 		const route = useRoute();
 		const goTo = useGoTo();
+		const currentSource = computed(() => store.state.room.currentSource);
+		const nowPlaying = computed(() => nowPlayingDetails(currentSource.value));
+		const episodeLabel = computed(() =>
+			nowPlaying.value.episode
+				? t(
+						nowPlaying.value.season ? "player.season-episode" : "player.episode",
+						nowPlaying.value,
+				  )
+				: "",
+		);
+		const player = useMediaPlayer();
+		const volume = useVolume();
+		const playbackRate = usePlaybackRate();
+		const granted = useGrants();
+		const mediaPlaybackBlocked = ref(false);
+		const chat = ref<InstanceType<typeof Chat> | null>(null);
+		const chatOpen = ref(false);
+		const chatDraft = ref("");
+		const shortcutHelp = ref(false);
+		const controlsHeight = ref(90);
 
 		// video control visibility
-		const controlsVisible = ref(true);
-		const videoControlsHideTimeout = ref<ReturnType<typeof setTimeout> | null>(null);
-		const playerContainer = useTemplateRef<HTMLDivElement>("playerContainer");
+		const controls = usePlayerControls(
+			() =>
+				!store.state.room.isPlaying ||
+				!currentSource.value?.id ||
+				mediaPlaybackBlocked.value ||
+				store.state.playerStatus === PlayerStatus.error ||
+				chatOpen.value ||
+				shortcutHelp.value,
+		);
+		const controlsVisible = controls.visible;
+		const videoControlsHideTimeout = controls.timeout;
+		provide(PlayerControlsActivityKey, controls);
 		const fullscreenContainer = useTemplateRef<HTMLDivElement>("fullscreenContainer");
 		const fullscreen = createPlayerFullscreen(
 			() => fullscreenContainer.value,
@@ -316,44 +397,25 @@ export default defineComponent({
 			const attach = store.state.fullscreen ? fullscreenContainer.value : false;
 			return { VMenu: { attach }, VTooltip: { attach }, VDialog: { attach } };
 		});
-		const mouse = useMouseInElement(playerContainer);
-		const isIframeBasedPlayer = ref(false);
-
 		function setVideoControlsVisibility(visible: boolean) {
-			controlsVisible.value = visible;
-			if (videoControlsHideTimeout.value) {
-				clearTimeout(videoControlsHideTimeout.value);
-				videoControlsHideTimeout.value = null;
-			}
+			if (visible) controls.activity();
+			else controls.hide();
 		}
-		/**
-		 * Show the video controls, then hide them after `VIDEO_CONTROLS_HIDE_TIMEOUT` milliseconds.
-		 */
 		function activateVideoControls() {
-			setVideoControlsVisibility(true);
-			if (controlsMode.value !== "outside-video") {
-				videoControlsHideTimeout.value = setTimeout(() => {
-					setVideoControlsVisibility(false);
-				}, VIDEO_CONTROLS_HIDE_TIMEOUT);
-			}
+			controls.activity();
 		}
-
-		watch([mouse.x, mouse.y], () => {
-			if (!store.state.room.isPlaying) {
-				setVideoControlsVisibility(true);
-				return;
-			}
-
-			// For non-iframe players, only show controls when mouse is inside the player
-			if (!isIframeBasedPlayer.value && mouse.isOutside.value) {
-				return;
-			}
-
-			activateVideoControls();
-		});
 
 		const controlsMode = computed(() =>
 			currentSource.value?.service === "youtube" ? "outside-video" : "in-video",
+		);
+		const chatInside = computed(
+			() => controlsMode.value === "in-video" || store.state.fullscreen,
+		);
+		const inVideoChatTarget = useTemplateRef<HTMLDivElement>("inVideoChatTarget");
+		const outVideoChatTarget = useTemplateRef<HTMLDivElement>("outVideoChatTarget");
+		// Mount after the targets exist, then move the same Chat instance across layout changes.
+		const chatTarget = computed(() =>
+			chatInside.value ? inVideoChatTarget.value : outVideoChatTarget.value,
 		);
 
 		// actively calculate the current position of the video
@@ -525,9 +587,6 @@ export default defineComponent({
 		});
 
 		// player management
-		const player = useMediaPlayer();
-		const volume = useVolume();
-
 		function togglePlayback() {
 			if (store.state.room.isPlaying) {
 				roomapi.pause();
@@ -537,14 +596,15 @@ export default defineComponent({
 		}
 
 		function seekDelta(delta: number) {
-			roomapi.seek(
-				_.clamp(truePosition.value + delta, 0, store.state.room.currentSource?.length ?? 0),
-			);
+			const bounds = seekBounds();
+			if (bounds && connection.connected.value) {
+				roomapi.seek(_.clamp(truePosition.value + delta, bounds.start, bounds.end));
+				activateVideoControls();
+			}
 		}
 
 		// Indicates that starting playback is blocked by the browser. This usually means that the user needs
 		// to interact with the page before playback can start. This is because browsers block autoplaying videos.
-		const mediaPlaybackBlocked = ref(false);
 
 		async function applyIsPlaying(playing: boolean): Promise<void> {
 			await waitForPlayer();
@@ -594,8 +654,6 @@ export default defineComponent({
 			if (currentSource.value?.service === "vimeo") {
 				onPlayerReadyVimeo();
 			}
-			isIframeBasedPlayer.value = !!playerContainer.value?.querySelector("iframe");
-			console.log("isIframeBasedPlayer:", isIframeBasedPlayer.value);
 		}
 		async function onPlayerReadyVimeo() {
 			await applyIsPlaying(store.state.room.isPlaying);
@@ -642,7 +700,131 @@ export default defineComponent({
 			}
 		});
 
-		const granted = useGrants();
+		function onVideoTap() {
+			if (chatOpen.value) {
+				chat.value?.setActivated(false);
+				controls.hide();
+			} else if (controlsVisible.value) {
+				controls.hide();
+			} else {
+				activateVideoControls();
+			}
+		}
+
+		function seekBounds() {
+			const video = currentSource.value;
+			if (!video || !Number.isFinite(video.length) || (video.length ?? 0) <= 0) return null;
+			const start = 0;
+			const end = Math.min(video.length!, video.endAt ?? video.length!);
+			return end > start ? { start, end } : null;
+		}
+
+		const interactionNotice = ref("");
+		let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+		function showInteractionNotice(key: string) {
+			interactionNotice.value = t(`player.interactions.${key}`);
+			if (noticeTimer !== null) clearTimeout(noticeTimer);
+			noticeTimer = setTimeout(() => {
+				interactionNotice.value = "";
+			}, 2000);
+		}
+		const temporarySpeed = useTemporaryPlaybackSpeed({
+			connected: () => connection.connected.value,
+			clientId: () => store.state.users.you.id,
+			currentVideo: () => currentSource.value,
+			roomGesture: () => store.state.room.temporaryPlaybackSpeed,
+			canStart: () => {
+				if (!granted("playback.speed")) {
+					showInteractionNotice("speed-denied");
+					return false;
+				}
+				if (store.state.room.temporaryPlaybackSpeed) {
+					showInteractionNotice("speed-busy");
+					return false;
+				}
+				if (
+					!store.state.room.isPlaying ||
+					mediaPlaybackBlocked.value ||
+					!seekBounds() ||
+					!playbackRate.availablePlaybackRates.value.includes(TEMPORARY_PLAYBACK_SPEED)
+				) {
+					showInteractionNotice("speed-unavailable");
+					return false;
+				}
+				return true;
+			},
+			send: (action, id, video) => roomapi.temporaryPlaybackRate(action, id, video),
+			onRejected: () => showInteractionNotice("speed-unavailable"),
+		});
+		const gestures = createPlayerGestures({
+			getPosition: () => truePosition.value,
+			getBounds: seekBounds,
+			getSeekStep: () => store.state.settings.swipeSeekSeconds,
+			canSeek: () => connection.connected.value && granted("playback.seek"),
+			isPlaying: () => store.state.room.isPlaying && !mediaPlaybackBlocked.value,
+			onTap: onVideoTap,
+			onDoubleClick: () => {
+				void fullscreen.toggle();
+			},
+			onSeek: position => {
+				roomapi.seek(position);
+				activateVideoControls();
+			},
+			onSeekDenied: () => showInteractionNotice("seek-denied"),
+			onHoldStart: temporarySpeed.start,
+			onHoldEnd: temporarySpeed.stop,
+		});
+		const gestureHint = computed(() => {
+			if (interactionNotice.value) return interactionNotice.value;
+			if (gestures.preview.value) {
+				const { position, delta } = gestures.preview.value;
+				return t("player.interactions.seek-preview", {
+					delta: `${delta >= 0 ? "+" : ""}${Math.round(delta)}`,
+					time: secondsToTimestamp(position),
+				});
+			}
+			if (store.state.room.temporaryPlaybackSpeed) {
+				return t(
+					temporarySpeed.gestureId.value ===
+						store.state.room.temporaryPlaybackSpeed.gestureId
+						? "player.interactions.holding"
+						: "player.interactions.room-holding",
+				);
+			}
+			return "";
+		});
+		function cancelGestures() {
+			gestures.cancel();
+			temporarySpeed.stop();
+		}
+		function onVisibilityChange() {
+			if (document.hidden) cancelGestures();
+		}
+		watch(currentSource, () => {
+			cancelGestures();
+			activateVideoControls();
+		});
+		watch(
+			() => store.state.room.isPlaying,
+			playing => {
+				if (!playing) cancelGestures();
+			},
+		);
+		watch(connection.connected, connected => {
+			if (!connected) cancelGestures();
+		});
+		onMounted(() => {
+			document.addEventListener("visibilitychange", onVisibilityChange);
+			window.addEventListener("blur", cancelGestures);
+			window.addEventListener("pagehide", cancelGestures);
+		});
+		onUnmounted(() => {
+			cancelGestures();
+			if (noticeTimer !== null) clearTimeout(noticeTimer);
+			document.removeEventListener("visibilitychange", onVisibilityChange);
+			window.removeEventListener("blur", cancelGestures);
+			window.removeEventListener("pagehide", cancelGestures);
+		});
 
 		const addpreview = ref<typeof AddPreview | null>(null);
 		async function setAddPreviewText(text: string) {
@@ -668,7 +850,7 @@ export default defineComponent({
 			}
 		});
 		shortcuts.bind(
-			[{ code: "ArrowLeft" }, { code: "ArrowRight" }, { code: "KeyJ" }, { code: "KeyL" }],
+			["ArrowLeft", "ArrowRight", "KeyJ", "KeyL"].map(code => ({ code, repeat: true })),
 			(e: KeyboardEvent) => {
 				if (granted("playback.seek")) {
 					let seekIncrement = 5;
@@ -693,12 +875,34 @@ export default defineComponent({
 				roomapi.skip();
 			}
 		});
-		shortcuts.bind([{ code: "ArrowUp" }, { code: "ArrowDown" }], (e: KeyboardEvent) => {
-			volume.volume.value = _.clamp(
-				volume.volume.value + 5 * (e.code === "ArrowDown" ? -1 : 1),
-				0,
-				100,
-			);
+		shortcuts.bind(
+			[
+				{ code: "ArrowUp", repeat: true },
+				{ code: "ArrowDown", repeat: true },
+			],
+			(e: KeyboardEvent) => {
+				volume.volume.value = _.clamp(
+					volume.volume.value + 5 * (e.code === "ArrowDown" ? -1 : 1),
+					0,
+					100,
+				);
+				activateVideoControls();
+			},
+		);
+		shortcuts.bind({ code: "KeyM" }, () => {
+			volume.isMuted.value = !volume.isMuted.value;
+			activateVideoControls();
+		});
+		shortcuts.bind({ code: "KeyT" }, () => chat.value?.setActivated(!chatOpen.value));
+		shortcuts.bind({ code: "KeyF" }, () => {
+			void fullscreen.toggle();
+		});
+		shortcuts.bind({ code: "Slash", shiftKey: true }, () => {
+			shortcutHelp.value = true;
+		});
+		shortcuts.bind({ code: "Escape" }, () => {
+			if (chatOpen.value) chat.value?.setActivated(false);
+			else if (store.state.fullscreen) void fullscreen.exit();
 		});
 		shortcuts.bind({ code: "F12", ctrlKey: true, shiftKey: true }, () => {
 			debugMode.value = !debugMode.value;
@@ -756,7 +960,6 @@ export default defineComponent({
 		}
 
 		// small helper aliases
-		const currentSource = computed(() => store.state.room.currentSource);
 		const production = computed(() => store.state.production);
 
 		// debug mode
@@ -777,6 +980,17 @@ export default defineComponent({
 			isOfficialSite,
 
 			controlsVisible,
+			controlsHeight,
+			controls,
+			gestures,
+			gestureHint,
+			onVideoTap,
+			chat,
+			chatOpen,
+			chatDraft,
+			chatInside,
+			chatTarget,
+			shortcutHelp,
 			fullscreenOverlayDefaults,
 			videoControlsHideTimeout,
 			controlsMode,
@@ -805,6 +1019,8 @@ export default defineComponent({
 			setAddPreviewText,
 
 			currentSource,
+			nowPlaying,
+			episodeLabel,
 			production,
 			debugMode,
 			orientation: orientation.orientation,
@@ -853,6 +1069,9 @@ $in-video-chat-width-small: 250px;
 }
 
 .player-container {
+	position: relative;
+	flex: 1 1 0;
+	min-height: 0;
 	width: 100%;
 	height: 100%;
 }
@@ -906,13 +1125,15 @@ $in-video-chat-width-small: 250px;
 }
 
 .in-video-chat {
+	z-index: 110;
 	padding: 5px 10px;
 
 	position: absolute;
-	bottom: variables.$video-controls-height;
+	bottom: var(--player-controls-height, 90px);
 	right: 0;
 	width: $in-video-chat-width;
 	height: 70%;
+	max-height: calc(100% - var(--player-controls-height, 90px) - 8px);
 	min-height: 70px;
 	@media screen and (max-width: variables.$sm-max) {
 		width: $in-video-chat-width-small;
@@ -932,14 +1153,56 @@ $in-video-chat-width-small: 250px;
 	pointer-events: none;
 }
 
-#mouse-event-swallower {
+.player-gesture-surface {
 	position: absolute;
-	top: 0;
-	width: 100%;
-	height: 100%;
+	inset: 0;
+	z-index: 2;
+	touch-action: pan-y pinch-zoom;
+	user-select: none;
+	-webkit-user-select: none;
+	-webkit-touch-callout: none;
 
-	&.hide {
-		display: none;
+	&.controls-hidden {
+		cursor: none;
+	}
+}
+
+.player-gesture-hint {
+	position: absolute;
+	top: 12%;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 120;
+	max-width: 90%;
+	padding: 10px 16px;
+	border-radius: 8px;
+	background: rgba(0, 0, 0, 0.78);
+	color: white;
+	text-align: center;
+	pointer-events: none;
+}
+
+.now-playing {
+	position: absolute;
+	inset: 0 0 auto;
+	z-index: 3;
+	display: flex;
+	gap: 10px;
+	align-items: center;
+	padding: max(12px, env(safe-area-inset-top)) 16px 24px;
+	background: linear-gradient(rgba(0, 0, 0, 0.75), transparent);
+	color: white;
+	font-size: clamp(12px, 2.5vw, 16px);
+	pointer-events: none;
+
+	> span:first-child,
+	strong {
+		flex-shrink: 0;
+	}
+	.now-playing-title {
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
 	}
 }
 

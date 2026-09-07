@@ -1,8 +1,9 @@
 <template>
 	<div
 		:class="{
-			chat: true,
-			activated: activated,
+			'chat': true,
+			'activated': activated,
+			'controls-hidden': !controlsVisible,
 		}"
 	>
 		<div class="chat-header" v-if="activated">
@@ -11,7 +12,7 @@
 				size="x-small"
 				@click="setActivated(false)"
 				data-cy="chat-deactivate"
-				aria-label="close chat"
+				:aria-label="$t('chat.close')"
 			>
 				<v-icon :icon="mdiChevronDown" />
 			</v-btn>
@@ -48,10 +49,11 @@
 					single-line
 					:placeholder="$t('chat.type-here')"
 					@keydown="onInputKeyDown"
+					@compositionstart="composing = true"
+					@compositionend="composing = false"
 					v-model="inputValue"
 					autocomplete="off"
 					ref="chatInput"
-					@blur="deactivateOnBlur && setActivated(false)"
 					data-cy="chat-input"
 				/>
 			</div>
@@ -61,10 +63,10 @@
 				variant="text"
 				icon
 				size="x-small"
-				@click="setActivated(true, true)"
+				@click="setActivated(true)"
 				color="white"
 				data-cy="chat-activate"
-				aria-label="open chat"
+				:aria-label="$t('chat.open')"
 			>
 				<v-icon :icon="mdiCommentOutline" />
 			</v-btn>
@@ -74,23 +76,33 @@
 
 <script lang="ts" setup>
 import { mdiChevronDown, mdiChevronDoubleDown, mdiCommentOutline } from "@mdi/js";
-import { onUpdated, ref, type Ref, nextTick, onMounted, onUnmounted } from "vue";
+import { computed, onUpdated, ref, type Ref, nextTick, onMounted, onUnmounted } from "vue";
 import type { ChatMessage } from "ott-common/models/types";
 import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
 import type { ServerMessageChat } from "ott-common/models/messages";
-import { useRoomKeyboardShortcuts } from "@/util/keyboard-shortcuts";
 import { useSfx } from "@/plugins/sfx";
 import ChatMsg from "./ChatMsg.vue";
 
 const MSG_SHOW_TIMEOUT = 20000;
 
-const emit = defineEmits(["link-click"]);
+const props = withDefaults(defineProps<{ controlsVisible?: boolean; draft?: string }>(), {
+	controlsVisible: true,
+});
+const emit = defineEmits(["link-click", "activation-change", "update:draft"]);
 
 const connection = useConnection();
 const roomapi = useRoomApi(connection);
 
-const inputValue = ref("");
+const localDraft = ref("");
+const inputValue = computed({
+	get: () => props.draft ?? localDraft.value,
+	set: value => {
+		localDraft.value = value;
+		emit("update:draft", value);
+	},
+});
+const composing = ref(false);
 const stickToBottom = ref(true);
 /**
  * When chat is activated, all messages are shown. and the
@@ -99,7 +111,6 @@ const stickToBottom = ref(true);
  * they appear and fade away after `MSG_SHOW_TIMEOUT` ms.
  */
 const activated = ref(false);
-const deactivateOnBlur = ref(false);
 /**
  * All past chat messages. They are are no longer
  * shown when deactivated.
@@ -113,39 +124,29 @@ const chatMessageRecent: Ref<ChatMessage[]> = ref([]);
 const messages = ref();
 const chatInput: Ref<HTMLInputElement | undefined> = ref();
 
-const shortcuts = useRoomKeyboardShortcuts();
 onMounted(() => {
 	connection.addMessageHandler("chat", onChatReceived);
-	if (shortcuts) {
-		shortcuts.bind({ code: "KeyT" }, () => setActivated(true, false));
-	} else {
-		console.warn("No keyboard shortcuts available");
-	}
 });
 
 onUnmounted(() => {
 	connection.removeMessageHandler("chat", onChatReceived);
+	emit("activation-change", false);
 });
 
-function focusChatInput() {
-	chatInput.value?.focus();
-}
-
-async function setActivated(value: boolean, manual = false): Promise<void> {
+function setActivated(value: boolean): void {
 	activated.value = value;
+	emit("activation-change", value);
 	if (value) {
-		if (manual) {
-			deactivateOnBlur.value = false;
-		} else {
-			deactivateOnBlur.value = true;
-		}
-		await nextTick();
-		focusChatInput();
+		// Reading chat must not open the mobile keyboard. Only a direct input tap focuses it.
+		void nextTick(enforceStickToBottom);
 	} else {
 		chatInput.value?.blur();
+		composing.value = false;
 		forceToBottom();
 	}
 }
+
+defineExpose({ setActivated, activated });
 
 const sfx = useSfx();
 function onChatReceived(msg: ServerMessageChat): void {
@@ -173,8 +174,10 @@ function enforceStickToBottom() {
 }
 
 function onInputKeyDown(e: KeyboardEvent): void {
+	if (composing.value || e.isComposing || e.keyCode === 229) return;
 	if (e.key === "Enter") {
 		e.preventDefault();
+		e.stopPropagation();
 		if (inputValue.value.trim() !== "") {
 			roomapi.chat(inputValue.value);
 		}
@@ -183,6 +186,7 @@ function onInputKeyDown(e: KeyboardEvent): void {
 		setActivated(false);
 	} else if (e.key === "Escape") {
 		e.preventDefault();
+		e.stopPropagation();
 		setActivated(false);
 	}
 }
@@ -217,6 +221,11 @@ onUpdated(enforceStickToBottom);
 	&.activated {
 		background: rgba(var(--v-theme-background), $alpha: 0.8);
 		pointer-events: auto;
+	}
+
+	&.controls-hidden:not(.activated) .manual-activate {
+		visibility: hidden;
+		pointer-events: none;
 	}
 }
 
