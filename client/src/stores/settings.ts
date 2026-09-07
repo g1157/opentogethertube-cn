@@ -1,0 +1,78 @@
+import type { RoomSettings } from "ott-common";
+import type { Module } from "vuex/types";
+import vuetify from "@/plugins/vuetify";
+
+export interface SettingsState {
+	volume: number;
+	muted: boolean;
+	audioBoost: number;
+	locale: string;
+	roomLayout: RoomLayoutMode;
+	theme: Theme;
+	sfxEnabled: boolean;
+	sfxVolume: number;
+	defaultRoomSettings?: DefaultRoomSettings;
+	enableAdapterSelector: boolean;
+	swipeSeekSeconds: 5 | 10 | 30;
+}
+
+export type DefaultRoomSettings = Pick<RoomSettings, "autoSkipSegmentCategories">;
+
+export enum RoomLayoutMode {
+	default = "default",
+	theater = "theater",
+}
+
+export enum Theme {
+	dark = "dark",
+	light = "light",
+	deepred = "deepred",
+	deepblue = "deepblue",
+	greenslate = "greenslate",
+	strawberry = "strawberry",
+}
+
+export const ALL_THEMES = Object.keys(Theme).filter(key => Theme[key]);
+
+export const settingsModule: Module<SettingsState, unknown> = {
+	namespaced: true,
+	state: {
+		volume: 100,
+		muted: false,
+		audioBoost: 100,
+		locale: "zh-CN",
+		roomLayout: RoomLayoutMode.default,
+		theme: Theme.dark,
+		sfxEnabled: true,
+		sfxVolume: 0.8,
+		enableAdapterSelector: false,
+		swipeSeekSeconds: 10,
+	},
+	mutations: {
+		UPDATE(state, settings: Partial<SettingsState>) {
+			Object.assign(state, settings);
+			if (![5, 10, 30].includes(state.swipeSeekSeconds)) {
+				state.swipeSeekSeconds = 10;
+			}
+			localStorage.setItem("settings", JSON.stringify(state));
+
+			// apply some global settings
+			if (settings.theme !== undefined) {
+				if (ALL_THEMES.includes(settings.theme)) {
+					vuetify.theme.global.name.value = settings.theme;
+				} else {
+					console.warn(
+						`Can't apply invalid theme: ${settings.theme}, defaulting to dark theme`,
+					);
+					vuetify.theme.global.name.value = Theme.dark;
+				}
+			}
+		},
+	},
+	actions: {
+		load(context) {
+			const loaded = JSON.parse(localStorage.getItem("settings") ?? "{}");
+			context.commit("UPDATE", loaded);
+		},
+	},
+};

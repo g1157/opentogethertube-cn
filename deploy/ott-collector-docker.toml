@@ -1,0 +1,6 @@
+collect_interval = "5s"
+
+[discovery]
+method = "dns"
+query = "balancer"
+service_port = 8081

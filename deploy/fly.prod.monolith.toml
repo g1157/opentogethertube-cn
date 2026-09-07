@@ -1,0 +1,45 @@
+app = "ott-prod"
+primary_region = "ewr"
+kill_timeout = 15
+
+[build]
+dockerfile = "monolith.Dockerfile"
+build-target = "deploy-stage"
+
+[build.args]
+DEPLOY_TARGET = "ott-prod"
+
+[http_service]
+internal_port = 8080
+force_https = true
+# auto_stop_machines = true
+# auto_start_machines = true
+min_machines_running = 1
+
+[http_service.concurrency]
+type = "connections"
+soft_limit = 150
+hard_limit = 600
+
+[[http_service.checks]]
+grace_period = "10s"
+interval = "30s"
+method = "GET"
+timeout = "10s"
+path = "/api/status"
+
+[metrics]
+port = 8080
+path = "/api/status/metrics"
+
+[deploy]
+release_command = "yarn run db:migrate"
+strategy = "bluegreen"
+
+[env]
+NODE_ENV = "production"
+OTT_SHORT_URL_HOSTNAME = "ottr.cc"
+
+[[statics]]
+guest_path = "/app/client/dist/assets"
+url_prefix = "/assets"

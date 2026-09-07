@@ -1,0 +1,123 @@
+import type { Grants } from "../permissions.js";
+import type { ServerMessageEvent } from "./messages.js";
+import type { BehaviorOption, QueueMode, RoomSettings, RoomUserInfo, Visibility } from "./types.js";
+import type { QueueItem, Video } from "./video.js";
+import type { Category } from "sponsorblock-api";
+import type {
+	OttApiRequestRoomCreateSchema,
+	OttApiRequestVoteSchema,
+	OttApiRequestAddToQueueSchema,
+	OttApiRequestRemoveFromQueueSchema,
+	OttApiRequestUpdateQueueItemSchema,
+	OttApiRequestAccountRecoveryStartSchema,
+	OttApiRequestAccountRecoveryVerifySchema,
+	OttApiRequestAccountUpdateSchema,
+	OttApiRequestPatchRoomSchema,
+	ClaimSchema,
+	RoomSettingsSchema,
+	OttApiRequestRoomGenerateSchema,
+} from "./zod-schemas.js";
+import type { z } from "zod";
+
+export type OttResponseBody<T = unknown, E extends OttApiError = OttApiError> =
+	| OttSuccessResponseBody<T>
+	| OttErrorResponseBody<E>;
+
+export type OttSuccessResponseBody<T = undefined> = T & {
+	success: true;
+};
+
+/**
+ * Used for /api/data endpoints.
+ */
+export type OttStaticDataResponseBody<T> = T;
+
+export interface OttErrorResponseBody<E extends OttApiError = OttApiError> {
+	success: false;
+	error: E;
+}
+
+export interface OttApiError {
+	name: string;
+	message: string;
+}
+
+/** Endpoint: `/api/room/generate` */
+export type OttApiRequestRoomGenerate = z.infer<typeof OttApiRequestRoomGenerateSchema>;
+
+export interface OttApiResponseRoomGenerate {
+	room: string;
+}
+
+/** Endpoint: `/api/room/create` */
+export type OttApiRequestRoomCreate = z.infer<typeof OttApiRequestRoomCreateSchema>;
+
+/** Endpoint: `/api/room/create` */
+export type OttApiResponseRoomCreate = {};
+
+/** Endpoint: `GET /api/room/:name` */
+export interface OttApiResponseGetRoom extends RoomSettings {
+	name: string;
+	title: string;
+	description: string;
+	isTemporary: boolean;
+	visibility: Visibility;
+	queueMode: QueueMode;
+	queue: QueueItem[];
+	hasOwner: boolean;
+	grants: Grants;
+	autoSkipSegmentCategories: Category[];
+	restoreQueueBehavior: BehaviorOption;
+	users: RoomUserInfo[];
+}
+
+export type OttApiRequestPatchRoom = z.infer<typeof OttApiRequestPatchRoomSchema>;
+
+export interface OttApiRequestUndo {
+	event: ServerMessageEvent;
+}
+
+export type OttApiRequestAddToQueue = z.infer<typeof OttApiRequestAddToQueueSchema>;
+
+export type OttApiRequestRemoveFromQueue = z.infer<typeof OttApiRequestRemoveFromQueueSchema>;
+
+export type OttApiRequestUpdateQueueItem = z.infer<typeof OttApiRequestUpdateQueueItemSchema>;
+
+export type OttApiResponseAddPreview = {
+	result: Video[];
+	highlighted?: Video;
+};
+
+export type OttApiRequestVote = z.infer<typeof OttApiRequestVoteSchema>;
+
+export type OttApiRequestAccountRecoveryStart = z.infer<
+	typeof OttApiRequestAccountRecoveryStartSchema
+>;
+
+export type OttApiRequestAccountRecoveryVerify = z.infer<
+	typeof OttApiRequestAccountRecoveryVerifySchema
+>;
+
+export type OttApiRequestAccountUpdate = z.infer<typeof OttApiRequestAccountUpdateSchema>;
+
+export interface OttApiResponseAccount {
+	username: string;
+	email: string | null;
+	discordLinked: boolean;
+	hasPassword: boolean;
+}
+
+export type OttClaimRequest = z.infer<typeof ClaimSchema>;
+
+export type OttSettingsRequest = z.infer<typeof RoomSettingsSchema>;
+
+export interface RoomListItem {
+	name: string;
+	title: string;
+	description: string;
+	isTemporary: boolean;
+	visibility: Visibility;
+	queueMode: QueueMode;
+	currentSource: Video | null;
+	users: number;
+}

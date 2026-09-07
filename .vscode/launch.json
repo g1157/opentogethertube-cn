@@ -1,0 +1,53 @@
+{
+	// Use IntelliSense to learn about possible attributes.
+	// Hover to view descriptions of existing attributes.
+	// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Launch with Optic via NPM",
+			"request": "launch",
+			"runtimeArgs": ["run-script", "optic-api-server"],
+			"runtimeExecutable": "npm",
+			"skipFiles": ["<node_internals>/**"],
+			"type": "node"
+		},
+		{
+			"type": "node",
+			"request": "launch",
+			"name": "Launch Program",
+			"program": "${workspaceFolder}/app.ts"
+		},
+		{
+			"type": "node",
+			"request": "launch",
+			"name": "Debug Current Test File (ott-server)",
+			"autoAttachChildProcesses": true,
+			"skipFiles": ["<node_internals>/**", "**/node_modules/**"],
+			"program": "${workspaceRoot}/node_modules/vitest/vitest.mjs",
+			"args": ["run", "../${relativeFile}"],
+			"cwd": "${workspaceRoot}/server",
+			"smartStep": true,
+			"console": "integratedTerminal"
+		},
+		{
+			"name": "Attach",
+			"port": 9229,
+			"request": "attach",
+			"skipFiles": ["<node_internals>/**"],
+			"type": "node"
+		},
+		{
+			"type": "lldb",
+			"request": "attach",
+			"name": "Attach to ott-balancer",
+			"program": "${workspaceFolder}/ott-balancer-bin"
+		},
+		{
+			"type": "lldb",
+			"request": "attach",
+			"name": "Attach to ott-collector",
+			"program": "${workspaceFolder}/ott-collector"
+		}
+	]
+}

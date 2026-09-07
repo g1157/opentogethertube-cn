@@ -1,0 +1,7 @@
+[selection_strategy]
+strategy = "MinRooms"
+
+[discovery]
+method = "fly"
+fly_app = "ott-staging"
+service_port = 3002
