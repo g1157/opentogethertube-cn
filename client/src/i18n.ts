@@ -1,16 +1,18 @@
 import { nextTick } from "vue";
 import messages from "@/locales/en";
+import chineseMessages from "@/locales/zh-CN";
 import axios from "axios";
 import { createI18n } from "vue-i18n";
 
 export const i18n = createI18n({
 	allowComposition: true,
-	locale: import.meta.env.VUE_APP_I18N_LOCALE || "en",
+	locale: import.meta.env.VUE_APP_I18N_LOCALE || "zh-CN",
 	fallbackLocale: import.meta.env.VUE_APP_I18N_FALLBACK_LOCALE || "en",
 });
 i18n.global.setLocaleMessage("en", messages);
+i18n.global.setLocaleMessage("zh-CN", chineseMessages);
 
-const loadedLanguages = ["en"]; // our default language that is preloaded
+const loadedLanguages = ["en", "zh-CN"];
 
 function setI18nLanguage(lang: string) {
 	if (i18n.mode === "legacy") {

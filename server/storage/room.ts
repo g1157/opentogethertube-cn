@@ -1,6 +1,7 @@
 import { Room as DbRoomModel, User as UserModel } from "../models/index.js";
 import type { Room as DbRoom, RoomAttributes } from "../models/room.js";
-import { Role, type RoomOptions } from "ott-common/models/types.js";
+import { Role, Visibility, type RoomOptions } from "ott-common/models/types.js";
+import type { RoomListItem } from "ott-common/models/rest-api.js";
 import { getLogger } from "../logger.js";
 import Sequelize from "sequelize";
 import permissions from "ott-common/permissions.js";
@@ -8,6 +9,24 @@ import type { RoomStatePersistable } from "../room.js";
 import _ from "lodash";
 
 const log = getLogger("storage/room");
+
+/** List saved rooms without loading them or making unlisted rooms public. */
+export async function getPermanentRoomList(includeUnlisted = false): Promise<RoomListItem[]> {
+	const rooms = await DbRoomModel.findAll({
+		where: includeUnlisted ? {} : { visibility: Visibility.Public },
+		attributes: ["name", "title", "description", "visibility", "queueMode", "prevQueue"],
+	});
+	return rooms.map(room => ({
+		name: room.name,
+		title: room.title,
+		description: room.description,
+		visibility: room.visibility,
+		queueMode: room.queueMode,
+		isTemporary: false,
+		currentSource: room.prevQueue?.[0] ?? null,
+		users: 0,
+	}));
+}
 
 function buildFindRoomWhere(roomName: string) {
 	return Sequelize.and(
@@ -181,7 +200,7 @@ export function roomToDbPartial(
 			restoreQueueBehavior: room.restoreQueueBehavior,
 			enableVoteSkip: room.enableVoteSkip,
 		},
-		v => !!v,
+		v => v !== undefined,
 	);
 	// room.prevQueue will become null if its length is 0, so we need to explicitly check for null here
 	if (room.prevQueue || room.prevQueue === null) {

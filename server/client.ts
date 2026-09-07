@@ -70,7 +70,7 @@ export abstract class Client {
 	}
 
 	public async auth(token: AuthToken): Promise<void> {
-		if (!token) {
+		if (typeof token !== "string" || !token || token.length > 1024 || this.token !== null) {
 			log.warn("Client sent empty auth token, kicking");
 			this.kick(OttWebsocketError.MISSING_TOKEN);
 			return;
@@ -120,6 +120,7 @@ export abstract class Client {
  */
 export class DirectClient extends Client {
 	socket: WebSocket;
+	private authTimeout: ReturnType<typeof setTimeout>;
 
 	constructor(room: string, socket: WebSocket) {
 		super(room);
@@ -129,6 +130,12 @@ export class DirectClient extends Client {
 		this.socket.on("ping", this.onPing.bind(this));
 		this.socket.on("close", this.onClose.bind(this));
 		this.socket.on("error", this.onError.bind(this));
+		this.authTimeout = setTimeout(() => {
+			if (this.joinStatus === ClientJoinStatus.WaitingForAuth) {
+				this.kick(OttWebsocketError.MISSING_TOKEN);
+			}
+		}, 10000);
+		this.authTimeout.unref();
 	}
 
 	get clientType() {
@@ -136,12 +143,24 @@ export class DirectClient extends Client {
 	}
 
 	onData(data: WebSocket.Data) {
-		const msg: ClientMessage = JSON.parse(data.toString());
-		if (msg.action === "auth") {
-			this.auth(msg.token);
-			return;
+		try {
+			const msg: ClientMessage = JSON.parse(data.toString());
+			if (!msg || typeof msg !== "object" || typeof msg.action !== "string") {
+				this.kick(OttWebsocketError.UNKNOWN);
+				return;
+			}
+			if (msg.action === "auth") {
+				void this.auth(msg.token).catch(() => this.kick(OttWebsocketError.UNKNOWN));
+				return;
+			}
+			if (this.joinStatus !== ClientJoinStatus.Joined) {
+				this.kick(OttWebsocketError.MISSING_TOKEN);
+				return;
+			}
+			this.emit("message", this, msg);
+		} catch {
+			this.kick(OttWebsocketError.UNKNOWN);
 		}
-		this.emit("message", this, msg);
 	}
 
 	onPing() {
@@ -149,6 +168,7 @@ export class DirectClient extends Client {
 	}
 
 	onClose() {
+		clearTimeout(this.authTimeout);
 		this.emit("disconnect", this);
 	}
 
@@ -161,6 +181,7 @@ export class DirectClient extends Client {
 	}
 
 	kick(code: OttWebsocketError) {
+		clearTimeout(this.authTimeout);
 		this.socket.close(code);
 		counterWebsocketCloseCodes.inc({ code: OttWebsocketError[code] });
 	}

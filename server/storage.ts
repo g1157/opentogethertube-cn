@@ -1,5 +1,6 @@
 import {
 	getRoomByName,
+	getPermanentRoomList,
 	isRoomNameTaken,
 	saveRoom,
 	updateRoom,
@@ -15,6 +16,7 @@ import {
 
 export default {
 	getRoomByName,
+	getPermanentRoomList,
 	isRoomNameTaken,
 	saveRoom,
 	updateRoom,

@@ -232,7 +232,7 @@ export class Room implements RoomState {
 	grants: Grants = new Grants();
 	userRoles: Map<Role, Set<number>>;
 	_autoSkipSegmentCategories = Array.from(ALL_SKIP_CATEGORIES);
-	restoreQueueBehavior: BehaviorOption = BehaviorOption.Prompt;
+	restoreQueueBehavior: BehaviorOption = BehaviorOption.Always;
 	_enableVoteSkip: boolean = false;
 
 	_currentSource: QueueItem | null = null;
@@ -301,6 +301,7 @@ export class Room implements RoomState {
 			this.queue = new VideoQueue(this.queue);
 		}
 		if (
+			this.currentSource === null &&
 			this.queue.length === 0 &&
 			this.restoreQueueBehavior === BehaviorOption.Always &&
 			this.prevQueue
@@ -857,6 +858,18 @@ export class Room implements RoomState {
 
 	saveStateToRedisDebounced = _.debounce(this.saveStateToRedis, 5000);
 
+	/** Save the current item with its position, followed by the remaining queue. */
+	public queueSnapshot(): QueueItem[] | null {
+		const items = this.queue.items.map(item => ({ ...item }));
+		if (this.currentSource) {
+			items.unshift({ ...this.currentSource, startAt: this.realPlaybackPosition });
+		}
+		if (items.length > 0) {
+			return items;
+		}
+		return this.prevQueue?.map(item => ({ ...item })) ?? null;
+	}
+
 	public async sync(): Promise<void> {
 		if (this._dirty.size === 0) {
 			return;
@@ -894,10 +907,13 @@ export class Room implements RoomState {
 			"userRoles",
 			"owner",
 			"prevQueue",
+			"restoreQueueBehavior",
+			"enableVoteSkip",
 		);
-		if (!_.isEmpty(settings)) {
+		if (!this.isTemporary) {
 			await storage.updateRoom({
 				...settings,
+				prevQueue: this.queueSnapshot(),
 			});
 		}
 
@@ -916,22 +932,16 @@ export class Room implements RoomState {
 	}
 
 	public async onBeforeUnload(): Promise<void> {
-		await this.saveStateToRedisDebounced.flush();
-
 		if (!this.isTemporary) {
-			const prevQueue = this.queue.items;
-			if (this.currentSource) {
-				prevQueue.unshift({
-					...this.currentSource,
-					startAt: this.realPlaybackPosition,
-				});
-			}
-
+			await this.pause();
 			await storage.updateRoom({
 				name: this.name,
-				prevQueue: prevQueue.length > 0 ? prevQueue : null,
+				prevQueue: this.queueSnapshot(),
 			});
 		}
+		this.throttledSync.cancel();
+		await this.sync();
+		await this.saveStateToRedisDebounced.flush();
 	}
 
 	/**
@@ -1366,6 +1376,12 @@ export class Room implements RoomState {
 				// sending the user update to remove the user is handled by clientmanager
 				break;
 			}
+		}
+		if (!this.isTemporary && this.realusers.length === 0) {
+			await this.pause();
+			this._keepAlivePing = dayjs();
+			await this.sync();
+			await this.saveStateToRedisDebounced.flush();
 		}
 	}
 

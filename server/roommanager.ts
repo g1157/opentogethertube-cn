@@ -149,6 +149,9 @@ export async function getRoom(
 		log.debug("found room in redis");
 		const state = JSON.parse(redisState) as RoomStateFromRedis;
 		const fixedState = redisStateToState(state);
+		if (!fixedState.isTemporary) {
+			fixedState.isPlaying = false;
+		}
 		const room = new Room(fixedState);
 		await addRoom(room);
 		return ok(room);

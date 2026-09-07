@@ -50,8 +50,8 @@ import { UnloadReason } from "../generated.js";
 const router = express.Router();
 const log = getLogger("api/room");
 
-router.get("/list", (req, res) => {
-	const isAuthorized = req.get("apikey") === getApiKey();
+router.get("/list", async (req, res, next) => {
+	const isAuthorized = !!getApiKey() && req.get("apikey") === getApiKey();
 	if (req.get("apikey") && !isAuthorized) {
 		log.warn(
 			`Unauthorized request to room list endpoint: ip=${req.ip} forward-ip=${(
@@ -64,7 +64,15 @@ router.get("/list", (req, res) => {
 		});
 		return;
 	}
-	let rooms: RoomListItem[] = [];
+	let rooms: RoomListItem[];
+	try {
+		rooms = await storage.getPermanentRoomList(isAuthorized);
+	} catch (error) {
+		next(error);
+		return;
+	}
+	const loadedNames = new Set(roommanager.rooms.map(room => room.name.toLowerCase()));
+	rooms = rooms.filter(room => !loadedNames.has(room.name.toLowerCase()));
 	for (const room of roommanager.rooms) {
 		if (room.visibility !== Visibility.Public && !isAuthorized) {
 			continue;

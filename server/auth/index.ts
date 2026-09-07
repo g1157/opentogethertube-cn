@@ -55,8 +55,8 @@ export async function authTokenMiddleware(
 	if (req.headers.authorization?.startsWith("Bearer")) {
 		const token: AuthToken = req.headers.authorization.split(" ")[1];
 		req.token = token;
-	} else if (req.cookies?.token) {
-		req.token = req.cookies.token;
+	} else if (req.cookies?.[conf.get("auth_cookie_name")]) {
+		req.token = req.cookies[conf.get("auth_cookie_name")];
 	}
 
 	if (!req.token) {
@@ -103,7 +103,7 @@ router.get("/grant", async (req, res) => {
 			const token: AuthToken = req.headers.authorization.split(" ")[1];
 			if (await tokens.validate(token)) {
 				log.debug("token is already valid");
-				res.cookie("token", token, {
+				res.cookie(conf.get("auth_cookie_name"), token, {
 					httpOnly: true,
 					sameSite: "lax",
 					secure: !conf.get("force_insecure_cookies"),
@@ -121,7 +121,7 @@ router.get("/grant", async (req, res) => {
 	log.debug("minting new auth token...");
 	const token: AuthToken = await tokens.mint();
 	await tokens.setSessionInfo(token, createSession());
-	res.cookie("token", token, {
+	res.cookie(conf.get("auth_cookie_name"), token, {
 		httpOnly: true,
 		sameSite: "lax",
 		secure: !conf.get("force_insecure_cookies"),
@@ -156,7 +156,7 @@ router.get(
 			});
 			return;
 		}
-		const token = req.cookies?.token;
+		const token = req.cookies?.[conf.get("auth_cookie_name")];
 		if (!token) {
 			res.status(400).json({
 				success: false,

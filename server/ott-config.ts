@@ -336,6 +336,18 @@ export const conf = convict({
 		env: "SESSION_SECRET",
 		sensitive: true,
 	},
+	auth_cookie_name: {
+		doc: "Authentication cookie name, unique for instances sharing a hostname.",
+		format: String,
+		default: "token",
+		env: "AUTH_COOKIE_NAME",
+	},
+	session_cookie_name: {
+		doc: "Express session cookie name, unique for instances sharing a hostname.",
+		format: String,
+		default: "connect.sid",
+		env: "SESSION_COOKIE_NAME",
+	},
 	discord: {
 		client_id: {
 			doc: "Discord client ID. Required for discord login.",

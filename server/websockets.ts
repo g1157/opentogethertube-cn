@@ -4,7 +4,7 @@ import type { Server } from "node:http";
 import type { Socket } from "node:net";
 
 const log = getLogger("websockets");
-export const wss = new WebSocket.Server({ noServer: true });
+export const wss = new WebSocket.Server({ noServer: true, maxPayload: 256 * 1024 });
 
 /**
  * Set up the websocket server.

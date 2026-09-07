@@ -95,6 +95,7 @@ export async function main() {
 	}
 
 	const sessionOpts: SessionOptions = {
+		name: conf.get("session_cookie_name"),
 		store: new RedisStore({ client: redisClient }),
 		secret: conf.get("session_secret"),
 		resave: false,
@@ -252,7 +253,7 @@ async function shutdown() {
 	clientmanager.shutdown();
 	// let the clients disconnect
 	await new Promise(resolve => setTimeout(resolve, 1000));
-	roommanager.shutdown();
+	await roommanager.shutdown();
 	process.exit(0);
 }
 

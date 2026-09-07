@@ -1,7 +1,8 @@
 <template>
 	<v-select
 		variant="solo"
-		style="margin-top: 5px; width: 100px"
+		style="margin-top: 5px; width: 140px"
+		:aria-label="$t('common.language')"
 		item-title="text"
 		:items="locales"
 		v-model="locale"
@@ -15,31 +16,31 @@ import { useStore } from "@/store";
 
 const locales = [
 	{
-		text: "🇺🇸",
+		text: "English",
 		value: "en",
 	},
 	{
-		text: "🇩🇪",
+		text: "Deutsch",
 		value: "de",
 	},
 	{
-		text: "🇫🇷",
+		text: "Français",
 		value: "fr",
 	},
 	{
-		text: "🇷🇺",
+		text: "Русский",
 		value: "ru",
 	},
 	{
-		text: "🇪🇸",
+		text: "Español",
 		value: "es",
 	},
 	{
-		text: "🇧🇷",
+		text: "Português",
 		value: "pt-br",
 	},
 	{
-		text: "🇨🇳",
+		text: "简体中文",
 		value: "zh-CN",
 	},
 ];

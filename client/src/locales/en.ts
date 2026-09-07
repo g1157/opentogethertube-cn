@@ -2,6 +2,7 @@ import { BehaviorOption, OttWebsocketError, Role } from "ott-common/models/types
 
 export default {
 	common: {
+		language: "Language",
 		yes: "Yes",
 		no: "No",
 		ok: "OK",

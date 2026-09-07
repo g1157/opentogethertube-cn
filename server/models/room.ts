@@ -110,7 +110,7 @@ export const createModel = (sequelize: Sequelize) => {
 			restoreQueueBehavior: {
 				type: DataTypes.NUMBER,
 				allowNull: false,
-				defaultValue: BehaviorOption.Prompt,
+				defaultValue: BehaviorOption.Always,
 				validate: {
 					isIn: [[BehaviorOption.Always, BehaviorOption.Prompt, BehaviorOption.Never]],
 				},
