@@ -1,4 +1,4 @@
-name: ott-next
+name: ${OTT_PROJECT_NAME:-ott-next}
 
 x-logging: &logging
   driver: json-file
@@ -8,7 +8,7 @@ x-logging: &logging
 
 services:
   ott:
-    image: ott-next:0.15.0-cn3
+    image: ${OTT_IMAGE:-ott-next:0.15.0-cn4}
     build:
       context: ${OTT_SOURCE_DIR:-./source}
       dockerfile: deploy/next.Dockerfile
@@ -19,13 +19,13 @@ services:
       - "${OTT_PUBLIC_PORT:-18080}:8080"
     environment:
       NODE_ENV: production
-      OTT_INSTANCE_ID: ott-next
+      OTT_INSTANCE_ID: ${OTT_INSTANCE_ID:-ott-next}
       DOCKER: "1"
       PORT: "8080"
       OTT_HOSTNAME: ${OTT_PUBLIC_HOSTNAME:-localhost:18080}
       FORCE_INSECURE_COOKIES: "true"
-      AUTH_COOKIE_NAME: ott_next_token
-      SESSION_COOKIE_NAME: ott_next_sid
+      AUTH_COOKIE_NAME: ${OTT_AUTH_COOKIE_NAME:-ott_next_token}
+      SESSION_COOKIE_NAME: ${OTT_SESSION_COOKIE_NAME:-ott_next_sid}
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       OPENTOGETHERTUBE_API_KEY: ${ADMIN_API_KEY:?ADMIN_API_KEY is required}
       TRUST_PROXY: "0"

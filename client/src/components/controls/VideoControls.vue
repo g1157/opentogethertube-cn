@@ -51,17 +51,23 @@ const emit = defineEmits(["show-shortcuts", "resize"]);
 const controlsBar = ref<HTMLElement | null>(null);
 useResizeObserver(controlsBar, entries => {
 	const height = entries[0]?.target.getBoundingClientRect().height;
-	if (height) emit("resize", Math.ceil(height));
+	if (height) {
+		emit("resize", Math.ceil(height));
+	}
 });
 const controls = inject(PlayerControlsActivityKey, undefined);
 const hoverKey = Symbol("player:hover");
 const dragKey = Symbol("player:drag");
 const focusKey = Symbol("player:focus");
 function onPointerEnter(event: PointerEvent) {
-	if (event.pointerType === "mouse") controls?.hold(hoverKey, true);
+	if (event.pointerType === "mouse") {
+		controls?.hold(hoverKey, true);
+	}
 }
 function onPointerLeave(event: PointerEvent) {
-	if (event.pointerType === "mouse") controls?.hold(hoverKey, false);
+	if (event.pointerType === "mouse") {
+		controls?.hold(hoverKey, false);
+	}
 }
 function onFocusIn(event: FocusEvent) {
 	if (
@@ -84,7 +90,9 @@ onUnmounted(() => {
 	window.removeEventListener("pointerup", releaseDrag);
 	window.removeEventListener("pointercancel", releaseDrag);
 	window.removeEventListener("blur", releaseDrag);
-	for (const key of [hoverKey, dragKey, focusKey]) controls?.hold(key, false);
+	for (const key of [hoverKey, dragKey, focusKey]) {
+		controls?.hold(key, false);
+	}
 });
 
 withDefaults(

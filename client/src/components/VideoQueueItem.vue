@@ -87,7 +87,14 @@
 					<v-icon v-if="hasError" :icon="mdiExclamation" />
 					<v-icon v-else :icon="mdiTrashCan" />
 				</v-btn>
-				<v-menu offset-y>
+				<v-menu
+					v-model="menuOpen"
+					location="bottom end"
+					:offset="6"
+					:max-width="320"
+					:max-height="360"
+					scroll-strategy="reposition"
+				>
 					<template v-slot:activator="{ props: p }">
 						<v-btn icon variant="flat" v-bind="p" data-cy="btn-menu">
 							<v-icon :icon="mdiDotsVertical" />
@@ -238,6 +245,10 @@ const store = useStore();
 const { t } = useI18n();
 const roomapi = useRoomApi(useConnection());
 const granted = useGrants();
+const menuOpen = ref(false);
+watch([() => store.state.fullscreen, () => item.value.service, () => item.value.id], () => {
+	menuOpen.value = false;
+});
 
 const isLoadingAdd = ref(false);
 const isLoadingVote = ref(false);
@@ -440,6 +451,12 @@ watchEffect(() => {
 	width: 100%;
 	max-height: 111px;
 	margin-top: 8px;
+	padding: 6px;
+	border: 1px solid var(--line);
+	border-left: 3px solid var(--primary);
+	border-radius: var(--radius);
+	background: var(--card);
+	transition: background 0.2s, border-color 0.2s;
 
 	> * {
 		display: flex;
@@ -455,10 +472,14 @@ watchEffect(() => {
 		}
 		min-width: 20%;
 		width: 30%;
+		justify-content: center;
 
 		.video-title,
 		.experimental {
-			font-size: 1.25rem;
+			font-size: 1rem;
+			font-weight: 600;
+			line-height: 1.6;
+			color: var(--foreground);
 			@media (max-width: variables.$sm-max) {
 				font-size: 0.8rem;
 			}
@@ -470,6 +491,7 @@ watchEffect(() => {
 		.description {
 			flex-grow: 1;
 			font-size: 0.9rem;
+			color: var(--muted-foreground);
 			white-space: nowrap;
 			overflow: hidden;
 			text-overflow: ellipsis;
@@ -483,6 +505,8 @@ watchEffect(() => {
 	.img-container {
 		width: 200px;
 		max-width: 200px;
+		border-radius: 3px;
+		overflow: hidden;
 		@media (max-width: variables.$sm-max) {
 			max-width: 80px;
 		}
@@ -532,6 +556,8 @@ watchEffect(() => {
 	}
 
 	&:hover {
+		background: var(--surface-2);
+		border-color: color-mix(in srgb, var(--primary) 55%, transparent);
 		.drag-handle {
 			opacity: 1;
 		}
@@ -547,6 +573,9 @@ watchEffect(() => {
 
 .video-length {
 	background: rgba(0, 0, 0, 0.8);
+	color: #fff;
+	font-family: var(--font-mono);
+	font-size: 0.7rem;
 	padding: 2px 5px;
 	border-top-left-radius: 3px;
 	position: absolute;
@@ -561,5 +590,50 @@ watchEffect(() => {
 		font-size: 0.8rem;
 	}
 	font-style: italic;
+}
+
+@media (max-width: variables.$xs-max) {
+	.video {
+		display: grid;
+		grid-template-columns: 64px minmax(0, 1fr);
+		gap: 6px 8px;
+		max-height: none;
+		padding: 8px;
+
+		.img-container {
+			grid-column: 1;
+			grid-row: 1 / span 2;
+			width: 64px;
+			max-width: 64px;
+			align-self: stretch;
+		}
+
+		.meta-container {
+			grid-column: 2;
+			min-width: 0;
+			width: auto;
+			margin: 0;
+
+			.video-title {
+				font-size: 14px;
+			}
+		}
+
+		.button-container {
+			grid-column: 2;
+			flex-wrap: wrap;
+			justify-content: flex-start;
+			gap: 4px;
+
+			> button {
+				margin: 0;
+				max-width: 100%;
+			}
+			> .v-btn--icon {
+				width: 40px;
+				height: 40px;
+			}
+		}
+	}
 }
 </style>

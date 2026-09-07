@@ -146,7 +146,7 @@ describe("player touch and mouse gestures", () => {
 	});
 
 	it("does not treat a denied long press as a tap", () => {
-		options.onHoldStart = vi.fn(() => false);
+		vi.spyOn(options, "onHoldStart").mockReturnValue(false);
 		pointer("pointerdown");
 		vi.advanceTimersByTime(500);
 		pointer("pointerup");

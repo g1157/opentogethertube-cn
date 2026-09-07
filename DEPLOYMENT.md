@@ -1,13 +1,17 @@
 # 简体中文分支部署与回退
 
-此文档适用于 `v0.15.0-cn3`。首次部署先在独立端口验收，通过后再接管正式端口；
-已在 8080 运行 cn2 的实例可在备份、构建和验收后就地更新应用服务，保留现有数据库和端口配置。
+此文档适用于 `v0.15.0-cn4`。每次发布都先在独立的 18080 端口验收，通过后将同一个已验收镜像
+切换到正式 8080 端口。已有实例升级也遵循这一顺序，保留配置与数据卷；不直接在正式端口试新版本。
 示例中的 `YOUR_HOST`、仓库地址和旧容器名称需要替换为自己的值。
 
 ## 版本与运行环境
 
-源码基于官方 `v0.15.0`，工作区 `package.json` 保留上游的 `0.14.1`。分支镜像名为
-`ott-next:0.15.0-cn3`，镜像的 revision 标签记录构建所用提交。
+源码基于官方 `v0.15.0`，工作区 `package.json` 保留上游的 `0.14.1`。Compose 的缺省镜像名为
+`ott-next:0.15.0-cn4`；下面的独立验收示例显式使用 `ott-preview:0.15.0-cn4`，避免覆盖现有镜像标签。
+镜像的 revision 标签记录构建所用提交。
+
+cn4 选择性移植官方 master 提交 `4ea9029429a98561ba7c213c54c55ef0f0c56800` 的配色、字体、首页、
+导航与房间卡片，兼容保留 cn1–cn3 的功能；核心仍以 v0.15.0 为基线，没有整体切换到开发分支。
 
 需要 Docker Engine、Compose v2、Git 和 Node.js；构建推荐 Node.js 24，使用仓库自带的 Yarn 4.1.0。
 第一次安装依赖可能需要 Python 和 C/C++ 编译工具。部署使用独立的 PostgreSQL、Redis、
@@ -27,8 +31,8 @@ dyc3/opentogethertube@sha256:feec95f418e7d438b632bb05311bfa522d5e40f13d019e21462
 以下步骤用于新的空目录。更新已有实例时直接使用后面的更新步骤，保留已有 `.env` 和数据卷。
 
 ```sh
-mkdir ott-next
-cd ott-next
+mkdir ott-preview
+cd ott-preview
 git clone https://github.com/YOUR_GITHUB_USER/opentogethertube-cn.git source
 cp source/deploy/next-compose.yml compose.yml
 cp source/deploy/next-backup.sh backup.sh
@@ -55,7 +59,22 @@ NODE
 
 编辑 `.env`，将 `OTT_PUBLIC_HOSTNAME` 设为 `YOUR_HOST:18080`，不带协议前缀或路径。
 默认 `OTT_PUBLIC_PORT=18080` 对应宿主机端口，容器内部始终使用 `8080`。
-`.env` 是 Compose 的配置文件，与 `source/client/.env` 中上游保留的语言设置无关。
+`.env` 是 Compose 的配置文件；前端语言默认值由源码设为简体中文。
+
+首次建立验收实例时，配置示例显式使用下面这组独立名称。同机已有 `ott-preview` 时，再改为
+另一组未使用的名称；Compose 项目名隔离容器、网络和数据卷，Cookie 名称隔离同一主机不同端口的登录状态。
+
+```dotenv
+OTT_PROJECT_NAME=ott-preview
+OTT_IMAGE=ott-preview:0.15.0-cn4
+OTT_INSTANCE_ID=ott-preview
+OTT_AUTH_COOKIE_NAME=ott_preview_token
+OTT_SESSION_COOKIE_NAME=ott_preview_sid
+```
+
+升级已有正式实例时，保留其原有 `.env`、项目名、实例标识、Cookie 名称与密钥，不用上述预览配置覆盖它。
+如果旧配置依赖 Compose 的 `ott-next` 等缺省值，应保留这些实际名称。另建预览实例完成验收后，
+只将正式实例的 `OTT_IMAGE` 更新为记录的已验收镜像引用，继续使用正式数据卷。
 
 在 `source` 目录安装依赖并编译。安装依赖会执行原生模块构建脚本。
 构建前确认所有需要发布的源码改动已经审查并提交，下面的源码归档以该 `HEAD` 为准：
@@ -65,7 +84,7 @@ cd source
 node .yarn/releases/yarn-4.1.0.cjs install --immutable
 node .yarn/releases/yarn-4.1.0.cjs workspace ott-common build
 node .yarn/releases/yarn-4.1.0.cjs workspace ott-server build
-VITE_SOURCE_URL=/source-code.tar.gz node .yarn/releases/yarn-4.1.0.cjs workspace ott-client build
+GIT_COMMIT=$(git rev-parse HEAD) VITE_SOURCE_URL=/source-code.tar.gz node .yarn/releases/yarn-4.1.0.cjs workspace ott-client build
 git archive --format=tar.gz -o client/dist/source-code.tar.gz HEAD
 cd ..
 ```
@@ -74,13 +93,15 @@ cd ..
 示例让按钮下载当前部署的源码包，也可以改为自己的公开仓库 URL。修改此参数需要重新构建前端，
 只修改运行中的 Compose 环境变量不会生效。
 
-cn3 的前端与服务端使用源码提交标识比较版本。前端构建默认从 Git 读取提交，镜像通过
-`SOURCE_COMMIT` 设置服务端的 `OTT_CLIENT_REVISION`；两者必须对应同一提交。
-从不带 `.git` 的源码包构建时，显式设置前端构建环境变量 `GIT_COMMIT` 为同一个提交标识。
+从 cn3 起，前端与服务端使用源码提交标识比较版本，镜像通过 `SOURCE_COMMIT` 设置服务端的
+`OTT_CLIENT_REVISION`。发布构建推荐像上面一样显式传入 `GIT_COMMIT=$(git rev-parse HEAD)`，
+并让 `SOURCE_COMMIT` 使用同一个完整的 40 位提交 SHA；cn4 发布验收按完整 SHA 核对两者。
+未显式设置时，前端默认读取的短 SHA 仍兼容版本检测，但不用于这里的发布示例。
+从不带 `.git` 的源码包构建时，也应将 `GIT_COMMIT` 与 `SOURCE_COMMIT` 显式设为同一个完整 SHA。
 
 请在前端构建完成后生成归档，因为前端构建会清空 `client/dist`。`git archive` 只包含已审查
 提交中的跟踪文件，不包含 Git 历史、未提交改动、部署 `.env`、数据库或备份；仓库中的空白
-配置示例及 `client/.env` 语言设置会正常保留。不要使用包含整个工作目录的归档替代它。
+配置示例会正常保留。不要使用包含整个工作目录的归档替代它。
 每次更新应重新生成与部署源码相符的归档，这样无需依赖代码托管平台登录也能提供对应源码。
 
 也可以在另一台机器编译后传入源码及 `common/ts-out`、`server/ts-out`、`client/dist`。
@@ -109,8 +130,8 @@ curl --fail http://127.0.0.1:18080/api/status
 房间或播放列表；如需迁移，应先备份并做一次明确的数据迁移。不要向已有用户数据的新实例
 重新导入初始快照。
 
-如果已有其他实例，保持其目录、镜像、容器及数据卷完整。默认 Compose 项目名为 `ott-next`；
-同一机器需要多个此类实例时，显式指定不同项目名及 Cookie 名称。
+如果已有其他实例，保持其目录、镜像、容器及数据卷完整。Compose 未设置项目名时会退回 `ott-next`；
+使用上述显式预览配置，避免新验收实例误用已有项目。
 
 ## 验收与更新
 
@@ -120,7 +141,7 @@ curl --fail http://127.0.0.1:18080/api/status
 操作细节见 [播放器说明](docs/player-interactions.zh-CN.md)。
 
 更新前保存当前源码提交、镜像标签、`compose.yml` 和私有 `.env`，并运行 `./backup.sh`。
-源码与新产物准备好后构建新镜像，只重建应用服务：
+在独立的 18080 验收实例中准备新源码和产物，构建镜像并重建应用服务：
 
 ```sh
 SOURCE_COMMIT=$(git -C source rev-parse HEAD) sudo --preserve-env=SOURCE_COMMIT docker compose -f compose.yml build ott
@@ -128,11 +149,15 @@ sudo docker compose -f compose.yml up -d --no-deps ott
 sudo docker compose -f compose.yml ps
 ```
 
+验收实例使用独立项目、数据与 Cookie，避免测试影响正式房间。通过验收后记录镜像 ID、
+源码提交和源码包校验值，再按下一节切换正式入口。切换阶段复用该镜像，不重新构建或更换提交；
+保留实际用户数据，不用验收数据库覆盖已有正式数据库。
+
 cn1 到 cn2 的播放器改动、cn2 到 cn3 的语言迁移与版本刷新没有新增数据库迁移。
 其他版本更新应先审查迁移，再决定是否执行
 `db:migrate`；不要默认旧镜像能够使用新版本已经迁移过的数据库。
 
-cn3 首次加载时会将旧 `localStorage.locale` 迁移为 `zh-CN`，保留其他本地设置；迁移只执行一次，
+从 cn3 起，首次加载会将本地保存的旧语言偏好迁移为 `zh-CN`，保留其他本地设置；迁移只执行一次，
 之后用户可以自行选择并保存语言。它不会删除账号或房间数据。
 
 HTML、源码下载包和 `/api/status/version` 使用 `Cache-Control: no-store`，只有文件名带内容哈希的
@@ -145,14 +170,21 @@ HTML、源码下载包和 `/api/status/version` 使用 `Cache-Control: no-store`
 
 ## 从 18080 切换到正式 8080
 
-验收完成后，为新实例做一次备份，记录当前占用 `8080` 的旧应用容器名称。
+已有本分支实例运行在 8080 时，在其正式部署目录仅将 `OTT_IMAGE` 更新为已验收的镜像引用，再执行
+`sudo docker compose -f compose.yml up -d --no-deps --no-build ott`；继续使用原有数据库服务及数据卷，
+保留该正式实例的项目名、实例标识、Cookie 名称及私有密钥，不把验收实例的数据库替换进去。
+优先使用已记录的镜像 ID 或不可变 digest，并核对启动后的镜像 ID。
+下面的端口切换步骤用于首次接管旧应用的 8080 入口。
+
+验收完成后，为新实例做一次备份，确认使用的镜像 ID 与 18080 验收记录一致，
+记录当前占用 `8080` 的旧应用容器名称。
 停止该旧应用容器以释放端口，保留它的数据库和所有数据卷：
 
 ```sh
 sudo docker stop OLD_WEB_CONTAINER
 ```
 
-在新实例 `.env` 中修改以下两项，然后只重建新应用容器：
+在新实例 `.env` 中修改以下两项，然后只重建新应用容器；`--no-build` 保证复用已验收镜像：
 
 ```dotenv
 OTT_PUBLIC_PORT=8080
@@ -160,7 +192,7 @@ OTT_PUBLIC_HOSTNAME=YOUR_HOST:8080
 ```
 
 ```sh
-sudo docker compose -f compose.yml up -d --no-deps ott
+sudo docker compose -f compose.yml up -d --no-deps --no-build ott
 curl --fail http://127.0.0.1:8080/api/status
 ```
 

@@ -150,6 +150,7 @@ export class DirectClient extends Client {
 				return;
 			}
 			if (msg.action === "auth") {
+				// eslint-disable-next-line promise/prefer-await-to-then -- Synchronous socket callback owns this asynchronous rejection.
 				void this.auth(msg.token).catch(() => this.kick(OttWebsocketError.UNKNOWN));
 				return;
 			}

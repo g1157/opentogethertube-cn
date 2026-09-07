@@ -101,21 +101,27 @@ const { copy: copyExported, copySuccess: copyExportSuccess } = useCopyFromTextbo
 
 <style lang="scss" scoped>
 .video-queue {
-	margin: 0 10px;
-	min-height: 500px;
+	margin: 0 12px;
+	padding-bottom: 12px;
+	min-height: 320px;
 }
 
 .empty-queue {
 	height: 300px;
 
 	.msg {
-		opacity: 0.6;
-		font-size: 20px;
+		color: var(--muted-foreground);
+		font-size: 16px;
+		line-height: 1.8;
+		margin-bottom: 16px;
 	}
 }
 
 .queue-controls {
-	margin-top: 6px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 10px 0;
 }
 
 // Transition animation

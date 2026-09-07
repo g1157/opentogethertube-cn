@@ -23,3 +23,12 @@
 import { mdiPlusBox } from "@mdi/js";
 defineEmits(["createtemp", "createperm"]);
 </script>
+
+<style scoped>
+.v-list-item-subtitle {
+	white-space: normal;
+	-webkit-line-clamp: unset;
+	line-height: 1.6;
+	padding-top: 4px;
+}
+</style>

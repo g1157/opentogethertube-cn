@@ -1,70 +1,57 @@
 # OpenTogetherTube 简体中文体验版
 
-和朋友同步看视频、聊天，并保留下次继续观看的房间。此分支基于
-[OpenTogetherTube 官方 v0.15.0](https://github.com/dyc3/opentogethertube/releases/tag/v0.15.0)，
-提供简体中文界面和面向手机的播放器交互。当前分支版本为 `v0.15.0-cn3`。
+和朋友同步看视频、聊天，并保留下次继续观看的房间。源码版本为 `v0.15.0-cn4`，
+核心基于 [OpenTogetherTube v0.15.0](https://github.com/dyc3/opentogethertube/releases/tag/v0.15.0)。
 
--   **永久房间续播**：最后一人离开后暂停，保存当前视频、播放位置和待播列表；再次进入时恢复。公开的永久房间在无人在线时仍可从列表进入。
--   **默认简体中文**：首次加载 cn3 时把旧浏览器保存的语言统一设为简体中文，保留其他设置；之后仍可自行选择语言。
--   **播放器全屏**：仅播放器和控件进入全屏，锁定背景滚动；不支持原生全屏时使用网页内全屏。
--   **手机操作**：点击画面显示或收起控件；打开聊天不自动弹出键盘；长按约 500 毫秒临时以 2 倍速同步播放，松手恢复；左右滑动跳转 5、10 或 30 秒。
--   **桌面操作**：双击画面切换全屏，支持空格、方向键、J/L、M、F、T 等快捷键，按 `?` 查看帮助。
--   **观看信息**：显示当前标题；从明确的标题或文件名识别集数；“改名”按钮标明其修改用户名或访客昵称的用途。
+cn4 选择性移植官方 [visual overhaul #2031](https://github.com/dyc3/opentogethertube/pull/2031)
+的配色、字体、首页、导航和房间卡片，来源为 master 提交
+[`4ea9029`](https://github.com/dyc3/opentogethertube/commit/4ea9029429a98561ba7c213c54c55ef0f0c56800)。
+cn1–cn3 的房间保留、中文及播放器交互继续保留；这不代表整个项目升级到开发分支。
 
-长按倍速和播放进度改变会同步到整个房间，需要对应的房间权限。永久房间保留的是
-**当前视频和待播列表**，不会归档所有已经播放完的链接。集数识别也不会自动搜索或添加下一集。
+## 功能
 
-从 cn3 起，页面会定期检查服务器版本，发现更新后自动重新加载；正在输入时延后处理，并防止反复刷新。
-已经打开的 cn2 或更早页面没有这段检测代码，此次仍需先手动刷新或重新打开一次，后续更新才会自动检查。
+-   永久房间在最后一人离开后暂停，保存当前视频、播放位置和待播队列，再次进入恢复。
+-   默认简体中文，一次性迁移旧语言偏好后仍可自行选语言；页面支持检测新版本并自动刷新。
+-   播放器全屏锁定背景滚动；点画面收起控件，聊天按钮不自动聚焦输入框。
+-   长按约 500 毫秒临时全房间 2 倍速；左右滑动跳转 5、10 或 30 秒，遵循房间权限。
+-   支持常用播放快捷键、当前标题/集数显示及清晰的改名说明。
 
-参阅 [播放器使用说明](docs/player-interactions.zh-CN.md) 和
-[此分支的构建、部署与回退步骤](DEPLOYMENT.md)。可先使用独立的 `18080` 端口验收，再将新实例切换到 `8080`；新旧实例的数据不会自动合并。
+永久房间保存**当前视频与待播队列**，不归档全部已播历史。房主及房间管理员管理各自房间，
+没有默认的全站管理员网页登录账号；运维 API 使用独立密钥。
+链接解析兼容性与连续集自动探测未包含在此次改动中。
 
-项目没有默认的全站管理员账号。房主及房间管理员管理各自房间，运维 API 使用单独的密钥。
-本次未修改链接解析兼容性，也未实现连续剧资源自动探测。
+操作详见 [播放器说明](docs/player-interactions.zh-CN.md)。已打开的 cn2 或更早页面需要先刷新或
+重新打开一次，才会加载中文迁移和版本检测机制。
 
-源码基线与镜像版本使用 `v0.15.0-cn3` 标识；`package.json` 仍保留上游的 `0.14.1`。
-部署镜像继承 Dockerfile 中固定摘要的 Linux 基础镜像及其运行依赖，不能视为所有生产依赖均已升级。
-自托管时，可用 `VITE_SOURCE_URL` 指定“查看源码”的地址；部署文档提供生成当前提交源码包的方法。
-代码继续遵循 [AGPL-3.0-or-later](LICENSE)，原项目及其贡献者的归属信息保留如下。
+## 依赖与运行
 
-## Upstream README
+开发推荐 Node.js 24，使用仓库自带的 Yarn 4.1.0；需要 Redis，生产部署使用 PostgreSQL。
+源码包含前端、服务端、公共模块，以及保留的 Rust 负载均衡与 Grafana 工作区。
 
-# OpenTogetherTube
+在仓库根目录安装依赖：
 
-[![CI/CD](https://github.com/dyc3/opentogethertube/actions/workflows/main.yml/badge.svg)](https://github.com/dyc3/opentogethertube/actions/workflows/main.yml)
-[![codecov](https://codecov.io/gh/dyc3/opentogethertube/branch/master/graph/badge.svg)](https://codecov.io/gh/dyc3/opentogethertube)
-[![Docker size](https://img.shields.io/docker/image-size/dyc3/opentogethertube)](https://hub.docker.com/r/dyc3/opentogethertube)
+```sh
+node .yarn/releases/yarn-4.1.0.cjs install --immutable
+```
 
-The easy way to watch videos with your friends.
+按 [开发说明](CONTRIBUTING.md) 配置数据库和 Redis 后，运行前后端开发服务：
 
-Try it here: https://opentogethertube.com/
+```sh
+node .yarn/releases/yarn-4.1.0.cjs dev
+```
 
-# Features
+## 自托管部署
 
--   Real-time video synchronization
-    -   No account registration required
--   Bookmarkable rooms with custom URLs for easy sharing
--   Text chat
--   SponsorBlock integration
--   Plays videos from:
-    -   YouTube
-    -   Vimeo
-    -   `.mp4` files served over HTTP
-    -   HLS VOD streams
-    -   DASH VOD streams
-    -   [Custom media manifests](docs/custom-media-format.md)
-    -   [...and some others.](https://github.com/dyc3/opentogethertube/tree/master/server/services)
--   Vote mode: Vote on what to watch next
--   Vote to skip
--   DJ mode: Good for D&D background music
--   Room permissions
--   Multiple UI themes
+使用 Docker Engine 和 Compose v2，依照 [构建、部署与回退说明](DEPLOYMENT.md) 操作。
+每次发布都先在独立的 18080 端口验收，再将同一个已验收镜像切换到 8080；已有实例更新时保留配置与数据卷。
+新旧实例的数据不会自动合并，长期公开访问应配置域名和 HTTPS。
 
-# Deployment
+工作区 `package.json` 保留上游的 `0.14.1`；源码与镜像以分支版本及提交标识区分。
+生产运行依赖沿用 Dockerfile 中固定摘要的 Linux 基础镜像，未进行全面依赖升级。
 
-See the [deployment docs](docs/how-to-deploy.md).
+## 许可证与上游
 
-# Contributing
-
-Contributions are welcome! Check out issues that have the "good first issue" label. Read [CONTRIBUTING.md](./CONTRIBUTING.md) for more information.
+本项目及修改遵循 [AGPL-3.0-or-later](LICENSE)，保留 OpenTogetherTube 原作者与贡献者的归属。
+随附字体采用 SIL Open Font License 1.1，见 [字体来源与许可证](client/src/assets/fonts/vendor/LICENSES.md)。
+来源和移植范围见 [UPSTREAM.md](UPSTREAM.md)。自托管时可通过 `VITE_SOURCE_URL` 指定对应源码地址，
+部署文档也提供当前提交源码包的生成方法。

@@ -424,24 +424,11 @@ const renderedSpans = computed(() => {
 	flex-direction: column;
 	justify-content: center;
 
-	opacity: 60%;
-	border-radius: 3px;
-}
-
-.v-theme--dark,
-.v-theme--deepblue,
-.v-theme--deepred {
-	.no-video {
-		color: #fff;
-		border: 1px solid rgba(255, 255, 255, 0.5);
-	}
-}
-
-.v-theme--light {
-	.no-video {
-		color: #000;
-		border: 1px solid rgba(0, 0, 0, 0.5);
-	}
+	padding: 16px;
+	background: var(--card);
+	color: var(--muted-foreground);
+	text-align: center;
+	border-radius: inherit;
 }
 
 .player {
@@ -460,6 +447,7 @@ const renderedSpans = computed(() => {
 	z-index: 500;
 }
 .playback-error {
+	color: var(--foreground);
 	position: absolute;
 	width: 100%;
 	height: 100%;

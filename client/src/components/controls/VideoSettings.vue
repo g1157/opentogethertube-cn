@@ -1,26 +1,38 @@
 <template>
-	<div class="video-settings-wrapper" @keydown.esc.stop.prevent="closeMenu">
-		<v-btn
-			variant="text"
-			icon
-			class="media-control"
-			:aria-label="$t('room.player-settings')"
-			@click="toggleMenu"
-		>
-			<v-icon :icon="mdiCog" />
-			<v-tooltip activator="parent" location="bottom">
-				{{ $t("room.player-settings") }}
-			</v-tooltip>
-		</v-btn>
+	<v-menu
+		ref="menu"
+		v-model="isMenuOpen"
+		location="top end"
+		origin="auto"
+		:offset="8"
+		:width="320"
+		:min-width="0"
+		:max-width="320"
+		:max-height="420"
+		:close-on-content-click="false"
+		scroll-strategy="reposition"
+		transition="fade-transition"
+		content-class="player-settings-overlay"
+	>
+		<template #activator="{ props }">
+			<v-btn
+				v-bind="props"
+				variant="text"
+				icon
+				class="media-control"
+				data-cy="player-settings-toggle"
+				:aria-label="$t('room.player-settings')"
+			>
+				<v-icon :icon="mdiCog" />
+				<v-tooltip activator="parent" location="top" :disabled="!canHover || isMenuOpen">
+					{{ $t("room.player-settings") }}
+				</v-tooltip>
+			</v-btn>
+		</template>
 
-		<v-container
-			v-if="isMenuOpen"
-			v-click-outside="closeMenu"
-			class="settings-menu-container"
-			data-player-shortcuts="off"
-		>
+		<v-container v-if="isMenuOpen" class="settings-menu-container" data-player-shortcuts="off">
 			<div class="menu-container">
-				<transition name="menu-resize" mode="out-in" slim>
+				<div>
 					<!-- Found the following hack in Room.vue -->
 					<!-- HACK: For some reason, safari really doesn't like typescript enums. As a result, we are forced to not use the enums, and use their literal values instead. -->
 					<!-- Main menu -->
@@ -92,7 +104,6 @@
 						<v-list-item
 							link
 							class="menu-header"
-							min-width="150px"
 							:prepend-icon="mdiChevronLeft"
 							@click="navigateToMenu('main')"
 						>
@@ -129,7 +140,6 @@
 						<v-list-item
 							link
 							class="menu-header"
-							min-width="200px"
 							:prepend-icon="mdiChevronLeft"
 							@click="navigateToMenu('main')"
 						>
@@ -147,14 +157,15 @@
 							{{ formatCaption(track) }}
 						</v-list-item>
 					</v-list>
-				</transition>
+				</div>
 			</div>
 		</v-container>
-	</div>
+	</v-menu>
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, nextTick, watch } from "vue";
+import { useMediaQuery } from "@vueuse/core";
 import { useCaptions, useQualities } from "../composables";
 import {
 	mdiCog,
@@ -172,6 +183,8 @@ import { useStore } from "@/store";
 
 const emit = defineEmits(["show-shortcuts"]);
 const store = useStore();
+const canHover = useMediaQuery("(hover: hover) and (pointer: fine)");
+const menu = ref<{ updateLocation: () => void } | null>(null);
 const swipeSeekSeconds = computed({
 	get: () => store.state.settings.swipeSeekSeconds,
 	set: value => store.commit("settings/UPDATE", { swipeSeekSeconds: value }),
@@ -182,14 +195,19 @@ const currentMenu = ref<"main" | "quality" | "subtitle">("main");
 const isMenuOpen = ref<boolean>(false);
 usePlayerControlsActivity(isMenuOpen);
 
-function onMenuKeyDown(event: KeyboardEvent) {
-	if (event.key === "Escape" && isMenuOpen.value && !event.isComposing) {
-		event.preventDefault();
-		closeMenu();
+watch(isMenuOpen, open => {
+	if (!open) {
+		currentMenu.value = "main";
 	}
-}
-onMounted(() => window.addEventListener("keydown", onMenuKeyDown));
-onUnmounted(() => window.removeEventListener("keydown", onMenuKeyDown));
+});
+watch(currentMenu, async () => {
+	await nextTick();
+	if (isMenuOpen.value) {
+		menu.value?.updateLocation();
+	}
+});
+// Fullscreen changes the overlay's containing block. Reopen using its new attachment.
+watch(() => [store.state.fullscreen, store.state.settings.roomLayout], closeMenu);
 
 function showShortcuts() {
 	closeMenu();
@@ -270,20 +288,9 @@ function navigateToMenu(menu): void {
 	currentMenu.value = menu;
 }
 
-function resetToMainMenu(): void {
-	currentMenu.value = "main";
-}
-
-function toggleMenu(): void {
-	isMenuOpen.value = !isMenuOpen.value;
-	if (!isMenuOpen.value) {
-		resetToMainMenu();
-	}
-}
-
 function closeMenu(): void {
 	isMenuOpen.value = false;
-	resetToMainMenu();
+	currentMenu.value = "main";
 }
 
 function selectQuality(idx: number): void {
@@ -305,19 +312,15 @@ function selectSubtitleTrack(track: number): void {
 @use "./media-controls.scss";
 
 .settings-menu-container {
-	position: absolute;
-	// Anchor to the entire control bar, because the settings button can wrap to another row.
-	bottom: calc(100% + 8px);
-	right: 8px;
-	z-index: 9999;
 	background: media-controls.$menu-background;
 	border-radius: media-controls.$menu-radius;
 	padding: 0;
-	width: min(320px, calc(100% - 16px));
+	width: 100%;
+	min-height: 0;
+	max-height: inherit;
 	box-shadow: 0 4px 20px rgba(var(--v-theme-surface), 0.3);
-	max-height: min(70vh, 420px, calc(100vh - var(--player-controls-height, 90px) - 24px));
-	max-height: min(70dvh, 420px, calc(100dvh - var(--player-controls-height, 90px) - 24px));
 	overflow-y: auto;
+	overscroll-behavior: contain;
 }
 
 .swipe-step-options {
@@ -341,6 +344,7 @@ function selectSubtitleTrack(track: number): void {
 		justify-content: space-between;
 		align-items: center;
 		width: 100%;
+		min-width: 0;
 		font-weight: 500;
 	}
 
@@ -349,37 +353,15 @@ function selectSubtitleTrack(track: number): void {
 		font-size: 0.875rem;
 		margin-left: 1rem;
 		font-weight: 400;
+		min-width: 0;
+		max-width: 55%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 }
 
 .menu-header {
 	font-weight: 500;
-}
-
-.menu-resize-enter-active,
-.menu-resize-leave-active {
-	transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-	overflow: hidden;
-	transform-origin: top center;
-}
-
-.menu-resize-enter-active {
-	transition-delay: 0.05s;
-}
-
-.menu-resize-enter-from,
-.menu-resize-leave-to {
-	opacity: 0;
-	max-height: 0;
-	padding-top: 0;
-	padding-bottom: 0;
-	margin-top: 0;
-	margin-bottom: 0;
-}
-
-.menu-resize-enter-to,
-.menu-resize-leave-from {
-	opacity: 1;
-	max-height: 500px;
 }
 </style>
