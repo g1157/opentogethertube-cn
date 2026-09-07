@@ -11,6 +11,11 @@ aknowledge = "aknowledge"
 # Odysee
 Ody = "Ody"
 
+[type.css]
+extend-glob = ["*.css"]
+# CSS unicode-range values contain hexadecimal code points.
+extend-ignore-re = ["\\b[Uu]\\+[0-9A-Fa-f]{1,6}(?:-[0-9A-Fa-f]{1,6})?\\b"]
+
 [files]
 extend-exclude = [
 	"server/tests/unit/fixtures",
