@@ -242,6 +242,7 @@ import OmniPlayer from "@/components/players/OmniPlayer.vue";
 import Chat from "@/components/Chat.vue";
 import UserList from "@/components/UserList.vue";
 import VideoQueue from "@/components/VideoQueue.vue";
+import { useGoTo } from "vuetify";
 import RoomSettingsForm from "@/components/RoomSettingsForm.vue";
 import ShareInvite from "@/components/ShareInvite.vue";
 import ClientSettingsDialog from "@/components/ClientSettingsDialog.vue";
@@ -298,6 +299,7 @@ export default defineComponent({
 		const { t } = useI18n();
 		const router = useRouter();
 		const route = useRoute();
+		const goTo = useGoTo();
 
 		// video control visibility
 		const controlsVisible = ref(true);

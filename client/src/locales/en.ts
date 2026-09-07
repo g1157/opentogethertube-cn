@@ -314,6 +314,7 @@ export default {
 		"permissions-not-available": "Permissions are not available in temporary rooms.",
 		"room-needs-owner": "This room needs an owner before permissions can be modified.",
 		"login-to-claim": "Log in to claim this room.",
+		claim: "Claim room",
 		"arent-able-to-modify-permissions": "You aren't able to modify permissions in this room.",
 		"settings-applied": "Settings applied",
 		"now-own-the-room": "You now own the room {room}.",

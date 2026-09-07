@@ -130,7 +130,7 @@
 					@click="claimOwnership"
 					data-cy="claim"
 				>
-					Claim Room
+					{{ $t("room-settings.claim") }}
 				</v-btn>
 				<v-btn
 					size="x-large"

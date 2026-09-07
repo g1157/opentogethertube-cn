@@ -307,6 +307,7 @@ export default {
 		"permissions-not-available": "临时房间中无法使用权限设置。",
 		"room-needs-owner": "此房间需要先有一个房主，才能修改权限。",
 		"login-to-claim": "登录以认领此房间。",
+		claim: "认领房间",
 		"arent-able-to-modify-permissions": "你无法修改此房间的权限。",
 		"settings-applied": "设置已应用",
 		"now-own-the-room": "你现在拥有房间 {room}。",

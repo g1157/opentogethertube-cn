@@ -12,6 +12,8 @@ services:
     build:
       context: ./source
       dockerfile: deploy/next.Dockerfile
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-unknown}
     restart: unless-stopped
     ports:
       - "18080:8080"
