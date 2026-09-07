@@ -862,6 +862,7 @@ export class Room implements RoomState {
 
 	throttledSync = _.debounce(
 		() =>
+			// eslint-disable-next-line promise/prefer-await-to-then -- Debounced background saves must handle their own rejection.
 			this.sync().catch(error => {
 				// syncDirty retains the checkpoint; the room manager will retry it.
 				this.log.error(`Background room checkpoint failed: ${error}`);

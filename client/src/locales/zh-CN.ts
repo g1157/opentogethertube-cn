@@ -2,6 +2,10 @@ import { BehaviorOption, OttWebsocketError, Role } from "ott-common/models/types
 
 export default {
 	common: {
+		retry: "重试",
+		"nav-menu": "导航菜单",
+		"skip-content": "跳到内容",
+		more: "更多",
 		language: "语言",
 		yes: "是",
 		no: "否",
@@ -41,9 +45,10 @@ export default {
 	},
 	landing: {
 		hero: {
-			title: "一起享受观影。",
+			eyebrow: "下一场观影，和朋友一起",
+			title: "好电影，一起看。",
 			description:
-				"实时同步播放。可选的投票系统。\n深色主题。无需注册。完全开源。\n和朋友一起看视频，从未如此简单。",
+				"创建一个房间，分享一条链接。和朋友同步播放、边看边聊，把相聚留给每一个好故事。",
 			btns: {
 				create: "@:nav.create.title",
 				browse: "浏览房间",
@@ -66,7 +71,7 @@ export default {
 			},
 			"permanent-rooms": {
 				title: "永久房间",
-				text: "你和小伙伴常来？省去每次\n都要发新链接的麻烦。永久房间\n拥有不会改变的专属网址。",
+				text: "保存当前视频、播放进度和待播列表。离开时自动暂停，下次回到同一个房间继续看。",
 			},
 			"dark-theme": {
 				title: "深色主题",
@@ -96,6 +101,8 @@ export default {
 		},
 	},
 	footer: {
+		upstream: "上游项目",
+		"download-source": "下载当前版本源码",
 		disclaimer: "免责声明：OpenTogetherTube 项目与 TogetherTube 及 Watch2Gether 无关。",
 		"made-in": "美国制造",
 		"thanks-to": "特别鸣谢",
@@ -120,7 +127,7 @@ export default {
 		account: "账户",
 		faq: "常见问题",
 		bug: "报告 Bug",
-		support: "支持我！",
+		support: "支持上游开发",
 		login: "登录",
 		"link-discord": "关联 Discord",
 		logout: "登出",
@@ -133,6 +140,10 @@ export default {
 		},
 	},
 	"my-rooms": {
+		"owned-eyebrow": "你的放映厅",
+		"no-rooms": "你还没有房间。",
+		"delete-label": "删除房间 {name}",
+		"delete-failed": "删除房间失败，请重试。",
 		"confirm-delete": "永久删除房间“{name}”？此操作无法撤销。",
 	},
 	account: {
@@ -164,6 +175,12 @@ export default {
 		"load-failed": "无法加载账户。",
 	},
 	"room-list": {
+		"browse-eyebrow": "公共放映厅",
+		"empty-eyebrow": "等你开场",
+		"load-failed": "暂时无法加载房间，请重试。",
+		viewers: "{count} 人在线",
+		"permanent-room": "永久房间",
+		enter: "进入房间",
 		"no-rooms": "暂时没有房间…",
 		create: "@:nav.create.title",
 		"no-description": "暂无描述。",

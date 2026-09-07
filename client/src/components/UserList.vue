@@ -27,7 +27,7 @@
 				:counter="USERNAME_LENGTH_MAX"
 			/>
 		</v-list-item>
-		<v-list-item v-for="(user, index) in users" :key="index">
+		<v-list-item v-for="user in users" :key="user.id">
 			<div :class="getUserCssClasses(user)">
 				<span class="name">{{ user.name }}</span>
 				<v-chip class="user-chip" v-if="debugMode" size="x-small">
@@ -74,37 +74,53 @@
 				<v-spacer />
 
 				<div v-if="user.id !== store.state.users.you.id">
-					<v-btn class="user-actions" variant="flat" depressed tile>
-						<v-icon size="small" :icon="mdiWrench" />
-						<v-icon size="small" style="margin-left: 5px" :icon="mdiChevronDown" />
-						<v-menu right offset-y activator="parent">
-							<v-list>
-								<div class="user-promotion">
-									<div v-for="role in 4" :key="user.role + role">
-										<v-list-item
-											@click="promoteUser(user.id, role)"
-											v-if="canUserBePromotedTo(user, role)"
-										>
-											{{
-												user.role > role
-													? $t("room.users.demote")
-													: $t("room.users.promote")
-											}}
-											to {{ $t(`roles.${role}`) }}
-										</v-list-item>
-									</div>
+					<v-menu
+						:model-value="menuUserId === user.id"
+						@update:model-value="open => updateUserMenu(user.id, open)"
+						location="bottom end"
+						:offset="6"
+						:max-width="320"
+						:max-height="360"
+						scroll-strategy="reposition"
+					>
+						<template #activator="{ props: menuProps }">
+							<v-btn
+								class="user-actions"
+								variant="flat"
+								:aria-label="$t('common.more')"
+								v-bind="menuProps"
+							>
+								<v-icon size="small" :icon="mdiWrench" />
+								<v-icon
+									size="small"
+									style="margin-left: 5px"
+									:icon="mdiChevronDown"
+								/>
+							</v-btn>
+						</template>
+						<v-list>
+							<div class="user-promotion">
+								<div v-for="role in 4" :key="user.role + role">
+									<v-list-item
+										@click="promoteUser(user.id, role)"
+										v-if="canUserBePromotedTo(user, role)"
+									>
+										{{
+											user.role > role
+												? $t("room.users.demote")
+												: $t("room.users.promote")
+										}}
+										to {{ $t(`roles.${role}`) }}
+									</v-list-item>
 								</div>
-								<v-list-item
-									@click="kickUser(user.id)"
-									v-if="canSelfKickUser(user)"
-								>
-									<v-list-item-title>
-										{{ $t("room.users.kick") }}
-									</v-list-item-title>
-								</v-list-item>
-							</v-list>
-						</v-menu>
-					</v-btn>
+							</div>
+							<v-list-item @click="kickUser(user.id)" v-if="canSelfKickUser(user)">
+								<v-list-item-title>
+									{{ $t("room.users.kick") }}
+								</v-list-item-title>
+							</v-list-item>
+						</v-list>
+					</v-menu>
 				</div>
 			</div>
 		</v-list-item>
@@ -126,7 +142,7 @@ import {
 	mdiExclamation,
 	mdiPencilOutline,
 } from "@mdi/js";
-import { ref, inject } from "vue";
+import { ref, inject, watch } from "vue";
 import { API } from "@/common-http";
 import { type ClientId, PlayerStatus, type RoomUserInfo } from "ott-common/models/types";
 import { USERNAME_LENGTH_MAX } from "ott-common/constants";
@@ -138,7 +154,7 @@ import { useRoomApi } from "@/util/roomapi";
 import { canKickUser } from "ott-common/userutils";
 import { useGrants } from "./composables/grants";
 
-defineProps<{
+const props = defineProps<{
 	users: RoomUserInfo[];
 }>();
 
@@ -146,6 +162,29 @@ const store = useStore();
 const roomapi = useRoomApi(useConnection());
 const granted = useGrants();
 const debugMode = inject("debugMode", false);
+const menuUserId = ref<ClientId | null>(null);
+watch(
+	() => props.users.map(user => user.id),
+	ids => {
+		if (menuUserId.value && !ids.includes(menuUserId.value)) {
+			menuUserId.value = null;
+		}
+	},
+);
+watch(
+	() => store.state.fullscreen,
+	() => {
+		menuUserId.value = null;
+	},
+);
+
+function updateUserMenu(id: ClientId, open: boolean) {
+	if (open) {
+		menuUserId.value = id;
+	} else if (menuUserId.value === id) {
+		menuUserId.value = null;
+	}
+}
 
 const inputUsername = ref("");
 const showEditName = ref(false);
@@ -250,10 +289,16 @@ function kickUser(clientId: ClientId) {
 	display: flex;
 	flex-direction: row;
 	align-items: center;
+	min-width: 0;
 
 	.name {
 		opacity: 0.6;
 		font-style: italic;
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	> div:last-child {
+		flex-shrink: 0;
 	}
 
 	.role,

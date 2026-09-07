@@ -49,6 +49,17 @@ describe("VideoQueueItem component", () => {
 		expect(wrapper.get(".video-length").text()).toBe("01:40");
 	});
 
+	it("closes a queue menu when fullscreen hides the queue", async () => {
+		const { wrapper, store, router } = mountItem();
+		await router.isReady();
+		await openMenu(wrapper);
+		expect(wrapper.get('[data-cy="btn-menu"]').attributes("aria-expanded")).toBe("true");
+
+		store.commit("SET_FULLSCREEN", true);
+		await flush();
+		expect(wrapper.get('[data-cy="btn-menu"]').attributes("aria-expanded")).toBe("false");
+	});
+
 	it("shows add/remove/play/vote buttons for queue modes", async () => {
 		for (const [queueMode, isPreview, visibleSelectors, hiddenSelectors] of [
 			[

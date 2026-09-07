@@ -95,12 +95,13 @@ const connection = useConnection();
 const roomapi = useRoomApi(connection);
 
 const localDraft = ref("");
+function updateDraft(draft: string) {
+	localDraft.value = draft;
+	emit("update:draft", draft);
+}
 const inputValue = computed({
 	get: () => props.draft ?? localDraft.value,
-	set: value => {
-		localDraft.value = value;
-		emit("update:draft", value);
-	},
+	set: updateDraft,
 });
 const composing = ref(false);
 const stickToBottom = ref(true);
@@ -174,7 +175,9 @@ function enforceStickToBottom() {
 }
 
 function onInputKeyDown(e: KeyboardEvent): void {
-	if (composing.value || e.isComposing || e.keyCode === 229) return;
+	if (composing.value || e.isComposing || e.keyCode === 229) {
+		return;
+	}
 	if (e.key === "Enter") {
 		e.preventDefault();
 		e.stopPropagation();

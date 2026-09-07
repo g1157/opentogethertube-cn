@@ -5,6 +5,10 @@ node_modules
 /logs
 /ts-out
 /target
+**/dist/
+**/ts-out/
+**/coverage/
+*.tsbuildinfo
 .eslintcache
 .pnp.*
 .yarn/*
@@ -26,6 +30,13 @@ node_modules
 *.pem
 *.key
 /backups/
+*.sql.gz
+*.rdb
+*.aof
+/releases/
+/artifacts/
+/release-*.tar.gz
+/source-code.tar.gz
 
 # Log files
 npm-debug.log*
@@ -41,4 +52,16 @@ yarn-error.log*
 *.sln
 *.sw?
 
-.opencode/plans
+# Local agent instructions, editor setup, and private operational records
+/AGENTS.md
+/.agents/
+/.codex/
+/.opencode/
+/.vscode/
+/.devcontainer/
+/.gitpod.yml
+/evidence/
+/verification/
+/opentogethertube-audit-*/
+/AUDIT-REPORT.md
+/PLAYER-INTERACTION-PLAN.md

@@ -233,18 +233,7 @@
 				</div>
 			</div>
 		</v-container>
-		<v-footer>
-			<v-container>
-				<v-row class="center-shit">
-					<router-link to="/privacypolicy" v-if="isOfficialSite()">
-						{{ $t("footer.privacy-policy") }}
-					</router-link>
-				</v-row>
-				<v-row class="center-shit">
-					{{ gitCommit }}
-				</v-row>
-			</v-container>
-		</v-footer>
+		<AppFooter class="room-footer" v-show="!store.state.fullscreen" />
 		<v-overlay
 			class="overlay-disconnected"
 			:model-value="showDisconnectedOverlay"
@@ -313,7 +302,6 @@ import { useSfx } from "@/plugins/sfx";
 import { secondsToTimestamp } from "@/util/timestamp";
 import { useCaptions, useMediaPlayer, usePlaybackRate, useVolume } from "@/components/composables";
 import { useGrants } from "@/components/composables/grants";
-import { isOfficialSite } from "@/util/misc";
 import { PlayerStatus, Visibility } from "ott-common/models/types";
 import { createPlayerFullscreen, PlayerFullscreenKey } from "@/util/player-fullscreen";
 import { PlayerControlsActivityKey, usePlayerControls } from "@/util/player-controls";
@@ -321,6 +309,7 @@ import { createPlayerGestures } from "@/util/player-gestures";
 import { useTemporaryPlaybackSpeed } from "@/util/temporary-playback-speed";
 import { TEMPORARY_PLAYBACK_SPEED } from "ott-common/constants";
 import PlayerShortcutsDialog from "@/components/PlayerShortcutsDialog.vue";
+import AppFooter from "@/components/AppFooter.vue";
 import { nowPlayingDetails } from "@/util/now-playing";
 
 // biome-ignore lint/nursery/noVueOptionsApi: TODO: convert to setup
@@ -343,6 +332,7 @@ export default defineComponent({
 		RestoreQueue,
 		VoteSkip,
 		PlayerShortcutsDialog,
+		AppFooter,
 	},
 	setup() {
 		const store = useStore();
@@ -398,8 +388,11 @@ export default defineComponent({
 			return { VMenu: { attach }, VTooltip: { attach }, VDialog: { attach } };
 		});
 		function setVideoControlsVisibility(visible: boolean) {
-			if (visible) controls.activity();
-			else controls.hide();
+			if (visible) {
+				controls.activity();
+			} else {
+				controls.hide();
+			}
 		}
 		function activateVideoControls() {
 			controls.activity();
@@ -713,7 +706,9 @@ export default defineComponent({
 
 		function seekBounds() {
 			const video = currentSource.value;
-			if (!video || !Number.isFinite(video.length) || (video.length ?? 0) <= 0) return null;
+			if (!video || !Number.isFinite(video.length) || (video.length ?? 0) <= 0) {
+				return null;
+			}
 			const start = 0;
 			const end = Math.min(video.length!, video.endAt ?? video.length!);
 			return end > start ? { start, end } : null;
@@ -723,7 +718,9 @@ export default defineComponent({
 		let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 		function showInteractionNotice(key: string) {
 			interactionNotice.value = t(`player.interactions.${key}`);
-			if (noticeTimer !== null) clearTimeout(noticeTimer);
+			if (noticeTimer !== null) {
+				clearTimeout(noticeTimer);
+			}
 			noticeTimer = setTimeout(() => {
 				interactionNotice.value = "";
 			}, 2000);
@@ -775,7 +772,9 @@ export default defineComponent({
 			onHoldEnd: temporarySpeed.stop,
 		});
 		const gestureHint = computed(() => {
-			if (interactionNotice.value) return interactionNotice.value;
+			if (interactionNotice.value) {
+				return interactionNotice.value;
+			}
 			if (gestures.preview.value) {
 				const { position, delta } = gestures.preview.value;
 				return t("player.interactions.seek-preview", {
@@ -798,7 +797,9 @@ export default defineComponent({
 			temporarySpeed.stop();
 		}
 		function onVisibilityChange() {
-			if (document.hidden) cancelGestures();
+			if (document.hidden) {
+				cancelGestures();
+			}
 		}
 		watch(currentSource, () => {
 			cancelGestures();
@@ -807,11 +808,15 @@ export default defineComponent({
 		watch(
 			() => store.state.room.isPlaying,
 			playing => {
-				if (!playing) cancelGestures();
+				if (!playing) {
+					cancelGestures();
+				}
 			},
 		);
 		watch(connection.connected, connected => {
-			if (!connected) cancelGestures();
+			if (!connected) {
+				cancelGestures();
+			}
 		});
 		onMounted(() => {
 			document.addEventListener("visibilitychange", onVisibilityChange);
@@ -820,7 +825,9 @@ export default defineComponent({
 		});
 		onUnmounted(() => {
 			cancelGestures();
-			if (noticeTimer !== null) clearTimeout(noticeTimer);
+			if (noticeTimer !== null) {
+				clearTimeout(noticeTimer);
+			}
 			document.removeEventListener("visibilitychange", onVisibilityChange);
 			window.removeEventListener("blur", cancelGestures);
 			window.removeEventListener("pagehide", cancelGestures);
@@ -901,8 +908,11 @@ export default defineComponent({
 			shortcutHelp.value = true;
 		});
 		shortcuts.bind({ code: "Escape" }, () => {
-			if (chatOpen.value) chat.value?.setActivated(false);
-			else if (store.state.fullscreen) void fullscreen.exit();
+			if (chatOpen.value) {
+				chat.value?.setActivated(false);
+			} else if (store.state.fullscreen) {
+				void fullscreen.exit();
+			}
 		});
 		shortcuts.bind({ code: "F12", ctrlKey: true, shiftKey: true }, () => {
 			debugMode.value = !debugMode.value;
@@ -971,13 +981,10 @@ export default defineComponent({
 			await sfx.loadSfx();
 		});
 
-		const gitCommit = __COMMIT_HASH__;
-
 		return {
 			store,
 			roomapi,
 			granted,
-			isOfficialSite,
 
 			controlsVisible,
 			controlsHeight,
@@ -1024,7 +1031,6 @@ export default defineComponent({
 			production,
 			debugMode,
 			orientation: orientation.orientation,
-			gitCommit,
 
 			mediaPlaybackBlocked,
 			onClickUnblockPlayback,
@@ -1056,7 +1062,7 @@ $in-video-chat-width-small: 250px;
 
 .video-container {
 	display: grid;
-	grid-template-columns: 1fr auto;
+	grid-template-columns: minmax(0, 1fr) auto;
 	grid-template-rows: minmax(400px, 70vh);
 	width: 100%;
 }
@@ -1066,6 +1072,11 @@ $in-video-chat-width-small: 250px;
 	display: flex;
 	flex-direction: column;
 	height: 100%;
+	min-width: 0;
+	border: 1px solid var(--line-strong);
+	border-radius: 8px;
+	background: #000;
+	box-shadow: var(--shadow-panel);
 }
 
 .player-container {
@@ -1074,6 +1085,8 @@ $in-video-chat-width-small: 250px;
 	min-height: 0;
 	width: 100%;
 	height: 100%;
+	border-radius: inherit;
+	overflow: hidden;
 }
 
 .layout-default {
@@ -1108,6 +1121,8 @@ $in-video-chat-width-small: 250px;
 	height: 100dvh;
 	max-height: none;
 	padding: 0;
+	border: 0;
+	border-radius: 0;
 	background: #000;
 	overflow: hidden;
 	overscroll-behavior: none;
@@ -1207,8 +1222,9 @@ $in-video-chat-width-small: 250px;
 }
 
 .user-invite-container {
-	padding: 0 10px;
-	min-height: 500px;
+	flex: 0 0 340px;
+	max-width: 35%;
+	min-width: 0;
 
 	> * {
 		margin-bottom: 10px;
@@ -1222,10 +1238,6 @@ $in-video-chat-width-small: 250px;
 
 .tab-text {
 	margin: 0 8px;
-
-	@media screen and (max-width: variables.$sm-max) {
-		display: none;
-	}
 }
 
 .playback-blocked-prompt {
@@ -1248,19 +1260,47 @@ $in-video-chat-width-small: 250px;
 }
 
 .room {
-	@media (max-width: variables.$md-max) {
-		padding: 0;
-	}
+	width: 100%;
+	max-width: 1600px;
+	margin: 0 auto;
+	padding: 24px;
 }
 
 .room-header {
 	display: flex;
 	flex-direction: row;
+	flex-wrap: wrap;
 	align-items: center;
-	margin: 0 10px;
-	> * {
-		align-self: flex-end;
+	gap: 12px;
+	margin: 0 0 20px;
+	> .grow {
+		display: none;
 	}
+}
+
+.room-title {
+	position: relative;
+	min-width: 0;
+	padding-left: 16px;
+	font-size: 30px;
+	overflow-wrap: anywhere;
+
+	&::before {
+		content: "";
+		position: absolute;
+		left: 0;
+		top: 0.1em;
+		bottom: 0.1em;
+		width: 4px;
+		background: var(--primary);
+		box-shadow: 0 0 12px var(--primary);
+	}
+}
+
+.room-footer {
+	max-width: 1552px;
+	margin: 40px auto 24px;
+	padding-inline: 24px;
 }
 
 .overlay-disconnected {
@@ -1292,6 +1332,8 @@ $in-video-chat-width-small: 250px;
 
 .under-video-grid {
 	display: flex;
+	gap: 20px;
+	align-items: flex-start;
 	width: 100%;
 
 	@media screen and (max-width: variables.$sm-max) {
@@ -1300,8 +1342,15 @@ $in-video-chat-width-small: 250px;
 }
 
 .under-video-tabs {
-	flex-grow: 1;
-	width: 60%;
+	flex: 1 1 0;
+	min-width: 0;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-lg);
+	background: var(--card);
+
+	> .v-tabs {
+		border-bottom: 1px solid var(--line-strong);
+	}
 
 	@media screen and (max-width: variables.$sm-max) {
 		width: 100%;
@@ -1311,8 +1360,59 @@ $in-video-chat-width-small: 250px;
 .room-status {
 	display: flex;
 	align-items: center;
-	text-transform: uppercase;
-	font-size: 14px;
+	margin-left: auto;
+	font-family: var(--font-mono);
+	font-size: 12px;
 	font-weight: 500;
+	white-space: nowrap;
+}
+
+.room.layout-theater {
+	max-width: none;
+	padding: 0;
+
+	.room-header,
+	.under-video-grid {
+		padding: 16px;
+	}
+}
+
+@media (max-width: variables.$sm-max) {
+	.room {
+		padding: 16px 12px;
+	}
+	.video-container {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: minmax(240px, 56.25vw) auto;
+	}
+	.out-video-chat {
+		width: 100%;
+	}
+	.user-invite-container {
+		flex-basis: auto;
+		width: 100%;
+		max-width: none;
+	}
+}
+
+@media (max-width: variables.$xs-max) {
+	.room-title {
+		flex: 1;
+		font-size: 21px;
+	}
+	.room-status {
+		width: 100%;
+		justify-content: flex-end;
+	}
+	.room-status .room-visibility-badge {
+		margin-right: auto;
+	}
+	.tab-text {
+		margin: 0 4px;
+		font-size: 12px;
+	}
+	.under-video-tabs .v-tab {
+		padding: 0 10px;
+	}
 }
 </style>

@@ -2,6 +2,10 @@ import { BehaviorOption, OttWebsocketError, Role } from "ott-common/models/types
 
 export default {
 	common: {
+		retry: "Retry",
+		"nav-menu": "Navigation",
+		"skip-content": "Skip to content",
+		more: "More",
 		language: "Language",
 		yes: "Yes",
 		no: "No",
@@ -41,6 +45,7 @@ export default {
 	},
 	landing: {
 		hero: {
+			eyebrow: "Your next watch party starts here",
 			title: "Enjoy Together.",
 			description:
 				"Real-time synchronized playback. Optional voting system.\nDark theme. No sign up required. All Open Source.\nIt's never been easier to watch videos together.",
@@ -97,6 +102,8 @@ export default {
 		},
 	},
 	footer: {
+		upstream: "Upstream project",
+		"download-source": "Download source",
 		disclaimer:
 			"Disclaimer: The OpenTogetherTube project is not associated with TogetherTube nor Watch2Gether.",
 		"made-in": "Made in America",
@@ -135,6 +142,10 @@ export default {
 		},
 	},
 	"my-rooms": {
+		"owned-eyebrow": "YOUR SCREENINGS",
+		"no-rooms": "You have no rooms yet.",
+		"delete-label": "Delete room {name}",
+		"delete-failed": "Unable to delete this room. Please try again.",
 		"confirm-delete": 'Permanently delete room "{name}"? This cannot be undone.',
 	},
 	account: {
@@ -166,6 +177,12 @@ export default {
 		"load-failed": "Unable to load account.",
 	},
 	"room-list": {
+		"browse-eyebrow": "PUBLIC SCREENINGS",
+		"empty-eyebrow": "THE SCREEN IS YOURS",
+		"load-failed": "Unable to load rooms. Please try again.",
+		viewers: "{count} in room",
+		"permanent-room": "Permanent room",
+		enter: "Enter room",
 		"no-rooms": "No rooms right now...",
 		create: "@:nav.create.title",
 		"no-description": "No description.",

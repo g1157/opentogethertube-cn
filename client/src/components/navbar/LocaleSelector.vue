@@ -1,7 +1,19 @@
 <template>
 	<v-select
-		variant="solo"
-		style="margin-top: 5px; width: 140px"
+		class="locale-selector"
+		variant="outlined"
+		density="compact"
+		hide-details
+		:menu-props="{
+			minWidth: 160,
+			maxWidth: 320,
+			maxHeight: 320,
+			location: 'bottom end',
+			offset: 6,
+			scrollStrategy: 'reposition',
+		}"
+		:menu="menuOpen"
+		@update:menu="menuOpen = $event"
 		:aria-label="$t('common.language')"
 		item-title="text"
 		:items="locales"
@@ -10,7 +22,8 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, watch } from "vue";
+import { onUnmounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { loadLanguageAsync } from "@/i18n";
 import { useStore } from "@/store";
 
@@ -46,6 +59,11 @@ const locales = [
 ];
 
 const store = useStore();
+const route = useRoute();
+const menuOpen = ref(false);
+watch([() => store.state.fullscreen, () => route.fullPath], () => {
+	menuOpen.value = false;
+});
 const locale = ref(store.state.settings.locale);
 
 const setLocale = async (locale: string) => {
@@ -58,9 +76,18 @@ watch(locale, (newLocale: string) => {
 });
 
 // HACK: because for some reason, the locale ref is not updated when the store is updated
-store.subscribe(mutation => {
+const unsubscribe = store.subscribe(mutation => {
 	if (mutation.type === "settings/UPDATE") {
 		locale.value = store.state.settings.locale;
 	}
 });
+onUnmounted(unsubscribe);
 </script>
+
+<style scoped>
+.locale-selector {
+	width: 132px;
+	flex: 0 0 132px;
+	font-size: 0.85rem;
+}
+</style>

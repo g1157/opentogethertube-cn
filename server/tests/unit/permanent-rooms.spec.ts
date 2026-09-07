@@ -152,21 +152,25 @@ describe("permanent room persistence", () => {
 	});
 
 	it.each([
-		"false result",
-		"rejected write",
-	])("keeps a failed checkpoint dirty and saves the latest queue on retry: %s", async failure => {
-		const room = await createRoom("retry-failed-checkpoint");
-		await room.sync();
+		{ failure: "false result", failWrite: () => Promise.resolve(false) },
+		{
+			failure: "rejected write",
+			failWrite: () => Promise.reject(new Error("test database outage")),
+		},
+	])("keeps a failed checkpoint dirty and saves the latest queue on retry: $failure", async ({
+		failWrite,
+	}) => {
+		const room = new Room({ name: "retry-failed-checkpoint" });
+		rooms.push(room);
+		// Disable background saves before the first await: cancel cannot stop an already
+		// queued sync from consuming this test's dirty fields under database contention.
 		room.throttledSync.cancel();
+		vi.spyOn(room, "throttledSync").mockReturnValue(undefined);
+		expect(await storage.saveRoom(room)).toBe(true);
+		await room.sync();
 		room.currentSource = { service: "direct", id: "first.mp4", length: 120 };
 		await room.queue.enqueue({ service: "direct", id: "second.mp4", length: 120 });
-		room.throttledSync.cancel();
-		const update = vi.spyOn(storage, "updateRoom");
-		if (failure === "false result") {
-			update.mockResolvedValueOnce(false);
-		} else {
-			update.mockRejectedValueOnce(new Error("test database outage"));
-		}
+		vi.spyOn(storage, "updateRoom").mockImplementationOnce(failWrite);
 		await expect(room.sync()).rejects.toThrow();
 		expect(room._dirty.has("currentSource")).toBe(true);
 		expect(room._dirty.has("queue")).toBe(true);

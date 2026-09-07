@@ -272,11 +272,12 @@ describe("room player interactions", () => {
 		await settings.get("button").trigger("click");
 		await vi.advanceTimersByTimeAsync(4000);
 		expect(page.wrapper.get(".video-controls").classes()).not.toContain("hide");
-		await settings.findAll(".swipe-step-options button")[2].trigger("click");
+		document.querySelectorAll<HTMLButtonElement>(".swipe-step-options button")[2].click();
+		await nextTick();
 		expect(page.store.state.settings.swipeSeekSeconds).toBe(30);
 		key("Escape");
 		await nextTick();
-		expect(settings.find(".settings-menu-container").exists()).toBe(false);
+		expect(document.querySelector(".settings-menu-container")).toBeNull();
 	});
 
 	it.each([

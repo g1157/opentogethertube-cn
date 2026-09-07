@@ -1,7 +1,16 @@
 <template>
-	<v-menu offset-y v-if="store.state.user">
+	<v-menu
+		v-if="store.state.user"
+		v-model="menuOpen"
+		location="bottom end"
+		:offset="8"
+		:max-width="320"
+		:max-height="360"
+		scroll-strategy="reposition"
+	>
 		<template v-slot:activator="{ props }">
 			<v-btn
+				class="nav-user"
 				variant="text"
 				v-bind="props"
 				:key="store.state.user.username"
@@ -22,15 +31,43 @@
 			</v-list-item>
 		</v-list>
 	</v-menu>
-	<v-btn variant="text" @click="$emit('login')" data-cy="user-logged-out" v-else>
+	<v-btn class="nav-user" variant="text" @click="$emit('login')" data-cy="user-logged-out" v-else>
 		{{ $t("nav.login") }}
 	</v-btn>
 </template>
 
 <script lang="ts" setup>
+import { ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { goLoginDiscord } from "@/util/discord";
 import { useStore } from "@/store";
 
 defineEmits(["login", "logout"]);
 const store = useStore();
+const route = useRoute();
+const menuOpen = ref(false);
+watch(
+	[() => store.state.fullscreen, () => store.state.user?.username, () => route.fullPath],
+	() => {
+		menuOpen.value = false;
+	},
+);
 </script>
+
+<style scoped>
+.nav-user {
+	max-width: 160px;
+}
+/* biome-ignore lint/correctness/noUnknownPseudoClass: Vue scoped styles support :deep. */
+.nav-user :deep(.v-btn__content) {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+@media (max-width: 959px) {
+	.nav-user {
+		max-width: 80px;
+	}
+}
+</style>

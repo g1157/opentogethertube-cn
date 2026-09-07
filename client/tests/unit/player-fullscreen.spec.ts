@@ -19,6 +19,7 @@ describe("player fullscreen", () => {
 			configurable: true,
 			get: () => nativeElement,
 		});
+		// eslint-disable-next-line vitest/prefer-spy-on -- jsdom does not provide this native API.
 		document.exitFullscreen = vi.fn(async () => {
 			nativeElement = null;
 			document.dispatchEvent(new Event("fullscreenchange"));
@@ -38,6 +39,7 @@ describe("player fullscreen", () => {
 	});
 
 	it("requests native fullscreen for the player and restores the page on browser exit", async () => {
+		// eslint-disable-next-line vitest/prefer-spy-on -- jsdom does not provide this native API.
 		target.requestFullscreen = vi.fn(async () => {
 			nativeElement = target;
 			document.dispatchEvent(new Event("fullscreenchange"));
@@ -72,6 +74,7 @@ describe("player fullscreen", () => {
 	});
 
 	it("falls back when the browser rejects fullscreen and still supports the exit button", async () => {
+		// eslint-disable-next-line vitest/prefer-spy-on -- jsdom does not provide this native API.
 		target.requestFullscreen = vi.fn().mockRejectedValue(new Error("Not allowed"));
 		await expect(controller.toggle()).resolves.toBeUndefined();
 		expect(onChange).toHaveBeenLastCalledWith(true);
@@ -95,6 +98,7 @@ describe("player fullscreen", () => {
 
 	it("exits a delayed native request if the room is left before it completes", async () => {
 		let completeRequest: () => void = () => undefined;
+		// eslint-disable-next-line vitest/prefer-spy-on -- jsdom does not provide this native API.
 		target.requestFullscreen = vi.fn(
 			() =>
 				new Promise<void>(resolve => {

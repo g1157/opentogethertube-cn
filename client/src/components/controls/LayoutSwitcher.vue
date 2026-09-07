@@ -13,7 +13,7 @@
 			:icon="mdiSquareOutline"
 		/>
 		<v-icon v-else style="transform: scaleX(130%)" :icon="mdiSquareOutline" />
-		<v-tooltip activator="parent" location="bottom" v-model="layoutTooltip">
+		<v-tooltip activator="parent" location="top" v-model="layoutTooltip" :disabled="!canHover">
 			<span>{{
 				$t(
 					store.state.settings.roomLayout === "theater"
@@ -31,7 +31,12 @@
 		:aria-label="$t('room.toggle-fullscreen')"
 	>
 		<v-icon :icon="store.state.fullscreen ? mdiFullscreenExit : mdiFullscreen" />
-		<v-tooltip activator="parent" location="bottom">
+		<v-tooltip
+			activator="parent"
+			location="top"
+			v-model="fullscreenTooltip"
+			:disabled="!canHover"
+		>
 			<span>{{ $t("room.toggle-fullscreen") }}</span>
 		</v-tooltip>
 	</v-btn>
@@ -39,7 +44,8 @@
 
 <script lang="ts" setup>
 import { mdiSquareOutline, mdiFullscreen, mdiFullscreenExit } from "@mdi/js";
-import { computed, inject, shallowRef } from "vue";
+import { inject, shallowRef, watch } from "vue";
+import { useMediaQuery } from "@vueuse/core";
 import { useStore } from "@/store";
 import { RoomLayoutMode } from "@/stores/settings";
 import { PlayerFullscreenKey } from "@/util/player-fullscreen";
@@ -47,12 +53,17 @@ import { PlayerFullscreenKey } from "@/util/player-fullscreen";
 const store = useStore();
 const fullscreen = inject(PlayerFullscreenKey);
 const layoutTooltip = shallowRef(false);
+const fullscreenTooltip = shallowRef(false);
+const canHover = useMediaQuery("(hover: hover) and (pointer: fine)");
+const isMobile = useMediaQuery("(max-width: 760px)");
 
-const isMobile = computed(() => {
-	return window.matchMedia("only screen and (max-width: 760px)").matches;
+watch([isMobile, () => store.state.fullscreen], () => {
+	layoutTooltip.value = false;
+	fullscreenTooltip.value = false;
 });
 
 function toggleFullscreen() {
+	fullscreenTooltip.value = false;
 	void fullscreen?.toggle();
 }
 
