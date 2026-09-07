@@ -2,10 +2,10 @@
 	<v-btn
 		variant="text"
 		icon
-		v-if="!isMobile"
+		v-if="!isMobile && !store.state.fullscreen"
 		@click="rotateRoomLayout"
 		class="media-control"
-		aria-label="Switch Layout"
+		:aria-label="$t('room.theater-mode')"
 	>
 		<v-icon
 			v-if="store.state.settings.roomLayout === 'theater'"
@@ -30,7 +30,7 @@
 		class="media-control"
 		:aria-label="$t('room.toggle-fullscreen')"
 	>
-		<v-icon :icon="mdiFullscreenExit" />
+		<v-icon :icon="store.state.fullscreen ? mdiFullscreenExit : mdiFullscreen" />
 		<v-tooltip activator="parent" location="bottom">
 			<span>{{ $t("room.toggle-fullscreen") }}</span>
 		</v-tooltip>
@@ -38,13 +38,15 @@
 </template>
 
 <script lang="ts" setup>
-import { mdiSquareOutline, mdiFullscreenExit } from "@mdi/js";
-import { computed, onMounted, shallowRef } from "vue";
+import { mdiSquareOutline, mdiFullscreen, mdiFullscreenExit } from "@mdi/js";
+import { computed, inject, onMounted, shallowRef } from "vue";
 import { useStore } from "@/store";
 import { RoomLayoutMode } from "@/stores/settings";
 import { useRoomKeyboardShortcuts } from "@/util/keyboard-shortcuts";
+import { PlayerFullscreenKey } from "@/util/player-fullscreen";
 
 const store = useStore();
+const fullscreen = inject(PlayerFullscreenKey);
 const layoutTooltip = shallowRef(false);
 
 const isMobile = computed(() => {
@@ -52,18 +54,7 @@ const isMobile = computed(() => {
 });
 
 function toggleFullscreen() {
-	if (document.fullscreenElement) {
-		document.exitFullscreen();
-	} else {
-		document.documentElement.requestFullscreen();
-		if (isMobile.value) {
-			// force the device into landscape mode to get the user to rotate the device
-			// but still allow exiting fullscreen by rotating the device back to portrait
-			if (screen.orientation) {
-				screen.orientation.lock("landscape").then(() => screen.orientation.unlock());
-			}
-		}
-	}
+	void fullscreen?.toggle();
 }
 
 function rotateRoomLayout() {

@@ -43,7 +43,7 @@
 				</div>
 			</div>
 			<div class="video-container">
-				<div class="video-subcontainer">
+				<div class="video-subcontainer" ref="fullscreenContainer">
 					<div class="player-container" ref="playerContainer">
 						<OmniPlayer
 							:source="store.state.room.currentSource"
@@ -67,13 +67,15 @@
 							</v-btn>
 						</div>
 					</div>
-					<VideoControls
-						:slider-position="sliderPosition"
-						:true-position="truePosition"
-						:controls-visible="controlsVisible"
-						:key="currentSource?.id"
-						:mode="controlsMode"
-					/>
+					<v-defaults-provider :defaults="fullscreenOverlayDefaults">
+						<VideoControls
+							:slider-position="sliderPosition"
+							:true-position="truePosition"
+							:controls-visible="controlsVisible"
+							:key="currentSource?.id"
+							:mode="controlsMode"
+						/>
+					</v-defaults-provider>
 				</div>
 				<div
 					class="out-video-chat"
@@ -82,11 +84,11 @@
 					<Chat ref="chat" @link-click="setAddPreviewText" />
 				</div>
 			</div>
-			<div class="banners">
+			<div class="banners" v-show="!store.state.fullscreen">
 				<RestoreQueue />
 				<VoteSkip />
 			</div>
-			<div class="under-video-grid">
+			<div class="under-video-grid" v-show="!store.state.fullscreen">
 				<div class="under-video-tabs">
 					<v-tabs fixed-tabs v-model="queueTab" color="primary">
 						<v-tab>
@@ -240,7 +242,6 @@ import OmniPlayer from "@/components/players/OmniPlayer.vue";
 import Chat from "@/components/Chat.vue";
 import UserList from "@/components/UserList.vue";
 import VideoQueue from "@/components/VideoQueue.vue";
-import { useGoTo } from "vuetify";
 import RoomSettingsForm from "@/components/RoomSettingsForm.vue";
 import ShareInvite from "@/components/ShareInvite.vue";
 import ClientSettingsDialog from "@/components/ClientSettingsDialog.vue";
@@ -266,6 +267,7 @@ import { useCaptions, useMediaPlayer, useVolume } from "@/components/composables
 import { useGrants } from "@/components/composables/grants";
 import { isOfficialSite } from "@/util/misc";
 import { Visibility } from "ott-common/models/types";
+import { createPlayerFullscreen, PlayerFullscreenKey } from "@/util/player-fullscreen";
 
 const VIDEO_CONTROLS_HIDE_TIMEOUT = 3000;
 
@@ -301,6 +303,17 @@ export default defineComponent({
 		const controlsVisible = ref(true);
 		const videoControlsHideTimeout = ref<ReturnType<typeof setTimeout> | null>(null);
 		const playerContainer = useTemplateRef<HTMLDivElement>("playerContainer");
+		const fullscreenContainer = useTemplateRef<HTMLDivElement>("fullscreenContainer");
+		const fullscreen = createPlayerFullscreen(
+			() => fullscreenContainer.value,
+			active => store.commit("SET_FULLSCREEN", active),
+		);
+		provide(PlayerFullscreenKey, fullscreen);
+		onUnmounted(() => fullscreen.dispose());
+		const fullscreenOverlayDefaults = computed(() => {
+			const attach = store.state.fullscreen ? fullscreenContainer.value : false;
+			return { VMenu: { attach }, VTooltip: { attach }, VDialog: { attach } };
+		});
 		const mouse = useMouseInElement(playerContainer);
 		const isIframeBasedPlayer = ref(false);
 
@@ -404,6 +417,11 @@ export default defineComponent({
 			connection.connected.value ? "success" : "warning",
 		);
 		const showDisconnectedOverlay = computed(() => !!connection.kickReason.value);
+		watch(showDisconnectedOverlay, disconnected => {
+			if (disconnected) {
+				void fullscreen.exit();
+			}
+		});
 
 		function rewriteUrlToRoomName() {
 			if (store.state.room.name.length === 0) {
@@ -597,7 +615,6 @@ export default defineComponent({
 		const queueTab = ref(0);
 		const roomSettingsForm = ref<typeof RoomSettingsForm | null>(null);
 
-		const goTo = useGoTo();
 		onMounted(() => {
 			if (!orientation.isSupported.value) {
 				return;
@@ -609,14 +626,9 @@ export default defineComponent({
 				}
 				if (isMobile.value) {
 					if (newOrientation.startsWith("landscape")) {
-						// this promise is rejected if the fullscreen request is denied
-						await document.documentElement.requestFullscreen();
-						goTo(0, {
-							duration: 250,
-							easing: "easeInOutCubic",
-						});
+						await fullscreen.enter();
 					} else {
-						document.exitFullscreen();
+						await fullscreen.exit();
 					}
 				}
 			});
@@ -763,6 +775,7 @@ export default defineComponent({
 			isOfficialSite,
 
 			controlsVisible,
+			fullscreenOverlayDefaults,
 			videoControlsHideTimeout,
 			controlsMode,
 
@@ -865,26 +878,28 @@ $in-video-chat-width-small: 250px;
 	}
 }
 
-.fullscreen {
+.video-subcontainer.player-fullscreen {
+	position: fixed;
+	inset: 0;
+	z-index: 3000;
+	width: 100%;
+	height: 100vh;
+	height: 100dvh;
+	max-height: none;
 	padding: 0;
-
-	.video-container {
-		display: block;
-		margin: 0;
-		height: 100vh;
-		max-height: 100vh;
-		aspect-ratio: inherit;
-		width: 100vw;
-	}
-
-	.video-subcontainer {
-		width: 100%;
-		max-height: 100vh;
-		padding: 0;
-	}
+	background: #000;
+	overflow: hidden;
+	overscroll-behavior: none;
 
 	.player-container {
-		height: 100vh;
+		position: relative;
+		flex: 1 1 0;
+		min-height: 0;
+		height: auto;
+	}
+
+	.video-controls-wrapper {
+		flex: 0 0 auto;
 	}
 }
 

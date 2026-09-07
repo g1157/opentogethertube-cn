@@ -3,11 +3,8 @@
 FROM node:22-alpine3.22 AS dep-install-stage
 
 WORKDIR /app
-ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
-ENV YARN_NPM_REGISTRY_SERVER=https://registry.npmmirror.com
-RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.ustc.edu.cn|g' /etc/apk/repositories
-RUN apk update -q && apk --no-cache add libc6-compat python3 make g++ autoconf automake libtool -q
 RUN corepack enable
+RUN apk update -q && apk --no-cache add libc6-compat python3 make g++ autoconf automake libtool -q
 COPY package.json yarn.lock .yarnrc.yml ./
 COPY .yarn .yarn
 COPY common/package.json common/
@@ -20,9 +17,6 @@ ARG GIT_COMMIT
 ENV GIT_COMMIT=$GIT_COMMIT
 
 WORKDIR /app
-ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
-ENV YARN_NPM_REGISTRY_SERVER=https://registry.npmmirror.com
-RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.ustc.edu.cn|g' /etc/apk/repositories
 RUN apk update -q && apk --no-cache add libc6-compat python3 make g++ autoconf automake libtool -q
 RUN corepack enable
 COPY tsconfig.json ./
@@ -48,7 +42,6 @@ FROM node:22-alpine3.22 AS docker-stage
 WORKDIR /app
 ENV NODE_ENV production
 ENV FFPROBE_PATH /usr/bin/ffprobe
-RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.ustc.edu.cn|g' /etc/apk/repositories
 RUN apk update -q && apk --no-cache add curl ffmpeg -q
 RUN corepack enable
 COPY docker/scripts/wait_for_db.sh /app/wait_for_db.sh

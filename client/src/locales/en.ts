@@ -131,7 +131,7 @@ export default {
 			temp: "Create Temporary Room",
 			"temp-desc": "Start watching videos with your friends ASAP.",
 			perm: "Create Permanent Room",
-			"perm-desc": "Perfect for frequent visitors.",
+			"perm-desc": "Pause when empty and restore the saved video and queue when you return.",
 		},
 	},
 	"my-rooms": {

@@ -1,0 +1,91 @@
+name: ott-next
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  ott:
+    image: ott-next:0.15.0-cn1
+    build:
+      context: ./source
+      dockerfile: deploy/next.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "18080:8080"
+    environment:
+      NODE_ENV: production
+      OTT_INSTANCE_ID: ott-next
+      DOCKER: "1"
+      PORT: "8080"
+      OTT_HOSTNAME: "150.158.143.199:18080"
+      FORCE_INSECURE_COOKIES: "true"
+      AUTH_COOKIE_NAME: ott_next_token
+      SESSION_COOKIE_NAME: ott_next_sid
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      OPENTOGETHERTUBE_API_KEY: ${ADMIN_API_KEY:?ADMIN_API_KEY is required}
+      TRUST_PROXY: "0"
+      DB_MODE: postgres
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ott
+      POSTGRES_USER: ott
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      DATABASE_URL: postgres://ott:${POSTGRES_PASSWORD}@postgres:5432/ott
+      REDIS_URL: redis://redis:6379
+      NODE_OPTIONS: --max-old-space-size=384
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 30s
+    logging: *logging
+
+  postgres:
+    image: postgres:15-bullseye
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ott
+      POSTGRES_USER: ott
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    command: [postgres, -c, shared_buffers=64MB, -c, max_connections=50]
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U ott -d ott"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    mem_limit: 384m
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    pull_policy: never
+    restart: unless-stopped
+    command: [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory, 128mb, --maxmemory-policy, noeviction]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    mem_limit: 192m
+    logging: *logging
+
+volumes:
+  pg-data:
+  redis-data:

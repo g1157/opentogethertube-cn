@@ -7,7 +7,7 @@ import dayjs from "dayjs";
 import { RoomNotFoundException } from "../../exceptions.js";
 import storage from "../../storage.js";
 import { VideoQueue } from "../../../server/videoqueue.js";
-import { buildClients } from "../../redisclient.js";
+import { buildClients, redisClient } from "../../redisclient.js";
 import { UnloadReason } from "../../generated.js";
 
 describe("Room manager", () => {
@@ -115,7 +115,7 @@ describe("Room manager", () => {
 			expect(loadedRoom.realPlaybackPosition).toBeCloseTo(20, 1);
 		});
 
-		it("should preserve empty prevQueue on unload and reload when current queue is empty", async () => {
+		it("should preserve saved links when an empty permanent room unloads before restoration", async () => {
 			const roomName = "test-prevqueue-empty";
 			try {
 				await roommanager.createRoom({ name: roomName, isTemporary: false });
@@ -131,18 +131,37 @@ describe("Room manager", () => {
 				expect(dbRoom).not.toBeNull();
 				expect(dbRoom?.prevQueue).toEqual([{ service: "direct", id: "foo" }]);
 
-				// prevQueue becomes null in "room.onBeforeUnload()" if prevQueue.length is 0
+				// Leaving an empty room must not discard the saved queue awaiting restoration.
 				await roommanager.unloadRoom(roomName, UnloadReason.Keepalive);
 
 				dbRoom = await DbRoom.findOne({ where: { name: roomName } });
 				expect(dbRoom).not.toBeNull();
-				expect(dbRoom?.prevQueue).toBeNull();
+				expect(dbRoom?.prevQueue).toEqual([{ service: "direct", id: "foo" }]);
 
 				const loaded = (await roommanager.getRoom(roomName)).unwrap();
 				expect(loaded.prevQueue).toBeNull();
+				expect(loaded.queue.items.map(item => item.id)).toEqual(["foo"]);
 			} finally {
 				await DbRoom.destroy({ where: { name: roomName } });
 			}
+		});
+
+		it("should preserve redis state when commanded to unload", async () => {
+			const roomName = "test-commanded-unload-preserve-redis";
+			await roommanager.createRoom({ name: roomName, isTemporary: true });
+			const room = (await roommanager.getRoom(roomName)).unwrap();
+			await room.queue.enqueue({ service: "direct", id: "video" });
+			await room.sync();
+			await room.saveStateToRedisDebounced.flush();
+
+			expect(await redisClient.exists(`room:${roomName}`)).toEqual(1);
+
+			await roommanager.unloadRoom(roomName, UnloadReason.Commanded);
+
+			expect(await redisClient.exists(`room:${roomName}`)).toEqual(1);
+
+			const loaded = (await roommanager.getRoom(roomName)).unwrap();
+			expect(loaded.queue.items).toEqual([{ service: "direct", id: "video" }]);
 		});
 	});
 

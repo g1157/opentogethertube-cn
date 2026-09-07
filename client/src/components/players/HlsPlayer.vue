@@ -240,24 +240,6 @@ function loadVideoSource() {
 	hls?.destroy();
 	hls = undefined;
 
-	// Use hls.js wherever it's supported (Chrome, Firefox, and desktop Safari — all have
-	// Media Source Extensions). Only fall back to the browser's native HLS when hls.js is
-	// unsupported, i.e. iOS Safari (no MSE). Forcing native HLS on desktop Safari made this
-	// CDN reject the manifest (CORS/404), while hls.js works there fine.
-	if (!Hls.isSupported() && videoElem.value.canPlayType("application/vnd.apple.mpegurl")) {
-		console.info("HlsPlayer: using native HLS playback (no MSE / iOS)");
-		// native HLS doesn't need CORS for plain playback, and the crossorigin attribute can
-		// make Safari reject the stream, so drop it on this path.
-		videoElem.value.removeAttribute("crossorigin");
-		videoElem.value.src = videoUrl.value;
-		emit("apiready");
-		emit("ready");
-		videoElem.value
-			.play()
-			.catch(e => console.warn("HlsPlayer: native HLS play() was blocked:", e));
-		return;
-	}
-
 	hls = new Hls();
 
 	hls.loadSource(videoUrl.value);

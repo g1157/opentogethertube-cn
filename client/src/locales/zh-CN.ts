@@ -87,8 +87,7 @@ export default {
 		},
 		support: {
 			title: "支持开发",
-			description1:
-				"没有像你这样的贡献者和支持者的帮助，OpenTogetherTube 就不可能实现。",
+			description1: "没有像你这样的贡献者和支持者的帮助，OpenTogetherTube 就不可能实现。",
 			description2:
 				"通过贡献你的想法或代码来参与开发，或成为赞助者来表达支持。所有捐款都用于支付托管费用、OpenTogetherTube 的开发，以及保持 OpenTogetherTube 无广告。",
 			how: "我能帮上什么忙？",
@@ -97,8 +96,7 @@ export default {
 		},
 	},
 	footer: {
-		disclaimer:
-			"免责声明：OpenTogetherTube 项目与 TogetherTube 及 Watch2Gether 无关。",
+		disclaimer: "免责声明：OpenTogetherTube 项目与 TogetherTube 及 Watch2Gether 无关。",
 		"made-in": "美国制造",
 		"thanks-to": "特别鸣谢",
 		"privacy-policy": "隐私政策",
@@ -131,7 +129,7 @@ export default {
 			temp: "创建临时房间",
 			"temp-desc": "尽快和朋友一起看视频。",
 			perm: "创建永久房间",
-			"perm-desc": "适合常来的人。",
+			"perm-desc": "空房自动暂停，保存视频和待播列表，再次进入时恢复。",
 		},
 	},
 	"my-rooms": {
@@ -245,8 +243,7 @@ export default {
 		messages: {
 			"unknown-status": "添加预览响应的未知状态：{status}。",
 			"unknown-error": "获取添加预览时发生未知错误。请稍后重试。",
-			"failed-to-get-add-preview":
-				"获取添加预览失败。这可能是个 Bug，请查看控制台了解详情。",
+			"failed-to-get-add-preview": "获取添加预览失败。这可能是个 Bug，请查看控制台了解详情。",
 			"failed-to-all-videos": "添加所有视频失败：{message}",
 		},
 		"adapter-selector": {
@@ -265,8 +262,7 @@ export default {
 		"export-hint": "复制并粘贴此文本到“添加”标签页，即可恢复此队列。",
 		restore: "你想恢复上一个队列中的视频吗？",
 		"restore-queue": "恢复队列？",
-		"restore-queue-hint":
-			"这是上次该房间活跃时队列中的内容。你想恢复它吗？",
+		"restore-queue-hint": "这是上次该房间活跃时队列中的内容。你想恢复它吗？",
 	},
 	"video-queue-item": {
 		experimental: "此服务为实验性支持！预计会经常出问题。",
@@ -293,15 +289,13 @@ export default {
 		unlisted: "@:create-room-form.unlisted",
 		"queue-mode": "@:create-room-form.queue-mode",
 		manual: "@:create-room-form.manual",
-		"manual-hint":
-			"默认的常规行为，符合你的预期。你可以手动重新排列队列中的项目。",
+		"manual-hint": "默认的常规行为，符合你的预期。你可以手动重新排列队列中的项目。",
 		vote: "@:common.vote",
 		"vote-hint": "得票最高的视频将被下一个播放。",
 		loop: "循环",
 		"loop-hint": "视频结束时，把它放到队列末尾。",
 		dj: "DJ",
-		"dj-hint":
-			"视频结束时，从头开始播放同一视频。适合循环播放背景音乐。",
+		"dj-hint": "视频结束时，从头开始播放同一视频。适合循环播放背景音乐。",
 		"auto-skip-text": "使用 SponsorBlock 数据自动跳过不需要的视频片段。",
 		"auto-skip-text-sponsor": "赞助",
 		"auto-skip-text-intro": "片头",
@@ -343,8 +337,7 @@ export default {
 				"name-required": "名称为必填项",
 				"no-spaces": "名称不能包含空格。",
 				length: "名称长度必须在 3 到 32 个字符之间",
-				alphanumeric:
-					"名称只能包含字母数字字符、连字符和下划线",
+				alphanumeric: "名称只能包含字母数字字符、连字符和下划线",
 				taken: "名称已被占用",
 			},
 			"invalid-visibility": "无效的可见性",
@@ -361,8 +354,7 @@ export default {
 		username: "用户名",
 		password: "密码",
 		"retype-password": "再次输入密码",
-		"email-optional":
-			"可选。提供邮箱后，如果你忘记密码，可以用它恢复账户。",
+		"email-optional": "可选。提供邮箱后，如果你忘记密码，可以用它恢复账户。",
 		rules: {
 			"email-required": "邮箱为必填项",
 			"valid-email": "必须是有效的邮箱",
@@ -374,15 +366,11 @@ export default {
 			"passwords-match": "两次输入的密码必须一致",
 		},
 		errors: {
-			"something-weird-happened":
-				"发生了奇怪的事情，但你可能已经登录了？刷新页面看看。",
-			"login-failed-noserver":
-				"登录失败，但服务器没有说明原因。请将此报告为 Bug。",
+			"something-weird-happened": "发生了奇怪的事情，但你可能已经登录了？刷新页面看看。",
+			"login-failed-noserver": "登录失败，但服务器没有说明原因。请将此报告为 Bug。",
 			"login-failed": "登录失败，我也不知道为什么。请将此报告为 Bug。",
-			"register-failed-noserver":
-				"注册失败，但服务器没有说明原因。请将此报告为 Bug。",
-			"register-failed":
-				"注册失败，我也不知道为什么。请检查控制台并将此报告为 Bug。",
+			"register-failed-noserver": "注册失败，但服务器没有说明原因。请将此报告为 Bug。",
+			"register-failed": "注册失败，我也不知道为什么。请检查控制台并将此报告为 Bug。",
 			"in-use": "已被使用。",
 		},
 		"change-password": {
@@ -409,10 +397,8 @@ export default {
 		"room-layout": "房间布局",
 		theme: "主题",
 		"audio-boost": "音频增强",
-		"audio-boost-hint":
-			"将支持的非 iframe 播放器的音频增强至 300%。音效不受影响。",
-		"audio-boost-unsupported":
-			"当前播放器不支持音频增强。音效不受影响。",
+		"audio-boost-hint": "将支持的非 iframe 播放器的音频增强至 300%。音效不受影响。",
+		"audio-boost-unsupported": "当前播放器不支持音频增强。音效不受影响。",
 		"sfx-enable": "启用音效",
 		"sfx-volume": "音效音量",
 		"room-settings": "默认房间设置",

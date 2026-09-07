@@ -2,10 +2,9 @@
 	<v-app id="app">
 		<v-app-bar
 			app
+			v-show="!fullscreen"
 			:density="$vuetify.display.mdAndUp ? 'default' : 'compact'"
-			:scroll-behavior="fullscreen ? 'inverted hide' : ' '"
 		>
-			<!-- TODO: replace the ' ' here with '' when this bug is fixed: https://github.com/vuetifyjs/vuetify/issues/17554 -->
 			<v-app-bar-nav-icon @click="drawer = true" role="menu" aria-label="nav menu" />
 			<v-img
 				:src="logoUrl"
@@ -206,16 +205,6 @@ const App = defineComponent({
 				}
 			});
 
-			document.addEventListener("fullscreenchange", () => {
-				if (document.fullscreenElement) {
-					store.commit("SET_FULLSCREEN", true);
-					document.querySelector("html")?.classList.add("scrollbarBeGone");
-				} else {
-					store.commit("SET_FULLSCREEN", false);
-					document.querySelector("html")?.classList.remove("scrollbarBeGone");
-				}
-			});
-
 			await store.dispatch("settings/load");
 			await store.dispatch("users/getNewToken");
 			await setLocale(store.state.settings.locale);
@@ -284,15 +273,6 @@ export default App;
 	flex-grow: 0;
 	flex-shrink: 0;
 	flex-basis: auto;
-}
-
-.scrollbarBeGone {
-	-ms-overflow-style: none; // I think this is an old way to do this? Probably not ideal
-	scrollbar-width: none;
-
-	&::-webkit-scrollbar {
-		display: none;
-	}
 }
 
 .overlay-loading-create-room {

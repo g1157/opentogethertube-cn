@@ -1,9 +1,9 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import dayjs from "dayjs";
 import { BehaviorOption, Role, Visibility } from "ott-common/models/types.js";
 import { RoomRequestType } from "ott-common/models/messages.js";
 import { Room, RoomUser } from "../../room.js";
-import { loadModels, sequelize } from "../../models/index.js";
+import { loadModels, Room as DbRoom } from "../../models/index.js";
 import { buildClients } from "../../redisclient.js";
 import storage from "../../storage.js";
 import { conf } from "../../ott-config.js";
@@ -15,14 +15,13 @@ describe("permanent room persistence", () => {
 		await buildClients();
 		conf.set("video.sponsorblock.enabled", false);
 	});
-	beforeEach(async () => {
-		await sequelize.sync({ force: true });
-	});
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		for (const room of rooms.splice(0)) {
 			room.throttledSync.cancel();
 			await room.saveStateToRedisDebounced.flush();
 			room.saveStateToRedisDebounced.cancel();
+			await DbRoom.destroy({ where: { name: room.name } });
 		}
 	});
 
@@ -52,9 +51,14 @@ describe("permanent room persistence", () => {
 		room._playbackStart = dayjs().subtract(20, "seconds");
 		room.isPlaying = true;
 		room.realusers.push(new RoomUser("viewer", "test-token"));
-		await room.leaveRoom({ type: RoomRequestType.LeaveRequest }, {
-			clientId: "viewer", username: "viewer", role: Role.UnregisteredUser,
-		});
+		await room.leaveRoom(
+			{ type: RoomRequestType.LeaveRequest },
+			{
+				clientId: "viewer",
+				username: "viewer",
+				role: Role.UnregisteredUser,
+			},
+		);
 		expect(room.isPlaying).toBe(false);
 		expect(room.realPlaybackPosition).toBeCloseTo(30, 0);
 		await room.onBeforeUnload();
@@ -73,15 +77,61 @@ describe("permanent room persistence", () => {
 	it("keeps saved public rooms discoverable while hiding unlisted rooms", async () => {
 		await createRoom("public-room");
 		await createRoom("unlisted-room", Visibility.Unlisted);
-		expect((await storage.getPermanentRoomList()).map(room => room.name)).toEqual(["public-room"]);
+		expect((await storage.getPermanentRoomList()).map(room => room.name)).toEqual([
+			"public-room",
+		]);
 		expect(await storage.getPermanentRoomList(true)).toHaveLength(2);
+	});
+
+	it("does not resurrect links after the current video and queue are explicitly cleared", async () => {
+		const room = await createRoom("cleared-permanent-room");
+		room.currentSource = { service: "direct", id: "first.mp4", length: 120 };
+		await room.queue.enqueue({ service: "direct", id: "second.mp4", length: 120 });
+		await room.sync();
+		room.currentSource = null;
+		await room.queue.set([]);
+		await room.onBeforeUnload();
+		const saved = await storage.getRoomByName(room.name);
+		expect(saved?.prevQueue).toBeNull();
+	});
+
+	it("preserves a link added while a previous database checkpoint is still pending", async () => {
+		const room = await createRoom("concurrent-checkpoint-room");
+		await room.sync();
+		room.throttledSync.cancel();
+		const updateRoom = storage.updateRoom;
+		let started: () => void = () => undefined;
+		const firstStarted = new Promise<void>(resolve => {
+			started = resolve;
+		});
+		let release: () => void = () => undefined;
+		const blocked = new Promise<void>(resolve => {
+			release = resolve;
+		});
+		vi.spyOn(storage, "updateRoom").mockImplementationOnce(async update => {
+			started();
+			await blocked;
+			return updateRoom(update);
+		});
+		room.currentSource = { service: "direct", id: "first.mp4", length: 120 };
+		const first = room.sync();
+		await firstStarted;
+		await room.queue.enqueue({ service: "direct", id: "second.mp4", length: 120 });
+		const second = room.sync();
+		release();
+		await Promise.all([first, second]);
+		const saved = await storage.getRoomByName(room.name);
+		expect(saved?.prevQueue?.map(item => item.id)).toEqual(["first.mp4", "second.mp4"]);
 	});
 
 	it("persists false, zero, and empty strings when settings are changed", async () => {
 		const room = await createRoom("settings-room");
 		await storage.updateRoom({ name: room.name, enableVoteSkip: true, description: "old" });
 		await storage.updateRoom({
-			name: room.name, enableVoteSkip: false, restoreQueueBehavior: BehaviorOption.Never, description: "",
+			name: room.name,
+			enableVoteSkip: false,
+			restoreQueueBehavior: BehaviorOption.Never,
+			description: "",
 		});
 		const saved = await storage.getRoomByName(room.name);
 		expect(saved?.enableVoteSkip).toBe(false);

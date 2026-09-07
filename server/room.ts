@@ -78,6 +78,7 @@ import type { ClientManagerCommand } from "./clientmanager.js";
 import { canKickUser } from "ott-common/userutils.js";
 import { conf } from "./ott-config.js";
 import { ALL_SKIP_CATEGORIES } from "ott-common/constants.js";
+import { Mutex } from "@divine/synchronization";
 
 /**
  * Represents a User from the Room's perspective.
@@ -250,6 +251,7 @@ export class Room implements RoomState {
 	votesToSkip: Set<string> = new Set();
 
 	_dirty: Set<keyof RoomStateSyncable> = new Set();
+	private readonly syncLock = new Mutex();
 	log: winston.Logger;
 	_playbackStart: Dayjs | null = null;
 	_keepAlivePing: Dayjs;
@@ -871,6 +873,10 @@ export class Room implements RoomState {
 	}
 
 	public async sync(): Promise<void> {
+		await this.syncLock.protect(() => this.syncDirty());
+	}
+
+	private async syncDirty(): Promise<void> {
 		if (this._dirty.size === 0) {
 			return;
 		}
@@ -887,17 +893,7 @@ export class Room implements RoomState {
 		);
 
 		msg = Object.assign(msg, _.pick(state, Array.from(this._dirty)));
-		if (isAnyDirtyStorable) {
-			await this.saveStateToRedisDebounced();
-		}
-		if (!_.isEmpty(msg)) {
-			this.log.debug("sending sync message");
-			await this.publish(msg);
-		}
-
-		const settings: Partial<RoomStatePersistable> = _.pick(
-			this,
-			"name",
+		const persistentSettings: (keyof RoomStatePersistable)[] = [
 			"title",
 			"description",
 			"visibility",
@@ -909,15 +905,41 @@ export class Room implements RoomState {
 			"prevQueue",
 			"restoreQueueBehavior",
 			"enableVoteSkip",
+		];
+		const settings: Partial<RoomStatePersistable> = _.pick(
+			this,
+			persistentSettings.filter(prop => this._dirty.has(prop as keyof RoomStateSyncable)),
 		);
-		if (!this.isTemporary) {
-			await storage.updateRoom({
-				...settings,
-				prevQueue: this.queueSnapshot(),
-			});
+		if (this._dirty.has("hasOwner")) {
+			settings.owner = this.owner;
 		}
-
+		if (
+			["queue", "currentSource", "isPlaying", "playbackPosition", "prevQueue"].some(prop =>
+				this._dirty.has(prop as keyof RoomStateSyncable),
+			)
+		) {
+			settings.prevQueue = this.queueSnapshot();
+		}
+		// New changes arriving during I/O must remain dirty for the next checkpoint.
+		const dirty = new Set(this._dirty);
 		this.cleanDirty();
+		try {
+			if (isAnyDirtyStorable) {
+				await this.saveStateToRedisDebounced();
+			}
+			if (!_.isEmpty(msg)) {
+				this.log.debug("sending sync message");
+				await this.publish(msg);
+			}
+			if (!this.isTemporary && !_.isEmpty(settings)) {
+				await storage.updateRoom({ name: this.name, ...settings });
+			}
+		} catch (error) {
+			for (const prop of dirty) {
+				this._dirty.add(prop);
+			}
+			throw error;
+		}
 	}
 
 	public async syncUser(info: RoomUserInfo): Promise<void> {
@@ -934,10 +956,8 @@ export class Room implements RoomState {
 	public async onBeforeUnload(): Promise<void> {
 		if (!this.isTemporary) {
 			await this.pause();
-			await storage.updateRoom({
-				name: this.name,
-				prevQueue: this.queueSnapshot(),
-			});
+			// Force a final checkpoint through the same lock as background saves.
+			this.markDirty("currentSource");
 		}
 		this.throttledSync.cancel();
 		await this.sync();
