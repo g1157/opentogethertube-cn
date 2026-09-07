@@ -1,0 +1,208 @@
+import { Room as DbRoomModel, User as UserModel } from "../models/index.js";
+import type { Room as DbRoom, RoomAttributes } from "../models/room.js";
+import { Role, type RoomOptions } from "ott-common/models/types.js";
+import { getLogger } from "../logger.js";
+import Sequelize from "sequelize";
+import permissions from "ott-common/permissions.js";
+import type { RoomStatePersistable } from "../room.js";
+import _ from "lodash";
+
+const log = getLogger("storage/room");
+
+function buildFindRoomWhere(roomName: string) {
+	return Sequelize.and(
+		Sequelize.where(
+			Sequelize.fn("lower", Sequelize.col("name")),
+			Sequelize.fn("lower", roomName),
+		),
+	);
+}
+
+export async function getRoomByName(roomName: string): Promise<RoomOptions | null> {
+	try {
+		const dbroom = await DbRoomModel.findOne({
+			where: buildFindRoomWhere(roomName),
+			include: { model: UserModel, as: "owner" },
+		});
+		if (!dbroom) {
+			log.debug(`Room ${roomName} does not exist in db.`);
+			return null;
+		}
+		return dbToRoomArgs(dbroom);
+	} catch (err) {
+		log.error(`Failed to get room by name: ${err} ${err.stack}`);
+	}
+	return null;
+}
+
+export async function isRoomNameTaken(roomName: string): Promise<boolean> {
+	try {
+		const room = await DbRoomModel.findOne({
+			where: buildFindRoomWhere(roomName),
+		});
+		return !!room;
+	} catch (err) {
+		log.error(`${err} ${err.stack}`);
+		throw err;
+	}
+}
+
+/**
+ * Create a room in the database, if it doesn't already exist
+ * @returns boolean indicating whether the room was saved successfully
+ */
+export async function saveRoom(room: RoomStatePersistable): Promise<boolean> {
+	const options = roomToDb(room);
+	// HACK: search for the room to see if it exists
+	if (await isRoomNameTaken(room.name)) {
+		return false;
+	}
+	try {
+		const room: DbRoom = await DbRoomModel.create(options);
+		log.info(`Saved room ${room.name} to db: id ${room.dataValues.id}`);
+		return true;
+	} catch (err) {
+		log.error(`Failed to save room ${room.name} to storage: ${err}`);
+		return false;
+	}
+}
+
+/**
+ *Create a room in the database, if it doesn't already exist
+ * @returns boolean indicating whether the room was saved successfully
+ */
+export async function updateRoom(room: Partial<RoomStatePersistable>): Promise<boolean> {
+	if (!room.name) {
+		throw new Error(`Cannot update room with no name`);
+	}
+	try {
+		const options = roomToDbPartial(room);
+		log.debug(`updating room ${room.name} in database ${JSON.stringify(options)}`);
+		const result = await DbRoomModel.update(options, {
+			where: buildFindRoomWhere(room.name),
+		});
+		return result[0] > 0;
+	} catch (error) {
+		log.error(`Failed to update room ${room.name} in storage: ${error}`);
+		return false;
+	}
+}
+
+export async function deleteRoom(roomName: string): Promise<boolean> {
+	try {
+		const deleted = await DbRoomModel.destroy({
+			where: buildFindRoomWhere(roomName),
+		});
+		if (deleted === 0) {
+			log.debug(`Room ${roomName} not found in db to delete.`);
+		} else {
+			log.info(`Deleted room ${roomName} from db: ${deleted} row(s)`);
+		}
+		return deleted > 0;
+	} catch (err) {
+		log.error(`Failed to delete room ${roomName} from storage: ${err}`);
+		throw err;
+	}
+}
+
+function dbToRoomArgs(db: DbRoom): RoomOptions {
+	const room = {
+		name: db.name,
+		title: db.title,
+		description: db.description,
+		isTemporary: false,
+		visibility: db.visibility,
+		queueMode: db.queueMode,
+		owner: db.owner,
+		grants: new permissions.Grants(db.permissions),
+		userRoles: new Map<Role, Set<number>>(),
+		autoSkipSegmentCategories: db.autoSkipSegmentCategories,
+		prevQueue: db.prevQueue,
+		restoreQueueBehavior: db.restoreQueueBehavior,
+		enableVoteSkip: db.enableVoteSkip,
+	};
+	for (let i = Role.TrustedUser; i <= 4; i++) {
+		room.userRoles.set(i, new Set(db[`role-${permissions.ROLE_NAMES[i]}`]));
+	}
+	return room;
+}
+
+/**
+ * Converts a room into an object that can be stored in the database
+ */
+export function roomToDb(room: RoomStatePersistable): Omit<RoomAttributes, "id"> {
+	const grantsFiltered = _.cloneDeep(room.grants);
+	// No need to waste storage space on these
+	grantsFiltered.deleteRole(Role.Administrator);
+	grantsFiltered.deleteRole(Role.Owner);
+
+	const db: Omit<RoomAttributes, "id"> = {
+		name: room.name,
+		title: room.title,
+		description: room.description,
+		visibility: room.visibility,
+		queueMode: room.queueMode,
+		autoSkipSegmentCategories: room.autoSkipSegmentCategories,
+		permissions: grantsFiltered.toJSON(),
+		ownerId: null,
+		"role-trusted": [],
+		"role-mod": [],
+		"role-admin": [],
+		prevQueue: room.prevQueue,
+		restoreQueueBehavior: room.restoreQueueBehavior,
+		enableVoteSkip: room.enableVoteSkip,
+	};
+	if (room.owner) {
+		db.ownerId = room.owner.id;
+	}
+	if (room.userRoles) {
+		for (let i = Role.TrustedUser; i <= 4; i++) {
+			db[`role-${permissions.ROLE_NAMES[i]}`] = Array.from(
+				room.userRoles.get(i)?.values() ?? [],
+			);
+		}
+	}
+	return db;
+}
+
+/**
+ * Converts a room into an object that can be stored in the database
+ */
+export function roomToDbPartial(
+	room: Partial<RoomStatePersistable>,
+): Partial<Omit<RoomAttributes, "id" | "name">> {
+	const db: Partial<Omit<RoomAttributes, "id" | "name">> = _.pickBy(
+		{
+			title: room.title,
+			description: room.description,
+			visibility: room.visibility,
+			queueMode: room.queueMode,
+			autoSkipSegmentCategories: room.autoSkipSegmentCategories,
+			restoreQueueBehavior: room.restoreQueueBehavior,
+			enableVoteSkip: room.enableVoteSkip,
+		},
+		v => !!v,
+	);
+	// room.prevQueue will become null if its length is 0, so we need to explicitly check for null here
+	if (room.prevQueue || room.prevQueue === null) {
+		db.prevQueue = room.prevQueue;
+	}
+	if (room.grants) {
+		const grantsFiltered = _.cloneDeep(room.grants);
+		// No need to waste storage space on these
+		grantsFiltered.deleteRole(Role.Administrator);
+		grantsFiltered.deleteRole(Role.Owner);
+		db.permissions = grantsFiltered.toJSON();
+	}
+	if (room.owner) {
+		db.ownerId = room.owner.id;
+	}
+	if (room.userRoles) {
+		for (let i = Role.TrustedUser; i <= 4; i++) {
+			db[`role-${permissions.ROLE_NAMES[i]}`] = Array.from(
+				room.userRoles.get(i)?.values() ?? [],
+			);
+		}
+	}
+	return db;
+}

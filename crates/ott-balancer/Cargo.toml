@@ -1,0 +1,58 @@
+[package]
+name = "ott-balancer"
+version = "0.14.1"
+edition = "2021"
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+bytes.workspace = true
+clap.workspace = true
+console-subscriber.workspace = true
+enum_dispatch.workspace = true
+figment.workspace = true
+futures-util.workspace = true
+hashring.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+humantime-serde.workspace = true
+jemallocator.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_path_to_error.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+tokio-util.workspace = true
+tungstenite.workspace = true
+uuid.workspace = true
+url.workspace = true
+ott-common.workspace = true
+ott-balancer-protocol.workspace = true
+route-recognizer.workspace = true
+once_cell.workspace = true
+pin-project.workspace = true
+prometheus.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[lib]
+bench = false
+
+[[bench]]
+name = "latency"
+harness = false
+
+[[bench]]
+name = "joins"
+harness = false
+
+[[bench]]
+name = "selection"
+harness = false

@@ -1,0 +1,4 @@
+[discovery]
+method = "dns"
+service_port = 3002
+query = "opentogethertube"

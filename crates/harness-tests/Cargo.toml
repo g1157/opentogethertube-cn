@@ -1,0 +1,16 @@
+[package]
+name = "harness-tests"
+version = "0.14.1"
+edition = "2021"
+
+[dependencies]
+anyhow.workspace = true
+harness.workspace = true
+ott-balancer-protocol.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+test-context.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+tungstenite.workspace = true

@@ -1,0 +1,22 @@
+{
+	"env": {},
+	"plugins": ["vitest"],
+	"rules": {
+		"no-console": "off",
+		"@typescript-eslint/no-empty-function": "off",
+		"@typescript-eslint/require-await": "off",
+		"@typescript-eslint/no-floating-promises": "off",
+
+		"vitest/consistent-test-it": ["error", { "fn": "it" }],
+		"vitest/expect-expect": "warn",
+		"vitest/no-conditional-in-test": "error",
+		"vitest/no-duplicate-hooks": "error",
+		"vitest/no-focused-tests": "error",
+		"vitest/no-identical-title": "error",
+		"vitest/no-standalone-expect": "error",
+		"vitest/prefer-spy-on": "error",
+		"vitest/require-top-level-describe": "warn",
+
+		"promise/always-return": "off"
+	}
+}

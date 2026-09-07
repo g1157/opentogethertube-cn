@@ -1,0 +1,218 @@
+{
+	"$schema": "node_modules/@biomejs/biome/configuration_schema.json",
+	"root": true,
+	"vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+	"files": {
+		"ignoreUnknown": true,
+		"includes": [
+			"**",
+			"!!server/tests/unit/fixtures",
+			"!!**/coverage",
+			"!!**/dist",
+			"!!**/ts-out",
+			"!!**/benchmarks/**/*.json",
+			"!!**/*.lock",
+			"!!**/*.log",
+			"!!**/*.env",
+			"!server/generated.ts",
+			"!packages/ott-vis/generated.ts"
+		]
+	},
+	"formatter": {
+		"enabled": true,
+		"formatWithErrors": false,
+		"indentWidth": 4,
+		"lineWidth": 100,
+		"expand": "auto",
+		"useEditorconfig": true
+	},
+	"linter": {
+		"enabled": true,
+		"domains": { "vue": "all" },
+		"rules": {
+			"recommended": false,
+			"a11y": { "useMediaCaption": "off", "useValidAriaRole": "off" },
+			"complexity": {
+				"noAdjacentSpacesInRegex": "error",
+				"noExtraBooleanCast": "error",
+				"noUselessCatch": "error",
+				"noUselessEscapeInRegex": "error",
+				"useArrowFunction": "error"
+			},
+			"correctness": {
+				"noConstAssign": "error",
+				"noConstantCondition": "error",
+				"noEmptyCharacterClassInRegex": "error",
+				"noEmptyPattern": "error",
+				"noGlobalObjectCalls": "error",
+				"noInnerDeclarations": "error",
+				"noInvalidConstructorSuper": "error",
+				"noNonoctalDecimalEscape": "error",
+				"noPrecisionLoss": "error",
+				"noSelfAssign": "error",
+				"noSetterReturn": "error",
+				"noSwitchDeclarations": "error",
+				"noUndeclaredVariables": "error",
+				"noUnknownPseudoClass": { "level": "warn", "options": { "ignore": ["export"] } },
+				"noUnreachable": "error",
+				"noUnreachableSuper": "error",
+				"noUnsafeFinally": "error",
+				"noUnsafeOptionalChaining": "error",
+				"noUnusedLabels": "error",
+				"noUnusedVariables": "error",
+				"useIsNan": "error",
+				"useValidForDirection": "error",
+				"useValidTypeof": "error",
+				"useYield": "error"
+			},
+			"nursery": {
+				"noNestedPromises": "warn",
+				"noVueArrowFuncInWatch": "error",
+				"noVueRefAsOperand": "error",
+				"noVueVIfWithVFor": "error",
+				"useScopedStyles": "info",
+				"useVueValidVBind": "error",
+				"useVueValidVElse": "error",
+				"useVueValidVElseIf": "error",
+				"useVueValidVIf": "error",
+				"useVueValidVFor": "error",
+				"noVueOptionsApi": "error",
+				"useExhaustiveSwitchCases": "error",
+				"useVueNextTickPromise": "error",
+				"noVueVOnNumberValues": "error",
+				"noIdenticalTestTitle": "error",
+				"useConsistentTestIt": "error"
+			},
+			"performance": { "useTopLevelRegex": "error" },
+			"security": { "noGlobalEval": "error" },
+			"style": {
+				"noCommonJs": "warn",
+				"noNestedTernary": "off",
+				"useBlockStatements": "error",
+				"useConsistentArrowReturn": "off"
+			},
+			"suspicious": {
+				"noAssignInExpressions": "error",
+				"noAsyncPromiseExecutor": "error",
+				"noCatchAssign": "error",
+				"noClassAssign": "error",
+				"noCompareNegZero": "error",
+				"noControlCharactersInRegex": "error",
+				"noDebugger": "error",
+				"noDoubleEquals": "error",
+				"noDuplicateCase": "error",
+				"noDuplicateClassMembers": "error",
+				"noDuplicateElseIf": "error",
+				"noDuplicateObjectKeys": "error",
+				"noDuplicateParameters": "error",
+				"noEmptyBlockStatements": "error",
+				"noFallthroughSwitchClause": "error",
+				"noFunctionAssign": "error",
+				"noGlobalAssign": "error",
+				"noImportAssign": "error",
+				"noIrregularWhitespace": "error",
+				"noMisleadingCharacterClass": "error",
+				"noPrototypeBuiltins": "error",
+				"noRedeclare": "error",
+				"noShadowRestrictedNames": "error",
+				"noSparseArray": "error",
+				"noUnknownAtRules": { "level": "warn", "options": { "ignore": ["use"] } },
+				"noUnsafeNegation": "error",
+				"noUselessRegexBackrefs": "error",
+				"noVar": "error",
+				"noWith": "error",
+				"useGetterReturn": "error",
+				"useAdjacentOverloadSignatures": "error"
+			}
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"enabled": true,
+			"quoteProperties": "asNeeded",
+			"trailingCommas": "all",
+			"semicolons": "always",
+			"arrowParentheses": "asNeeded",
+			"bracketSameLine": false
+		},
+		"globals": ["$t"]
+	},
+	"html": {
+		"experimentalFullSupportEnabled": true,
+		"formatter": {
+			"enabled": false,
+			"indentScriptAndStyle": false,
+			"selfCloseVoidElements": "always"
+		}
+	},
+	"overrides": [
+		{
+			"includes": ["**/package.json"],
+			"formatter": { "expand": "always" }
+		},
+		{
+			"includes": ["*.yaml", "*.yml"],
+			"formatter": { "indentStyle": "space", "indentWidth": 2 }
+		},
+		{
+			"includes": ["server", "common"],
+			"linter": { "rules": { "suspicious": { "noConsole": "error" } } }
+		},
+		{
+			"includes": ["server/migrations/**"],
+			"linter": {
+				"rules": {
+					"correctness": { "noUnusedFunctionParameters": "off" },
+					"style": { "noCommonJs": "off" }
+				}
+			}
+		},
+		{
+			"includes": ["*.js"],
+			"linter": {
+				"rules": {
+					"nursery": { "useExplicitType": "off" },
+					"style": { "noCommonJs": "off" }
+				}
+			}
+		},
+		{
+			"includes": [
+				"tests/e2e/**",
+				"client/tests/**",
+				"packages/ott-vis-datasource/cypress/**",
+				"packages/ott-vis-datasource/**/*.spec.ts",
+				"packages/ott-vis-panel/**/*.spec.ts",
+				"packages/ott-vis-panel/**/*.test.ts"
+			],
+			"javascript": {
+				"globals": [
+					"before",
+					"describe",
+					"expect",
+					"it",
+					"Cypress",
+					"beforeEach",
+					"afterEach",
+					"after",
+					"cy"
+				]
+			},
+			"linter": {
+				"rules": {
+					"nursery": {
+						"noNestedPromises": "off",
+						"noVueOptionsApi": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["**/*.vue"],
+			"formatter": { "enabled": false },
+			"javascript": { "formatter": { "enabled": false } },
+			"linter": { "rules": { "correctness": { "noUndeclaredVariables": "off" } } }
+		}
+	],
+	"assist": { "enabled": false, "actions": { "source": { "organizeImports": "on" } } }
+}
