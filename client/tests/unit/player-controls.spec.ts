@@ -7,13 +7,18 @@ describe("player control visibility", () => {
 	let wrapper: { unmount(): void };
 	let controls: ReturnType<typeof usePlayerControls>;
 	const pausedOrChatOpen = ref(false);
+	const hideDelaySeconds = ref(3);
 	beforeEach(() => {
 		vi.useFakeTimers();
 		pausedOrChatOpen.value = false;
+		hideDelaySeconds.value = 3;
 		wrapper = mount(
 			defineComponent({
 				setup() {
-					controls = usePlayerControls(() => pausedOrChatOpen.value);
+					controls = usePlayerControls(
+						() => pausedOrChatOpen.value,
+						() => hideDelaySeconds.value,
+					);
 					return () => h("div");
 				},
 			}),
@@ -32,6 +37,18 @@ describe("player control visibility", () => {
 		controls.activity();
 		expect(controls.visible.value).toBe(true);
 		controls.hide();
+		expect(controls.visible.value).toBe(false);
+	});
+	it("uses the configured inactivity duration and updates it while controls are visible", async () => {
+		hideDelaySeconds.value = 5;
+		await nextTick();
+		vi.advanceTimersByTime(3000);
+		expect(controls.visible.value).toBe(true);
+		hideDelaySeconds.value = 2;
+		await nextTick();
+		vi.advanceTimersByTime(1999);
+		expect(controls.visible.value).toBe(true);
+		vi.advanceTimersByTime(1);
 		expect(controls.visible.value).toBe(false);
 	});
 	it("keeps controls while paused, in error, or reading chat", async () => {
@@ -72,6 +89,24 @@ describe("player control visibility", () => {
 		move(130, "touch");
 		expect(controls.visible.value).toBe(false);
 		move(120);
+		expect(controls.visible.value).toBe(true);
+	});
+	it("ignores mouse events at the same position and wakes on real movement", () => {
+		const move = (x: number) =>
+			controls.mouseMove({
+				clientX: x,
+				clientY: 100,
+				buttons: 0,
+				pointerType: "mouse",
+			} as PointerEvent);
+		move(100);
+		vi.advanceTimersByTime(2000);
+		move(100);
+		vi.advanceTimersByTime(1000);
+		expect(controls.visible.value).toBe(false);
+		move(100);
+		expect(controls.visible.value).toBe(false);
+		move(101);
 		expect(controls.visible.value).toBe(true);
 	});
 	it("clears its timer on unmount", () => {

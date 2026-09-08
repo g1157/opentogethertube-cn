@@ -39,6 +39,7 @@ describe("player touch and mouse gestures", () => {
 			canSeek: () => true,
 			isPlaying: () => true,
 			onTap: vi.fn(),
+			onDoubleTap: vi.fn(),
 			onDoubleClick: vi.fn(),
 			onSeek: vi.fn(),
 			onSeekDenied: vi.fn(),
@@ -58,12 +59,103 @@ describe("player touch and mouse gestures", () => {
 		vi.useRealTimers();
 	});
 
-	it("taps on mobile toggle controls immediately without changing playback", () => {
+	it("waits briefly for a second mobile tap before toggling controls", () => {
 		pointer("pointerdown");
 		pointer("pointerup");
+		vi.advanceTimersByTime(279);
+		expect(options.onTap).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(1);
 		expect(options.onTap).toHaveBeenCalledOnce();
+		expect(options.onDoubleTap).not.toHaveBeenCalled();
 		expect(options.onHoldStart).not.toHaveBeenCalled();
 		expect(options.onSeek).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		true,
+		false,
+	])("double-taps change playback once, including while playing=%s", playing => {
+		options.isPlaying = () => playing;
+		pointer("pointerdown");
+		pointer("pointerup");
+		pointer("lostpointercapture");
+		vi.advanceTimersByTime(150);
+		pointer("pointerdown", 220);
+		pointer("pointerup", 220);
+		vi.advanceTimersByTime(500);
+		expect(options.onDoubleTap).toHaveBeenCalledOnce();
+		expect(options.onDoubleClick).not.toHaveBeenCalled();
+		expect(options.onTap).not.toHaveBeenCalled();
+		expect(options.onHoldStart).not.toHaveBeenCalled();
+		expect(options.onSeek).not.toHaveBeenCalled();
+	});
+
+	it("keeps taps separated by time, distance or input type as single taps", () => {
+		pointer("pointerdown");
+		pointer("pointerup");
+		vi.advanceTimersByTime(300);
+		pointer("pointerdown");
+		pointer("pointerup");
+		vi.advanceTimersByTime(100);
+		pointer("pointerdown", 350);
+		pointer("pointerup", 350);
+		vi.advanceTimersByTime(100);
+		pointer("pointerdown", 350, 150, "mouse");
+		pointer("pointerup", 350, 150, "mouse");
+		vi.advanceTimersByTime(300);
+		expect(options.onTap).toHaveBeenCalledTimes(4);
+		expect(options.onDoubleTap).not.toHaveBeenCalled();
+		expect(options.onDoubleClick).not.toHaveBeenCalled();
+	});
+
+	it("cancels a pending tap when the second press becomes a hold", () => {
+		pointer("pointerdown");
+		pointer("pointerup");
+		vi.advanceTimersByTime(100);
+		pointer("pointerdown");
+		vi.advanceTimersByTime(500);
+		pointer("pointerup");
+		vi.advanceTimersByTime(300);
+		expect(options.onHoldStart).toHaveBeenCalledOnce();
+		expect(options.onHoldEnd).toHaveBeenCalledOnce();
+		expect(options.onTap).not.toHaveBeenCalled();
+		expect(options.onDoubleTap).not.toHaveBeenCalled();
+	});
+
+	it("cancels a pending tap when the second press becomes a swipe", () => {
+		pointer("pointerdown");
+		pointer("pointerup");
+		vi.advanceTimersByTime(100);
+		pointer("pointerdown");
+		pointer("pointermove", 260);
+		pointer("pointerup", 260);
+		vi.advanceTimersByTime(500);
+		expect(options.onSeek).toHaveBeenCalledOnce();
+		expect(options.onTap).not.toHaveBeenCalled();
+		expect(options.onDoubleTap).not.toHaveBeenCalled();
+		expect(options.onHoldStart).not.toHaveBeenCalled();
+	});
+
+	it("does not turn a long press while paused into double-tap playback", () => {
+		options.isPlaying = () => false;
+		pointer("pointerdown");
+		pointer("pointerup");
+		vi.advanceTimersByTime(100);
+		pointer("pointerdown");
+		vi.advanceTimersByTime(600);
+		pointer("pointerup");
+		vi.advanceTimersByTime(300);
+		expect(options.onTap).not.toHaveBeenCalled();
+		expect(options.onDoubleTap).not.toHaveBeenCalled();
+	});
+
+	it("clears a pending single tap on cancellation", () => {
+		pointer("pointerdown");
+		pointer("pointerup");
+		controls.cancel();
+		vi.advanceTimersByTime(500);
+		expect(options.onTap).not.toHaveBeenCalled();
+		expect(options.onDoubleTap).not.toHaveBeenCalled();
 	});
 
 	it.each([5, 10, 30])("previews a %s second jump locally and seeks once on release", step => {

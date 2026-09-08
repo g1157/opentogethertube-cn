@@ -1,20 +1,22 @@
 <template>
 	<div class="hls">
 		<video
-			id="hlsplayer"
+			ref="videoElem"
 			playsinline
 			webkit-playsinline
 			preload="auto"
 			crossorigin="anonymous"
 			:poster="thumbnail || ''"
+			@loadedmetadata="recovery.restoreMetadata"
 			@canplay="onReady"
-			@ready="onReady"
 			@playing="onPlaying"
 			@pause="onPaused"
-			@stalled="onBuffering"
+			@waiting="onBuffering"
+			@stalled="onStalled"
 			@loadstart="onBuffering"
 			@progress="onProgress"
 			@ended="onEnd"
+			@error="onMediaError"
 		></video>
 	</div>
 </template>
@@ -23,6 +25,8 @@
 import Hls from "hls.js";
 import { onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
+import { useStore } from "@/store";
+import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
 import type {
 	MediaPlayerWithAudioBoost,
 	MediaPlayerWithCaptions,
@@ -43,6 +47,7 @@ const videoElem = ref<HTMLVideoElement | undefined>();
 const captions = useCaptions();
 const qualities = useQualities();
 const audioBoost = useMediaAudioBoost(videoElem);
+const store = useStore();
 let hls: Hls | undefined;
 
 const emit = defineEmits<{
@@ -57,20 +62,38 @@ const emit = defineEmits<{
 	"buffer-spans": [spans: TimeRanges];
 }>();
 
+const recovery = createMediaRecovery({
+	media: () => videoElem.value,
+	restart: (error, manual) => {
+		if (manual) {
+			attachSource();
+		} else if (hls) {
+			if (error.type === "decode" || videoElem.value?.error) {
+				hls.recoverMediaError();
+			} else {
+				// startLoad alone cannot recover a manifest which never loaded successfully.
+				if (hls.levels.length === 0) {
+					hls.loadSource(videoUrl.value);
+				}
+				hls.startLoad(recovery.getPosition());
+			}
+		} else {
+			videoElem.value?.load();
+		}
+	},
+	onRecovering: () => emit("buffering"),
+	onError: error => {
+		hls?.stopLoad();
+		emit("error", error);
+	},
+});
+
 function play() {
-	if (!videoElem.value) {
-		console.error("player not ready");
-		return;
-	}
-	return videoElem.value.play();
+	return recovery.play();
 }
 
 function pause() {
-	if (!videoElem.value) {
-		console.error("player not ready");
-		return;
-	}
-	videoElem.value.pause();
+	recovery.pause();
 }
 
 function setVolume(volume: number) {
@@ -82,23 +105,15 @@ function setVolume(volume: number) {
 }
 
 function getPosition() {
-	if (!videoElem.value) {
-		console.error("player not ready");
-		return 0;
-	}
-	return videoElem.value.currentTime;
+	return recovery.getPosition();
 }
 
 function setPosition(position: number) {
-	if (!videoElem.value) {
-		console.error("player not ready");
-		return;
-	}
-	videoElem.value.currentTime = position;
+	recovery.setPosition(position);
 }
 
 function isCaptionsSupported(): boolean {
-	return true;
+	return !!hls;
 }
 
 function setCaptionsEnabled(enabled: boolean): void {
@@ -149,7 +164,7 @@ function setCaptionsTrack(track: number): void {
 }
 
 function isQualitySupported(): boolean {
-	return true;
+	return !!hls;
 }
 
 function getVideoTracks(): VideoTrack[] {
@@ -196,7 +211,7 @@ function setVideoTrack(track: number): void {
 }
 
 function isAutoQualitySupported(): boolean {
-	return true;
+	return !!hls;
 }
 
 function getCurrentActiveQuality(): number | null {
@@ -219,11 +234,7 @@ function getPlaybackRate(): number {
 }
 
 async function setPlaybackRate(rate: number): Promise<void> {
-	if (!videoElem.value) {
-		console.error("player not ready");
-		return;
-	}
-	videoElem.value.playbackRate = rate;
+	recovery.setPlaybackRate(rate);
 }
 
 function setAudioBoost(boost: number): void {
@@ -231,93 +242,129 @@ function setAudioBoost(boost: number): void {
 }
 
 function loadVideoSource() {
-	console.log("HlsPlayer: loading video source:", videoUrl.value);
+	recovery.reset();
+	emit("buffering");
+	attachSource();
+}
 
+function attachSource() {
 	if (!videoElem.value) {
-		console.error("video element not ready");
 		return;
 	}
 	audioBoost.resetFailedSetup();
 
-	hls?.destroy();
+	const previous = hls;
 	hls = undefined;
+	previous?.destroy();
+	videoElem.value.pause();
+	videoElem.value.removeAttribute("src");
+	videoElem.value.load();
+	if (!Hls.isSupported()) {
+		if (videoElem.value.canPlayType("application/vnd.apple.mpegurl")) {
+			videoElem.value.src = videoUrl.value;
+			videoElem.value.load();
+		} else {
+			recovery.handleError({ type: "unsupported", retryable: false });
+		}
+		emit("apiready");
+		return;
+	}
 
-	hls = new Hls();
+	const bufferSeconds = store.state.settings.hlsBufferSeconds;
+	const engine = new Hls({
+		maxBufferLength: bufferSeconds,
+		maxMaxBufferLength: bufferSeconds,
+		backBufferLength: 30,
+	});
+	hls = engine;
 
-	hls.loadSource(videoUrl.value);
-	hls.attachMedia(videoElem.value);
-
-	hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
-		console.info("HlsPlayer: hls.js manifest parsed", data);
-		emit("ready");
+	engine.on(Hls.Events.MANIFEST_PARSED, () => {
+		if (hls !== engine) {
+			return;
+		}
+		// Metadata/track availability is not proof that the video can play yet.
+		qualities.videoTracks.value = getVideoTracks();
+		qualities.currentVideoTrack.value = engine.autoLevelEnabled ? -1 : engine.currentLevel;
+		captions.captionsTracks.value = getCaptionsTracks();
+		emit("apiready");
 	});
 
-	hls.on(Hls.Events.ERROR, (event, data) => {
-		console.error("HlsPlayer: hls.js error:", event, data);
-		console.error("HlsPlayer: hls.js inner error:", data.error);
-		if (data.fatal) {
-			console.error("HlsPlayer: hls.js fatal error:", data);
-			const errorEvent: MediaPlayerError = {
-				type: "unknown",
-				message: JSON.stringify(data),
-			};
-			emit("error", errorEvent);
+	engine.on(Hls.Events.ERROR, (_, data) => {
+		if (hls !== engine || !data.fatal) {
+			return;
+		}
+		console.warn("HlsPlayer: fatal media error:", data.type, data.details);
+		const type =
+			data.type === Hls.ErrorTypes.NETWORK_ERROR
+				? "network"
+				: data.type === Hls.ErrorTypes.MEDIA_ERROR
+				? "decode"
+				: "unknown";
+		recovery.handleError({
+			type,
+			// Retrying a missing or denied source cannot repair its URL or authorization.
+			retryable: ![400, 401, 403, 404, 410].includes(data.response?.code ?? 0),
+		});
+	});
+
+	engine.on(Hls.Events.INIT_PTS_FOUND, () => {
+		if (hls !== engine) {
+			return;
+		}
+		captions.captionsTracks.value = getCaptionsTracks();
+		captions.isCaptionsEnabled.value = isCaptionsEnabled();
+		captions.currentTrack.value = engine.subtitleTrack;
+
+		qualities.videoTracks.value = getVideoTracks();
+		qualities.currentVideoTrack.value = engine.autoLevelEnabled ? -1 : engine.currentLevel;
+		qualities.currentActiveQuality.value = getCurrentActiveQuality();
+	});
+
+	engine.on(Hls.Events.LEVEL_SWITCHED, () => {
+		if (hls === engine) {
+			qualities.currentActiveQuality.value = getCurrentActiveQuality();
 		}
 	});
 
-	hls.on(Hls.Events.INIT_PTS_FOUND, () => {
-		console.info("HlsPlayer: hls.js init pts found");
-
-		captions.captionsTracks.value = getCaptionsTracks();
-		captions.isCaptionsEnabled.value = isCaptionsEnabled();
-		captions.currentTrack.value = hls?.subtitleTrack || 0;
-		console.log("HlsPlayer: current subtitle track:", hls?.subtitleTrack);
-
-		qualities.videoTracks.value = getVideoTracks();
-		qualities.currentVideoTrack.value = hls?.autoLevelEnabled ? -1 : hls?.currentLevel || -1;
-		qualities.currentActiveQuality.value = getCurrentActiveQuality();
-		console.log("HlsPlayer: current video track:", qualities.currentVideoTrack.value);
-	});
-
-	hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
-		console.info("HlsPlayer: hls.js level switched:", data);
-		qualities.currentActiveQuality.value = getCurrentActiveQuality();
-	});
-
-	hls.on(Hls.Events.SUBTITLE_TRACK_LOADED, (_, data) => {
-		console.info("HlsPlayer: hls.js subtitle track loaded:", data);
-	});
-
-	hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (_, data) => {
-		console.info("HlsPlayer: hls.js subtitle track switched:", data);
-	});
-
-	// this is needed to get the player to keep playing after the previous video has ended
-	videoElem.value.play();
-
+	engine.loadSource(videoUrl.value);
+	engine.attachMedia(videoElem.value);
 	emit("apiready");
 }
 
-onMounted(() => {
-	videoElem.value = document.getElementById("hlsplayer") as HTMLVideoElement;
-	if (!videoElem.value) {
-		console.error("HLS player video element not found");
-		return;
-	}
-	loadVideoSource();
-});
+onMounted(loadVideoSource);
 
 function onReady() {
-	emit("ready");
+	if (recovery.canPlay()) {
+		emit("ready");
+	}
 }
 function onPlaying() {
-	emit("playing");
+	if (!recovery.isRecovering() && !recovery.isFailed()) {
+		emit("playing");
+	}
 }
 function onPaused() {
-	emit("paused");
+	if (!recovery.isRecovering() && !recovery.isFailed()) {
+		emit("paused");
+	}
 }
 function onBuffering() {
-	emit("buffering");
+	if (!recovery.isFailed()) {
+		emit("buffering");
+	}
+}
+function onStalled() {
+	if (videoElem.value && !videoElem.value.paused && videoElem.value.readyState < 3) {
+		onBuffering();
+	}
+}
+function onMediaError() {
+	// A decoder can fail after buffering has finished, without another hls.js append/error.
+	// The recovery controller coalesces duplicate native and hls.js reports.
+	const error = nativeMediaError(videoElem.value?.error ?? null);
+	if (error) {
+		recovery.handleError(error);
+	}
 }
 function onProgress() {
 	if (videoElem.value) {
@@ -337,13 +384,28 @@ function onEnd() {
 }
 
 onBeforeUnmount(() => {
-	hls?.destroy();
+	recovery.dispose();
+	const previous = hls;
+	hls = undefined;
+	previous?.destroy();
+	videoElem.value?.pause();
+	videoElem.value?.removeAttribute("src");
+	videoElem.value?.load();
 });
 
 watch(videoUrl, () => {
-	console.log("HlsPlayer: videoUrl changed");
 	loadVideoSource();
 });
+
+watch(
+	() => store.state.settings.hlsBufferSeconds,
+	seconds => {
+		if (hls) {
+			hls.config.maxBufferLength = seconds;
+			hls.config.maxMaxBufferLength = seconds;
+		}
+	},
+);
 
 defineExpose({
 	play,
@@ -365,6 +427,9 @@ defineExpose({
 	getPlaybackRate,
 	setPlaybackRate,
 	setAudioBoost,
+	retry: recovery.retry,
+	isSeeking: () => videoElem.value?.seeking ?? false,
+	isRecovering: recovery.isRecovering,
 } satisfies MediaPlayerWithCaptions & MediaPlayerWithQuality & MediaPlayerWithPlaybackRate & MediaPlayerWithAudioBoost);
 </script>
 

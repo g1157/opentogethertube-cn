@@ -42,9 +42,14 @@
 					<span id="connectStatus">{{ connectionStatus }}</span>
 				</div>
 			</div>
+			<RoomConnectionNotice />
 			<div class="video-container">
 				<div
 					class="video-subcontainer"
+					:class="{
+						'player-fullscreen': store.state.fullscreen,
+						'cursor-hidden': store.state.fullscreen && !controlsVisible,
+					}"
 					ref="fullscreenContainer"
 					:style="{ '--player-controls-height': `${controlsHeight}px` }"
 					@pointermove.capture="controls.mouseMove"
@@ -71,7 +76,7 @@
 							@pointerleave="gestures.pointerCancel"
 							@contextmenu.prevent
 							@click.prevent
-							@dblclick.prevent
+							@dblclick.stop.prevent
 						></div>
 						<div
 							class="player-gesture-hint"
@@ -283,6 +288,7 @@ import RoomSettingsForm from "@/components/RoomSettingsForm.vue";
 import ShareInvite from "@/components/ShareInvite.vue";
 import ClientSettingsDialog from "@/components/ClientSettingsDialog.vue";
 import RoomDisconnected from "../components/RoomDisconnected.vue";
+import RoomConnectionNotice from "@/components/RoomConnectionNotice.vue";
 import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
 import ServerMessageHandler from "@/components/ServerMessageHandler.vue";
@@ -306,6 +312,7 @@ import { PlayerStatus, Visibility } from "ott-common/models/types";
 import { createPlayerFullscreen, PlayerFullscreenKey } from "@/util/player-fullscreen";
 import { PlayerControlsActivityKey, usePlayerControls } from "@/util/player-controls";
 import { createPlayerGestures } from "@/util/player-gestures";
+import { createPlaybackSync } from "@/util/playback-sync";
 import { useTemporaryPlaybackSpeed } from "@/util/temporary-playback-speed";
 import { TEMPORARY_PLAYBACK_SPEED } from "ott-common/constants";
 import PlayerShortcutsDialog from "@/components/PlayerShortcutsDialog.vue";
@@ -326,6 +333,7 @@ export default defineComponent({
 		ShareInvite,
 		ClientSettingsDialog,
 		RoomDisconnected,
+		RoomConnectionNotice,
 		ServerMessageHandler,
 		WorkaroundPlaybackStatusUpdater,
 		WorkaroundUserStateNotifier,
@@ -372,6 +380,7 @@ export default defineComponent({
 				store.state.playerStatus === PlayerStatus.error ||
 				chatOpen.value ||
 				shortcutHelp.value,
+			() => store.state.settings.controlsHideSeconds,
 		);
 		const controlsVisible = controls.visible;
 		const videoControlsHideTimeout = controls.timeout;
@@ -415,14 +424,14 @@ export default defineComponent({
 		const truePosition = ref(0);
 		const sliderPosition = ref(0);
 		const iTimestampUpdater: Ref<ReturnType<typeof setInterval> | null> = ref(null);
+		let disposed = false;
+		let playbackApplication = 0;
 
-		function timestampUpdate() {
-			if (!store.state.room.currentSource) {
-				truePosition.value = 0;
-				sliderPosition.value = 0;
-				return;
+		function roomPosition() {
+			if (!currentSource.value?.id) {
+				return 0;
 			}
-			truePosition.value = store.state.room.isPlaying
+			return store.state.room.isPlaying
 				? calculateCurrentPosition(
 						store.state.room.playbackStartTime,
 						new Date(),
@@ -430,11 +439,41 @@ export default defineComponent({
 						store.state.room.playbackSpeed,
 				  )
 				: store.state.room.playbackPosition;
+		}
+
+		const playbackSync = createPlaybackSync({
+			getState: () => ({
+				source: currentSource.value?.id ? currentSource.value : null,
+				player: player.player.value,
+				ready: player.apiReady.value,
+				error: store.state.playerStatus === PlayerStatus.error,
+				blocked: mediaPlaybackBlocked.value,
+				seeking: player.isSeeking(),
+				recovering: player.isRecovering(),
+				buffering: store.state.playerStatus === PlayerStatus.buffering,
+				position: roomPosition(),
+			}),
+			getPosition: () => player.getPosition(),
+			setPosition: position => player.setPosition(position),
+			onError: error => console.warn("Could not synchronize playback position", error),
+		});
+		watch(
+			currentSource,
+			() => {
+				playbackApplication++;
+				playbackSync.reset();
+			},
+			{ flush: "sync" },
+		);
+
+		function timestampUpdate() {
+			truePosition.value = roomPosition();
 			sliderPosition.value = _.clamp(
 				truePosition.value,
 				0,
 				store.state.room.currentSource?.length ?? 0,
 			);
+			void playbackSync.tick();
 		}
 
 		onMounted(() => {
@@ -442,33 +481,27 @@ export default defineComponent({
 		});
 
 		onUnmounted(() => {
+			disposed = true;
+			playbackApplication++;
+			playbackSync.dispose();
 			if (iTimestampUpdater.value) {
 				clearInterval(iTimestampUpdater.value);
 			}
 		});
 
-		watch(truePosition, async newPosition => {
-			if (!player.isPlayerPresent()) {
-				return;
-			}
-			const currentTime = player.getPosition();
-
-			const diff = Math.abs(newPosition - (await currentTime));
-			if (isNaN(diff)) {
-				console.error("player diff is NaN, this is a bug", newPosition, currentTime);
-				return;
-			}
-			if (diff > 1 && !mediaPlaybackBlocked.value) {
-				player.setPosition(newPosition);
-			}
-		});
-
 		// connection status
-		const isConnected = computed(() => connection.connected);
+		const isConnected = computed(() => connection.connected.value);
 		const connectionStatus = computed(() => {
-			return connection.connected.value
-				? t("room.con-status.connected")
-				: t("room.con-status.connecting");
+			if (connection.connected.value) {
+				return t("room.con-status.connected");
+			}
+			if (connection.issue.value === "timeout") {
+				return t("room.con-status.timeout");
+			}
+			if (connection.issue.value === "network") {
+				return t("room.con-status.reconnecting");
+			}
+			return t("room.con-status.connecting");
 		});
 		const connectionStatusColor = computed(() =>
 			connection.connected.value ? "success" : "warning",
@@ -495,60 +528,42 @@ export default defineComponent({
 			}
 		}
 
-		async function waitForPlayer() {
-			if (!player.isPlayerPresent()) {
-				console.debug("waiting for player", player);
-				await new Promise(resolve => {
-					const stop = watch(player.player, async newPlayer => {
-						if (newPlayer) {
-							stop();
-							resolve(true);
-						}
-					});
-					// const interval = setInterval(() => {
-					// 	if (player.isPlayerPresent()) {
-					// 		clearInterval(interval);
-					// 		resolve(true);
-					// 	}
-					// }, 100);
-				});
-			}
-			if (!player.isPlayerPresent()) {
-				return Promise.reject("Can't wait for player api ready: player not present");
-			}
-			if (player.apiReady.value) {
+		async function onSyncMsg(msg: ServerMessageSync) {
+			if (disposed) {
 				return;
 			}
-			console.debug("detected player, waiting for api ready");
-			await new Promise(resolve => {
-				// const stop = watch(player.apiReady, async newReady => {
-				// 	if (newReady) {
-				// 		stop();
-				// 		resolve(true);
-				// 	}
-				// });
-				const interval = setInterval(() => {
-					if (player.apiReady.value) {
-						clearInterval(interval);
-						resolve(true);
-					}
-				}, 100);
-			});
-		}
-
-		async function onSyncMsg(msg: ServerMessageSync) {
 			rewriteUrlToRoomName();
-			if (msg.isPlaying !== undefined && !mediaPlaybackBlocked.value) {
-				await applyIsPlaying(msg.isPlaying);
+			const source = currentSource.value;
+			if ("currentSource" in msg) {
+				// Let the child load the new URL before applying its initial playback position.
+				await nextTick();
+				if (disposed || currentSource.value !== source) {
+					return;
+				}
+			}
+			if (msg.playbackPosition !== undefined || "currentSource" in msg) {
+				void playbackSync.requestSeek();
+				timestampUpdate();
+			}
+			if (msg.isPlaying !== undefined) {
+				await applyIsPlaying();
 			}
 		}
 
+		let roomCreatedTimer: ReturnType<typeof setTimeout> | null = null;
 		function onRoomCreated() {
+			if (disposed) {
+				return;
+			}
 			if (connection.active.value) {
 				connection.disconnect();
 			}
-			setTimeout(() => {
-				if (!connection.active.value) {
+			if (roomCreatedTimer !== null) {
+				clearTimeout(roomCreatedTimer);
+			}
+			roomCreatedTimer = setTimeout(() => {
+				roomCreatedTimer = null;
+				if (!disposed && !connection.active.value) {
 					connection.connect(route.params.roomId as string);
 				}
 			}, 100);
@@ -557,6 +572,9 @@ export default defineComponent({
 		let roomCreatedUnsub: (() => void) | null = null;
 		onMounted(async () => {
 			await waitForToken(store);
+			if (disposed) {
+				return;
+			}
 
 			connection.addMessageHandler("sync", onSyncMsg);
 			if (!connection.active.value) {
@@ -571,6 +589,10 @@ export default defineComponent({
 		});
 
 		onUnmounted(() => {
+			if (roomCreatedTimer !== null) {
+				clearTimeout(roomCreatedTimer);
+				roomCreatedTimer = null;
+			}
 			connection.removeMessageHandler("sync", onSyncMsg);
 			connection.disconnect();
 
@@ -599,35 +621,56 @@ export default defineComponent({
 		// Indicates that starting playback is blocked by the browser. This usually means that the user needs
 		// to interact with the page before playback can start. This is because browsers block autoplaying videos.
 
-		async function applyIsPlaying(playing: boolean): Promise<void> {
-			await waitForPlayer();
-			if (!player.isPlayerPresent()) {
-				return Promise.reject("Can't apply IsPlaying: player not present");
+		async function applyIsPlaying(unblock = false): Promise<void> {
+			const application = ++playbackApplication;
+			const source = currentSource.value;
+			const currentPlayer = player.player.value;
+			const playing = store.state.room.isPlaying;
+			if (
+				disposed ||
+				!source?.id ||
+				!currentPlayer ||
+				!player.apiReady.value ||
+				store.state.playerStatus === PlayerStatus.error ||
+				(playing && mediaPlaybackBlocked.value && !unblock)
+			) {
+				return;
 			}
+			const stillCurrent = () =>
+				!disposed &&
+				application === playbackApplication &&
+				currentSource.value === source &&
+				player.player.value === currentPlayer;
 			try {
 				if (playing) {
 					await player.play();
 				} else {
 					await player.pause();
 				}
-				mediaPlaybackBlocked.value = false;
-				return;
-			} catch (e) {
-				if (e instanceof DOMException && e.name === "NotAllowedError") {
+				if (stillCurrent()) {
+					mediaPlaybackBlocked.value = false;
+				}
+			} catch (error) {
+				if (!stillCurrent()) {
+					return;
+				}
+				if (error instanceof DOMException && error.name === "NotAllowedError") {
 					mediaPlaybackBlocked.value = true;
 				} else {
-					console.error("Can't apply IsPlaying: ", e.name, e);
+					console.warn("Could not apply room playback state", error);
 				}
 			}
 		}
 
 		function onClickUnblockPlayback(): void {
-			player?.setPosition(truePosition.value);
-			applyIsPlaying(store.state.room.isPlaying);
+			void playbackSync.requestSeek();
+			void applyIsPlaying(true);
 		}
 
 		function onPlayerApiReady() {
 			console.debug("internal player API is now ready");
+			timestampUpdate();
+			void applyIsPlaying();
 		}
 
 		async function onPlaybackChange(changeTo: boolean) {
@@ -641,15 +684,11 @@ export default defineComponent({
 				return;
 			}
 
-			await applyIsPlaying(store.state.room.isPlaying);
+			await applyIsPlaying();
 		}
 		function onPlayerReady() {
-			if (currentSource.value?.service === "vimeo") {
-				onPlayerReadyVimeo();
-			}
-		}
-		async function onPlayerReadyVimeo() {
-			await applyIsPlaying(store.state.room.isPlaying);
+			timestampUpdate();
+			void applyIsPlaying();
 		}
 
 		const captions = useCaptions();
@@ -702,6 +741,18 @@ export default defineComponent({
 			} else {
 				activateVideoControls();
 			}
+		}
+
+		function onVideoDoubleTap() {
+			activateVideoControls();
+			if (!connection.connected.value) {
+				return;
+			}
+			if (!granted("playback.play-pause")) {
+				showInteractionNotice("play-pause-denied");
+				return;
+			}
+			togglePlayback();
 		}
 
 		function seekBounds() {
@@ -760,6 +811,7 @@ export default defineComponent({
 			canSeek: () => connection.connected.value && granted("playback.seek"),
 			isPlaying: () => store.state.room.isPlaying && !mediaPlaybackBlocked.value,
 			onTap: onVideoTap,
+			onDoubleTap: onVideoDoubleTap,
 			onDoubleClick: () => {
 				void fullscreen.toggle();
 			},
@@ -1136,6 +1188,11 @@ $in-video-chat-width-small: 250px;
 
 	.video-controls-wrapper {
 		flex: 0 0 auto;
+	}
+
+	&.cursor-hidden,
+	&.cursor-hidden * {
+		cursor: none !important;
 	}
 }
 

@@ -12,7 +12,7 @@
 			:inert="!controlsVisible || undefined"
 			@pointerenter="onPointerEnter"
 			@pointerleave="onPointerLeave"
-			@pointerdown="controls?.hold(dragKey, true)"
+			@pointerdown="onPointerDown"
 			@focusin="onFocusIn"
 			@focusout="controls?.hold(focusKey, false)"
 		>
@@ -43,9 +43,10 @@ import VolumeControl from "./VolumeControl.vue";
 import PlaybackRateSwitcher from "./PlaybackRateSwitcher.vue";
 import VideoSettings from "./VideoSettings.vue";
 import PictureInPictureButton from "./PictureInPictureButton.vue";
-import { inject, onMounted, onUnmounted, ref } from "vue";
+import { inject, onMounted, onUnmounted, ref, watch } from "vue";
 import { useResizeObserver } from "@vueuse/core";
 import { PlayerControlsActivityKey } from "@/util/player-controls";
+import { useStore } from "@/store";
 
 const emit = defineEmits(["show-shortcuts", "resize"]);
 const controlsBar = ref<HTMLElement | null>(null);
@@ -56,21 +57,36 @@ useResizeObserver(controlsBar, entries => {
 	}
 });
 const controls = inject(PlayerControlsActivityKey, undefined);
+const store = useStore();
 const hoverKey = Symbol("player:hover");
 const dragKey = Symbol("player:drag");
 const focusKey = Symbol("player:focus");
+const hovered = ref(false);
+let pointerPressed = false;
+watch(
+	[hovered, () => store.state.fullscreen],
+	([hover, fullscreen]) => controls?.hold(hoverKey, hover && !fullscreen),
+	{ flush: "sync" },
+);
 function onPointerEnter(event: PointerEvent) {
 	if (event.pointerType === "mouse") {
-		controls?.hold(hoverKey, true);
+		hovered.value = true;
+		controls?.activity();
 	}
 }
 function onPointerLeave(event: PointerEvent) {
 	if (event.pointerType === "mouse") {
-		controls?.hold(hoverKey, false);
+		hovered.value = false;
 	}
+}
+function onPointerDown() {
+	pointerPressed = true;
+	controls?.hold(focusKey, false);
+	controls?.hold(dragKey, true);
 }
 function onFocusIn(event: FocusEvent) {
 	if (
+		!pointerPressed &&
 		event.target instanceof Element &&
 		(event.target.matches(":focus-visible") || event.target.matches('input, [role="slider"]'))
 	) {
@@ -79,6 +95,7 @@ function onFocusIn(event: FocusEvent) {
 	controls?.activity();
 }
 function releaseDrag() {
+	pointerPressed = false;
 	controls?.hold(dragKey, false);
 }
 onMounted(() => {

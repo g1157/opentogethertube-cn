@@ -81,7 +81,7 @@ function menuHarness(kind: MenuKind) {
 			}));
 			return { player, defaults, store };
 		},
-		template: `<div ref="player" class="player-menu-host" :style="{ position: store.state.fullscreen ? 'fixed' : 'relative' }">
+		template: `<div ref="player" class="player-menu-host" :class="{ 'player-fullscreen': store.state.fullscreen }" :style="{ position: store.state.fullscreen ? 'fixed' : 'relative' }">
 			<v-defaults-provider :defaults="defaults">
 				${kind === "settings" ? "<VideoSettings />" : "<PlaybackRateSwitcher />"}
 			</v-defaults-provider>
@@ -310,6 +310,50 @@ describe("player menu placement", () => {
 			{ action: "req", request: { type: RoomRequestType.PlaybackSpeedRequest, speed: 2 } },
 		]);
 		expect(wrapper.get(selectors.rate).attributes("aria-expanded")).toBe("false");
+	});
+
+	it("changes viewing preferences immediately from the fullscreen player menu", async () => {
+		const { wrapper, store } = await mountMenu("settings");
+		store.commit("SET_FULLSCREEN", true);
+		await settle();
+		await wrapper.get(selectors.settings).trigger("click");
+		await settle();
+		document.querySelector<HTMLElement>('[data-cy="player-preferences-toggle"]')!.click();
+		await settle();
+
+		const player = wrapper.get(".player-menu-host").element;
+		const chatSelect = document.querySelector<HTMLElement>(
+			'[data-cy="chat-overlay-duration"] .v-field',
+		)!;
+		chatSelect.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+		await settle();
+		const choices = Array.from(
+			document.querySelectorAll<HTMLElement>('.v-overlay--active [role="option"]'),
+		);
+		expect(choices.map(item => item.textContent?.trim())).toEqual([
+			"关",
+			"3 秒",
+			"5 秒",
+			"10 秒",
+			"20 秒",
+		]);
+		expect(choices.every(item => player.contains(item))).toBe(true);
+		choices[0].click();
+		await settle();
+		expect(store.state.settings.chatOverlaySeconds).toBe(0);
+		expect(wrapper.get(selectors.settings).attributes("aria-expanded")).toBe("true");
+
+		const controlsSelect = document.querySelector<HTMLElement>(
+			'[data-cy="controls-hide-delay"] .v-field',
+		)!;
+		controlsSelect.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+		await settle();
+		const controlsChoices = Array.from(
+			document.querySelectorAll<HTMLElement>('.v-overlay--active [role="option"]'),
+		);
+		controlsChoices.find(item => item.textContent?.trim() === "10 秒")!.click();
+		await settle();
+		expect(store.state.settings.controlsHideSeconds).toBe(10);
 	});
 
 	it("updates layout controls after rotation and does not open hover tooltips on touch screens", async () => {

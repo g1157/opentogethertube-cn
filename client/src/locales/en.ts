@@ -207,6 +207,11 @@ export default {
 		"con-status": {
 			connecting: "Connecting...",
 			connected: "Connected",
+			timeout: "Connection timed out. Retrying…",
+			reconnecting: "Connection interrupted. Retrying…",
+			retry: "Reconnect now",
+			"network-help":
+				"If you use a proxy, add this site's address to your system proxy bypass list or use a proxy that supports WebSockets. A direct routing rule alone may still go through the HTTP proxy. Reconnection is automatic when the network recovers.",
 		},
 		"visibility-badge-label": "Room visibility",
 		tabs: {
@@ -431,6 +436,16 @@ export default {
 		activator: "@:client-settings.title",
 		"room-layout": "Room Layout",
 		theme: "Theme",
+		"playback-preferences": "Viewing preferences",
+		"chat-overlay-duration": "Message display duration",
+		"chat-overlay-hint":
+			"How long new messages appear over the video. Chat history is kept when off.",
+		"controls-hide-delay": "Hide controls after",
+		"controls-hide-hint":
+			"Idle time before controls hide. The cursor also hides in desktop fullscreen.",
+		"hls-buffer-duration": "HLS buffer target",
+		"hls-buffer-hint":
+			"For HLS (.m3u8) only. MP4 and native HLS buffers are managed by your browser. Longer buffers use more memory and data.",
 		"audio-boost": "Audio Boost",
 		"audio-boost-hint":
 			"Boost audio from supported non-iframe players up to 300%. Sound effects are unaffected.",
@@ -480,6 +495,7 @@ export default {
 			seconds: "{count} sec",
 			"seek-preview": "{delta} sec → {time}, release to seek",
 			"seek-denied": "You do not have permission to seek in this room",
+			"play-pause-denied": "You do not have permission to play or pause this room",
 			"speed-denied": "You do not have permission to change this room's speed",
 			"speed-busy": "Another viewer is holding to speed up playback",
 			"speed-unavailable": "Hold to speed up is unavailable right now",
@@ -489,7 +505,7 @@ export default {
 		shortcuts: {
 			title: "Playback gestures and shortcuts",
 			gestures:
-				"Tap the picture to show or hide controls. Swipe to preview a time jump, then release to seek. Hold for 0.5 seconds to play at 2× and release to restore speed. Double-click on desktop to toggle fullscreen.",
+				"Tap the picture to show or hide controls. Double-tap on touchscreens to play or pause. Swipe to preview a time jump, then release to seek. Hold for 0.5 seconds to play at 2× and release to restore speed. Double-click on desktop to toggle fullscreen.",
 			"chat-hint":
 				"Opening chat does not focus the input. Tap the input to type. Closing chat keeps your unsent draft.",
 			"play-pause": "Play / pause",
@@ -510,9 +526,20 @@ export default {
 		},
 		"playback-error-title": {
 			unknown: "Playback Error",
+			network: "Video network error",
+			decode: "Video decoding error",
+			unsupported: "Unsupported video or source",
 		},
 		"playback-error-message": {
 			unknown: "Failed to load video.",
+			network:
+				"The video request failed. Check your connection, proxy routing and whether the video source is reachable, then retry.",
+			decode: "Your browser could not decode this video. Retry loading it, or try another browser or video source.",
+			unsupported:
+				"The video format may be unsupported or the link may have expired. Check the link and try a video source supported by your browser.",
 		},
+		"retry-local": "Retry my video",
+		"retry-local-hint":
+			"Reloads the video on this device without changing the room's playback state.",
 	},
 };

@@ -11,6 +11,7 @@ export interface OttRoomConnection {
 	active: Ref<boolean>;
 	connected: Ref<boolean>;
 	kickReason: Ref<OttWebsocketError | null>;
+	issue: Ref<"timeout" | "network" | null>;
 
 	connect(roomName: string): void;
 	reconnect(): void;
@@ -61,10 +62,10 @@ function getReconnectDelayMs(
 	randomValue = Math.random(),
 ) {
 	const baseDelay = reconnectDelay + reconnectDelayIncrease * reconnectAttempts;
-	return Math.round(baseDelay * (0.5 + randomValue));
+	return Math.min(30000, Math.round(baseDelay * (0.5 + randomValue)));
 }
 
-class OttRoomConnectionReal implements OttRoomConnection {
+export class OttRoomConnectionReal implements OttRoomConnection {
 	/**
 	 * Indicates if the client is actively attempting to maintain a connection. Not an indication of whether the connection is connected, see `connected`.
 	 * @returns true if the client is actively attempting to maintain a connection to a room.
@@ -77,9 +78,21 @@ class OttRoomConnectionReal implements OttRoomConnection {
 	reconnectDelay = 1000;
 	reconnectDelayIncrease = 2000;
 	kickReason: Ref<OttWebsocketError | null> = ref(null);
+	issue: Ref<"timeout" | "network" | null> = ref(null);
 
 	private socket: WebSocket | null = null;
 	private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+	private connectTimeout: ReturnType<typeof setTimeout> | null = null;
+	private readonly onOnline = () => {
+		if (this.active.value && !this.connected.value) {
+			this.reconnect();
+		}
+	};
+	private readonly onOffline = () => {
+		if (this.active.value) {
+			this.failConnection("network");
+		}
+	};
 	private messageHandlers = new Map<ServerMessageActionType, ((msg: ServerMessage) => void)[]>();
 	private eventHandlers = new Map<ConnectionEventKind, ((e: unknown) => void)[]>();
 
@@ -99,6 +112,10 @@ class OttRoomConnectionReal implements OttRoomConnection {
 		this.roomName.value = roomName;
 		this.active.value = true;
 		this.kickReason.value = null;
+		this.issue.value = null;
+		this.reconnectAttempts.value = 0;
+		window.addEventListener("online", this.onOnline);
+		window.addEventListener("offline", this.onOffline);
 		this.doConnect(this.connectionUrl);
 	}
 
@@ -113,65 +130,132 @@ class OttRoomConnectionReal implements OttRoomConnection {
 	}
 
 	private doConnect(url: string) {
-		this.socket = new WebSocket(url);
-		console.debug(`connecting to ${url}`);
-		this.socket.addEventListener("open", () => this.onOpen());
-		this.socket.addEventListener("close", e => this.onClose(e));
-		this.socket.addEventListener("message", e => this.onMessage(e));
-		this.socket.addEventListener("error", e => this.onError(e));
+		this.clearTimers();
+		this.closeSocket();
+		this.connected.value = false;
+		try {
+			const socket = new WebSocket(url);
+			this.socket = socket;
+			// Closing an old socket is asynchronous. Its late events must never affect its replacement.
+			socket.addEventListener("open", () => {
+				if (this.socket === socket) {
+					this.onOpen();
+				}
+			});
+			socket.addEventListener("close", e => {
+				if (this.socket === socket) {
+					this.onClose(e);
+				}
+			});
+			socket.addEventListener("message", e => {
+				if (this.socket === socket) {
+					this.onMessage(e);
+				}
+			});
+			socket.addEventListener("error", () => {
+				if (this.socket === socket) {
+					this.failConnection("network");
+				}
+			});
+			// Cover both a stalled WebSocket upgrade and an open socket that never completes room auth.
+			this.connectTimeout = setTimeout(() => {
+				if (this.socket === socket) {
+					this.failConnection("timeout");
+				}
+			}, 15000);
+		} catch {
+			this.failConnection("network");
+		}
 	}
 
 	send(message: ClientMessage) {
 		if (!this.active.value) {
 			throw new Error("send(): connection is not active");
 		}
-		if (!this.connected.value) {
+		if (!this.connected.value || this.socket?.readyState !== WebSocket.OPEN) {
 			throw new Error("send(): connection is not connected");
 		}
 		const text = JSON.stringify(message);
-		this.socket!.send(text);
+		this.socket.send(text);
 	}
 
 	disconnect() {
-		if (!this.active.value) {
-			console.log("disconnect(): connection is not active, ignoring");
-			return;
-		}
-		this.socket!.close();
-		this.socket = null;
-		if (this.reconnecting && this.reconnectTimeout) {
-			clearTimeout(this.reconnectTimeout);
-			this.reconnectTimeout = null;
-		}
-		this.roomName.value = "";
 		this.active.value = false;
+		this.connected.value = false;
+		this.reconnecting.value = false;
+		this.issue.value = null;
+		this.clearTimers();
+		this.closeSocket();
+		this.removeNetworkListeners();
+		this.roomName.value = "";
 	}
 
 	private onOpen() {
-		this.connected.value = true;
-		this.reconnecting.value = false;
-		this.reconnectAttempts.value = 0;
-		console.info("socket open");
-		const authMsg: ClientMessageAuthenticate = {
-			action: "auth",
-			token: window.localStorage.getItem("token") as AuthToken,
-		};
-		this.send(authMsg);
+		try {
+			const authMsg: ClientMessageAuthenticate = {
+				action: "auth",
+				token: window.localStorage.getItem("token") as AuthToken,
+			};
+			this.socket!.send(JSON.stringify(authMsg));
+		} catch {
+			this.failConnection("network");
+		}
 	}
 
 	private onClose(e: { code: number }) {
-		console.info("socket closed", e);
-		this.connected.value = false;
-		this.socket = null;
-		this.dispatchEvent({ kind: "disconnected" });
 		if (e.code >= 4000) {
+			this.clearTimers();
+			this.closeSocket();
+			this.connected.value = false;
+			this.reconnecting.value = false;
+			this.issue.value = null;
 			this.kickReason.value = e.code;
-			this.dispatchEvent({ kind: "kicked", reason: e.code });
 			this.active.value = false;
+			this.removeNetworkListeners();
+			this.dispatchEvent({ kind: "disconnected" });
+			this.dispatchEvent({ kind: "kicked", reason: e.code });
 		} else if (this.active.value) {
-			this.reconnecting.value = true;
-			this.reconnectTimeout = setTimeout(() => this.reconnect(), this.getReconnectDelay());
+			this.failConnection("network");
 		}
+	}
+
+	private clearTimers() {
+		if (this.connectTimeout !== null) {
+			clearTimeout(this.connectTimeout);
+		}
+		if (this.reconnectTimeout !== null) {
+			clearTimeout(this.reconnectTimeout);
+		}
+		this.connectTimeout = null;
+		this.reconnectTimeout = null;
+	}
+
+	private closeSocket() {
+		const socket = this.socket;
+		this.socket = null;
+		try {
+			socket?.close();
+		} catch {
+			// Already closed or blocked sockets must not prevent cleanup or a fresh attempt.
+		}
+	}
+
+	private removeNetworkListeners() {
+		window.removeEventListener("online", this.onOnline);
+		window.removeEventListener("offline", this.onOffline);
+	}
+
+	private failConnection(issue: "timeout" | "network") {
+		this.clearTimers();
+		this.closeSocket();
+		this.connected.value = false;
+		if (!this.active.value) {
+			return;
+		}
+		this.issue.value = issue;
+		this.reconnecting.value = true;
+		this.dispatchEvent({ kind: "disconnected" });
+		this.reconnectTimeout = setTimeout(() => this.reconnect(), this.getReconnectDelay());
 	}
 
 	private getReconnectDelay() {
@@ -186,15 +270,23 @@ class OttRoomConnectionReal implements OttRoomConnection {
 		if (typeof e.data === "string") {
 			try {
 				const msg = JSON.parse(e.data) as ServerMessage;
+				if (
+					msg.action === "sync" &&
+					typeof msg.name === "string" &&
+					!this.connected.value
+				) {
+					this.clearTimers();
+					this.connected.value = true;
+					this.reconnecting.value = false;
+					this.reconnectAttempts.value = 0;
+					this.issue.value = null;
+					this.dispatchEvent({ kind: "connected" });
+				}
 				this.handleMessage(msg);
-			} catch (e) {
-				console.error("unable to process message: ", e.data, e);
+			} catch {
+				console.error("unable to process room message");
 			}
 		}
-	}
-
-	private onError(e: unknown) {
-		console.log("socket error", e);
 	}
 
 	addMessageHandler(action: ServerMessageActionType, handler: (msg: ServerMessage) => void) {
@@ -262,6 +354,7 @@ export class OttRoomConnectionMock implements OttRoomConnection {
 	active: Ref<boolean> = ref(false);
 	connected: Ref<boolean> = ref(false);
 	kickReason: Ref<OttWebsocketError | null> = ref(null);
+	issue: Ref<"timeout" | "network" | null> = ref(null);
 
 	sent: ClientMessage[] = [];
 	private messageHandlers = new Map<ServerMessageActionType, ((msg: ServerMessage) => void)[]>();

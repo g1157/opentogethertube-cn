@@ -35,6 +35,16 @@
 					<br /><br />
 					<em>{{ currentPlaybackError?.message }}</em>
 				</span>
+				<div v-if="player?.retry" class="playback-error-retry">
+					<v-btn
+						color="primary"
+						data-cy="retry-local-media"
+						@click.stop="retryLocalMedia"
+					>
+						{{ $t("player.retry-local") }}
+					</v-btn>
+					<p>{{ $t("player.retry-local-hint") }}</p>
+				</div>
 			</div>
 		</v-alert>
 
@@ -156,6 +166,8 @@ import { calculateCurrentPosition } from "ott-common/timestamp";
 import {
 	computed,
 	defineAsyncComponent,
+	nextTick,
+	onBeforeUnmount,
 	type PropType,
 	type Ref,
 	ref,
@@ -199,7 +211,6 @@ const PeertubePlayer = defineAsyncComponent(() => import("./PeertubePlayer.vue")
 const store = useStore();
 
 const player: Ref<MediaPlayer | null> = ref(null);
-const hasPlayerChangedYet = ref(false);
 
 const controls = useMediaPlayer();
 
@@ -253,9 +264,7 @@ watch(player, v => {
 	console.debug("Player changed", v);
 	// note that we have to wait for the player's api to be ready before we can call any methods on it
 	controls.setPlayer(v);
-	if (v) {
-		hasPlayerChangedYet.value = true;
-	} else {
+	if (!v) {
 		captions.isCaptionsSupported.value = false;
 		qualities.isQualitySupported.value = false;
 		qualities.isAutoQualitySupported.value = false;
@@ -290,34 +299,34 @@ watchEffect(() => {
 });
 // Clear error state when source changes
 watch(
-	() => props.source,
-	(newSource, oldSource) => {
-		// Only clear error if the source actually changed (not just initial load)
-		if (oldSource !== undefined && newSource !== oldSource) {
-			if (store.state.playerStatus === PlayerStatus.error) {
-				store.commit("PLAYBACK_STATUS", PlayerStatus.none);
-			}
-			if (currentPlaybackError.value) {
-				currentPlaybackError.value = null;
-			}
+	() =>
+		JSON.stringify([
+			props.source?.service,
+			props.source?.id,
+			props.source?.src_url,
+			props.source?.hls_url,
+			props.source?.dash_url,
+			props.source?.mime,
+			props.source?.subtitleUrl,
+		]),
+	() => {
+		if (store.state.playerStatus === PlayerStatus.error) {
+			store.commit("PLAYBACK_STATUS", PlayerStatus.none);
 		}
+		currentPlaybackError.value = null;
+		showBufferWarning.value = false;
+		store.commit("PLAYBACK_BUFFER_RESET");
 	},
 );
 // player events re-emitted or data stored
 async function onApiReady() {
-	if (!hasPlayerChangedYet.value) {
-		console.debug("waiting for player to change before emitting apiready");
-		await new Promise(resolve => {
-			const stop = watch(hasPlayerChangedYet, v => {
-				if (v && player.value) {
-					stop();
-					resolve(true);
-				}
-			});
-		});
+	// mounted may emit before Vue assigns the template ref. The same component may also
+	// emit again after a source/manifest change, so waiting for a new ref would deadlock.
+	await nextTick();
+	if (!player.value) {
+		return;
 	}
 
-	hasPlayerChangedYet.value = false;
 	controls.markApiReady();
 	captions.isCaptionsSupported.value = isCaptionsSupported();
 	qualities.isQualitySupported.value = isQualitySupported();
@@ -342,6 +351,8 @@ async function onApiReady() {
 }
 
 function onReady() {
+	currentPlaybackError.value = null;
+	showBufferWarning.value = false;
 	store.commit("PLAYBACK_STATUS", PlayerStatus.ready);
 	emit("ready");
 }
@@ -353,7 +364,9 @@ function hackReadyEdgeCase() {
 }
 
 function onPlaying() {
-	hackReadyEdgeCase();
+	currentPlaybackError.value = null;
+	showBufferWarning.value = false;
+	store.commit("PLAYBACK_STATUS", PlayerStatus.ready);
 	controls.playing.value = true;
 	emit("playing");
 }
@@ -365,6 +378,7 @@ function onPaused() {
 }
 
 function onBuffering() {
+	currentPlaybackError.value = null;
 	store.commit("PLAYBACK_STATUS", PlayerStatus.buffering);
 	emit("buffering");
 }
@@ -375,9 +389,27 @@ const showPlaybackError = computed(() => {
 });
 
 function onError(errorType?: MediaPlayerError) {
+	showBufferWarning.value = false;
 	currentPlaybackError.value = errorType ?? { type: "unknown" };
 	store.commit("PLAYBACK_STATUS", PlayerStatus.error);
 	emit("error");
+}
+
+async function retryLocalMedia() {
+	const currentPlayer = player.value;
+	if (!currentPlayer?.retry) {
+		return;
+	}
+	store.commit("PLAYBACK_BUFFER_RESET");
+	showBufferWarning.value = false;
+	onBuffering();
+	try {
+		await currentPlayer.retry();
+	} catch {
+		if (currentPlayer === player.value) {
+			onError({ type: "unknown" });
+		}
+	}
 }
 
 function onBufferProgress(percent: number) {
@@ -396,7 +428,8 @@ async function onBufferSpans(spans: TimeRanges) {
 		  )
 		: store.state.room.playbackPosition;
 	const isInSpans = isInTimeRanges(spans, position);
-	showBufferWarning.value = !isInSpans;
+	showBufferWarning.value =
+		store.state.playerStatus === PlayerStatus.buffering && spans.length > 0 && !isInSpans;
 }
 
 const showBufferWarning = ref(false);
@@ -413,6 +446,13 @@ const renderedSpans = computed(() => {
 		}
 	}
 	return result;
+});
+
+onBeforeUnmount(() => {
+	if (controls.player.value === player.value) {
+		controls.setPlayer(null);
+		controls.playing.value = false;
+	}
 });
 </script>
 
@@ -456,5 +496,21 @@ const renderedSpans = computed(() => {
 	justify-content: center;
 	background-color: rgba(var(--v-theme-background), 1);
 	z-index: 1;
+	padding: 24px;
+	text-align: center;
+}
+
+.playback-error-text {
+	max-width: 640px;
+}
+
+.playback-error-retry {
+	margin-top: 20px;
+
+	p {
+		margin-top: 12px;
+		font-size: 0.875rem;
+		color: var(--muted-foreground);
+	}
 }
 </style>

@@ -1,17 +1,21 @@
 # 简体中文分支部署与回退
 
-此文档适用于 `v0.15.0-cn4`。每次发布都先在独立的 18080 端口验收，通过后将同一个已验收镜像
+此文档适用于 `v0.15.0-cn5`。每次发布都先在独立的 18080 端口验收，通过后将同一个已验收镜像
 切换到正式 8080 端口。已有实例升级也遵循这一顺序，保留配置与数据卷；不直接在正式端口试新版本。
 示例中的 `YOUR_HOST`、仓库地址和旧容器名称需要替换为自己的值。
 
 ## 版本与运行环境
 
 源码基于官方 `v0.15.0`，工作区 `package.json` 保留上游的 `0.14.1`。Compose 的缺省镜像名为
-`ott-next:0.15.0-cn4`；下面的独立验收示例显式使用 `ott-preview:0.15.0-cn4`，避免覆盖现有镜像标签。
+`ott-next:0.15.0-cn5`；下面的独立验收示例显式使用 `ott-preview:0.15.0-cn5`，避免覆盖现有镜像标签。
 镜像的 revision 标签记录构建所用提交。
 
 cn4 选择性移植官方 master 提交 `4ea9029429a98561ba7c213c54c55ef0f0c56800` 的配色、字体、首页、
 导航与房间卡片，兼容保留 cn1–cn3 的功能；核心仍以 v0.15.0 为基线，没有整体切换到开发分支。
+
+cn5 增加消息与控件隐藏时长设置、全屏鼠标隐藏、手机双击播放/暂停、连接超时重试，
+并为 MP4/HLS 增加有限的错误恢复和本机重新加载，减少缓冲时反复校正进度。cn4 到 cn5
+没有新增数据库迁移。HLS 预缓冲设置仅适用于 hls.js，MP4 和浏览器原生 HLS 仍由浏览器管理缓存。
 
 需要 Docker Engine、Compose v2、Git 和 Node.js；构建推荐 Node.js 24，使用仓库自带的 Yarn 4.1.0。
 第一次安装依赖可能需要 Python 和 C/C++ 编译工具。部署使用独立的 PostgreSQL、Redis、
@@ -66,7 +70,7 @@ NODE
 
 ```dotenv
 OTT_PROJECT_NAME=ott-preview
-OTT_IMAGE=ott-preview:0.15.0-cn4
+OTT_IMAGE=ott-preview:0.15.0-cn5
 OTT_INSTANCE_ID=ott-preview
 OTT_AUTH_COOKIE_NAME=ott_preview_token
 OTT_SESSION_COOKIE_NAME=ott_preview_sid

@@ -89,8 +89,72 @@
 								</v-btn>
 							</v-btn-toggle>
 						</v-list-item>
+						<v-list-item
+							link
+							class="menu-item"
+							:append-icon="mdiChevronRight"
+							:prepend-icon="mdiTune"
+							@click="navigateToMenu('preferences')"
+							data-cy="player-preferences-toggle"
+						>
+							{{ $t("client-settings.playback-preferences") }}
+						</v-list-item>
 						<v-list-item link :prepend-icon="mdiKeyboardOutline" @click="showShortcuts">
 							{{ $t("player.shortcuts.title") }}
+						</v-list-item>
+					</v-list>
+
+					<v-list
+						v-else-if="currentMenu === 'preferences'"
+						key="preferences"
+						class="menu-content"
+					>
+						<v-list-item
+							link
+							class="menu-header"
+							:prepend-icon="mdiChevronLeft"
+							@click="navigateToMenu('main')"
+						>
+							{{ $t("client-settings.playback-preferences") }}
+						</v-list-item>
+						<v-list-item>
+							<v-select
+								v-model="chatOverlaySeconds"
+								:label="$t('client-settings.chat-overlay-duration')"
+								:hint="$t('client-settings.chat-overlay-hint')"
+								:items="chatOverlayOptions"
+								:menu-props="preferenceMenuProps"
+								persistent-hint
+								density="compact"
+								class="my-2"
+								data-cy="chat-overlay-duration"
+							/>
+						</v-list-item>
+						<v-list-item>
+							<v-select
+								v-model="controlsHideSeconds"
+								:label="$t('client-settings.controls-hide-delay')"
+								:hint="$t('client-settings.controls-hide-hint')"
+								:items="controlsHideOptions"
+								:menu-props="preferenceMenuProps"
+								persistent-hint
+								density="compact"
+								class="my-2"
+								data-cy="controls-hide-delay"
+							/>
+						</v-list-item>
+						<v-list-item>
+							<v-select
+								v-model="hlsBufferSeconds"
+								:label="$t('client-settings.hls-buffer-duration')"
+								:hint="$t('client-settings.hls-buffer-hint')"
+								:items="hlsBufferOptions"
+								:menu-props="preferenceMenuProps"
+								persistent-hint
+								density="compact"
+								class="my-2"
+								data-cy="hls-buffer-duration"
+							/>
 						</v-list-item>
 					</v-list>
 
@@ -165,6 +229,7 @@
 
 <script lang="ts" setup>
 import { ref, computed, nextTick, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { useMediaQuery } from "@vueuse/core";
 import { useCaptions, useQualities } from "../composables";
 import {
@@ -180,18 +245,59 @@ import { getFriendlyResolutionLabel } from "@/util/misc";
 import type { VideoTrack, CaptionTrack } from "@/models/media-tracks";
 import { usePlayerControlsActivity } from "@/util/player-controls";
 import { useStore } from "@/store";
+import {
+	CHAT_OVERLAY_SECONDS_OPTIONS,
+	CONTROLS_HIDE_SECONDS_OPTIONS,
+	HLS_BUFFER_SECONDS_OPTIONS,
+} from "@/stores/settings";
 
 const emit = defineEmits(["show-shortcuts"]);
 const store = useStore();
+const { t } = useI18n();
 const canHover = useMediaQuery("(hover: hover) and (pointer: fine)");
 const menu = ref<{ updateLocation: () => void } | null>(null);
+// VMenu resets inherited defaults inside its content, including nested select menus.
+const preferenceMenuProps = computed(() => ({
+	attach: store.state.fullscreen ? ".player-fullscreen" : false,
+}));
 const swipeSeekSeconds = computed({
 	get: () => store.state.settings.swipeSeekSeconds,
 	set: value => store.commit("settings/UPDATE", { swipeSeekSeconds: value }),
 });
+const chatOverlaySeconds = computed({
+	get: () => store.state.settings.chatOverlaySeconds,
+	set: value => store.commit("settings/UPDATE", { chatOverlaySeconds: value }),
+});
+const controlsHideSeconds = computed({
+	get: () => store.state.settings.controlsHideSeconds,
+	set: value => store.commit("settings/UPDATE", { controlsHideSeconds: value }),
+});
+const hlsBufferSeconds = computed({
+	get: () => store.state.settings.hlsBufferSeconds,
+	set: value => store.commit("settings/UPDATE", { hlsBufferSeconds: value }),
+});
+const chatOverlayOptions = computed(() =>
+	CHAT_OVERLAY_SECONDS_OPTIONS.map(seconds => ({
+		// biome-ignore lint/nursery/noVueRefAsOperand: seconds is a numeric option, not a Vue ref.
+		title: seconds > 0 ? t("player.interactions.seconds", { count: seconds }) : t("common.off"),
+		value: seconds,
+	})),
+);
+const controlsHideOptions = computed(() =>
+	CONTROLS_HIDE_SECONDS_OPTIONS.map(value => ({
+		title: t("player.interactions.seconds", { count: value }),
+		value,
+	})),
+);
+const hlsBufferOptions = computed(() =>
+	HLS_BUFFER_SECONDS_OPTIONS.map(value => ({
+		title: t("player.interactions.seconds", { count: value }),
+		value,
+	})),
+);
 
 // Menu types - using literal string values instead of enum due to Safari compatibility issues
-const currentMenu = ref<"main" | "quality" | "subtitle">("main");
+const currentMenu = ref<"main" | "quality" | "subtitle" | "preferences">("main");
 const isMenuOpen = ref<boolean>(false);
 usePlayerControlsActivity(isMenuOpen);
 
