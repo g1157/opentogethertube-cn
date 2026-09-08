@@ -205,6 +205,11 @@ export default {
 		"con-status": {
 			connecting: "连接中…",
 			connected: "已连接",
+			timeout: "连接超时，正在重试…",
+			reconnecting: "连接中断，正在重试…",
+			retry: "立即重连",
+			"network-help":
+				"若开启了代理，请将本站地址加入系统代理的绕过列表，或改用支持 WebSocket 的代理。仅设置路由直连可能仍会经过 HTTP 代理。恢复网络后会自动重连。",
 		},
 		"visibility-badge-label": "房间可见性",
 		tabs: {
@@ -418,6 +423,14 @@ export default {
 		activator: "@:client-settings.title",
 		"room-layout": "房间布局",
 		theme: "主题",
+		"playback-preferences": "观看偏好",
+		"chat-overlay-duration": "消息停留时长",
+		"chat-overlay-hint": "新消息在画面上的显示时间；关闭后仍可展开聊天查看历史。",
+		"controls-hide-delay": "控件自动隐藏时间",
+		"controls-hide-hint": "无操作多久后收起控件；电脑全屏时同时隐藏鼠标指针。",
+		"hls-buffer-duration": "HLS 预缓冲时长",
+		"hls-buffer-hint":
+			"仅适用于 HLS（.m3u8）；MP4 和原生 HLS 的缓存由浏览器管理。较长缓存占用更多内存和流量。",
 		"audio-boost": "音频增强",
 		"audio-boost-hint": "将支持的非 iframe 播放器的音频增强至 300%。音效不受影响。",
 		"audio-boost-unsupported": "当前播放器不支持音频增强。音效不受影响。",
@@ -465,6 +478,7 @@ export default {
 			seconds: "{count} 秒",
 			"seek-preview": "{delta} 秒 → {time}，松手跳转",
 			"seek-denied": "你没有调整房间播放进度的权限",
+			"play-pause-denied": "你没有播放或暂停房间视频的权限",
 			"speed-denied": "你没有调整房间倍速的权限",
 			"speed-busy": "其他观众正在长按倍速播放",
 			"speed-unavailable": "当前无法使用长按倍速",
@@ -474,7 +488,7 @@ export default {
 		shortcuts: {
 			title: "播放手势与快捷键",
 			gestures:
-				"点击画面显示或收起控件；左右滑动按设定时长跳转，松手执行；长按约 0.5 秒进入 2 倍速，松手恢复。电脑双击画面切换全屏。",
+				"点击画面显示或收起控件；手机双击画面暂停或继续播放。左右滑动按设定时长跳转，松手执行；长按约 0.5 秒进入 2 倍速，松手恢复。电脑双击画面切换全屏。",
 			"chat-hint": "展开聊天不会弹出键盘，点击输入框才开始输入。收起聊天会保留未发送的草稿。",
 			"play-pause": "播放 / 暂停",
 			"seek-five": "后退 / 前进 5 秒",
@@ -494,9 +508,18 @@ export default {
 		},
 		"playback-error-title": {
 			unknown: "播放错误",
+			network: "视频网络连接异常",
+			decode: "视频解码失败",
+			unsupported: "不支持的视频或来源",
 		},
 		"playback-error-message": {
 			unknown: "加载视频失败。",
+			network: "视频请求失败。请检查网络、代理分流及视频源是否可访问后重试。",
+			decode: "浏览器无法解码当前视频。可重试加载，或尝试其他浏览器或视频源。",
+			unsupported:
+				"视频格式可能不受支持，或视频链接已失效。请检查链接，并更换为浏览器支持的视频源。",
 		},
+		"retry-local": "仅重载我的视频",
+		"retry-local-hint": "仅重新加载你这台设备上的视频，不改变房间的播放状态。",
 	},
 };

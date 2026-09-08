@@ -6,12 +6,12 @@
 			webkit-playsinline
 			preload="auto"
 			crossorigin="anonymous"
+			@loadedmetadata="recovery.restoreMetadata"
 			@canplay="onCanPlay"
 			@playing="onPlaying"
 			@pause="onPaused"
-			@play="onWaiting"
-			@waiting="onWaiting"
-			@stalled="onBuffering"
+			@waiting="onBuffering"
+			@stalled="onStalled"
 			@loadstart="onBuffering"
 			@progress="onProgress"
 			@ended="onEnd"
@@ -37,10 +37,15 @@
 </template>
 
 <script lang="ts" setup>
-import { nextTick, onMounted, ref, toRefs, watch } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
-import type { CustomMediaManifest } from "ott-common/models/zod-schemas.js";
+import {
+	CustomMediaManifestSchema,
+	type CustomMediaManifest,
+} from "ott-common/models/zod-schemas.js";
+import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
 import type {
+	MediaPlayerError,
 	MediaPlayerWithAudioBoost,
 	MediaPlayerWithCaptions,
 	MediaPlayerWithPlaybackRate,
@@ -63,34 +68,45 @@ const captions = useCaptions();
 const audioBoost = useMediaAudioBoost(videoElem);
 const qualities = useQualities();
 const manifest = ref<CustomMediaManifest | null>(null);
+let activeMediaUrl = "";
+let sourceGeneration = 0;
+let manifestRequest: AbortController | undefined;
 
 const emit = defineEmits<{
 	"apiready": [];
 	"ready": [];
 	"playing": [];
 	"paused": [];
-	"waiting": [];
 	"buffering": [];
-	"error": [];
+	"error": [error: MediaPlayerError];
 	"end": [];
 	"buffer-progress": [progress: number];
 	"buffer-spans": [spans: TimeRanges];
 }>();
 
+const recovery = createMediaRecovery({
+	media: () => videoElem.value,
+	restart: async () => {
+		if (activeMediaUrl && videoElem.value) {
+			videoElem.value.src = activeMediaUrl;
+			videoElem.value.load();
+		} else {
+			await resolveVideoSource(sourceGeneration);
+		}
+	},
+	onRecovering: () => emit("buffering"),
+	onError: error => {
+		manifestRequest?.abort();
+		emit("error", error);
+	},
+});
+
 function play() {
-	if (!videoElem.value) {
-		console.error("player not ready");
-		return;
-	}
-	return videoElem.value.play();
+	return recovery.play();
 }
 
 function pause() {
-	if (!videoElem.value) {
-		console.error("player not ready");
-		return;
-	}
-	videoElem.value.pause();
+	recovery.pause();
 }
 
 function setVolume(volume: number) {
@@ -102,19 +118,11 @@ function setVolume(volume: number) {
 }
 
 function getPosition() {
-	if (!videoElem.value) {
-		console.error("player not ready");
-		return 0;
-	}
-	return videoElem.value.currentTime;
+	return recovery.getPosition();
 }
 
 function setPosition(position: number) {
-	if (!videoElem.value) {
-		console.error("player not ready");
-		return;
-	}
-	videoElem.value.currentTime = position;
+	recovery.setPosition(position);
 }
 
 function isCaptionsSupported(): boolean {
@@ -209,19 +217,11 @@ function setVideoTrack(idx: number): void {
 		return;
 	}
 	const source = manifest.value.sources[idx];
-	if (!source) {
+	if (!source || source.url === activeMediaUrl) {
 		return;
 	}
-	const currentTime = videoElem.value.currentTime;
-	const wasPlaying = !videoElem.value.paused;
-	videoElem.value.src = source.url;
-	videoElem.value.load();
-	videoElem.value.currentTime = currentTime;
-	if (wasPlaying) {
-		videoElem.value.play().catch(e => {
-			console.error("DirectPlayer: error resuming after quality switch:", e);
-		});
-	}
+	activeMediaUrl = source.url;
+	recovery.retry();
 	qualities.currentVideoTrack.value = idx;
 }
 
@@ -233,7 +233,7 @@ function getCurrentActiveQuality(): number | null {
 	if (!videoElem.value || !manifest.value) {
 		return null;
 	}
-	return manifest.value.sources.findIndex(s => s.url === videoElem.value?.src) ?? -1;
+	return manifest.value.sources.findIndex(s => s.url === activeMediaUrl);
 }
 
 function getAvailablePlaybackRates(): number[] {
@@ -249,11 +249,7 @@ function getPlaybackRate(): number {
 }
 
 async function setPlaybackRate(rate: number): Promise<void> {
-	if (!videoElem.value) {
-		console.error("player not ready");
-		return;
-	}
-	videoElem.value.playbackRate = rate;
+	recovery.setPlaybackRate(rate);
 }
 
 function setAudioBoost(boost: number): void {
@@ -261,39 +257,69 @@ function setAudioBoost(boost: number): void {
 }
 
 async function loadVideoSource() {
-	console.log("DirectPlayer: loading video source:", videoUrl.value, videoMime.value);
 	if (!videoElem.value) {
-		console.error("player not ready");
 		return;
 	}
+	sourceGeneration++;
+	manifestRequest?.abort();
+	recovery.reset();
+	activeMediaUrl = "";
+	videoElem.value.pause();
+	videoElem.value.removeAttribute("src");
+	videoElem.value.load();
 	// Fix for captions from previous video still showing after source change
 	for (let i = 0; i < videoElem.value.textTracks.length; i++) {
 		videoElem.value.textTracks[i].mode = "hidden";
 	}
 	audioBoost.resetFailedSetup();
 	manifest.value = null;
+	videoElem.value.poster = thumbnail.value ?? "";
+	emit("buffering");
+	// The control API can accept play/pause/seek while a manifest is still loading.
+	emit("apiready");
+	await resolveVideoSource(sourceGeneration);
+}
 
+async function resolveVideoSource(generation: number) {
+	if (!videoElem.value || generation !== sourceGeneration) {
+		return;
+	}
 	if (videoMime.value === "application/json") {
+		manifestRequest?.abort();
+		const request = new AbortController();
+		manifestRequest = request;
 		try {
-			const response = await fetch(videoUrl.value);
-			if (!response.ok) {
-				console.error("DirectPlayer: failed to fetch manifest:", response.status);
-				emit("error");
+			const response = await fetch(videoUrl.value, { signal: request.signal });
+			if (generation !== sourceGeneration || request.signal.aborted) {
 				return;
 			}
-			manifest.value = (await response.json()) as CustomMediaManifest;
+			if (!response.ok) {
+				recovery.handleError({
+					type: "network",
+					retryable: ![400, 401, 403, 404, 410].includes(response.status),
+				});
+				return;
+			}
+			const data: unknown = await response.json();
+			if (generation !== sourceGeneration || request.signal.aborted) {
+				return;
+			}
+			const parsed = CustomMediaManifestSchema.safeParse(data);
+			if (!parsed.success || parsed.data.sources.length === 0) {
+				recovery.handleError({ type: "unsupported", retryable: false });
+				return;
+			}
+			manifest.value = parsed.data;
 		} catch (e) {
-			console.error("DirectPlayer: failed to fetch manifest:", e);
-			emit("error");
+			if (generation === sourceGeneration && !request.signal.aborted) {
+				console.warn("DirectPlayer: failed to fetch manifest:", e);
+				recovery.handleError({
+					type: e instanceof SyntaxError ? "unsupported" : "network",
+				});
+			}
 			return;
 		}
-		const firstSource = manifest.value.sources[0];
-		if (!firstSource) {
-			console.error("DirectPlayer: manifest has no sources");
-			emit("error");
-			return;
-		}
-		videoElem.value.src = firstSource.url;
+		activeMediaUrl = manifest.value.sources[0].url;
 
 		qualities.videoTracks.value = getVideoTracks();
 		qualities.currentVideoTrack.value = 0;
@@ -308,10 +334,16 @@ async function loadVideoSource() {
 		captions.isCaptionsEnabled.value = defaultTrackIdx !== -1;
 		if (defaultTrackIdx !== -1) {
 			await nextTick();
-			videoElem.value.textTracks[defaultTrackIdx].mode = "showing";
+			if (generation !== sourceGeneration || request.signal.aborted) {
+				return;
+			}
+			const track = videoElem.value?.textTracks[defaultTrackIdx];
+			if (track) {
+				track.mode = "showing";
+			}
 		}
 	} else {
-		videoElem.value.src = videoUrl.value;
+		activeMediaUrl = videoUrl.value;
 
 		qualities.videoTracks.value = [];
 		qualities.currentVideoTrack.value = -1;
@@ -327,35 +359,45 @@ async function loadVideoSource() {
 		}
 	}
 
-	videoElem.value.poster = thumbnail.value ?? "";
+	if (!videoElem.value || generation !== sourceGeneration) {
+		return;
+	}
+	videoElem.value.src = activeMediaUrl;
 	videoElem.value.load();
-	// this is needed to get the player to keep playing after the previous video has ended
-	videoElem.value.play();
-
-	console.log("DirectPlayer: current subtitle track:", captions.currentTrack.value);
-	console.log("DirectPlayer: current video track:", qualities.currentVideoTrack.value);
-
+	// Refresh capabilities now that a custom manifest's quality and caption tracks are known.
 	emit("apiready");
 }
 
 function onCanPlay() {
-	emit("ready");
+	if (recovery.canPlay()) {
+		emit("ready");
+	}
 }
 
 function onPlaying() {
+	if (recovery.isFailed() || recovery.isRecovering()) {
+		return;
+	}
 	emit("playing");
 }
 
 function onPaused() {
-	emit("paused");
-}
-
-function onWaiting() {
-	emit("waiting");
+	if (!recovery.isRecovering() && !recovery.isFailed()) {
+		emit("paused");
+	}
 }
 
 function onBuffering() {
-	emit("buffering");
+	if (!recovery.isFailed()) {
+		emit("buffering");
+	}
+}
+
+function onStalled() {
+	// stalled only describes download activity; playback may still have plenty of buffer.
+	if (videoElem.value && !videoElem.value.paused && videoElem.value.readyState < 3) {
+		onBuffering();
+	}
 }
 
 function onProgress() {
@@ -376,18 +418,29 @@ function onEnd() {
 	emit("end");
 }
 
-function onError(err: Event) {
-	emit("error");
-	console.error("DirectPlayer: error:", err);
+function onError() {
+	const error = nativeMediaError(videoElem.value?.error ?? null);
+	if (error) {
+		console.warn("DirectPlayer: media error:", videoElem.value?.error);
+		recovery.handleError(error);
+	}
 }
 
 onMounted(() => {
 	loadVideoSource();
 });
 
-watch([videoUrl, subtitleUrl], () => {
-	console.log("DirectPlayer: videoUrl or subtitleUrl changed");
+watch([videoUrl, videoMime, subtitleUrl], () => {
 	loadVideoSource();
+});
+
+onBeforeUnmount(() => {
+	sourceGeneration++;
+	manifestRequest?.abort();
+	recovery.dispose();
+	videoElem.value?.pause();
+	videoElem.value?.removeAttribute("src");
+	videoElem.value?.load();
 });
 
 defineExpose({
@@ -410,6 +463,9 @@ defineExpose({
 	getPlaybackRate,
 	setPlaybackRate,
 	setAudioBoost,
+	retry: recovery.retry,
+	isSeeking: () => videoElem.value?.seeking ?? false,
+	isRecovering: recovery.isRecovering,
 } satisfies MediaPlayerWithCaptions & MediaPlayerWithPlaybackRate & MediaPlayerWithAudioBoost & MediaPlayerWithQuality);
 </script>
 

@@ -35,6 +35,45 @@ describe("saved settings and the cn3 Chinese default", () => {
 			defaultLocaleVersion: "v0.15.0-cn3",
 		});
 		expect(store.state.settings).not.toHaveProperty("defaultLocaleVersion");
+		expect(store.state.settings.chatOverlaySeconds).toBe(5);
+		expect(store.state.settings.controlsHideSeconds).toBe(3);
+		expect(store.state.settings.hlsBufferSeconds).toBe(60);
+	});
+
+	it("persists viewing preferences across visits, including disabled message overlays", async () => {
+		const firstVisit = newStore();
+		await firstVisit.dispatch("settings/load");
+		firstVisit.commit("settings/UPDATE", {
+			chatOverlaySeconds: 0,
+			controlsHideSeconds: 10,
+			hlsBufferSeconds: 120,
+		});
+		const nextVisit = newStore();
+		await nextVisit.dispatch("settings/load");
+		expect(nextVisit.state.settings.chatOverlaySeconds).toBe(0);
+		expect(nextVisit.state.settings.controlsHideSeconds).toBe(10);
+		expect(nextVisit.state.settings.hlsBufferSeconds).toBe(120);
+	});
+
+	it.each([
+		null,
+		-1,
+		100000,
+		"5",
+	])("replaces invalid saved viewing durations with safe defaults: %s", async value => {
+		saved.set(
+			"settings",
+			JSON.stringify({
+				chatOverlaySeconds: value,
+				controlsHideSeconds: value,
+				hlsBufferSeconds: value,
+			}),
+		);
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.chatOverlaySeconds).toBe(5);
+		expect(store.state.settings.controlsHideSeconds).toBe(3);
+		expect(store.state.settings.hlsBufferSeconds).toBe(60);
 	});
 
 	it("migrates a returning English visitor while preserving their other settings and storage", async () => {

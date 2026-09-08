@@ -1,5 +1,5 @@
 <template>
-	<v-dialog v-model="show" width="600">
+	<v-dialog v-model="show" width="600" scrollable>
 		<template v-slot:activator="{ props }">
 			<v-btn v-bind="props" style="margin: 0 20px">
 				{{ $t("client-settings.activator") }}
@@ -32,6 +32,30 @@
 						</v-theme-provider>
 					</template>
 				</v-select>
+				<v-select
+					v-model="settings.chatOverlaySeconds"
+					:label="$t('client-settings.chat-overlay-duration')"
+					:hint="$t('client-settings.chat-overlay-hint')"
+					:items="chatOverlayOptions"
+					persistent-hint
+					data-cy="chat-overlay-duration"
+				/>
+				<v-select
+					v-model="settings.controlsHideSeconds"
+					:label="$t('client-settings.controls-hide-delay')"
+					:hint="$t('client-settings.controls-hide-hint')"
+					:items="controlsHideOptions"
+					persistent-hint
+					data-cy="controls-hide-delay"
+				/>
+				<v-select
+					v-model="settings.hlsBufferSeconds"
+					:label="$t('client-settings.hls-buffer-duration')"
+					:hint="$t('client-settings.hls-buffer-hint')"
+					:items="hlsBufferOptions"
+					persistent-hint
+					data-cy="hls-buffer-duration"
+				/>
 				<v-checkbox
 					:label="$t('client-settings.sfx-enable')"
 					v-model="settings.sfxEnabled"
@@ -103,7 +127,14 @@ import type { MediaPlayer, MediaPlayerWithAudioBoost } from "@/components/compos
 import { useMediaPlayer } from "@/components/composables";
 import { useSfx } from "@/plugins/sfx";
 import { useStore } from "@/store";
-import { RoomLayoutMode, type SettingsState, Theme } from "@/stores/settings";
+import {
+	CHAT_OVERLAY_SECONDS_OPTIONS,
+	CONTROLS_HIDE_SECONDS_OPTIONS,
+	HLS_BUFFER_SECONDS_OPTIONS,
+	RoomLayoutMode,
+	type SettingsState,
+	Theme,
+} from "@/stores/settings";
 import { enumKeys } from "@/util/misc";
 import AutoSkipSegmentSettings from "./AutoSkipSegmentSettings.vue";
 
@@ -117,6 +148,25 @@ const controls = useMediaPlayer();
 const { t } = useI18n();
 const settings: Ref<ExposedSettings> = ref(loadSettings());
 const sfx = useSfx();
+const chatOverlayOptions = computed(() =>
+	CHAT_OVERLAY_SECONDS_OPTIONS.map(seconds => ({
+		// biome-ignore lint/nursery/noVueRefAsOperand: seconds is a numeric option, not a Vue ref.
+		title: seconds > 0 ? t("player.interactions.seconds", { count: seconds }) : t("common.off"),
+		value: seconds,
+	})),
+);
+const controlsHideOptions = computed(() =>
+	CONTROLS_HIDE_SECONDS_OPTIONS.map(value => ({
+		title: t("player.interactions.seconds", { count: value }),
+		value,
+	})),
+);
+const hlsBufferOptions = computed(() =>
+	HLS_BUFFER_SECONDS_OPTIONS.map(value => ({
+		title: t("player.interactions.seconds", { count: value }),
+		value,
+	})),
+);
 
 const showRoomSettings = ref(false);
 const autoSkipCategories = ref(

@@ -17,7 +17,10 @@ export function usePlayerControlsActivity(open: Ref<boolean>) {
 	onUnmounted(() => controls?.hold(key, false));
 }
 
-export function usePlayerControls(shouldStayVisible: () => boolean) {
+export function usePlayerControls(
+	shouldStayVisible: () => boolean,
+	hideDelaySeconds: () => number = () => 3,
+) {
 	const visible = ref(true);
 	const timeout = ref<ReturnType<typeof setTimeout> | null>(null);
 	const holds = ref(new Set<symbol>());
@@ -42,7 +45,7 @@ export function usePlayerControls(shouldStayVisible: () => boolean) {
 				if (!pinned.value) {
 					visible.value = false;
 				}
-			}, 3000);
+			}, hideDelaySeconds() * 1000);
 		}
 	}
 
@@ -79,6 +82,9 @@ export function usePlayerControls(shouldStayVisible: () => boolean) {
 		if (event.pointerType !== "mouse" || event.buttons !== 0) {
 			return;
 		}
+		if (lastMouse?.x === event.clientX && lastMouse.y === event.clientY) {
+			return;
+		}
 		lastMouse = { x: event.clientX, y: event.clientY };
 		if (manuallyHidden) {
 			hiddenAt ??= lastMouse;
@@ -90,6 +96,7 @@ export function usePlayerControls(shouldStayVisible: () => boolean) {
 	}
 
 	watch(pinned, value => (value ? activity() : scheduleHide()), { immediate: true });
+	watch(hideDelaySeconds, scheduleHide);
 	onUnmounted(() => {
 		disposed = true;
 		clearTimer();

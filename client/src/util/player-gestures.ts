@@ -7,6 +7,7 @@ interface PlayerGestureOptions {
 	canSeek(): boolean;
 	isPlaying(): boolean;
 	onTap(): void;
+	onDoubleTap(): void;
 	onDoubleClick(): void;
 	onSeek(position: number): void;
 	onSeekDenied(): void;
@@ -21,6 +22,8 @@ interface Gesture {
 	x: number;
 	y: number;
 	position: number;
+	startedAt: number;
+	doubleTap: boolean;
 	moved: boolean;
 	phase: "pending" | "swiping" | "holding" | "cancelled";
 }
@@ -31,7 +34,7 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 	let gesture: Gesture | null = null;
 	let holdTimer: ReturnType<typeof setTimeout> | null = null;
 	let clickTimer: ReturnType<typeof setTimeout> | null = null;
-	let lastClick: { x: number; y: number; time: number } | null = null;
+	let lastClick: { x: number; y: number; time: number; pointerType: string } | null = null;
 
 	function clearHoldTimer() {
 		if (holdTimer !== null) {
@@ -81,6 +84,20 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 		) {
 			return;
 		}
+		const doubleTap = !!(
+			lastClick &&
+			lastClick.pointerType === event.pointerType &&
+			Date.now() - lastClick.time < 280 &&
+			Math.hypot(event.clientX - lastClick.x, event.clientY - lastClick.y) <
+				(event.pointerType === "mouse" ? 12 : 32)
+		);
+		if (lastClick) {
+			// Wait for the second release before acting; it may become a swipe or a hold.
+			clearClickTimer();
+			if (!doubleTap) {
+				options.onTap();
+			}
+		}
 		gesture = {
 			id: event.pointerId,
 			pointerType: event.pointerType,
@@ -88,6 +105,8 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 			x: event.clientX,
 			y: event.clientY,
 			position: options.getPosition(),
+			startedAt: Date.now(),
+			doubleTap,
 			moved: false,
 			phase: "pending",
 		};
@@ -176,19 +195,25 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 			if (range) {
 				options.onSeek(Math.min(range.end, Math.max(range.start, target.position)));
 			}
-		} else if (current.phase === "pending" && !current.moved) {
-			if (current.pointerType !== "mouse") {
-				options.onTap();
-			} else if (
-				lastClick &&
-				Date.now() - lastClick.time < 280 &&
-				Math.hypot(event.clientX - lastClick.x, event.clientY - lastClick.y) < 12
-			) {
-				clearClickTimer();
-				options.onDoubleClick();
+		} else if (
+			current.phase === "pending" &&
+			!current.moved &&
+			Date.now() - current.startedAt < 500
+		) {
+			if (current.doubleTap) {
+				if (current.pointerType === "mouse") {
+					options.onDoubleClick();
+				} else {
+					options.onDoubleTap();
+				}
 			} else {
 				clearClickTimer();
-				lastClick = { x: event.clientX, y: event.clientY, time: Date.now() };
+				lastClick = {
+					x: event.clientX,
+					y: event.clientY,
+					time: Date.now(),
+					pointerType: current.pointerType,
+				};
 				clickTimer = setTimeout(() => {
 					clearClickTimer();
 					options.onTap();

@@ -55,8 +55,12 @@ export interface MediaPlayer {
 	 */
 	pause(): void | Promise<void>;
 	setVolume(volume: number): void | Promise<void>;
-	getPosition(): number;
-	setPosition(position: number): void;
+	getPosition(): number | Promise<number>;
+	setPosition(position: number): void | Promise<void>;
+	/** Reload this client's media without sending a room playback or seek request. */
+	retry?(): void | Promise<void>;
+	isSeeking?(): boolean;
+	isRecovering?(): boolean;
 
 	isCaptionsSupported(): boolean;
 	isQualitySupported(): boolean;
@@ -108,6 +112,14 @@ export class MediaPlayerV2 {
 		return !!this.player.value;
 	}
 
+	isSeeking(): boolean {
+		return this.player.value?.isSeeking?.() ?? false;
+	}
+
+	isRecovering(): boolean {
+		return this.player.value?.isRecovering?.() ?? false;
+	}
+
 	markApiReady() {
 		if (!this.player.value) {
 			// FIXME: im not sure if this branch gets taken anymore
@@ -145,11 +157,11 @@ export class MediaPlayerV2 {
 		}
 		return this.player.value.getPosition();
 	}
-	setPosition(position: number): void {
+	setPosition(position: number): void | Promise<void> {
 		if (!this.checkForPlayer(this.player.value)) {
 			return;
 		}
-		this.player.value.setPosition(position);
+		return this.player.value.setPosition(position);
 	}
 }
 
@@ -205,6 +217,7 @@ export function usePlaybackRate() {
 }
 
 export interface MediaPlayerError {
-	type: "unknown";
+	type: "unknown" | "network" | "decode" | "unsupported";
 	message?: string;
+	retryable?: boolean;
 }

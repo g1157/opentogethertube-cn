@@ -3,7 +3,8 @@ import { nextTick } from "vue";
 import Room from "@/views/Room.vue";
 import Chat from "@/components/Chat.vue";
 import VideoSettings from "@/components/controls/VideoSettings.vue";
-import { usePlaybackRate } from "@/components/composables";
+import LayoutSwitcher from "@/components/controls/LayoutSwitcher.vue";
+import { usePlaybackRate, type MediaPlayerV2 } from "@/components/composables";
 import { OttSfx } from "@/plugins/sfx";
 import { RoomRequestType } from "ott-common/models/messages";
 import { PlayerStatus, Role } from "ott-common/models/types";
@@ -11,6 +12,7 @@ import { mountComponent } from "./component-test-utils";
 
 describe("room player interactions", () => {
 	let page: ReturnType<typeof mountComponent>;
+	let playbackApi: MediaPlayerV2 | null = null;
 	beforeEach(async () => {
 		vi.useFakeTimers();
 		const saved = new Map<string, string>();
@@ -88,13 +90,40 @@ describe("room player interactions", () => {
 	});
 	afterEach(() => {
 		page?.wrapper.unmount();
+		playbackApi?.setPlayer(null);
+		playbackApi = null;
 		localStorage.clear();
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
 		vi.useRealTimers();
 	});
 
-	function pointer(type: string, x = 200, y = 150) {
+	function installPlayer(ready = true) {
+		const media = {
+			play: vi.fn(async (): Promise<void> => undefined),
+			pause: vi.fn(async (): Promise<void> => undefined),
+			getPosition: vi.fn(() => 0),
+			setPosition: vi.fn(),
+			setVolume: vi.fn(),
+			isSeeking: vi.fn(() => false),
+			isRecovering: vi.fn(() => false),
+			isCaptionsSupported: () => false,
+			isQualitySupported: () => false,
+			getAvailablePlaybackRates: () => [1],
+		};
+		playbackApi = page.wrapper.vm.player as MediaPlayerV2;
+		playbackApi.setPlayer(media);
+		if (ready) {
+			playbackApi.markApiReady();
+		}
+		return media;
+	}
+
+	function playerEvent(event: "ready" | "apiready") {
+		page.wrapper.findComponent({ name: "OmniPlayer" }).vm.$emit(event);
+	}
+
+	function pointer(type: string, x = 200, y = 150, pointerType = "touch") {
 		const target = page.wrapper.get('[data-cy="player-gesture-surface"]')
 			.element as HTMLElement;
 		target.getBoundingClientRect = () =>
@@ -106,12 +135,21 @@ describe("room player interactions", () => {
 			bubbles: true,
 			cancelable: true,
 		});
-		Object.assign(event, { pointerType: "touch", pointerId: 1, isPrimary: true });
+		Object.assign(event, { pointerType, pointerId: 1, isPrimary: true });
 		target.dispatchEvent(event);
 	}
 	async function tap() {
 		pointer("pointerdown");
 		pointer("pointerup");
+		await vi.advanceTimersByTimeAsync(280);
+		await nextTick();
+	}
+	async function doubleTap() {
+		pointer("pointerdown");
+		pointer("pointerup");
+		await vi.advanceTimersByTimeAsync(100);
+		pointer("pointerdown", 210);
+		pointer("pointerup", 210);
 		await nextTick();
 	}
 	function key(code: string, target: EventTarget = document.body) {
@@ -183,6 +221,167 @@ describe("room player interactions", () => {
 		expect(page.wrapper.get(".video-controls").attributes("inert")).toBeUndefined();
 		expect(page.connection.sent).toEqual([]);
 		expect(page.store.state.room.isPlaying).toBe(true);
+	});
+
+	it("double-taps pause and resume the room once without triggering mobile fullscreen", async () => {
+		await doubleTap();
+		await page.wrapper.get('[data-cy="player-gesture-surface"]').trigger("dblclick");
+		await vi.advanceTimersByTimeAsync(300);
+		expect(page.connection.sent).toEqual([
+			{ action: "req", request: { type: RoomRequestType.PlaybackRequest, state: false } },
+		]);
+		expect(page.store.state.fullscreen).toBe(false);
+		page.store.commit("room/SYNC", { isPlaying: false });
+		await nextTick();
+		await doubleTap();
+		await vi.advanceTimersByTimeAsync(300);
+		expect(page.connection.sent).toEqual([
+			{ action: "req", request: { type: RoomRequestType.PlaybackRequest, state: false } },
+			{ action: "req", request: { type: RoomRequestType.PlaybackRequest, state: true } },
+		]);
+		expect(page.store.state.fullscreen).toBe(false);
+	});
+
+	it("enforces play/pause permission for a mobile double-tap", async () => {
+		page.store.state.room.grants.setRoleGrants(Role.UnregisteredUser, []);
+		await nextTick();
+		await doubleTap();
+		expect(page.connection.sent).toEqual([]);
+		expect(page.wrapper.get(".player-gesture-hint").text()).toContain("权限");
+		expect(page.store.state.room.isPlaying).toBe(true);
+	});
+
+	it("does not send mobile playback requests while disconnected", async () => {
+		page.connection.connected.value = false;
+		await nextTick();
+		await doubleTap();
+		expect(page.connection.sent).toEqual([]);
+	});
+
+	it.each([
+		"direct",
+		"hls",
+		"vimeo",
+	])("restores %s readiness to the room's paused or playing state", async service => {
+		const media = installPlayer();
+		page.store.commit("room/SYNC", {
+			currentSource: { service, id: "https://example.test/source", length: 600 },
+			isPlaying: false,
+		});
+		await nextTick();
+		playerEvent("ready");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(media.pause).toHaveBeenCalledOnce();
+		expect(media.play).not.toHaveBeenCalled();
+		page.store.commit("room/SYNC", { isPlaying: true });
+		playerEvent("ready");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(media.play).toHaveBeenCalledOnce();
+		expect(page.connection.sent).toEqual([]);
+	});
+
+	it("applies the latest room state when the player becomes ready after an earlier play request", async () => {
+		const media = installPlayer(false);
+		page.connection.mockReceive({ action: "sync", isPlaying: true });
+		page.store.commit("room/SYNC", { isPlaying: false });
+		page.connection.mockReceive({ action: "sync", isPlaying: false });
+		expect(media.play).not.toHaveBeenCalled();
+		expect(media.pause).not.toHaveBeenCalled();
+		playbackApi!.markApiReady();
+		playerEvent("apiready");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(media.pause).toHaveBeenCalledOnce();
+		expect(media.play).not.toHaveBeenCalled();
+	});
+
+	it("applies server seek commands immediately during the automatic correction cooldown", async () => {
+		const media = installPlayer();
+		playerEvent("apiready");
+		await vi.advanceTimersByTimeAsync(0);
+		media.setPosition.mockClear();
+		page.store.commit("room/SYNC", { playbackPosition: 350 });
+		page.connection.mockReceive({ action: "sync", playbackPosition: 350 });
+		expect(media.setPosition).toHaveBeenCalledOnce();
+		expect(media.setPosition).toHaveBeenCalledWith(350);
+		await vi.advanceTimersByTimeAsync(1750);
+		expect(media.setPosition).toHaveBeenCalledOnce();
+	});
+
+	it("retains the autoplay prompt until an explicit click succeeds", async () => {
+		const media = installPlayer();
+		media.play.mockRejectedValueOnce(
+			new DOMException("Interaction required", "NotAllowedError"),
+		);
+		playerEvent("ready");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(page.wrapper.find(".playback-blocked-prompt").exists()).toBe(true);
+		playerEvent("ready");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(media.play).toHaveBeenCalledOnce();
+		await page.wrapper.get(".playback-blocked-prompt button").trigger("click");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(media.play).toHaveBeenCalledTimes(2);
+		expect(page.wrapper.find(".playback-blocked-prompt").exists()).toBe(false);
+	});
+
+	it("ignores a stale autoplay rejection after changing the video", async () => {
+		const media = installPlayer();
+		let reject!: (error: Error) => void;
+		media.play.mockReturnValueOnce(new Promise<void>((_, fail) => (reject = fail)));
+		playerEvent("ready");
+		page.store.commit("room/SYNC", {
+			currentSource: { service: "direct", id: "https://example.test/next.mp4", length: 600 },
+		});
+		await nextTick();
+		reject(new DOMException("Old playback attempt", "NotAllowedError"));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(page.wrapper.find(".playback-blocked-prompt").exists()).toBe(false);
+	});
+
+	it.each([
+		"fallback",
+		"native",
+	])("hides the cursor after clicking into %s fullscreen and wakes on mouse movement", async mode => {
+		const container = page.wrapper.get(".video-subcontainer");
+		const fullscreen = stubFullscreen(mode, container.element as HTMLElement);
+		try {
+			const controls = page.wrapper.get(".video-controls");
+			await controls.trigger("pointerenter", { pointerType: "mouse" });
+			await vi.advanceTimersByTimeAsync(4000);
+			expect(controls.classes()).not.toContain("hide");
+			const button = page.wrapper.findComponent(LayoutSwitcher).findAll("button").at(-1)!;
+			await button.trigger("pointerdown", { pointerType: "mouse" });
+			(button.element as HTMLButtonElement).focus();
+			await button.trigger("pointerup", { pointerType: "mouse" });
+			await button.trigger("click");
+			expect(page.store.state.fullscreen).toBe(true);
+			await vi.advanceTimersByTimeAsync(3000);
+			expect(controls.classes()).toContain("hide");
+			expect(container.classes()).toContain("player-fullscreen");
+			expect(container.classes()).toContain("cursor-hidden");
+			pointer("pointermove", 300, 150, "mouse");
+			await nextTick();
+			expect(container.classes()).not.toContain("cursor-hidden");
+			expect(controls.classes()).not.toContain("hide");
+		} finally {
+			page.wrapper.unmount();
+			fullscreen.restore();
+		}
+	});
+
+	it("keeps the fullscreen cursor and controls while paused or using a menu", async () => {
+		key("KeyF");
+		await nextTick();
+		page.store.commit("room/SYNC", { isPlaying: false });
+		await nextTick();
+		await vi.advanceTimersByTimeAsync(4000);
+		expect(page.wrapper.get(".video-subcontainer").classes()).not.toContain("cursor-hidden");
+		page.store.commit("room/SYNC", { isPlaying: true });
+		await nextTick();
+		await page.wrapper.findComponent(VideoSettings).get("button").trigger("click");
+		await vi.advanceTimersByTimeAsync(4000);
+		expect(page.wrapper.get(".video-subcontainer").classes()).not.toContain("cursor-hidden");
+		expect(page.wrapper.get(".video-controls").classes()).not.toContain("hide");
 	});
 
 	it("keeps reading chat visible and lets a picture tap close it without losing the draft", async () => {

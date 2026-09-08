@@ -22,16 +22,10 @@
 			<div class="grow"><!-- Spacer --></div>
 			<transition-group name="message">
 				<ChatMsg
-					:msg="msg"
-					v-for="(msg, index) in chatMessagePast"
-					:key="index"
-					@link-click="emit('link-click', $event)"
-				/>
-				<ChatMsg
-					:msg="msg"
-					recent
-					v-for="(msg, index) in chatMessageRecent"
-					:key="chatMessagePast.length + index"
+					v-for="entry in chatMessages"
+					:key="entry.id"
+					:msg="entry.message"
+					:recent="isRecent(entry)"
 					@link-click="emit('link-click', $event)"
 				/>
 			</transition-group>
@@ -76,15 +70,14 @@
 
 <script lang="ts" setup>
 import { mdiChevronDown, mdiChevronDoubleDown, mdiCommentOutline } from "@mdi/js";
-import { computed, onUpdated, ref, type Ref, nextTick, onMounted, onUnmounted } from "vue";
+import { computed, onUpdated, ref, type Ref, nextTick, onMounted, onUnmounted, watch } from "vue";
 import type { ChatMessage } from "ott-common/models/types";
 import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
 import type { ServerMessageChat } from "ott-common/models/messages";
 import { useSfx } from "@/plugins/sfx";
+import { useStore } from "@/store";
 import ChatMsg from "./ChatMsg.vue";
-
-const MSG_SHOW_TIMEOUT = 20000;
 
 const props = withDefaults(defineProps<{ controlsVisible?: boolean; draft?: string }>(), {
 	controlsVisible: true,
@@ -93,6 +86,8 @@ const emit = defineEmits(["link-click", "activation-change", "update:draft"]);
 
 const connection = useConnection();
 const roomapi = useRoomApi(connection);
+const store = useStore();
+const overlayDurationMs = computed(() => store.state.settings.chatOverlaySeconds * 1000);
 
 const localDraft = ref("");
 function updateDraft(draft: string) {
@@ -109,19 +104,19 @@ const stickToBottom = ref(true);
  * When chat is activated, all messages are shown. and the
  * user can scroll through message history, type in chat, etc.
  * When chat is NOT activated, when messages are received,
- * they appear and fade away after `MSG_SHOW_TIMEOUT` ms.
+ * they appear for the configured duration, measured from receipt.
  */
 const activated = ref(false);
-/**
- * All past chat messages. They are are no longer
- * shown when deactivated.
- */
-const chatMessagePast: Ref<ChatMessage[]> = ref([]);
-/**
- * All recent chat messages that are currently shown when deactivated.
- * They will fade away after `MSG_SHOW_TIMEOUT` ms, and moved into `chatMessagePast`.
- */
-const chatMessageRecent: Ref<ChatMessage[]> = ref([]);
+interface ReceivedChatMessage {
+	id: number;
+	message: ChatMessage;
+	receivedAt: number;
+}
+// Expiring the overlay never removes messages from the expanded chat history.
+const chatMessages = ref<ReceivedChatMessage[]>([]);
+const visibilityTime = ref(Date.now());
+let nextMessageId = 0;
+let expirationTimer: ReturnType<typeof setTimeout> | undefined;
 const messages = ref();
 const chatInput: Ref<HTMLInputElement | undefined> = ref();
 
@@ -131,6 +126,7 @@ onMounted(() => {
 
 onUnmounted(() => {
 	connection.removeMessageHandler("chat", onChatReceived);
+	clearTimeout(expirationTimer);
 	emit("activation-change", false);
 });
 
@@ -151,15 +147,34 @@ defineExpose({ setActivated, activated });
 
 const sfx = useSfx();
 function onChatReceived(msg: ServerMessageChat): void {
-	chatMessageRecent.value.push(msg);
-	setTimeout(expireChatMessage, MSG_SHOW_TIMEOUT);
+	chatMessages.value.push({ id: nextMessageId++, message: msg, receivedAt: Date.now() });
+	updateMessageVisibility();
 	nextTick(enforceStickToBottom);
 	sfx.play("pop");
 }
 
-function expireChatMessage() {
-	chatMessagePast.value.push(chatMessageRecent.value.splice(0, 1)[0]);
+function isRecent(entry: ReceivedChatMessage): boolean {
+	return (
+		overlayDurationMs.value > 0 &&
+		entry.receivedAt + overlayDurationMs.value > visibilityTime.value
+	);
 }
+
+function updateMessageVisibility() {
+	clearTimeout(expirationTimer);
+	expirationTimer = undefined;
+	visibilityTime.value = Date.now();
+	const next = chatMessages.value.find(isRecent);
+	if (next) {
+		expirationTimer = setTimeout(
+			updateMessageVisibility,
+			next.receivedAt + overlayDurationMs.value - visibilityTime.value,
+		);
+	}
+}
+
+// Apply duration changes to message ages, rather than restarting their countdowns.
+watch(overlayDurationMs, updateMessageVisibility);
 
 /**
  * Performs the necessary actions to enact the stickToBottom behavior.

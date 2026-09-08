@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import {
 	RoomRequestType,
@@ -129,5 +129,102 @@ describe("Chat component", () => {
 		await wrapper.vm.$nextTick();
 
 		expect(messages.scrollTop).toBe(300);
+	});
+});
+
+describe("chat overlay duration", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	function message(text: string): ServerMessage {
+		return {
+			action: "chat",
+			from: {
+				id: "1",
+				name: "goober",
+				isLoggedIn: false,
+				status: PlayerStatus.ready,
+				role: Role.UnregisteredUser,
+			},
+			text,
+		};
+	}
+
+	it("expires each message five seconds after receipt and keeps the history", async () => {
+		const { wrapper, connection } = mountComponent(Chat);
+		connection.mockReceive(message("first"));
+		await vi.advanceTimersByTimeAsync(2000);
+		connection.mockReceive(message("second"));
+		await nextTick();
+		expect(wrapper.findAll(".message.recent")).toHaveLength(2);
+
+		await vi.advanceTimersByTimeAsync(3000);
+		expect(wrapper.findAll(".message.recent .text").map(item => item.text())).toEqual([
+			"second",
+		]);
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(wrapper.findAll(".message.recent")).toHaveLength(0);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		expect(wrapper.findAll(".message .text").map(item => item.text())).toEqual([
+			"first",
+			"second",
+		]);
+	});
+
+	it("applies shorter and longer durations using original receipt times", async () => {
+		const { wrapper, connection, store } = mountComponent(Chat);
+		connection.mockReceive(message("first"));
+		await vi.advanceTimersByTimeAsync(4000);
+		connection.mockReceive(message("second"));
+		store.commit("settings/UPDATE", { chatOverlaySeconds: 3 });
+		await nextTick();
+		expect(wrapper.findAll(".message.recent .text").map(item => item.text())).toEqual([
+			"second",
+		]);
+
+		store.commit("settings/UPDATE", { chatOverlaySeconds: 10 });
+		await nextTick();
+		expect(wrapper.findAll(".message.recent")).toHaveLength(2);
+		await vi.advanceTimersByTimeAsync(6000);
+		expect(wrapper.findAll(".message.recent .text").map(item => item.text())).toEqual([
+			"second",
+		]);
+		await vi.advanceTimersByTimeAsync(4000);
+		expect(wrapper.findAll(".message.recent")).toHaveLength(0);
+	});
+
+	it("turns overlays off immediately without dropping current or subsequent messages", async () => {
+		const { wrapper, connection, store } = mountComponent(Chat);
+		connection.mockReceive(message("before"));
+		await nextTick();
+		expect(wrapper.findAll(".message.recent")).toHaveLength(1);
+		store.commit("settings/UPDATE", { chatOverlaySeconds: 0 });
+		await nextTick();
+		connection.mockReceive(message("after"));
+		await nextTick();
+		expect(wrapper.findAll(".message.recent")).toHaveLength(0);
+		await vi.advanceTimersByTimeAsync(20000);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		expect(wrapper.findAll(".message .text").map(item => item.text())).toEqual([
+			"before",
+			"after",
+		]);
+	});
+
+	it("clears its pending expiry when chat unmounts", async () => {
+		const { wrapper, connection } = mountComponent(Chat);
+		await nextTick();
+		const baselineTimerCount = vi.getTimerCount();
+		connection.mockReceive(message("pending"));
+		await nextTick();
+		expect(vi.getTimerCount()).toBe(baselineTimerCount + 1);
+		wrapper.unmount();
+		expect(vi.getTimerCount()).toBeLessThanOrEqual(baselineTimerCount);
+		await vi.advanceTimersByTimeAsync(20000);
 	});
 });
