@@ -22,6 +22,16 @@ const log = getLogger("direct");
 const DIRECT_MEDIA_URL_REGEX =
 	/\/*\.(mp(3|4v?)|mpg4|webm|flv|mkv|avi|wmv|qt|mov|ogv|m4v|h26[1-4]|ogg|json)$/;
 
+interface ProbedStream {
+	codec_type?: string;
+	disposition?: { attached_pic?: number };
+}
+
+function isVideoStream(stream: ProbedStream): boolean {
+	// Album artwork is not a decoded video track in the browser.
+	return stream.codec_type === "video" && stream.disposition?.attached_pic !== 1;
+}
+
 export default class DirectVideoAdapter extends ServiceAdapter {
 	ffprobe: FfprobeStrategy;
 
@@ -66,7 +76,7 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 	}
 
 	getDuration(fileInfo): number {
-		const videoStream = _.find(fileInfo.streams, { codec_type: "video" });
+		const videoStream = _.find(fileInfo.streams, isVideoStream);
 		if (videoStream) {
 			if (!videoStream.duration && !fileInfo.format.duration) {
 				log.error("Video duration could not be determined");
@@ -154,6 +164,10 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 
 		// If we can't determine a supported MIME type from extension, use ffprobe to detect it
 		const fileInfo = await this.ffprobe.getFileInfo(link);
+		const hasVideo = fileInfo.streams?.some(isVideoStream);
+		const hasAudio = fileInfo.streams?.some(
+			(stream: ProbedStream) => stream.codec_type === "audio",
+		);
 
 		if (!mime || !isSupportedMimeType(mime)) {
 			// Try to get MIME type from ffprobe format info
@@ -168,17 +182,21 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 
 		// Final fallback: check if we have video/audio streams and use a generic supported MIME type
 		if (!mime || !isSupportedMimeType(mime)) {
-			const hasVideo = fileInfo.streams?.some(
-				(s: { codec_type: string }) => s.codec_type === "video",
-			);
-			const hasAudio = fileInfo.streams?.some(
-				(s: { codec_type: string }) => s.codec_type === "audio",
-			);
 			// Use generic MIME types that are known to be supported
 			if (hasVideo) {
 				mime = "video/mp4";
 			} else if (hasAudio) {
 				mime = "audio/mpeg";
+			}
+		}
+
+		// MP4 and WebM containers can contain only audio even with a video extension.
+		// Use probed streams so the client need not mistake a missing video frame for audio.
+		if (hasAudio && !hasVideo) {
+			if (mime === "video/mp4") {
+				mime = "audio/mp4";
+			} else if (mime === "video/webm") {
+				mime = "audio/webm";
 			}
 		}
 

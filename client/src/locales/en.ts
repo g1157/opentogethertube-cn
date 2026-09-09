@@ -541,6 +541,26 @@ export default {
 				"The video format may be unsupported or the link may have expired. Check the link and try a video source supported by your browser.",
 		},
 		"retry-local": "Retry my video",
+		loading: {
+			preparing: "Preparing video",
+			seeking: "Loading the room's current position",
+			buffering: "Buffering video",
+			"waiting-frame": "Waiting for a video frame",
+			"waiting-viewer": "Waiting for the first viewer",
+			"wait-together":
+				"Restoring the saved position. Playback will start when the first viewer is ready.",
+			"resume-saved":
+				"Restoring the saved position. The room clock will start when the video is ready.",
+			"resume-retry": "Playback needs another attempt",
+			"resume-failed":
+				"The saved position could not be restored. Retry your video to try again.",
+			elapsed: "Waiting {seconds}s",
+			"buffer-ahead": "{seconds}s buffered ahead on this device",
+			"join-playing": "The room is playing. Your video will catch up when it is ready.",
+			"join-paused": "The video will appear when it is ready.",
+			slow: "This is taking longer. Loading depends on the source and your connection. You can keep waiting or retry.",
+			autoplay: "Your browser blocked autoplay. Select Play to continue.",
+		},
 		"retry-local-hint":
 			"Reloads the video on this device without changing the room's playback state.",
 	},

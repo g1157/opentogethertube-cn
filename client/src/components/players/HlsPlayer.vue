@@ -27,6 +27,7 @@ import { onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
 import { useStore } from "@/store";
 import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
+import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
 import type {
 	MediaPlayerWithAudioBoost,
 	MediaPlayerWithCaptions,
@@ -49,6 +50,7 @@ const qualities = useQualities();
 const audioBoost = useMediaAudioBoost(videoElem);
 const store = useStore();
 let hls: Hls | undefined;
+let audioOnly = false;
 
 const emit = defineEmits<{
 	"apiready": [];
@@ -60,11 +62,19 @@ const emit = defineEmits<{
 	"end": [];
 	"buffer-progress": [progress: number];
 	"buffer-spans": [spans: TimeRanges];
+	"loading-state": [state: MediaLoadingState];
 }>();
+
+const loadingState = createMediaLoadingState({
+	media: () => videoElem.value,
+	onChange: state => emit("loading-state", state),
+	isAudioOnly: () => audioOnly,
+});
 
 const recovery = createMediaRecovery({
 	media: () => videoElem.value,
 	restart: (error, manual) => {
+		loadingState.reset();
 		if (manual) {
 			attachSource();
 		} else if (hls) {
@@ -81,8 +91,12 @@ const recovery = createMediaRecovery({
 			videoElem.value?.load();
 		}
 	},
-	onRecovering: () => emit("buffering"),
+	onRecovering: () => {
+		loadingState.reset();
+		emit("buffering");
+	},
 	onError: error => {
+		loadingState.stop();
 		hls?.stopLoad();
 		emit("error", error);
 	},
@@ -242,6 +256,8 @@ function setAudioBoost(boost: number): void {
 }
 
 function loadVideoSource() {
+	loadingState.reset();
+	audioOnly = false;
 	recovery.reset();
 	emit("buffering");
 	attachSource();
@@ -252,6 +268,7 @@ function attachSource() {
 		return;
 	}
 	audioBoost.resetFailedSetup();
+	audioOnly = false;
 
 	const previous = hls;
 	hls = undefined;
@@ -278,15 +295,27 @@ function attachSource() {
 	});
 	hls = engine;
 
-	engine.on(Hls.Events.MANIFEST_PARSED, () => {
+	engine.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
 		if (hls !== engine) {
 			return;
 		}
 		// Metadata/track availability is not proof that the video can play yet.
+		audioOnly = data.audio === true && data.video === false;
+		loadingState.refresh();
 		qualities.videoTracks.value = getVideoTracks();
 		qualities.currentVideoTrack.value = engine.autoLevelEnabled ? -1 : engine.currentLevel;
 		captions.captionsTracks.value = getCaptionsTracks();
 		emit("apiready");
+	});
+
+	engine.on(Hls.Events.BUFFER_CREATED, (_, { tracks }) => {
+		if (hls !== engine) {
+			return;
+		}
+		// Direct media playlists can omit CODECS. These buffers include all expected tracks,
+		// whereas separate audio/video controllers can emit BUFFER_CODECS independently.
+		audioOnly = !!tracks.audio && !tracks.video && !tracks.audiovideo;
+		loadingState.refresh();
 	});
 
 	engine.on(Hls.Events.ERROR, (_, data) => {
@@ -331,7 +360,10 @@ function attachSource() {
 	emit("apiready");
 }
 
-onMounted(loadVideoSource);
+onMounted(() => {
+	loadingState.attach();
+	loadVideoSource();
+});
 
 function onReady() {
 	if (recovery.canPlay()) {
@@ -384,6 +416,7 @@ function onEnd() {
 }
 
 onBeforeUnmount(() => {
+	loadingState.dispose();
 	recovery.dispose();
 	const previous = hls;
 	hls = undefined;

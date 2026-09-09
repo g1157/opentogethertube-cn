@@ -2,12 +2,18 @@ import { describe, it, expect } from "vitest";
 import DirectVideoAdapter from "../../../services/direct.js";
 import { FfprobeStrategy } from "../../../ffprobe.js";
 import fs from "node:fs";
+import { isSupportedMimeType } from "../../../mime.js";
 
 const FIXTURE_DIRECTORY = "./tests/unit/fixtures/services/direct";
 
 class FfprobeFixtures extends FfprobeStrategy {
 	async getFileInfo(uri: string): Promise<any> {
 		const url = new URL(uri);
+		const audioStream = {
+			// eslint-disable-next-line camelcase
+			codec_type: "audio",
+			duration: 100,
+		};
 
 		return {
 			"/test.mp4": {
@@ -20,6 +26,20 @@ class FfprobeFixtures extends FfprobeStrategy {
 				],
 			},
 			"/foo.mp4": this.getFixture("ffprobe-output-has-title.json"),
+			"/audio.mp4": { streams: [audioStream] },
+			"/audio.webm": { streams: [audioStream] },
+			"/cover.mp4": {
+				streams: [
+					{
+						// eslint-disable-next-line camelcase
+						codec_type: "video",
+						// eslint-disable-next-line camelcase
+						disposition: { attached_pic: 1 },
+						duration: 1,
+					},
+					audioStream,
+				],
+			},
 		}[url.pathname];
 	}
 
@@ -134,7 +154,22 @@ describe("Direct", () => {
 				id: url,
 				title: "Foo: The Movie",
 				length: 69420,
+				mime: "video/mp4",
 			});
+		});
+
+		it.each([
+			["mp4", "audio/mp4"],
+			["webm", "audio/webm"],
+		])("Uses audio metadata for an audio-only %s container", async (extension, mime) => {
+			const video = await adapter.fetchVideoInfo(`https://example.com/audio.${extension}`);
+			expect(video).toMatchObject({ mime, length: 100 });
+			expect(isSupportedMimeType(video.mime!)).toBe(true);
+		});
+
+		it("Uses the audio duration and MIME when the only video stream is album artwork", async () => {
+			const video = await adapter.fetchVideoInfo("https://example.com/cover.mp4");
+			expect(video).toMatchObject({ mime: "audio/mp4", length: 100 });
 		});
 	});
 });

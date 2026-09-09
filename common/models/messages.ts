@@ -40,6 +40,8 @@ export interface ServerMessageSync extends ServerMessageBase {
 	queueMode?: QueueMode;
 	isPlaying?: boolean;
 	playbackPosition?: number;
+	/** The room remains paused while this viewer prepares the saved playback position. */
+	playbackPreparation?: PlaybackPreparation | null;
 	currentSource?: QueueItem | null;
 	queue?: QueueItem[];
 	prevQueue?: QueueItem[] | null;
@@ -145,6 +147,20 @@ export interface ClientMessageKickMe extends ClientMessageBase {
 export interface ClientMessagePlayerStatus extends ClientMessageBase {
 	action: "status";
 	status: PlayerStatus;
+	/** Sent only after local playback has produced a frame for this preparation. */
+	playbackPrepared?: PlaybackPrepared;
+}
+
+export interface PlaybackPreparation {
+	id: string;
+	clientId: ClientId;
+	video: VideoId;
+	position: number;
+}
+
+export interface PlaybackPrepared {
+	id: string;
+	position: number;
 }
 
 export interface ClientMessageAuthenticate extends ClientMessageBase {
@@ -302,6 +318,7 @@ export interface PromoteRequest extends RoomRequestBase {
 export interface UpdateUser extends RoomRequestBase {
 	type: RoomRequestType.UpdateUser;
 	info: ClientInfo;
+	playbackPrepared?: PlaybackPrepared;
 }
 
 export interface ChatRequest extends RoomRequestBase {

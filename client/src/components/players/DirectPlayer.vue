@@ -44,6 +44,7 @@ import {
 	type CustomMediaManifest,
 } from "ott-common/models/zod-schemas.js";
 import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
+import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
 import type {
 	MediaPlayerError,
 	MediaPlayerWithAudioBoost,
@@ -82,11 +83,24 @@ const emit = defineEmits<{
 	"end": [];
 	"buffer-progress": [progress: number];
 	"buffer-spans": [spans: TimeRanges];
+	"loading-state": [state: MediaLoadingState];
 }>();
+
+const loadingState = createMediaLoadingState({
+	media: () => videoElem.value,
+	onChange: state => emit("loading-state", state),
+	isAudioOnly: () => {
+		const contentType =
+			manifest.value?.sources.find(source => source.url === activeMediaUrl)?.contentType ??
+			videoMime.value;
+		return contentType.startsWith("audio/");
+	},
+});
 
 const recovery = createMediaRecovery({
 	media: () => videoElem.value,
 	restart: async () => {
+		loadingState.reset();
 		if (activeMediaUrl && videoElem.value) {
 			videoElem.value.src = activeMediaUrl;
 			videoElem.value.load();
@@ -94,8 +108,12 @@ const recovery = createMediaRecovery({
 			await resolveVideoSource(sourceGeneration);
 		}
 	},
-	onRecovering: () => emit("buffering"),
+	onRecovering: () => {
+		loadingState.reset();
+		emit("buffering");
+	},
 	onError: error => {
+		loadingState.stop();
 		manifestRequest?.abort();
 		emit("error", error);
 	},
@@ -261,6 +279,7 @@ async function loadVideoSource() {
 		return;
 	}
 	sourceGeneration++;
+	loadingState.reset();
 	manifestRequest?.abort();
 	recovery.reset();
 	activeMediaUrl = "";
@@ -427,6 +446,7 @@ function onError() {
 }
 
 onMounted(() => {
+	loadingState.attach();
 	loadVideoSource();
 });
 
@@ -435,6 +455,7 @@ watch([videoUrl, videoMime, subtitleUrl], () => {
 });
 
 onBeforeUnmount(() => {
+	loadingState.dispose();
 	sourceGeneration++;
 	manifestRequest?.abort();
 	recovery.dispose();

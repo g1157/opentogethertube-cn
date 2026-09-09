@@ -4,7 +4,11 @@ import { Grants } from "ott-common/permissions";
 import { QueueMode, Visibility } from "ott-common/models/types";
 import type { QueueItem } from "ott-common/models/video";
 import dayjs, { type Dayjs } from "dayjs";
-import type { ServerMessageSync, TemporaryPlaybackSpeed } from "ott-common/models/messages";
+import type {
+	PlaybackPreparation,
+	ServerMessageSync,
+	TemporaryPlaybackSpeed,
+} from "ott-common/models/messages";
 import { deserializeMap, deserializeSet } from "ott-common/serialize";
 import type { FullOTTStoreState } from "@/store";
 
@@ -19,6 +23,7 @@ export interface RoomState {
 	queue: QueueItem[];
 	isPlaying: boolean;
 	playbackPosition: number;
+	playbackPreparation: PlaybackPreparation | null;
 	playbackSpeed: number;
 	temporaryPlaybackSpeed: TemporaryPlaybackSpeed | null;
 	hasOwner: boolean;
@@ -49,6 +54,7 @@ export const roomModule: Module<RoomState, FullOTTStoreState> = {
 		queue: [],
 		isPlaying: false,
 		playbackPosition: 0,
+		playbackPreparation: null,
 		playbackSpeed: 1,
 		temporaryPlaybackSpeed: null,
 		hasOwner: false,
@@ -71,6 +77,10 @@ export const roomModule: Module<RoomState, FullOTTStoreState> = {
 			const stateupdate: Partial<RoomState> = {
 				..._.omit(message, ["action", "grants", "voteCounts", "votesToSkip"]),
 			} as any;
+			if (typeof message.name === "string" && "currentSource" in message) {
+				// Older servers omit this field; a previous visit's preparation must not survive.
+				stateupdate.playbackPreparation = message.playbackPreparation ?? null;
+			}
 			if (
 				message.isPlaying !== undefined &&
 				this.state.room.isPlaying !== message.isPlaying

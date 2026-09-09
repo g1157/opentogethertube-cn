@@ -64,6 +64,7 @@ const CLIENT_ROOM_REQUEST_TYPES = new Set<RoomRequestType>([
 
 const connections: Client[] = [];
 const roomJoins: Map<string, Client[]> = new Map();
+const pendingRoomJoins = new Map<Client, Promise<void>>();
 export async function setup(): Promise<void> {
 	log.debug("setting up client manager...");
 	const server = wss;
@@ -149,13 +150,32 @@ export function addClient(client: Client) {
 }
 
 async function onClientAuth(client: Client, token: AuthToken, session: SessionInfo) {
+	const joining = joinAuthenticatedClient(client, token, session);
+	pendingRoomJoins.set(client, joining);
+	try {
+		await joining;
+	} catch (error) {
+		log.error(`Failed to finish joining client ${client.id}: ${String(error)}`);
+		if (connections.includes(client)) {
+			client.kick(OttWebsocketError.UNKNOWN);
+		}
+	} finally {
+		pendingRoomJoins.delete(client);
+	}
+}
+
+async function joinAuthenticatedClient(client: Client, token: AuthToken, session: SessionInfo) {
 	const result = await roommanager.getRoom(client.room);
+	if (!connections.includes(client)) {
+		return;
+	}
 	if (!result.ok) {
 		client.kick(OttWebsocketError.ROOM_NOT_FOUND);
 		return;
 	}
 	const room = result.value;
 	client.room = room.name;
+	room.holdEmptyPlaybackForJoin();
 
 	// full sync
 	const syncMsg = Object.assign(
@@ -181,6 +201,10 @@ async function onClientAuth(client: Client, token: AuthToken, session: SessionIn
 		});
 	} catch (e) {
 		log.error(`Failed to process join request for client ${client.id}: ${e}`);
+	}
+	if (!connections.includes(client)) {
+		// Disconnect waits for this operation, then removes the member that joinRoom may have added.
+		return;
 	}
 
 	// initialize client info
@@ -214,6 +238,7 @@ async function onClientMessage(client: Client, msg: ClientMessage) {
 					id: client.id,
 					status: msg.status,
 				},
+				playbackPrepared: msg.playbackPrepared,
 			};
 			await makeRoomRequest(client, request);
 		} else if (msg.action === "req") {
@@ -273,6 +298,13 @@ async function onClientDisconnect(client: Client) {
 		}
 	}
 
+	// A socket can close while joinRoom awaits identity lookup. Do not let its leave run before
+	// the pending join adds the member, leaving a disconnected playback preparer in the room.
+	try {
+		await pendingRoomJoins.get(client);
+	} catch {
+		// onClientAuth owns reporting the failed join; any partially added member still needs cleanup.
+	}
 	if (client.joinStatus !== ClientJoinStatus.Joined) {
 		log.debug(`Client ${client.id} disconnected before joining`);
 		return;
@@ -286,6 +318,9 @@ async function onClientDisconnect(client: Client) {
 		return;
 	}
 	const room = result.value;
+	if (!room.getUser(client.id)) {
+		return;
+	}
 	// it's safe to bypass authenticating the leave request because this event is only triggered by the socket closing
 	try {
 		await room.processRequestUnsafe(

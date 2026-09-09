@@ -1,5 +1,16 @@
 <template>
 	<div class="player">
+		<MediaLoadingNotice
+			v-if="showLoadingNotice"
+			:key="`${sourceKey}:${loadingAttempt}`"
+			:state="loadingNoticeState"
+			:room-playing="store.state.room.isPlaying"
+			:can-retry="!!player?.retry"
+			:preparation-failed="preparationFailed"
+			:resuming="preparingPlayback"
+			:waiting-for-viewer="waitingForPreparedPlayback"
+			@retry="retryLocalMedia"
+		/>
 		<div class="in-player-notifs">
 			<!-- TODO: replace with v-banner when this is fixed: https://github.com/vuetifyjs/vuetify/issues/17124 -->
 			<v-sheet color="warning" density="compact" v-if="showBufferWarning">
@@ -94,6 +105,7 @@
 				@error="onError"
 				@buffer-progress="onBufferProgress"
 				@buffer-spans="onBufferSpans"
+				@loading-state="onLoadingState"
 			/>
 			<DashPlayer
 				v-else-if="!!source && source.service === 'dash'"
@@ -109,6 +121,7 @@
 				@error="onError"
 				@buffer-progress="onBufferProgress"
 				@buffer-spans="onBufferSpans"
+				@loading-state="onLoadingState"
 			/>
 			<DirectPlayer
 				v-else-if="
@@ -131,6 +144,7 @@
 				@error="onError"
 				@buffer-progress="onBufferProgress"
 				@buffer-spans="onBufferSpans"
+				@loading-state="onLoadingState"
 			/>
 			<PeertubePlayer
 				v-else-if="!!source && source.service === 'peertube'"
@@ -175,6 +189,7 @@ import {
 	watchEffect,
 } from "vue";
 import { useStore } from "@/store";
+import type { MediaLoadingState } from "@/util/media-loading-state";
 import { isInTimeRanges, secondsToTimestamp } from "@/util/timestamp";
 import {
 	type MediaPlayer,
@@ -189,6 +204,7 @@ import {
 	useQualities,
 	useVolume,
 } from "../composables";
+import MediaLoadingNotice from "./MediaLoadingNotice.vue";
 
 const props = defineProps({
 	source: {
@@ -197,9 +213,22 @@ const props = defineProps({
 			return !source || ALL_VIDEO_SERVICES.includes(source.service);
 		},
 	},
+	playbackBlocked: { type: Boolean, default: false },
+	preparationFailed: { type: Boolean, default: false },
+	preparingPlayback: { type: Boolean, default: false },
+	waitingForPreparedPlayback: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["apiready", "playing", "paused", "ready", "buffering", "error"]);
+const emit = defineEmits([
+	"apiready",
+	"playing",
+	"paused",
+	"ready",
+	"buffering",
+	"error",
+	"loading-state",
+	"retry",
+]);
 
 const YoutubePlayer = defineAsyncComponent(() => import("./YoutubePlayer.vue"));
 const VimeoPlayer = defineAsyncComponent(() => import("./VimeoPlayer.vue"));
@@ -211,6 +240,62 @@ const PeertubePlayer = defineAsyncComponent(() => import("./PeertubePlayer.vue")
 const store = useStore();
 
 const player: Ref<MediaPlayer | null> = ref(null);
+
+const sourceKey = computed(() =>
+	JSON.stringify([
+		props.source?.service,
+		props.source?.id,
+		props.source?.src_url,
+		props.source?.hls_url,
+		props.source?.dash_url,
+		props.source?.mime,
+		props.source?.subtitleUrl,
+	]),
+);
+const usesNativeVideo = computed(() => {
+	const source = props.source;
+	return (
+		!!source &&
+		(["direct", "googledrive", "dash", "hls", "reddit", "tubi", "pluto"].includes(
+			source.service,
+		) ||
+			(source.service === "odysee" &&
+				["video/mp4", "application/vnd.apple.mpegurl", "application/x-mpegURL"].some(mime =>
+					source.mime?.includes(mime),
+				)))
+	);
+});
+const loadingState = ref<MediaLoadingState>({
+	phase: "preparing",
+	currentTime: null,
+	bufferAhead: null,
+});
+const loadingAttempt = ref(0);
+const loadingNoticeState = computed<MediaLoadingState>(() =>
+	props.preparationFailed || props.waitingForPreparedPlayback
+		? { ...loadingState.value, phase: loadingState.value.phase ?? "waiting-frame" }
+		: loadingState.value,
+);
+const showLoadingNotice = computed(
+	() =>
+		!!props.source?.id &&
+		(usesNativeVideo.value ||
+			["youtube", "vimeo", "peertube"].includes(props.source.service)) &&
+		loadingNoticeState.value.phase !== null &&
+		!props.playbackBlocked &&
+		!showPlaybackError.value,
+);
+
+function onLoadingState(state: MediaLoadingState) {
+	loadingState.value = state;
+	emit("loading-state", state);
+}
+
+function embeddedPlayerReady() {
+	if (!usesNativeVideo.value) {
+		loadingState.value = { phase: null, currentTime: null, bufferAhead: null };
+	}
+}
 
 const controls = useMediaPlayer();
 
@@ -299,24 +384,17 @@ watchEffect(() => {
 });
 // Clear error state when source changes
 watch(
-	() =>
-		JSON.stringify([
-			props.source?.service,
-			props.source?.id,
-			props.source?.src_url,
-			props.source?.hls_url,
-			props.source?.dash_url,
-			props.source?.mime,
-			props.source?.subtitleUrl,
-		]),
+	sourceKey,
 	() => {
 		if (store.state.playerStatus === PlayerStatus.error) {
 			store.commit("PLAYBACK_STATUS", PlayerStatus.none);
 		}
 		currentPlaybackError.value = null;
 		showBufferWarning.value = false;
+		onLoadingState({ phase: "preparing", currentTime: null, bufferAhead: null });
 		store.commit("PLAYBACK_BUFFER_RESET");
 	},
+	{ flush: "sync" },
 );
 // player events re-emitted or data stored
 async function onApiReady() {
@@ -351,6 +429,7 @@ async function onApiReady() {
 }
 
 function onReady() {
+	embeddedPlayerReady();
 	currentPlaybackError.value = null;
 	showBufferWarning.value = false;
 	store.commit("PLAYBACK_STATUS", PlayerStatus.ready);
@@ -359,11 +438,13 @@ function onReady() {
 
 function hackReadyEdgeCase() {
 	if (props.source && props.source.service === "youtube") {
+		embeddedPlayerReady();
 		store.commit("PLAYBACK_STATUS", PlayerStatus.ready);
 	}
 }
 
 function onPlaying() {
+	embeddedPlayerReady();
 	currentPlaybackError.value = null;
 	showBufferWarning.value = false;
 	store.commit("PLAYBACK_STATUS", PlayerStatus.ready);
@@ -378,6 +459,9 @@ function onPaused() {
 }
 
 function onBuffering() {
+	if (!usesNativeVideo.value) {
+		loadingState.value = { phase: "buffering", currentTime: null, bufferAhead: null };
+	}
 	currentPlaybackError.value = null;
 	store.commit("PLAYBACK_STATUS", PlayerStatus.buffering);
 	emit("buffering");
@@ -400,6 +484,9 @@ async function retryLocalMedia() {
 	if (!currentPlayer?.retry) {
 		return;
 	}
+	loadingAttempt.value++;
+	onLoadingState({ phase: "preparing", currentTime: null, bufferAhead: null });
+	emit("retry");
 	store.commit("PLAYBACK_BUFFER_RESET");
 	showBufferWarning.value = false;
 	onBuffering();

@@ -133,4 +133,39 @@ describe("client room request authorization boundary", () => {
 		expect(room.getRole(guest)).toBe(Role.UnregisteredUser);
 		expect(client.kick).not.toHaveBeenCalled();
 	});
+
+	it("binds a playback-prepared status to the authenticated connection, not supplied identity", async () => {
+		room.currentSource = { service: "direct", id: "episode-03.mp4", length: 600 };
+		room.playbackPosition = 120;
+		await room.play();
+		await room.leaveRoom(
+			{ type: RoomRequestType.LeaveRequest },
+			{ clientId: client.id, username: "guest", role: Role.UnregisteredUser },
+		);
+		await room.joinRoom(
+			{
+				type: RoomRequestType.JoinRequest,
+				info: { id: client.id, username: "guest" },
+			},
+			{
+				clientId: client.id,
+				username: "guest",
+				role: Role.UnregisteredUser,
+				auth: { token: client.token!, clientId: client.id },
+			},
+		);
+		const preparation = room.playbackPreparation!;
+		expect(preparation.clientId).toBe(client.id);
+		client.emit("message", client, {
+			action: "status",
+			status: PlayerStatus.ready,
+			playbackPrepared: { id: preparation.id, position: preparation.position },
+			info: { id: "forged-other-client", user_id: owner.id },
+		} as unknown as ClientMessage);
+		await settleMessages();
+		expect(room.isPlaying).toBe(true);
+		expect(room.playbackPreparation).toBeNull();
+		expect(room.getRole(room.getUser(client.id))).toBe(Role.UnregisteredUser);
+		expect(client.kick).not.toHaveBeenCalled();
+	});
 });
