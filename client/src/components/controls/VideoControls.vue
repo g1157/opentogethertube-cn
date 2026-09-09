@@ -7,6 +7,7 @@
 				'in-video': mode === 'in-video',
 				'outside-video': mode === 'outside-video',
 				'hide': !controlsVisible,
+				'compact-controls': compact,
 			}"
 			:aria-hidden="!controlsVisible"
 			:inert="!controlsVisible || undefined"
@@ -18,15 +19,15 @@
 		>
 			<VideoProgressSlider :current-position="sliderPosition" />
 			<div class="controls-row2">
-				<BasicControls :current-position="truePosition" />
+				<BasicControls :current-position="truePosition" :compact="compact" />
 				<!-- eslint-disable-next-line vue/no-v-model-argument -->
-				<VolumeControl />
+				<VolumeControl v-if="!compact" />
 				<TimestampDisplay :current-position="truePosition" data-cy="timestamp-display" />
 				<div class="grow"><!-- Spacer --></div>
-				<ClosedCaptionsSwitcher />
-				<PlaybackRateSwitcher />
-				<VideoSettings @show-shortcuts="emit('show-shortcuts')" />
-				<PictureInPictureButton />
+				<ClosedCaptionsSwitcher v-if="!compact" />
+				<PlaybackRateSwitcher v-if="!compact" />
+				<VideoSettings :compact="compact" @show-shortcuts="emit('show-shortcuts')" />
+				<PictureInPictureButton v-if="!compact" />
 				<LayoutSwitcher />
 			</div>
 		</div>
@@ -43,8 +44,8 @@ import VolumeControl from "./VolumeControl.vue";
 import PlaybackRateSwitcher from "./PlaybackRateSwitcher.vue";
 import VideoSettings from "./VideoSettings.vue";
 import PictureInPictureButton from "./PictureInPictureButton.vue";
-import { inject, onMounted, onUnmounted, ref, watch } from "vue";
-import { useResizeObserver } from "@vueuse/core";
+import { computed, inject, onMounted, onUnmounted, ref, watch } from "vue";
+import { useMediaQuery, useResizeObserver } from "@vueuse/core";
 import { PlayerControlsActivityKey } from "@/util/player-controls";
 import { useStore } from "@/store";
 
@@ -58,6 +59,8 @@ useResizeObserver(controlsBar, entries => {
 });
 const controls = inject(PlayerControlsActivityKey, undefined);
 const store = useStore();
+const mobilePortrait = useMediaQuery("(max-width: 760px) and (orientation: portrait)");
+const compact = computed(() => mobilePortrait.value && !store.state.fullscreen);
 const hoverKey = Symbol("player:hover");
 const dragKey = Symbol("player:drag");
 const focusKey = Symbol("player:focus");
@@ -179,9 +182,24 @@ $media-control-background: var(--v-theme-media-control-background, (0, 0, 0));
 
 	.controls-row2 {
 		display: flex;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		align-items: center;
-		row-gap: 4px;
+		overflow-x: auto;
+		overscroll-behavior-x: contain;
+		scrollbar-width: none;
+
+		&::-webkit-scrollbar {
+			display: none;
+		}
+
+		> * {
+			flex-shrink: 0;
+		}
+	}
+
+	&.compact-controls {
+		padding: 6px 8px;
+		min-height: 0;
 	}
 }
 </style>

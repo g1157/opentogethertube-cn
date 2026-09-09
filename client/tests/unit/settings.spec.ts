@@ -109,12 +109,16 @@ describe("saved settings and default migrations", () => {
 		await firstVisit.dispatch("settings/load");
 		firstVisit.commit("settings/UPDATE", {
 			chatOverlaySeconds: 0,
+			presenceNoticeSeconds: 0,
+			seekNoticeSeconds: 2,
 			controlsHideSeconds: 10,
 			hlsBufferSeconds: 120,
 		});
 		const nextVisit = newStore();
 		await nextVisit.dispatch("settings/load");
 		expect(nextVisit.state.settings.chatOverlaySeconds).toBe(0);
+		expect(nextVisit.state.settings.presenceNoticeSeconds).toBe(0);
+		expect(nextVisit.state.settings.seekNoticeSeconds).toBe(2);
 		expect(nextVisit.state.settings.controlsHideSeconds).toBe(10);
 		expect(nextVisit.state.settings.hlsBufferSeconds).toBe(120);
 	});
@@ -129,6 +133,8 @@ describe("saved settings and default migrations", () => {
 			"settings",
 			JSON.stringify({
 				chatOverlaySeconds: value,
+				presenceNoticeSeconds: value,
+				seekNoticeSeconds: value,
 				controlsHideSeconds: value,
 				hlsBufferSeconds: value,
 			}),
@@ -136,6 +142,8 @@ describe("saved settings and default migrations", () => {
 		const store = newStore();
 		await store.dispatch("settings/load");
 		expect(store.state.settings.chatOverlaySeconds).toBe(5);
+		expect(store.state.settings.presenceNoticeSeconds).toBe(3);
+		expect(store.state.settings.seekNoticeSeconds).toBe(3);
 		expect(store.state.settings.controlsHideSeconds).toBe(3);
 		expect(store.state.settings.hlsBufferSeconds).toBe(60);
 	});

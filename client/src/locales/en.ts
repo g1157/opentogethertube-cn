@@ -440,6 +440,9 @@ export default {
 		"chat-overlay-duration": "Message display duration",
 		"chat-overlay-hint":
 			"How long new messages appear over the video. Chat history is kept when off.",
+		"presence-notice-duration": "Join and leave notice duration",
+		"seek-notice-duration": "Seek notice duration",
+		"room-notice-hint": "Shorten or turn off these notices on this device.",
 		"controls-hide-delay": "Hide controls after",
 		"controls-hide-hint":
 			"Idle time before controls hide. The cursor also hides in desktop fullscreen.",
@@ -559,7 +562,6 @@ export default {
 			"join-playing": "The room is playing. Your video will catch up when it is ready.",
 			"join-paused": "The video will appear when it is ready.",
 			slow: "This is taking longer. Loading depends on the source and your connection. You can keep waiting or retry.",
-			autoplay: "Your browser blocked autoplay. Select Play to continue.",
 		},
 		"retry-local-hint":
 			"Reloads the video on this device without changing the room's playback state.",

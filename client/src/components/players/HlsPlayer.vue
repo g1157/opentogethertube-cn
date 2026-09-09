@@ -9,6 +9,7 @@
 			:poster="thumbnail || ''"
 			@loadedmetadata="recovery.restoreMetadata"
 			@canplay="onReady"
+			@seeked="onReady"
 			@playing="onPlaying"
 			@pause="onPaused"
 			@waiting="onBuffering"
@@ -102,8 +103,8 @@ const recovery = createMediaRecovery({
 	},
 });
 
-function play() {
-	return recovery.play();
+function play(userInitiated = false) {
+	return recovery.play(userInitiated);
 }
 
 function pause() {
@@ -371,7 +372,10 @@ function onReady() {
 	}
 }
 function onPlaying() {
-	if (!recovery.isRecovering() && !recovery.isFailed()) {
+	if (
+		!recovery.isFailed() &&
+		((!recovery.isRecovering() && !recovery.isSeeking()) || recovery.canPlay())
+	) {
 		emit("playing");
 	}
 }
@@ -461,7 +465,7 @@ defineExpose({
 	setPlaybackRate,
 	setAudioBoost,
 	retry: recovery.retry,
-	isSeeking: () => videoElem.value?.seeking ?? false,
+	isSeeking: recovery.isSeeking,
 	isRecovering: recovery.isRecovering,
 } satisfies MediaPlayerWithCaptions & MediaPlayerWithQuality & MediaPlayerWithPlaybackRate & MediaPlayerWithAudioBoost);
 </script>

@@ -59,6 +59,7 @@
 							v-if="hasRoomSync"
 							:source="currentSource"
 							:playback-blocked="mediaPlaybackBlocked"
+							:seeking-playback="pendingLocalSeek"
 							:preparing-playback="playbackPreparationState.active"
 							:preparation-failed="playbackPreparationState.failed"
 							:waiting-for-prepared-playback="waitingForPreparedPlayback"
@@ -117,17 +118,6 @@
 							ref="inVideoChatTarget"
 							v-show="chatInside"
 						></div>
-						<div class="playback-blocked-prompt" v-if="mediaPlaybackBlocked">
-							<p role="status">{{ $t("player.loading.autoplay") }}</p>
-							<v-btn
-								:prepend-icon="mdiPlay"
-								size="x-large"
-								color="warning"
-								@click="onClickUnblockPlayback"
-							>
-								{{ $t("common.play") }}
-							</v-btn>
-						</div>
 					</div>
 					<v-defaults-provider :defaults="fullscreenOverlayDefaults">
 						<VideoControls
@@ -331,6 +321,7 @@ import { createPlayerFullscreen, PlayerFullscreenKey } from "@/util/player-fulls
 import { PlayerControlsActivityKey, usePlayerControls } from "@/util/player-controls";
 import { createPlayerGestures } from "@/util/player-gestures";
 import { createPlaybackSync } from "@/util/playback-sync";
+import { PlayerActionsKey } from "@/util/player-actions";
 import {
 	createPlaybackPreparation,
 	type PlaybackPreparationState,
@@ -393,6 +384,13 @@ export default defineComponent({
 		const playbackRate = usePlaybackRate();
 		const granted = useGrants();
 		const mediaPlaybackBlocked = ref(false);
+		const pendingLocalSeek = ref(false);
+		let localSeekTimer: ReturnType<typeof setTimeout> | undefined;
+		provide(PlayerActionsKey, {
+			playbackBlocked: mediaPlaybackBlocked,
+			togglePlayback,
+			seek: requestRoomSeek,
+		});
 		const chat = ref<InstanceType<typeof Chat> | null>(null);
 		const chatOpen = ref(false);
 		const chatDraft = ref("");
@@ -555,6 +553,7 @@ export default defineComponent({
 				localMediaState.value = null;
 				mediaFrameVersion++;
 				mediaPlaybackBlocked.value = false;
+				clearPendingLocalSeek();
 				playbackSync.reset();
 			},
 			{ flush: "sync" },
@@ -578,6 +577,7 @@ export default defineComponent({
 		onUnmounted(() => {
 			disposed = true;
 			playbackApplication++;
+			clearPendingLocalSeek();
 			playbackPreparation.dispose();
 			playbackSync.dispose();
 			if (iTimestampUpdater.value) {
@@ -652,9 +652,14 @@ export default defineComponent({
 				if (!playbackPreparationState.value.active) {
 					void playbackSync.requestSeek();
 				}
+				clearPendingLocalSeek();
 				timestampUpdate();
 			}
-			if (msg.isPlaying !== undefined || "playbackPreparation" in msg) {
+			if (
+				msg.isPlaying !== undefined ||
+				msg.playbackPosition !== undefined ||
+				"playbackPreparation" in msg
+			) {
 				await applyIsPlaying();
 			}
 		}
@@ -714,6 +719,16 @@ export default defineComponent({
 
 		// player management
 		function togglePlayback() {
+			if (!connection.connected.value) {
+				return;
+			}
+			if (mediaPlaybackBlocked.value && wantsPlayback()) {
+				onClickUnblockPlayback();
+				return;
+			}
+			if (!granted("playback.play-pause")) {
+				return;
+			}
 			playbackPreparation.cancel();
 			if (store.state.room.isPlaying) {
 				roomapi.pause();
@@ -725,21 +740,48 @@ export default defineComponent({
 		function seekDelta(delta: number) {
 			const bounds = seekBounds();
 			if (bounds && connection.connected.value) {
-				playbackPreparation.cancel();
-				roomapi.seek(_.clamp(truePosition.value + delta, bounds.start, bounds.end));
-				activateVideoControls();
+				requestRoomSeek(_.clamp(truePosition.value + delta, bounds.start, bounds.end));
 			}
 		}
 
-		// Indicates that starting playback is blocked by the browser. This usually means that the user needs
-		// to interact with the page before playback can start. This is because browsers block autoplaying videos.
-
-		function wantsPlayback() {
-			return store.state.room.isPlaying || playbackPreparationState.value.priming;
+		function clearPendingLocalSeek() {
+			clearTimeout(localSeekTimer);
+			localSeekTimer = undefined;
+			pendingLocalSeek.value = false;
 		}
 
-		async function applyIsPlaying(unblock = false): Promise<void> {
-			const application = ++playbackApplication;
+		function requestRoomSeek(position: number) {
+			const bounds = seekBounds();
+			if (
+				!bounds ||
+				!Number.isFinite(position) ||
+				!connection.connected.value ||
+				!granted("playback.seek")
+			) {
+				return;
+			}
+			playbackPreparation.cancel();
+			clearPendingLocalSeek();
+			pendingLocalSeek.value = true;
+			// Freeze this browser before the WebSocket round trip. Native players keep the
+			// hold until the authoritative target has enough data to resume.
+			void applyIsPlaying();
+			roomapi.seek(_.clamp(position, bounds.start, bounds.end));
+			activateVideoControls();
+			localSeekTimer = setTimeout(() => {
+				clearPendingLocalSeek();
+				void applyIsPlaying();
+			}, 5000);
+		}
+
+		function wantsPlayback() {
+			return (
+				!pendingLocalSeek.value &&
+				(store.state.room.isPlaying || playbackPreparationState.value.priming)
+			);
+		}
+
+		async function applyIsPlaying(unblock = false): Promise<boolean> {
 			const source = currentSource.value;
 			const currentPlayer = player.player.value;
 			const playing = wantsPlayback();
@@ -752,8 +794,10 @@ export default defineComponent({
 				store.state.playerStatus === PlayerStatus.error ||
 				(playing && mediaPlaybackBlocked.value && !unblock)
 			) {
-				return;
+				return false;
 			}
+			// A readiness event while blocked must not invalidate the user's pending play.
+			const application = ++playbackApplication;
 			const stillCurrent = () =>
 				!disposed &&
 				application === playbackApplication &&
@@ -763,34 +807,47 @@ export default defineComponent({
 				preparationId === store.state.room.playbackPreparation?.id;
 			try {
 				if (playing) {
-					await player.play();
+					await player.play(unblock);
 				} else {
 					await player.pause();
 				}
 				if (stillCurrent()) {
 					mediaPlaybackBlocked.value = false;
 					void playbackPreparation.tick();
+					return true;
 				}
 			} catch (error) {
-				if (!stillCurrent()) {
-					return;
+				if (!stillCurrent() || (playing && localPlaying.value)) {
+					return false;
 				}
 				if (error instanceof DOMException && error.name === "NotAllowedError") {
 					localPlaying.value = false;
 					mediaPlaybackBlocked.value = true;
+				} else if (error instanceof DOMException && error.name === "AbortError") {
+					// pause(), a seek or a source replacement can abort an older play().
+					// The next native ready event applies the current room state.
 				} else {
 					localPlaying.value = false;
 					playbackPreparation.fail(error);
 					console.warn("Could not apply room playback state", error);
 				}
 			}
+			return false;
 		}
 
 		function onClickUnblockPlayback(): void {
-			if (!playbackPreparationState.value.active) {
-				void playbackSync.requestSeek();
-			}
-			void applyIsPlaying(true);
+			const source = currentSource.value;
+			// Call play in the click itself. Seeking first can abort that same play request.
+			void applyIsPlaying(true).then(applied => {
+				if (
+					applied &&
+					!disposed &&
+					currentSource.value === source &&
+					!playbackPreparationState.value.active
+				) {
+					void playbackSync.requestSeek();
+				}
+			});
 		}
 
 		function onMediaLoadingState(state: MediaLoadingState) {
@@ -814,6 +871,10 @@ export default defineComponent({
 		async function onPlaybackChange(changeTo: boolean) {
 			console.debug(`onPlaybackChange: ${changeTo}`);
 			localPlaying.value = changeTo;
+			if (changeTo) {
+				// Actual playback supersedes a rejected or superseded autoplay request.
+				mediaPlaybackBlocked.value = false;
+			}
 			void playbackPreparation.tick();
 			if (!changeTo) {
 				setVideoControlsVisibility(true);
@@ -888,6 +949,10 @@ export default defineComponent({
 			if (!connection.connected.value) {
 				return;
 			}
+			if (mediaPlaybackBlocked.value && wantsPlayback()) {
+				onClickUnblockPlayback();
+				return;
+			}
 			if (!granted("playback.play-pause")) {
 				showInteractionNotice("play-pause-denied");
 				return;
@@ -956,9 +1021,7 @@ export default defineComponent({
 				void fullscreen.toggle();
 			},
 			onSeek: position => {
-				playbackPreparation.cancel();
-				roomapi.seek(position);
-				activateVideoControls();
+				requestRoomSeek(position);
 			},
 			onSeekDenied: () => showInteractionNotice("seek-denied"),
 			onHoldStart: temporarySpeed.start,
@@ -1045,7 +1108,7 @@ export default defineComponent({
 		// keyboard shortcuts
 		const shortcuts = new KeyboardShortcuts();
 		shortcuts.bind([{ code: "Space" }, { code: "KeyK" }], () => {
-			if (granted("playback.play-pause")) {
+			if (mediaPlaybackBlocked.value || granted("playback.play-pause")) {
 				togglePlayback();
 			}
 		});
@@ -1067,8 +1130,7 @@ export default defineComponent({
 		);
 		shortcuts.bind({ code: "Home" }, () => {
 			if (granted("playback.seek")) {
-				playbackPreparation.cancel();
-				roomapi.seek(0);
+				requestRoomSeek(0);
 			}
 		});
 		shortcuts.bind({ code: "End" }, () => {
@@ -1236,6 +1298,7 @@ export default defineComponent({
 			orientation: orientation.orientation,
 
 			mediaPlaybackBlocked,
+			pendingLocalSeek,
 			onClickUnblockPlayback,
 			secondsToTimestamp,
 
@@ -1446,24 +1509,6 @@ $in-video-chat-width-small: 250px;
 
 .tab-text {
 	margin: 0 8px;
-}
-
-.playback-blocked-prompt {
-	position: absolute;
-	top: 0;
-	left: 0;
-	width: 100%;
-	height: 100%;
-	z-index: 200;
-	display: flex;
-	flex-direction: column;
-	gap: 12px;
-	padding: 20px;
-	text-align: center;
-	color: white;
-	background: rgba(0, 0, 0, 0.6);
-	justify-content: center;
-	align-items: center;
 }
 
 .room-player-loading {

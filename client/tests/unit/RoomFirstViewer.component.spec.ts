@@ -246,7 +246,7 @@ describe("room first viewer preparation integration", () => {
 		await frame();
 		expect(acknowledgements()).toEqual([]);
 		rejectAutoplay = false;
-		await page.wrapper.get(".playback-blocked-prompt button").trigger("click");
+		page.wrapper.vm.onClickUnblockPlayback();
 		playerEvent("playing");
 		await flushPromises();
 		expect(page.wrapper.vm.mediaPlaybackBlocked).toBe(false);

@@ -10,6 +10,59 @@ interface MediaLoadingOptions {
 	isAudioOnly?: () => boolean;
 }
 
+interface FrameCounters {
+	displayed?: number;
+	decoded?: number;
+}
+
+const FRAME_OBSERVATION_INTERVAL_MS = 250;
+const MAX_FRAME_OBSERVATIONS = 8;
+
+function nonDroppedFrames(total: number | undefined, dropped: number | undefined) {
+	return total !== undefined &&
+		dropped !== undefined &&
+		Number.isFinite(total) &&
+		Number.isFinite(dropped) &&
+		dropped >= 0 &&
+		total >= dropped
+		? total - dropped
+		: undefined;
+}
+
+function readFrameCounters(media: HTMLVideoElement): FrameCounters {
+	const counts: FrameCounters = {};
+	try {
+		const quality = media.getVideoPlaybackQuality?.();
+		counts.displayed = nonDroppedFrames(quality?.totalVideoFrames, quality?.droppedVideoFrames);
+	} catch {
+		// Some WebViews expose the method without implementing it.
+	}
+	try {
+		const webkit = media as HTMLVideoElement & {
+			webkitDecodedFrameCount?: number;
+			webkitDroppedFrameCount?: number;
+		};
+		counts.decoded = nonDroppedFrames(
+			webkit.webkitDecodedFrameCount,
+			webkit.webkitDroppedFrameCount,
+		);
+	} catch {
+		// Native counters are optional, independent of the frame callback API.
+	}
+	return counts;
+}
+
+function hasDimensions(width: number | undefined, height: number | undefined) {
+	return (
+		width !== undefined &&
+		height !== undefined &&
+		width > 0 &&
+		height > 0 &&
+		Number.isFinite(width) &&
+		Number.isFinite(height)
+	);
+}
+
 /** Seconds in the continuous buffered range at position, not total downloaded coverage. */
 export function getBufferAhead(buffered: TimeRanges, position: number): number | null {
 	if (!Number.isFinite(position) || position < 0) {
@@ -55,14 +108,100 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 	let unmatchedFrames = 0;
 	let frameApiFailed = false;
 	let frameRequest: number | undefined;
+	let frameCounterBaseline: FrameCounters = {};
+	let frameCountersAvailable = false;
+	let playbackObservationPosition: number | undefined;
+	let observedPlaying = false;
+	let frameObservationsRemaining = MAX_FRAME_OBSERVATIONS;
+	let frameObservationTimer: ReturnType<typeof setTimeout> | undefined;
 	let lastState: MediaLoadingState | undefined;
+
+	function cancelFrameObservation() {
+		clearTimeout(frameObservationTimer);
+		frameObservationTimer = undefined;
+	}
 
 	function cancelFrame() {
 		generation++;
+		cancelFrameObservation();
 		if (frameRequest !== undefined) {
 			attached?.cancelVideoFrameCallback?.(frameRequest);
 			frameRequest = undefined;
 		}
+	}
+
+	function resetFrameEvidence() {
+		const media = options.media();
+		frameCounterBaseline = media ? readFrameCounters(media) : {};
+		playbackObservationPosition = undefined;
+		observedPlaying = false;
+		frameObservationsRemaining = MAX_FRAME_OBSERVATIONS;
+	}
+
+	function measuredFrameIsReady(media: HTMLVideoElement) {
+		const counts = readFrameCounters(media);
+		frameCountersAvailable = counts.displayed !== undefined || counts.decoded !== undefined;
+		if (
+			media.readyState < 2 ||
+			media.seeking ||
+			awaitingSeek ||
+			!hasDimensions(media.videoWidth, media.videoHeight)
+		) {
+			// Activity before current data, or during an unfinished seek, cannot prove its new frame.
+			frameCounterBaseline = counts;
+			playbackObservationPosition = undefined;
+			return false;
+		}
+		if (Number.isFinite(media.currentTime)) {
+			playbackObservationPosition ??= media.currentTime;
+		}
+		function advanced(kind: keyof FrameCounters, minimum: number) {
+			const count = counts[kind];
+			const baseline = frameCounterBaseline[kind];
+			if (count === undefined) {
+				return false;
+			}
+			if (baseline === undefined || count < baseline) {
+				frameCounterBaseline[kind] = count;
+				return false;
+			}
+			return count - baseline >= minimum;
+		}
+		// Standard counters count displayed + dropped frames. Decoding alone needs further evidence.
+		return (
+			advanced("displayed", 1) ||
+			(advanced("decoded", 2) &&
+				observedPlaying &&
+				!media.paused &&
+				playbackObservationPosition !== undefined &&
+				media.currentTime - playbackObservationPosition >= 0.25)
+		);
+	}
+
+	function observeFramesBriefly(media: HTMLVideoElement) {
+		if (
+			disposed ||
+			!active ||
+			lastState?.phase === null ||
+			frameObservationTimer !== undefined ||
+			frameObservationsRemaining <= 0 ||
+			!frameCountersAvailable ||
+			media.ownerDocument.hidden ||
+			media.readyState < 2 ||
+			media.seeking ||
+			awaitingSeek
+		) {
+			return;
+		}
+		const observedGeneration = generation;
+		frameObservationTimer = setTimeout(() => {
+			if (disposed || !active || generation !== observedGeneration) {
+				return;
+			}
+			frameObservationTimer = undefined;
+			frameObservationsRemaining--;
+			refresh();
+		}, FRAME_OBSERVATION_INTERVAL_MS);
 	}
 
 	function publish(phase: MediaLoadingState["phase"]) {
@@ -113,8 +252,10 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 			return;
 		}
 		const requestedGeneration = generation;
+		const requestedAt = performance.now();
+		const requestedPosition = media.currentTime;
 		try {
-			frameRequest = media.requestVideoFrameCallback((_now, frame) => {
+			frameRequest = media.requestVideoFrameCallback((now, frame) => {
 				if (
 					disposed ||
 					!active ||
@@ -124,16 +265,31 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 					return;
 				}
 				frameRequest = undefined;
+				// Main-thread delay can advance playback; a jump to another seek target cannot.
+				const presentationDelay =
+					!media.paused &&
+					!media.seeking &&
+					!awaitingSeek &&
+					frame?.mediaTime >= requestedPosition - 0.5 &&
+					Number.isFinite(frame?.presentationTime) &&
+					frame.presentationTime >= requestedAt &&
+					Number.isFinite(now) &&
+					now >= frame.presentationTime
+						? ((now - frame.presentationTime) / 1000) * Math.abs(media.playbackRate)
+						: 0;
+				const matchesPosition =
+					!Number.isFinite(frame?.mediaTime) ||
+					(frame.mediaTime >= media.currentTime - 0.5 - presentationDelay &&
+						frame.mediaTime <= media.currentTime + 0.5);
 				if (
 					media.error ||
 					media.readyState < 2 ||
-					!Number.isFinite(frame.mediaTime) ||
 					!Number.isFinite(media.currentTime) ||
-					Math.abs(frame.mediaTime - media.currentTime) > 0.5 ||
-					!Number.isFinite(frame.width) ||
-					!Number.isFinite(frame.height) ||
-					frame.width <= 0 ||
-					frame.height <= 0
+					!(
+						hasDimensions(frame?.width, frame?.height) ||
+						hasDimensions(media.videoWidth, media.videoHeight)
+					) ||
+					!(matchesPosition || measuredFrameIsReady(media))
 				) {
 					// A queued old frame can precede the paused seek's only new frame.
 					// Observe a bounded number of replacements even without another media event.
@@ -145,12 +301,14 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 				metadataReady = true;
 				hasFrame = true;
 				frameReady = true;
-				presentedPosition = frame.mediaTime;
+				// Record the logical seek target, not a low-frame-rate video's earlier frame PTS.
+				presentedPosition = media.currentTime;
 				if (media.seeking || awaitingSeek) {
 					publish("seeking");
 					return;
 				}
 				waiting = false;
+				cancelFrameObservation();
 				publish(null);
 			});
 		} catch {
@@ -171,9 +329,12 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 		const nativeFallback =
 			frameApiFailed || typeof media.requestVideoFrameCallback !== "function";
 		const hasCurrentData = media.readyState >= 2 && !seeking;
+		const measuredFrame = measuredFrameIsReady(media);
 		if (
 			hasCurrentData &&
-			(audioOnly || (nativeFallback && media.videoWidth > 0 && media.videoHeight > 0)) &&
+			(audioOnly ||
+				measuredFrame ||
+				(nativeFallback && hasDimensions(media.videoWidth, media.videoHeight))) &&
 			(!waiting || media.paused || media.readyState >= 3)
 		) {
 			hasFrame = true;
@@ -196,6 +357,7 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 		);
 		if (!audioOnly) {
 			requestFrame(media);
+			observeFramesBriefly(media);
 		}
 	}
 
@@ -212,6 +374,7 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 		frameReady = false;
 		presentedPosition = undefined;
 		unmatchedFrames = 0;
+		resetFrameEvidence();
 		publish("preparing");
 	}
 
@@ -237,6 +400,7 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 		frameReady = false;
 		presentedPosition = undefined;
 		unmatchedFrames = 0;
+		resetFrameEvidence();
 		refresh();
 	}
 
@@ -265,6 +429,7 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 		waiting = true;
 		frameReady = false;
 		unmatchedFrames = 0;
+		resetFrameEvidence();
 		refresh();
 	}
 
@@ -277,7 +442,15 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 
 	function onPlayable() {
 		waiting = false;
+		frameObservationsRemaining = MAX_FRAME_OBSERVATIONS;
 		refresh();
+	}
+
+	function onPlaying() {
+		observedPlaying = true;
+		const position = options.media()?.currentTime;
+		playbackObservationPosition = Number.isFinite(position) ? position : undefined;
+		onPlayable();
 	}
 
 	function onPaused() {
@@ -299,6 +472,7 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 		if (attached?.ownerDocument.hidden) {
 			cancelFrame();
 		} else {
+			frameObservationsRemaining = MAX_FRAME_OBSERVATIONS;
 			refresh();
 		}
 	}
@@ -316,7 +490,7 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 		loadedmetadata: refresh,
 		loadeddata: refresh,
 		canplay: onPlayable,
-		playing: onPlayable,
+		playing: onPlaying,
 		seeking: onSeeking,
 		seeked: onSeeked,
 		waiting: onWaiting,
