@@ -118,6 +118,16 @@
 							{{ $t("client-settings.playback-preferences") }}
 						</v-list-item>
 						<v-list-item>
+							<v-checkbox
+								v-model="sfxEnabled"
+								:label="$t('client-settings.sfx-enable')"
+								:hint="$t('client-settings.sfx-hint')"
+								persistent-hint
+								density="compact"
+								data-cy="chat-sound-enabled"
+							/>
+						</v-list-item>
+						<v-list-item>
 							<v-select
 								v-model="chatOverlaySeconds"
 								:label="$t('client-settings.chat-overlay-duration')"
@@ -263,6 +273,10 @@ const preferenceMenuProps = computed(() => ({
 const swipeSeekSeconds = computed({
 	get: () => store.state.settings.swipeSeekSeconds,
 	set: value => store.commit("settings/UPDATE", { swipeSeekSeconds: value }),
+});
+const sfxEnabled = computed({
+	get: () => store.state.settings.sfxEnabled,
+	set: value => store.commit("settings/UPDATE", { sfxEnabled: value }),
 });
 const chatOverlaySeconds = computed({
 	get: () => store.state.settings.chatOverlaySeconds,

@@ -1,7 +1,7 @@
 FROM dyc3/opentogethertube@sha256:feec95f418e7d438b632bb05311bfa522d5e40f13d019e2146216a49e5b53d93
 
 ARG SOURCE_COMMIT=unknown
-LABEL org.opencontainers.image.version="v0.15.0-cn5"
+LABEL org.opencontainers.image.version="v0.15.0-cn6"
 LABEL org.opencontainers.image.source="https://github.com/g1157/opentogethertube-cn"
 LABEL org.opencontainers.image.revision=$SOURCE_COMMIT
 

@@ -42,6 +42,7 @@ const shortcuts = [
 	["F", "fullscreen"],
 	["Esc", "escape"],
 	["T", "chat"],
+	["Enter", "chat-type"],
 	["Home", "start"],
 	["End", "skip"],
 	["?", "help"],

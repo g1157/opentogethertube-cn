@@ -451,8 +451,9 @@ export default {
 			"Boost audio from supported non-iframe players up to 300%. Sound effects are unaffected.",
 		"audio-boost-unsupported":
 			"The current player does not support audio boost. Sound effects are unaffected.",
-		"sfx-enable": "Enable Sound Effects",
-		"sfx-volume": "Sound Effect Volume",
+		"sfx-enable": "New message sound",
+		"sfx-hint": "Off by default. Only affects new message sounds, not video volume.",
+		"sfx-volume": "Message sound volume",
 		"room-settings": "Default Room Settings",
 		"enable-adapter-selector": "Show adapter selector (advanced)",
 	},
@@ -507,7 +508,7 @@ export default {
 			gestures:
 				"Tap the picture to show or hide controls. Double-tap on touchscreens to play or pause. Swipe to preview a time jump, then release to seek. Hold for 0.5 seconds to play at 2× and release to restore speed. Double-click on desktop to toggle fullscreen.",
 			"chat-hint":
-				"Opening chat does not focus the input. Tap the input to type. Closing chat keeps your unsent draft.",
+				"Press Enter on desktop to open chat and start typing, then press Enter again to send. Clicking the chat button or pressing T opens chat for reading without focusing the input. Escape closes chat and keeps your unsent draft.",
 			"play-pause": "Play / pause",
 			"seek-five": "Seek back / forward 5 seconds",
 			"seek-ten": "Seek back / forward 10 seconds",
@@ -516,10 +517,11 @@ export default {
 			fullscreen: "Toggle player fullscreen",
 			escape: "Close overlay / exit fullscreen",
 			chat: "Open / close chat",
+			"chat-type": "Open chat to type / send message",
 			start: "Seek to the beginning",
 			skip: "Skip the current video",
 			help: "Show this help",
-			scope: "Playback, seeking and speed changes affect everyone and respect room permissions. Volume, chat and fullscreen are personal. Shortcuts are disabled while editing text, composing characters or using dialogs. Unseekable live streams do not support swipe seeking.",
+			scope: "Playback, seeking and speed changes affect everyone and respect room permissions. Volume, chat and fullscreen are personal. Playback shortcuts are disabled while editing text, composing characters or using dialogs. Unseekable live streams do not support swipe seeking.",
 		},
 		"buffer-warn": {
 			spans: "You haven't buffered enough of the video yet. Current time ranges buffered: {ranges}",

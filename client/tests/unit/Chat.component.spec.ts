@@ -9,6 +9,14 @@ import { PlayerStatus, Role } from "ott-common/models/types";
 import Chat from "@/components/Chat.vue";
 import { mountComponent } from "./component-test-utils";
 
+function chatActions(wrapper: ReturnType<typeof mountComponent>["wrapper"]) {
+	// This VTU version keeps script-setup's public methods on the exposed instance.
+	return wrapper.vm.$.exposed as {
+		activateAndFocus(): void;
+		setActivated(value: boolean): void;
+	};
+}
+
 describe("Chat component", () => {
 	it("opens without focus, permits deliberate input focus, and preserves a closed draft", async () => {
 		const { wrapper } = mountComponent(Chat);
@@ -28,6 +36,83 @@ describe("Chat component", () => {
 		expect(document.activeElement).not.toBe(
 			wrapper.get('[data-cy="chat-input"] input').element,
 		);
+	});
+
+	it("focuses an already open chat only when typing is explicitly requested", async () => {
+		const { wrapper, connection } = mountComponent(Chat);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		const input = wrapper.get('[data-cy="chat-input"] input');
+		expect(document.activeElement).not.toBe(input.element);
+		await input.setValue("继续编辑草稿");
+		chatActions(wrapper).activateAndFocus();
+		await nextTick();
+		expect(document.activeElement).toBe(input.element);
+		expect((input.element as HTMLInputElement).value).toBe("继续编辑草稿");
+		expect(connection.sent).toEqual([]);
+	});
+
+	it("cancels pending focus when chat is closed and reopened for reading", async () => {
+		const { wrapper } = mountComponent(Chat);
+		chatActions(wrapper).activateAndFocus();
+		chatActions(wrapper).setActivated(false);
+		chatActions(wrapper).setActivated(true);
+		await nextTick();
+		const input = wrapper.get('[data-cy="chat-input"] input');
+		expect(document.activeElement).not.toBe(input.element);
+	});
+
+	it("does not apply a pending focus request after unmount", async () => {
+		const { wrapper } = mountComponent(Chat);
+		const focus = vi.spyOn(HTMLElement.prototype, "focus");
+		try {
+			chatActions(wrapper).activateAndFocus();
+			wrapper.unmount();
+			await nextTick();
+			expect(focus).not.toHaveBeenCalled();
+		} finally {
+			focus.mockRestore();
+		}
+	});
+
+	it.each([
+		"Enter",
+		"NumpadEnter",
+	])("ignores held %s events before sending once on a fresh press", async code => {
+		const { wrapper, connection } = mountComponent(Chat);
+		chatActions(wrapper).activateAndFocus();
+		await nextTick();
+		const input = wrapper.get('[data-cy="chat-input"] input');
+		await input.setValue("长按不要发送");
+		await input.trigger("keydown", { key: "Enter", code, repeat: true });
+		expect(connection.sent).toEqual([]);
+		expect(wrapper.find('[data-cy="chat-input"]').exists()).toBe(true);
+		expect((input.element as HTMLInputElement).value).toBe("长按不要发送");
+		await input.trigger("keydown", { key: "Enter", code });
+		expect(connection.sent).toEqual([
+			{
+				action: "req",
+				request: { type: RoomRequestType.ChatRequest, text: "长按不要发送" },
+			},
+		]);
+		expect(wrapper.find('[data-cy="chat-input"]').exists()).toBe(false);
+		expect(document.activeElement).not.toBe(input.element);
+	});
+
+	it.each([
+		{ ctrlKey: true },
+		{ altKey: true },
+		{ metaKey: true },
+		{ shiftKey: true },
+	])("preserves the draft for a modified Enter %s", async modifiers => {
+		const { wrapper, connection } = mountComponent(Chat);
+		chatActions(wrapper).activateAndFocus();
+		await nextTick();
+		const input = wrapper.get('[data-cy="chat-input"] input');
+		await input.setValue("保留组合键草稿");
+		await input.trigger("keydown", { key: "Enter", ...modifiers });
+		expect(connection.sent).toEqual([]);
+		expect(wrapper.find('[data-cy="chat-input"]').exists()).toBe(true);
+		expect((input.element as HTMLInputElement).value).toBe("保留组合键草稿");
 	});
 
 	it("lets Chinese IME confirm a candidate before Enter sends", async () => {

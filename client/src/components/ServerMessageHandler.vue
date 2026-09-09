@@ -4,33 +4,35 @@
 
 <script lang="ts" setup>
 import { onUnmounted } from "vue";
+import type { ServerMessage } from "ott-common/models/messages";
 import { useConnection } from "@/plugins/connection";
 import { useStore } from "@/store";
 
 const store = useStore();
 const connection = useConnection();
 
-connection.addMessageHandler("sync", msg => {
-	store.dispatch("room/sync", msg);
-});
-connection.addMessageHandler("chat", msg => {
-	store.dispatch("chat", msg);
-});
-connection.addMessageHandler("announcement", msg => {
-	store.dispatch("announcement", msg);
-});
-connection.addMessageHandler("user", msg => {
-	store.dispatch("users/user", msg);
-});
-connection.addMessageHandler("you", msg => {
-	store.dispatch("users/you", msg);
-});
-connection.addMessageHandler("event", msg => {
-	store.dispatch("event", msg);
-});
-connection.addMessageHandler("eventcustom", msg => {
-	store.dispatch("eventcustom", msg);
+const handlers = (
+	[
+		["sync", "room/sync"],
+		["chat", "chat"],
+		["announcement", "announcement"],
+		["user", "users/user"],
+		["you", "users/you"],
+		["event", "event"],
+		["eventcustom", "eventcustom"],
+	] as const
+).map(([action, storeAction]) => {
+	const handler = (message: ServerMessage) => {
+		void store.dispatch(storeAction, message);
+	};
+	connection.addMessageHandler(action, handler);
+	return { action, handler };
 });
 
-onUnmounted(() => connection.clearAllMessageHandlers());
+onUnmounted(() => {
+	// A replacement can register its handlers before this instance's unmount hook runs.
+	for (const { action, handler } of handlers) {
+		connection.removeMessageHandler(action, handler);
+	}
+});
 </script>
