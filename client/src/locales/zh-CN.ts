@@ -426,6 +426,9 @@ export default {
 		"playback-preferences": "观看偏好",
 		"chat-overlay-duration": "消息停留时长",
 		"chat-overlay-hint": "新消息在画面上的显示时间；关闭后仍可展开聊天查看历史。",
+		"presence-notice-duration": "用户进出提醒时长",
+		"seek-notice-duration": "跳进度提醒时长",
+		"room-notice-hint": "可缩短显示时间或关闭这类提醒，只影响你自己。",
 		"controls-hide-delay": "控件自动隐藏时间",
 		"controls-hide-hint": "无操作多久后收起控件；电脑全屏时同时隐藏鼠标指针。",
 		"hls-buffer-duration": "HLS 预缓冲时长",
@@ -539,7 +542,6 @@ export default {
 			"join-playing": "房间正在播放，画面准备好后会自动跟上。",
 			"join-paused": "视频画面准备好后会自动显示。",
 			slow: "加载时间较长。片源和网络速度会影响等待时间，可以继续等待或重试。",
-			autoplay: "浏览器阻止了自动播放，请点击播放按钮继续。",
 		},
 	},
 };

@@ -10,6 +10,7 @@
 			:poster="thumbnail || ''"
 			@loadedmetadata="applyPendingPosition"
 			@canplay="onReady"
+			@seeked="onReady"
 			@ready="onReady"
 			@playing="onPlaying"
 			@pause="onPaused"
@@ -29,6 +30,7 @@ import { onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
 import { nativeMediaError } from "@/util/media-recovery";
+import { createMediaSeek } from "@/util/media-seek";
 import type {
 	MediaPlayerError,
 	MediaPlayerWithAudioBoost,
@@ -46,6 +48,7 @@ interface Props {
 const props = defineProps<Props>();
 const { videoUrl, thumbnail } = toRefs(props);
 const videoElem = ref<HTMLVideoElement>();
+const seek = createMediaSeek(() => videoElem.value);
 const ttlmCaption = ref<HTMLDivElement>();
 const captions = useCaptions();
 const qualities = useQualities();
@@ -74,7 +77,7 @@ const loadingState = createMediaLoadingState({
 	isAudioOnly: () => audioOnly,
 });
 
-function play() {
+function play(userInitiated = false) {
 	const media = videoElem.value;
 	if (!media) {
 		console.error("video element not ready");
@@ -82,6 +85,9 @@ function play() {
 	}
 	if (!media.currentSrc && !media.src && !media.srcObject) {
 		// dash.js attaches MediaSource after reading the manifest. Room retries on ready.
+		return;
+	}
+	if (seek.pending() && !userInitiated) {
 		return;
 	}
 	return media.play();
@@ -125,7 +131,7 @@ function applyPendingPosition() {
 		return;
 	}
 	try {
-		media.currentTime = pendingPosition;
+		seek.seek(pendingPosition);
 		pendingPosition = null;
 	} catch {
 		// Some MediaSource timelines become seekable only at canplay. Keep the latest request.
@@ -133,7 +139,7 @@ function applyPendingPosition() {
 }
 
 function isSeeking() {
-	return videoElem.value?.seeking ?? false;
+	return seek.pending() || (videoElem.value?.seeking ?? false);
 }
 
 function isRecovering() {
@@ -323,6 +329,7 @@ function loadVideoSource(resumePosition: number | null = null) {
 		return;
 	}
 	const generation = ++sourceGeneration;
+	seek.reset();
 	audioOnly = false;
 	streamReady = false;
 	pendingPosition = resumePosition;
@@ -446,7 +453,9 @@ onMounted(() => {
 
 function onReady() {
 	applyPendingPosition();
-	emit("ready");
+	if (seek.ready()) {
+		emit("ready");
+	}
 }
 
 function onPlaying() {

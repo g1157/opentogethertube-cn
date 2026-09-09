@@ -3,6 +3,7 @@ import type { Module } from "vuex/types";
 import vuetify from "@/plugins/vuetify";
 
 export const CHAT_OVERLAY_SECONDS_OPTIONS = [0, 3, 5, 10, 20] as const;
+export const ROOM_NOTICE_SECONDS_OPTIONS = [0, 1, 2, 3, 5, 10, 20] as const;
 export const CONTROLS_HIDE_SECONDS_OPTIONS = [2, 3, 5, 10] as const;
 export const HLS_BUFFER_SECONDS_OPTIONS = [30, 60, 120] as const;
 
@@ -19,6 +20,8 @@ export interface SettingsState {
 	enableAdapterSelector: boolean;
 	swipeSeekSeconds: 5 | 10 | 30;
 	chatOverlaySeconds: (typeof CHAT_OVERLAY_SECONDS_OPTIONS)[number];
+	presenceNoticeSeconds: (typeof ROOM_NOTICE_SECONDS_OPTIONS)[number];
+	seekNoticeSeconds: (typeof ROOM_NOTICE_SECONDS_OPTIONS)[number];
 	controlsHideSeconds: (typeof CONTROLS_HIDE_SECONDS_OPTIONS)[number];
 	hlsBufferSeconds: (typeof HLS_BUFFER_SECONDS_OPTIONS)[number];
 }
@@ -62,6 +65,8 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		enableAdapterSelector: false,
 		swipeSeekSeconds: 10,
 		chatOverlaySeconds: 5,
+		presenceNoticeSeconds: 3,
+		seekNoticeSeconds: 3,
 		controlsHideSeconds: 3,
 		hlsBufferSeconds: 60,
 	}),
@@ -79,6 +84,12 @@ export const settingsModule: Module<SettingsState, unknown> = {
 			}
 			if (!CHAT_OVERLAY_SECONDS_OPTIONS.includes(state.chatOverlaySeconds)) {
 				state.chatOverlaySeconds = 5;
+			}
+			if (!ROOM_NOTICE_SECONDS_OPTIONS.includes(state.presenceNoticeSeconds)) {
+				state.presenceNoticeSeconds = 3;
+			}
+			if (!ROOM_NOTICE_SECONDS_OPTIONS.includes(state.seekNoticeSeconds)) {
+				state.seekNoticeSeconds = 3;
 			}
 			if (!CONTROLS_HIDE_SECONDS_OPTIONS.includes(state.controlsHideSeconds)) {
 				state.controlsHideSeconds = 3;

@@ -1,4 +1,5 @@
 import type { MediaPlayerError } from "@/components/composables/media-player";
+import { createMediaSeek } from "./media-seek";
 
 const NETWORK_RETRY_DELAYS_MS = [1000, 3000, 6000];
 const RECOVERY_TIMEOUT_MS = 30000;
@@ -17,6 +18,7 @@ interface MediaRecoveryOptions {
 
 /** A failed request must not turn into an endless reload loop for an expired or broken source. */
 export function createMediaRecovery(options: MediaRecoveryOptions) {
+	const seek = createMediaSeek(options.media);
 	let phase: "loading" | "ready" | "scheduled" | "recovering" | "failed" | "disposed" = "loading";
 	let desiredPlaying = false;
 	let snapshot: PlaybackSnapshot | undefined = { position: 0, rate: 1 };
@@ -46,6 +48,7 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 
 	function reset() {
 		generation++;
+		seek.reset();
 		clearTimer();
 		networkAttempts = 0;
 		decodeAttempts = 0;
@@ -62,6 +65,7 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 
 	function runRecovery(manual: boolean) {
 		clearTimer();
+		seek.reset();
 		phase = "recovering";
 		const currentGeneration = generation;
 		// Some browsers never send another error after load(). Bound that attempt too.
@@ -136,9 +140,7 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 				? Math.min(snapshot.position, Math.max(0, media.duration - 0.1))
 				: snapshot.position;
 		try {
-			if (Math.abs(media.currentTime - position) > 0.05) {
-				media.currentTime = position;
-			}
+			seek.seek(position);
 			media.playbackRate = snapshot.rate;
 			return true;
 		} catch {
@@ -153,11 +155,11 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 			phase === "scheduled" ||
 			phase === "failed" ||
 			phase === "disposed" ||
-			(options.media()?.readyState ?? 0) < 3
+			(options.media()?.readyState ?? 0) < (seek.pending() ? 2 : 3)
 		) {
 			return false;
 		}
-		if (!restoreMetadata()) {
+		if (!restoreMetadata() || !seek.ready()) {
 			return false;
 		}
 		snapshot = undefined;
@@ -171,13 +173,16 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 		return true;
 	}
 
-	function play(): void | Promise<void> {
+	function play(userInitiated = false): void | Promise<void> {
 		desiredPlaying = true;
 		const media = options.media();
 		const hasSource = !!(media?.currentSrc || media?.getAttribute("src") || media?.srcObject);
 		// Mobile browsers may ignore preload until play() is called. Start an attached source
 		// in the caller's user gesture and let autoplay rejections reach the room's unblock UI.
-		if (phase === "ready" || (phase === "loading" && hasSource)) {
+		if (
+			(!seek.pending() || userInitiated) &&
+			(phase === "ready" || (phase === "loading" && hasSource))
+		) {
 			return media?.play();
 		}
 	}
@@ -201,7 +206,7 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 		}
 		const media = options.media();
 		if (media) {
-			media.currentTime = position;
+			seek.seek(position);
 		}
 	}
 
@@ -234,6 +239,7 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 		setPlaybackRate,
 		dispose,
 		isRecovering: () => ["loading", "scheduled", "recovering"].includes(phase),
+		isSeeking: () => seek.pending() || (options.media()?.seeking ?? false),
 		isFailed: () => phase === "failed",
 	};
 }

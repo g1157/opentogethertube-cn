@@ -47,7 +47,7 @@ export interface MediaPlayer {
 	 *
 	 * Some browsers emit promises for this, and some don't.
 	 */
-	play(): void | Promise<void>;
+	play(userInitiated?: boolean): void | Promise<void>;
 	/**
 	 * Pause the video.
 	 *
@@ -138,11 +138,11 @@ export class MediaPlayerV2 {
 		}
 	}
 
-	async play(): Promise<void> {
+	async play(userInitiated?: boolean): Promise<void> {
 		if (!this.checkForPlayer(this.player.value)) {
 			return Promise.reject("Player not available yet");
 		}
-		return this.player.value.play();
+		return this.player.value.play(userInitiated);
 	}
 	async pause(): Promise<void> {
 		if (!this.checkForPlayer(this.player.value)) {

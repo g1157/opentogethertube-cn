@@ -37,6 +37,12 @@
 					<!-- HACK: For some reason, safari really doesn't like typescript enums. As a result, we are forced to not use the enums, and use their literal values instead. -->
 					<!-- Main menu -->
 					<v-list v-if="currentMenu === 'main'" key="main" class="menu-content">
+						<v-list-item v-if="compact">
+							<div class="compact-playback-options">
+								<VolumeControl />
+								<PlaybackRateSwitcher />
+							</div>
+						</v-list-item>
 						<v-list-item
 							link
 							class="menu-item"
@@ -166,6 +172,23 @@
 								data-cy="hls-buffer-duration"
 							/>
 						</v-list-item>
+						<v-list-item v-for="notice in roomNotices" :key="notice.setting">
+							<v-select
+								:model-value="store.state.settings[notice.setting]"
+								@update:model-value="
+									value =>
+										store.commit('settings/UPDATE', { [notice.setting]: value })
+								"
+								:label="$t(`client-settings.${notice.label}`)"
+								:hint="$t('client-settings.room-notice-hint')"
+								:items="roomNoticeOptions"
+								:menu-props="preferenceMenuProps"
+								persistent-hint
+								density="compact"
+								class="my-2"
+								:data-cy="notice.label"
+							/>
+						</v-list-item>
 					</v-list>
 
 					<!-- Quality submenu -->
@@ -259,8 +282,12 @@ import {
 	CHAT_OVERLAY_SECONDS_OPTIONS,
 	CONTROLS_HIDE_SECONDS_OPTIONS,
 	HLS_BUFFER_SECONDS_OPTIONS,
+	ROOM_NOTICE_SECONDS_OPTIONS,
 } from "@/stores/settings";
+import VolumeControl from "./VolumeControl.vue";
+import PlaybackRateSwitcher from "./PlaybackRateSwitcher.vue";
 
+defineProps<{ compact?: boolean }>();
 const emit = defineEmits(["show-shortcuts"]);
 const store = useStore();
 const { t } = useI18n();
@@ -300,6 +327,16 @@ const chatOverlayOptions = computed(() =>
 const controlsHideOptions = computed(() =>
 	CONTROLS_HIDE_SECONDS_OPTIONS.map(value => ({
 		title: t("player.interactions.seconds", { count: value }),
+		value,
+	})),
+);
+const roomNotices = [
+	{ setting: "presenceNoticeSeconds", label: "presence-notice-duration" },
+	{ setting: "seekNoticeSeconds", label: "seek-notice-duration" },
+] as const;
+const roomNoticeOptions = computed(() =>
+	ROOM_NOTICE_SECONDS_OPTIONS.map(value => ({
+		title: value > 0 ? t("player.interactions.seconds", { count: value }) : t("common.off"),
 		value,
 	})),
 );
@@ -445,6 +482,13 @@ function selectSubtitleTrack(track: number): void {
 
 .swipe-step-options {
 	margin: 8px 0;
+}
+
+.compact-playback-options {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 0;
 }
 
 .menu-container {

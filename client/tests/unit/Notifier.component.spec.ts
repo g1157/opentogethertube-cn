@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Notifier from "@/components/Notifier.vue";
 import { ToastStyle } from "@/models/toast";
+import { RoomRequestType } from "ott-common/models/messages";
 import { mountComponent } from "./component-test-utils";
 
 describe("Notifier component", () => {
@@ -31,6 +32,53 @@ describe("Notifier component", () => {
 		await wrapper.vm.$nextTick();
 
 		expect(store.state.toast.notifications).toHaveLength(0);
+	});
+
+	it("expires join/leave and seek notices using the viewer's separate durations", async () => {
+		const { wrapper, store } = mountComponent(Notifier);
+		store.commit("toast/CLEAR_ALL_TOASTS");
+		store.commit("settings/UPDATE", { presenceNoticeSeconds: 1, seekNoticeSeconds: 2 });
+		for (const type of [
+			RoomRequestType.JoinRequest,
+			RoomRequestType.LeaveRequest,
+			RoomRequestType.SeekRequest,
+		]) {
+			await store.dispatch("event", {
+				request: { type, value: 123 },
+				user: { name: "Alice" },
+				additional: { user: { name: "Bob" } },
+			});
+		}
+		await wrapper.vm.$nextTick();
+		expect(store.state.toast.notifications).toHaveLength(3);
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(store.state.toast.notifications).toHaveLength(1);
+		expect(store.state.toast.notifications[0].event?.request.type).toBe(
+			RoomRequestType.SeekRequest,
+		);
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(store.state.toast.notifications).toHaveLength(0);
+	});
+
+	it("can disable room activity notices without hiding errors", async () => {
+		const { store } = mountComponent(Notifier);
+		store.commit("toast/CLEAR_ALL_TOASTS");
+		store.commit("settings/UPDATE", { presenceNoticeSeconds: 0, seekNoticeSeconds: 0 });
+		for (const type of [
+			RoomRequestType.JoinRequest,
+			RoomRequestType.LeaveRequest,
+			RoomRequestType.SeekRequest,
+		]) {
+			await store.dispatch("event", {
+				request: { type, value: 123 },
+				user: { name: "Alice" },
+				additional: { user: { name: "Bob" } },
+			});
+		}
+		expect(store.state.toast.notifications).toHaveLength(0);
+		await store.dispatch("error", { error: "Video unavailable" });
+		expect(store.state.toast.notifications).toHaveLength(1);
+		expect(store.state.toast.notifications[0].style).toBe(ToastStyle.Error);
 	});
 
 	for (const [toastStyle, className] of [

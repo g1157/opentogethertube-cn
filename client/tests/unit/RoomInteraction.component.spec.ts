@@ -4,6 +4,7 @@ import Room from "@/views/Room.vue";
 import Chat from "@/components/Chat.vue";
 import VideoSettings from "@/components/controls/VideoSettings.vue";
 import LayoutSwitcher from "@/components/controls/LayoutSwitcher.vue";
+import VideoProgressSlider from "@/components/controls/VideoProgressSlider.vue";
 import { usePlaybackRate, type MediaPlayerV2 } from "@/components/composables";
 import { OttSfx } from "@/plugins/sfx";
 import { RoomRequestType } from "ott-common/models/messages";
@@ -127,7 +128,7 @@ describe("room player interactions", () => {
 		return media;
 	}
 
-	function playerEvent(event: "ready" | "apiready") {
+	function playerEvent(event: "ready" | "apiready" | "playing" | "paused") {
 		page.wrapper.findComponent({ name: "OmniPlayer" }).vm.$emit(event);
 	}
 
@@ -320,21 +321,79 @@ describe("room player interactions", () => {
 		expect(media.setPosition).toHaveBeenCalledOnce();
 	});
 
-	it("retains the autoplay prompt until an explicit click succeeds", async () => {
+	it("unlocks with the normal play button even if ready fires while the click is pending", async () => {
 		const media = installPlayer();
 		media.play.mockRejectedValueOnce(
 			new DOMException("Interaction required", "NotAllowedError"),
 		);
 		playerEvent("ready");
 		await vi.advanceTimersByTimeAsync(0);
-		expect(page.wrapper.find(".playback-blocked-prompt").exists()).toBe(true);
+		expect(page.wrapper.vm.mediaPlaybackBlocked).toBe(true);
+		expect(page.wrapper.find(".playback-blocked-prompt").exists()).toBe(false);
+		// Local playback remains available even to a viewer without room playback permission.
+		page.store.state.room.grants.setRoleGrants(Role.UnregisteredUser, []);
 		playerEvent("ready");
 		await vi.advanceTimersByTimeAsync(0);
 		expect(media.play).toHaveBeenCalledOnce();
-		await page.wrapper.get(".playback-blocked-prompt button").trigger("click");
+		let finish!: () => void;
+		media.play.mockReturnValueOnce(new Promise<void>(resolve => (finish = resolve)));
+		media.setPosition.mockClear();
+		await page.wrapper.get('[data-cy="playback-toggle"]').trigger("click");
+		expect(media.play).toHaveBeenLastCalledWith(true);
+		expect(media.setPosition).not.toHaveBeenCalled();
+		playerEvent("ready");
 		await vi.advanceTimersByTimeAsync(0);
 		expect(media.play).toHaveBeenCalledTimes(2);
-		expect(page.wrapper.find(".playback-blocked-prompt").exists()).toBe(false);
+		playerEvent("playing");
+		finish();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(media.play).toHaveBeenCalledTimes(2);
+		expect(page.wrapper.vm.mediaPlaybackBlocked).toBe(false);
+		expect(page.connection.sent).toEqual([]);
+		expect(page.store.state.room.isPlaying).toBe(true);
+	});
+
+	it("clears a blocked state on actual playback and ignores a later rejection", async () => {
+		const media = installPlayer();
+		media.play.mockRejectedValueOnce(new DOMException("Blocked", "NotAllowedError"));
+		playerEvent("ready");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(page.wrapper.vm.mediaPlaybackBlocked).toBe(true);
+		playerEvent("playing");
+		await nextTick();
+		expect(page.wrapper.vm.mediaPlaybackBlocked).toBe(false);
+		let reject!: (error: Error) => void;
+		media.play.mockReturnValueOnce(new Promise<void>((_, fail) => (reject = fail)));
+		playerEvent("ready");
+		playerEvent("playing");
+		reject(new DOMException("Old rejection", "NotAllowedError"));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(page.wrapper.vm.mediaPlaybackBlocked).toBe(false);
+	});
+
+	it("pauses locally as soon as the slider submits a seek, before the server replies", async () => {
+		const media = installPlayer();
+		playerEvent("ready");
+		await vi.advanceTimersByTimeAsync(0);
+		media.pause.mockClear();
+		media.play.mockClear();
+		page.wrapper
+			.findComponent(VideoProgressSlider)
+			.findComponent({ name: "VueSlider" })
+			.vm.$emit("change", 350);
+		expect(media.pause).toHaveBeenCalledOnce();
+		expect(page.connection.sent).toEqual([
+			{ action: "req", request: { type: RoomRequestType.SeekRequest, value: 350 } },
+		]);
+		playerEvent("paused");
+		await vi.advanceTimersByTimeAsync(500);
+		expect(media.play).not.toHaveBeenCalled();
+		expect(page.store.state.room.isPlaying).toBe(true);
+		page.store.commit("room/SYNC", { playbackPosition: 350 });
+		page.connection.mockReceive({ action: "sync", playbackPosition: 350 });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(media.setPosition).toHaveBeenLastCalledWith(350);
+		expect(page.wrapper.vm.pendingLocalSeek).toBe(false);
 	});
 
 	it("ignores a stale autoplay rejection after changing the video", async () => {

@@ -8,8 +8,9 @@ import {
 	type ServerMessageEventCustom,
 } from "ott-common/models/messages";
 import { secondsToTimestamp } from "@/util/timestamp";
+import type { FullOTTStoreState } from "@/store";
 
-export const eventsModule: Module<unknown, unknown> = {
+export const eventsModule: Module<unknown, FullOTTStoreState> = {
 	actions: {
 		event(context, message: ServerMessageEvent) {
 			let text = `TODO: room event: ${message.request.type}`;
@@ -31,14 +32,16 @@ export const eventsModule: Module<unknown, unknown> = {
 				text = `${message.user.name} seeked to ${secondsToTimestamp(
 					message.request.value,
 				)}`;
-				duration = 20000;
+				duration = context.rootState.settings.seekNoticeSeconds * 1000;
 			} else if (message.request.type === RoomRequestType.JoinRequest) {
 				text = `${message.user.name} joined the room`;
+				duration = context.rootState.settings.presenceNoticeSeconds * 1000;
 			} else if (
 				message.request.type === RoomRequestType.LeaveRequest &&
 				message.additional.user
 			) {
 				text = `${message.additional.user.name} left the room`;
+				duration = context.rootState.settings.presenceNoticeSeconds * 1000;
 			} else if (message.request.type === RoomRequestType.AddRequest) {
 				if (message.request.videos) {
 					text = `${message.user.name} added ${message.request.videos.length} videos`;
@@ -66,6 +69,9 @@ export const eventsModule: Module<unknown, unknown> = {
 				text = `${message.user.name} triggered event ${message.request.type}`;
 			}
 
+			if (duration === 0) {
+				return;
+			}
 			this.commit("toast/ADD_TOAST", {
 				style: ToastStyle.Neutral,
 				content: text,

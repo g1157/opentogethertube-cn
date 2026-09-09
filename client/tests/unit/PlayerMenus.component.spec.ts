@@ -4,6 +4,8 @@ import { VMenu } from "vuetify/components";
 import { RoomRequestType } from "ott-common/models/messages";
 import { PlayerStatus, Role } from "ott-common/models/types";
 import VideoSettings from "@/components/controls/VideoSettings.vue";
+import VideoControls from "@/components/controls/VideoControls.vue";
+import BasicControls from "@/components/controls/BasicControls.vue";
 import PlaybackRateSwitcher from "@/components/controls/PlaybackRateSwitcher.vue";
 import LayoutSwitcher from "@/components/controls/LayoutSwitcher.vue";
 import ClosedCaptionsSwitcher from "@/components/controls/ClosedCaptionsSwitcher.vue";
@@ -119,6 +121,13 @@ describe("player menu placement", () => {
 				matches: {
 					get: () => {
 						const width = MAX_WIDTH_QUERY.exec(query);
+						if (query.includes("orientation: portrait")) {
+							return (
+								!!width &&
+								viewport.width <= Number(width[1]) &&
+								viewport.height > viewport.width
+							);
+						}
 						return width ? viewport.width <= Number(width[1]) : hover;
 					},
 				},
@@ -369,6 +378,60 @@ describe("player menu placement", () => {
 		controlsChoices.find(item => item.textContent?.trim() === "10 秒")!.click();
 		await settle();
 		expect(store.state.settings.controlsHideSeconds).toBe(10);
+		for (const [selector, title, setting, value] of [
+			["presence-notice-duration", "关", "presenceNoticeSeconds", 0],
+			["seek-notice-duration", "2 秒", "seekNoticeSeconds", 2],
+		] as const) {
+			document
+				.querySelector<HTMLElement>(`[data-cy="${selector}"] .v-field`)!
+				.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			await settle();
+			const noticeChoices = Array.from(
+				document.querySelectorAll<HTMLElement>('.v-overlay--active [role="option"]'),
+			);
+			noticeChoices.find(item => item.textContent?.trim() === title)!.click();
+			await settle();
+			expect(store.state.settings[setting]).toBe(value);
+		}
+	});
+
+	it("keeps portrait controls compact, with volume and speed in settings, then expands on rotation or fullscreen", async () => {
+		page = mountComponent(VideoControls, {
+			props: {
+				sliderPosition: 100,
+				truePosition: 100,
+				controlsVisible: true,
+				mode: "in-video",
+			},
+			global: { provide: { [PlayerFullscreenKey as symbol]: { toggle: vi.fn() } } },
+		});
+		await settle();
+		expect(page.wrapper.get(".video-controls").classes()).toContain("compact-controls");
+		expect(page.wrapper.findComponent(BasicControls).findAll("button")).toHaveLength(1);
+		expect(page.wrapper.find('[data-cy="playback-rate-toggle"]').exists()).toBe(false);
+		expect(page.wrapper.find('[data-cy="volume-slider"]').exists()).toBe(false);
+		await page.wrapper.get('[data-cy="player-settings-toggle"]').trigger("click");
+		await settle();
+		expect(
+			document.querySelector('.compact-playback-options [data-cy="volume-slider"]'),
+		).not.toBeNull();
+		expect(
+			document.querySelector('.compact-playback-options [data-cy="playback-rate-toggle"]'),
+		).not.toBeNull();
+		page.store.commit("SET_FULLSCREEN", true);
+		await settle();
+		expect(page.wrapper.get(".video-controls").classes()).not.toContain("compact-controls");
+		expect(page.wrapper.findComponent(BasicControls).findAll("button")).toHaveLength(4);
+		page.store.commit("SET_FULLSCREEN", false);
+		viewport.width = 568;
+		viewport.height = 320;
+		for (const media of Array.from(mediaQueries)) {
+			media.dispatchEvent(new Event("change"));
+		}
+		await settle();
+		expect(page.wrapper.get(".video-controls").classes()).not.toContain("compact-controls");
+		expect(page.wrapper.find('[data-cy="playback-rate-toggle"]').exists()).toBe(true);
+		expect(page.wrapper.find('[data-cy="volume-slider"]').exists()).toBe(true);
 	});
 
 	it("updates layout controls after rotation and does not open hover tooltips on touch screens", async () => {

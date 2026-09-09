@@ -339,6 +339,57 @@ describe("native player loading-state integration", () => {
 	}
 
 	describe.each(players)("$name", fixture => {
+		it("pauses the old position immediately and holds ordinary play until the latest seek is ready", async () => {
+			const target = mountPlayer(fixture);
+			await makePlayable(target);
+			await target.api.play();
+			expect(target.video.paused).toBe(false);
+			target.api.setPosition(500);
+			expect(target.video.paused).toBe(true);
+			expect(target.video.currentTime).toBe(500);
+			Object.assign(state(target.video), { seeking: true, readyState: 2 });
+			vi.mocked(target.video.play).mockClear();
+			await target.api.play();
+			expect(target.video.play).not.toHaveBeenCalled();
+			// A second seek supersedes the first; an old canplay cannot resume it.
+			target.api.setPosition(700);
+			state(target.video).readyState = 4;
+			await target.wrapper.get("video").trigger("canplay");
+			await target.api.play();
+			expect(target.video.play).not.toHaveBeenCalled();
+			Object.assign(state(target.video), { seeking: false, readyState: 1 });
+			await target.wrapper.get("video").trigger("seeked");
+			await target.api.play();
+			expect(target.video.play).not.toHaveBeenCalled();
+			state(target.video).readyState = 4;
+			await target.wrapper.get("video").trigger("canplay");
+			await target.api.play();
+			expect(target.video.play).toHaveBeenCalledOnce();
+			expect(target.video.currentTime).toBe(700);
+		});
+
+		it("passes a user's play gesture through while native seek data is pending", async () => {
+			const target = mountPlayer(fixture);
+			await makePlayable(target);
+			target.api.setPosition(500);
+			Object.assign(state(target.video), { seeking: true, readyState: 2 });
+			const blocked = new DOMException("Interaction required", "NotAllowedError");
+			vi.mocked(target.video.play).mockRejectedValueOnce(blocked);
+			await expect(target.api.play(true)).rejects.toBe(blocked);
+			expect(target.video.play).toHaveBeenCalledOnce();
+		});
+
+		it("can restart from a completed seek when mobile preload supplies only the current frame", async () => {
+			const target = mountPlayer(fixture);
+			await makePlayable(target);
+			target.api.setPosition(500);
+			Object.assign(state(target.video), { seeking: false, readyState: 2 });
+			await target.wrapper.get("video").trigger("seeked");
+			await target.api.play();
+			expect(target.video.play).toHaveBeenCalledOnce();
+			expect(target.api.isSeeking?.()).toBe(false);
+		});
+
 		it("keeps waiting after ready, playing and time progression until a frame is presented", async () => {
 			const target = mountPlayer(fixture);
 			expect(latest(target.wrapper).phase).toBe("preparing");

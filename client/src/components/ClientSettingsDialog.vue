@@ -49,6 +49,22 @@
 					data-cy="controls-hide-delay"
 				/>
 				<v-select
+					v-model="settings.presenceNoticeSeconds"
+					:label="$t('client-settings.presence-notice-duration')"
+					:hint="$t('client-settings.room-notice-hint')"
+					:items="roomNoticeOptions"
+					persistent-hint
+					data-cy="presence-notice-duration"
+				/>
+				<v-select
+					v-model="settings.seekNoticeSeconds"
+					:label="$t('client-settings.seek-notice-duration')"
+					:hint="$t('client-settings.room-notice-hint')"
+					:items="roomNoticeOptions"
+					persistent-hint
+					data-cy="seek-notice-duration"
+				/>
+				<v-select
 					v-model="settings.hlsBufferSeconds"
 					:label="$t('client-settings.hls-buffer-duration')"
 					:hint="$t('client-settings.hls-buffer-hint')"
@@ -134,6 +150,7 @@ import {
 	CHAT_OVERLAY_SECONDS_OPTIONS,
 	CONTROLS_HIDE_SECONDS_OPTIONS,
 	HLS_BUFFER_SECONDS_OPTIONS,
+	ROOM_NOTICE_SECONDS_OPTIONS,
 	RoomLayoutMode,
 	type SettingsState,
 	Theme,
@@ -161,6 +178,12 @@ const chatOverlayOptions = computed(() =>
 const controlsHideOptions = computed(() =>
 	CONTROLS_HIDE_SECONDS_OPTIONS.map(value => ({
 		title: t("player.interactions.seconds", { count: value }),
+		value,
+	})),
+);
+const roomNoticeOptions = computed(() =>
+	ROOM_NOTICE_SECONDS_OPTIONS.map(value => ({
+		title: value > 0 ? t("player.interactions.seconds", { count: value }) : t("common.off"),
 		value,
 	})),
 );

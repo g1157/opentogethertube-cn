@@ -214,6 +214,7 @@ const props = defineProps({
 		},
 	},
 	playbackBlocked: { type: Boolean, default: false },
+	seekingPlayback: { type: Boolean, default: false },
 	preparationFailed: { type: Boolean, default: false },
 	preparingPlayback: { type: Boolean, default: false },
 	waitingForPreparedPlayback: { type: Boolean, default: false },
@@ -272,7 +273,9 @@ const loadingState = ref<MediaLoadingState>({
 });
 const loadingAttempt = ref(0);
 const loadingNoticeState = computed<MediaLoadingState>(() =>
-	props.preparationFailed || props.waitingForPreparedPlayback
+	props.seekingPlayback
+		? { ...loadingState.value, phase: "seeking" }
+		: props.preparationFailed || props.waitingForPreparedPlayback
 		? { ...loadingState.value, phase: loadingState.value.phase ?? "waiting-frame" }
 		: loadingState.value,
 );

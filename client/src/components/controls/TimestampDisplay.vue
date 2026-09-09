@@ -2,7 +2,7 @@
 	<div class="media-control">
 		<ClickToEdit
 			:model-value="currentPosition"
-			@change="value => roomapi.seek(value)"
+			@change="seek"
 			:value-formatter="secondsToTimestamp"
 			:value-parser="timestampToSeconds"
 		/>
@@ -14,10 +14,11 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from "vue";
+import { computed, inject } from "vue";
 import { useStore } from "@/store";
 import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
+import { PlayerActionsKey } from "@/util/player-actions";
 import { secondsToTimestamp, timestampToSeconds } from "@/util/timestamp";
 import ClickToEdit from "../ClickToEdit.vue";
 
@@ -32,6 +33,14 @@ withDefaults(
 
 const store = useStore();
 const roomapi = useRoomApi(useConnection());
+const actions = inject(PlayerActionsKey, undefined);
+function seek(position: number) {
+	if (actions) {
+		actions.seek(position);
+	} else {
+		roomapi.seek(position);
+	}
+}
 
 const lengthDisplay = computed(() => {
 	const length = store.state.room.currentSource?.length ?? 0;

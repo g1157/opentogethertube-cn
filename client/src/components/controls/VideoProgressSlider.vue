@@ -28,12 +28,13 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, type Ref, onMounted, onUpdated, computed } from "vue";
+import { ref, type Ref, onMounted, onUpdated, computed, inject } from "vue";
 import VueSlider from "vue-slider-component";
 import { useStore } from "@/store";
 import { secondsToTimestamp } from "@/util/timestamp";
 import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
+import { PlayerActionsKey } from "@/util/player-actions";
 import "vue-slider-component/theme/default.css";
 import "./slider-tweaks.scss";
 import { useGrants } from "../composables/grants";
@@ -50,6 +51,7 @@ withDefaults(
 const store = useStore();
 const roomapi = useRoomApi(useConnection());
 const granted = useGrants();
+const actions = inject(PlayerActionsKey, undefined);
 
 /**
  * vue-slider-component requires (props.max - props.min) to be divisible by props.interval.
@@ -69,7 +71,11 @@ const normalisedVideoLength = computed((): number => {
 const sliderTooltipFormatter = ref(secondsToTimestamp);
 
 function sliderChange(value: number) {
-	roomapi.seek(value);
+	if (actions) {
+		actions.seek(value);
+	} else {
+		roomapi.seek(value);
+	}
 }
 
 /**
