@@ -322,6 +322,21 @@ describe("player menu placement", () => {
 		await settle();
 
 		const player = wrapper.get(".player-menu-host").element;
+		const soundToggle = document.querySelector<HTMLInputElement>(
+			'[data-cy="chat-sound-enabled"] input',
+		)!;
+		expect(player.contains(soundToggle)).toBe(true);
+		expect(soundToggle.checked).toBe(false);
+		store.commit("settings/UPDATE", { volume: 37, muted: true });
+		soundToggle.click();
+		await settle();
+		expect(store.state.settings.sfxEnabled).toBe(true);
+		soundToggle.click();
+		await settle();
+		expect(store.state.settings.sfxEnabled).toBe(false);
+		expect(store.state.settings.volume).toBe(37);
+		expect(store.state.settings.muted).toBe(true);
+		expect(wrapper.get(selectors.settings).attributes("aria-expanded")).toBe("true");
 		const chatSelect = document.querySelector<HTMLElement>(
 			'[data-cy="chat-overlay-duration"] .v-field',
 		)!;

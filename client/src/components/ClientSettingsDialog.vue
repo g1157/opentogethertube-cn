@@ -58,7 +58,10 @@
 				/>
 				<v-checkbox
 					:label="$t('client-settings.sfx-enable')"
+					:hint="$t('client-settings.sfx-hint')"
 					v-model="settings.sfxEnabled"
+					persistent-hint
+					data-cy="chat-sound-enabled"
 				/>
 				<v-slider
 					:label="$t('client-settings.audio-boost')"
@@ -203,12 +206,14 @@ watch(show, () => {
 	settings.value = loadSettings();
 });
 
-store.subscribe(mutation => {
-	if (mutation.type === "settings/UPDATE") {
-		sfx.enabled = store.state.settings.sfxEnabled;
-		sfx.volume.value = store.state.settings.sfxVolume;
-	}
-});
+watch(
+	() => [store.state.settings.sfxEnabled, store.state.settings.sfxVolume] as const,
+	([enabled, volume]) => {
+		sfx.enabled = enabled;
+		sfx.volume.value = volume;
+	},
+	{ immediate: true },
+);
 
 const layouts = enumKeys(RoomLayoutMode);
 const themes = enumKeys(Theme);

@@ -119,22 +119,30 @@ let nextMessageId = 0;
 let expirationTimer: ReturnType<typeof setTimeout> | undefined;
 const messages = ref();
 const chatInput: Ref<HTMLInputElement | undefined> = ref();
+let focusRequest = 0;
+let disposed = false;
 
 onMounted(() => {
 	connection.addMessageHandler("chat", onChatReceived);
 });
 
 onUnmounted(() => {
+	disposed = true;
+	focusRequest++;
 	connection.removeMessageHandler("chat", onChatReceived);
 	clearTimeout(expirationTimer);
 	emit("activation-change", false);
 });
 
 function setActivated(value: boolean): void {
+	if (disposed) {
+		return;
+	}
+	focusRequest++;
 	activated.value = value;
 	emit("activation-change", value);
 	if (value) {
-		// Reading chat must not open the mobile keyboard. Only a direct input tap focuses it.
+		// Opening chat to read must not raise the mobile keyboard.
 		void nextTick(enforceStickToBottom);
 	} else {
 		chatInput.value?.blur();
@@ -143,14 +151,26 @@ function setActivated(value: boolean): void {
 	}
 }
 
-defineExpose({ setActivated, activated });
+function activateAndFocus(): void {
+	setActivated(true);
+	const request = focusRequest;
+	void nextTick().then(() => {
+		if (!disposed && activated.value && request === focusRequest) {
+			chatInput.value?.focus();
+		}
+	});
+}
+
+defineExpose({ setActivated, activateAndFocus, activated });
 
 const sfx = useSfx();
 function onChatReceived(msg: ServerMessageChat): void {
 	chatMessages.value.push({ id: nextMessageId++, message: msg, receivedAt: Date.now() });
 	updateMessageVisibility();
 	nextTick(enforceStickToBottom);
-	sfx.play("pop");
+	if (store.state.settings.sfxEnabled) {
+		void sfx.play("pop");
+	}
 }
 
 function isRecent(entry: ReceivedChatMessage): boolean {
@@ -190,21 +210,37 @@ function enforceStickToBottom() {
 }
 
 function onInputKeyDown(e: KeyboardEvent): void {
-	if (composing.value || e.isComposing || e.keyCode === 229) {
+	if (
+		!activated.value ||
+		disposed ||
+		e.defaultPrevented ||
+		composing.value ||
+		e.isComposing ||
+		e.keyCode === 229 ||
+		e.ctrlKey ||
+		e.altKey ||
+		e.metaKey ||
+		e.shiftKey
+	) {
 		return;
 	}
-	if (e.key === "Enter") {
-		e.preventDefault();
-		e.stopPropagation();
+	const submit = e.key === "Enter" || e.code === "NumpadEnter";
+	if (!submit && e.key !== "Escape") {
+		return;
+	}
+	e.preventDefault();
+	e.stopPropagation();
+	if (e.repeat) {
+		return;
+	}
+	if (submit) {
 		if (inputValue.value.trim() !== "") {
 			roomapi.chat(inputValue.value);
 		}
 		inputValue.value = "";
 		stickToBottom.value = true;
 		setActivated(false);
-	} else if (e.key === "Escape") {
-		e.preventDefault();
-		e.stopPropagation();
+	} else {
 		setActivated(false);
 	}
 }

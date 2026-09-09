@@ -56,12 +56,23 @@
 				>
 					<div class="player-container">
 						<OmniPlayer
-							:source="store.state.room.currentSource"
+							v-if="hasRoomSync"
+							:source="currentSource"
 							@apiready="onPlayerApiReady"
 							@playing="onPlaybackChange(true)"
 							@paused="onPlaybackChange(false)"
 							@ready="onPlayerReady"
 						/>
+						<div
+							v-else
+							class="room-player-loading"
+							data-cy="room-player-loading"
+							role="status"
+							aria-live="polite"
+						>
+							<v-progress-circular indeterminate size="28" width="3" />
+							<span>{{ connectionStatus }}</span>
+						</div>
 						<div
 							v-if="currentSource?.id && store.state.playerStatus !== 'error'"
 							class="player-gesture-surface"
@@ -350,7 +361,12 @@ export default defineComponent({
 		const router = useRouter();
 		const route = useRoute();
 		const goTo = useGoTo();
-		const currentSource = computed(() => store.state.room.currentSource);
+		// The shared store survives navigation. Never start its previous video before
+		// this visit receives the room's current source and playback state.
+		const hasRoomSync = ref(false);
+		const currentSource = computed(() =>
+			hasRoomSync.value ? store.state.room.currentSource : null,
+		);
 		const nowPlaying = computed(() => nowPlayingDetails(currentSource.value));
 		const episodeLabel = computed(() =>
 			nowPlaying.value.episode
@@ -532,6 +548,16 @@ export default defineComponent({
 			if (disposed) {
 				return;
 			}
+			if (typeof msg.name === "string" && "currentSource" in msg) {
+				if (!hasRoomSync.value) {
+					store.commit("PLAYBACK_STATUS", PlayerStatus.none);
+					store.commit("PLAYBACK_BUFFER_RESET");
+				}
+				hasRoomSync.value = true;
+			}
+			if (!hasRoomSync.value) {
+				return;
+			}
 			rewriteUrlToRoomName();
 			const source = currentSource.value;
 			if ("currentSource" in msg) {
@@ -555,6 +581,8 @@ export default defineComponent({
 			if (disposed) {
 				return;
 			}
+			hasRoomSync.value = false;
+			mediaPlaybackBlocked.value = false;
 			if (connection.active.value) {
 				connection.disconnect();
 			}
@@ -953,6 +981,9 @@ export default defineComponent({
 			activateVideoControls();
 		});
 		shortcuts.bind({ code: "KeyT" }, () => chat.value?.setActivated(!chatOpen.value));
+		shortcuts.bind([{ code: "Enter" }, { code: "NumpadEnter" }], () =>
+			chat.value?.activateAndFocus(),
+		);
 		shortcuts.bind({ code: "KeyF" }, () => {
 			void fullscreen.toggle();
 		});
@@ -1058,6 +1089,7 @@ export default defineComponent({
 			sliderPosition,
 
 			isConnected,
+			hasRoomSync,
 			connectionStatus,
 			connectionStatusColor,
 			showDisconnectedOverlay,
@@ -1307,6 +1339,16 @@ $in-video-chat-width-small: 250px;
 	display: flex;
 	justify-content: center;
 	align-items: center;
+}
+
+.room-player-loading {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	width: 100%;
+	height: 100%;
+	min-height: 180px;
 }
 
 .flip-list-move {

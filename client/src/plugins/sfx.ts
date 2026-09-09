@@ -18,7 +18,7 @@ import { watch } from "vue";
  * Handles sound effects.
  */
 export class OttSfx {
-	enabled: boolean = true;
+	enabled: boolean = false;
 	volume: Ref<number> = ref(1);
 	private loaded: boolean = false;
 

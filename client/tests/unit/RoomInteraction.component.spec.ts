@@ -8,7 +8,7 @@ import { usePlaybackRate, type MediaPlayerV2 } from "@/components/composables";
 import { OttSfx } from "@/plugins/sfx";
 import { RoomRequestType } from "ott-common/models/messages";
 import { PlayerStatus, Role } from "ott-common/models/types";
-import { mountComponent } from "./component-test-utils";
+import { flush, mountComponent } from "./component-test-utils";
 
 describe("room player interactions", () => {
 	let page: ReturnType<typeof mountComponent>;
@@ -85,6 +85,14 @@ describe("room player interactions", () => {
 		]);
 		page.store.commit("PLAYBACK_STATUS", PlayerStatus.ready);
 		usePlaybackRate().availablePlaybackRates.value = [1, 1.5, 2];
+		await flush();
+		page.connection.mockReceive({
+			action: "sync",
+			name: "interaction-room",
+			currentSource: page.store.state.room.currentSource,
+			isPlaying: true,
+			playbackPosition: 100,
+		});
 		await nextTick();
 		await vi.advanceTimersByTimeAsync(250);
 	});
@@ -152,15 +160,20 @@ describe("room player interactions", () => {
 		pointer("pointerup", 210);
 		await nextTick();
 	}
-	function key(code: string, target: EventTarget = document.body) {
-		target.dispatchEvent(
-			new KeyboardEvent("keydown", {
-				code,
-				key: code === "Escape" ? "Escape" : undefined,
-				bubbles: true,
-				cancelable: true,
-			}),
-		);
+	function key(
+		code: string,
+		target: EventTarget = document.body,
+		options: KeyboardEventInit = {},
+	) {
+		const event = new KeyboardEvent("keydown", {
+			code,
+			key: code === "NumpadEnter" ? "Enter" : code,
+			bubbles: true,
+			cancelable: true,
+			...options,
+		});
+		target.dispatchEvent(event);
+		return event;
 	}
 
 	function stubFullscreen(mode: string, target: HTMLElement) {
@@ -429,6 +442,104 @@ describe("room player interactions", () => {
 			start,
 			{ action: "req", request: { ...start.request, action: "stop" } },
 		]);
+	});
+
+	it.each([
+		"Enter",
+		"NumpadEnter",
+	])("uses %s to focus chat first and sends only on the next press", async code => {
+		const opening = key(code);
+		await nextTick();
+		const input = page.wrapper.get('[data-cy="chat-input"] input');
+		expect(opening.defaultPrevented).toBe(true);
+		expect(document.activeElement).toBe(input.element);
+		expect(page.connection.sent).toEqual([]);
+		await input.setValue("按回车发送");
+		key(code, input.element);
+		await nextTick();
+		expect(page.connection.sent).toEqual([
+			{
+				action: "req",
+				request: { type: RoomRequestType.ChatRequest, text: "按回车发送" },
+			},
+		]);
+		expect(page.wrapper.find('[data-cy="chat-input"]').exists()).toBe(false);
+		expect(document.activeElement).not.toBe(input.element);
+	});
+
+	it("keeps an escaped draft when reopening with Enter and ignores the held key", async () => {
+		key("Enter");
+		await nextTick();
+		const originalInput = page.wrapper.get('[data-cy="chat-input"] input');
+		await originalInput.setValue("等下一次确认再发送");
+		key("Escape", originalInput.element);
+		await nextTick();
+		expect(page.wrapper.find('[data-cy="chat-input"]').exists()).toBe(false);
+		expect(page.connection.sent).toEqual([]);
+		key("Enter");
+		await nextTick();
+		const input = page.wrapper.get('[data-cy="chat-input"] input');
+		expect(document.activeElement).toBe(input.element);
+		expect((input.element as HTMLInputElement).value).toBe("等下一次确认再发送");
+		key("Enter", input.element, { repeat: true });
+		await nextTick();
+		expect(page.connection.sent).toEqual([]);
+		expect(page.wrapper.find('[data-cy="chat-input"]').exists()).toBe(true);
+		key("Enter", input.element);
+		await nextTick();
+		expect(page.connection.sent).toEqual([
+			{
+				action: "req",
+				request: { type: RoomRequestType.ChatRequest, text: "等下一次确认再发送" },
+			},
+		]);
+		key("Enter", document.body, { repeat: true });
+		await nextTick();
+		expect(page.wrapper.find('[data-cy="chat-input"]').exists()).toBe(false);
+	});
+
+	it("does not open chat for modified, composing or repeated Enter shortcuts", async () => {
+		for (const code of ["Enter", "NumpadEnter"]) {
+			for (const options of [
+				{ ctrlKey: true },
+				{ altKey: true },
+				{ metaKey: true },
+				{ shiftKey: true },
+				{ isComposing: true },
+				{ keyCode: 229 },
+				{ repeat: true },
+			]) {
+				expect(key(code, document.body, options).defaultPrevented).toBe(false);
+			}
+		}
+		await nextTick();
+		expect(page.wrapper.find('[data-cy="chat-input"]').exists()).toBe(false);
+		expect(page.connection.sent).toEqual([]);
+	});
+
+	it("keeps Enter available to interactive elements and open dialogs", async () => {
+		const targets = document.createElement("div");
+		targets.innerHTML =
+			'<input><textarea></textarea><button>Action</button><a href="#">Link</a><div contenteditable="true"><span>Edit</span></div>';
+		document.body.appendChild(targets);
+		const dialog = document.createElement("dialog");
+		dialog.setAttribute("open", "");
+		try {
+			for (const target of targets.querySelectorAll("input, textarea, button, a, span")) {
+				for (const code of ["Enter", "NumpadEnter"]) {
+					expect(key(code, target).defaultPrevented).toBe(false);
+				}
+			}
+			document.body.appendChild(dialog);
+			expect(key("Enter").defaultPrevented).toBe(false);
+			expect(key("NumpadEnter").defaultPrevented).toBe(false);
+			await nextTick();
+			expect(page.wrapper.find('[data-cy="chat-input"]').exists()).toBe(false);
+			expect(page.connection.sent).toEqual([]);
+		} finally {
+			targets.remove();
+			dialog.remove();
+		}
 	});
 
 	it("keeps shortcuts working after source changes and does not steal typed characters", async () => {

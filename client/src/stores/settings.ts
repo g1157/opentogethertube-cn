@@ -42,7 +42,11 @@ export enum Theme {
 export const ALL_THEMES = Object.keys(Theme).filter(key => Theme[key]);
 
 const DEFAULT_LOCALE_VERSION = "v0.15.0-cn3";
-type StoredSettings = Partial<SettingsState> & { defaultLocaleVersion?: string };
+const DEFAULT_SFX_VERSION = "v0.15.0-cn6";
+type StoredSettings = Partial<SettingsState> & {
+	defaultLocaleVersion?: string;
+	defaultSfxVersion?: string;
+};
 
 export const settingsModule: Module<SettingsState, unknown> = {
 	namespaced: true,
@@ -53,7 +57,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		locale: "zh-CN",
 		roomLayout: RoomLayoutMode.default,
 		theme: Theme.dark,
-		sfxEnabled: true,
+		sfxEnabled: false,
 		sfxVolume: 0.8,
 		enableAdapterSelector: false,
 		swipeSeekSeconds: 10,
@@ -64,6 +68,12 @@ export const settingsModule: Module<SettingsState, unknown> = {
 	mutations: {
 		UPDATE(state, settings: Partial<SettingsState>) {
 			Object.assign(state, settings);
+			if (typeof state.sfxEnabled !== "boolean") {
+				state.sfxEnabled = false;
+			}
+			if (!Number.isFinite(state.sfxVolume) || state.sfxVolume < 0 || state.sfxVolume > 1) {
+				state.sfxVolume = 0.8;
+			}
 			if (![5, 10, 30].includes(state.swipeSeekSeconds)) {
 				state.swipeSeekSeconds = 10;
 			}
@@ -77,10 +87,14 @@ export const settingsModule: Module<SettingsState, unknown> = {
 				state.hlsBufferSeconds = 60;
 			}
 			try {
-				// Keep the migration marker and language in one write so they cannot diverge.
+				// Save defaults and their migration markers together so they cannot diverge.
 				localStorage.setItem(
 					"settings",
-					JSON.stringify({ ...state, defaultLocaleVersion: DEFAULT_LOCALE_VERSION }),
+					JSON.stringify({
+						...state,
+						defaultLocaleVersion: DEFAULT_LOCALE_VERSION,
+						defaultSfxVersion: DEFAULT_SFX_VERSION,
+					}),
 				);
 			} catch {
 				// Private browsing or storage limits must not prevent settings from working in memory.
@@ -110,13 +124,16 @@ export const settingsModule: Module<SettingsState, unknown> = {
 			} catch {
 				// Invalid or unavailable browser storage falls back to this release's defaults.
 			}
-			const { defaultLocaleVersion, ...settings } = loaded;
+			const { defaultLocaleVersion, defaultSfxVersion, ...settings } = loaded;
 			if (
 				defaultLocaleVersion !== DEFAULT_LOCALE_VERSION ||
 				typeof settings.locale !== "string" ||
 				settings.locale.trim() === ""
 			) {
 				settings.locale = "zh-CN";
+			}
+			if (defaultSfxVersion !== DEFAULT_SFX_VERSION) {
+				settings.sfxEnabled = false;
 			}
 			context.commit("UPDATE", settings);
 		},

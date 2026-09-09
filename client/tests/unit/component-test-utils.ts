@@ -18,7 +18,7 @@ export function mountComponent(component: Component, options: MountingOptions<an
 	if (!window.AudioContext) {
 		window.AudioContext = class {
 			createGain() {
-				return { connect: () => undefined };
+				return { connect: () => undefined, gain: { value: 1 } };
 			}
 		} as unknown as typeof AudioContext;
 	}

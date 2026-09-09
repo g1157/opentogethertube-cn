@@ -3,7 +3,7 @@ import { createStore } from "vuex";
 import vuetify from "@/plugins/vuetify";
 import { RoomLayoutMode, settingsModule, type SettingsState, Theme } from "@/stores/settings";
 
-describe("saved settings and the cn3 Chinese default", () => {
+describe("saved settings and default migrations", () => {
 	let saved: Map<string, string>;
 	let storage: {
 		getItem: ReturnType<typeof vi.fn>;
@@ -33,11 +33,75 @@ describe("saved settings and the cn3 Chinese default", () => {
 		expect(JSON.parse(saved.get("settings")!)).toMatchObject({
 			locale: "zh-CN",
 			defaultLocaleVersion: "v0.15.0-cn3",
+			defaultSfxVersion: "v0.15.0-cn6",
+			sfxEnabled: false,
 		});
 		expect(store.state.settings).not.toHaveProperty("defaultLocaleVersion");
+		expect(store.state.settings).not.toHaveProperty("defaultSfxVersion");
+		expect(store.state.settings.sfxEnabled).toBe(false);
 		expect(store.state.settings.chatOverlaySeconds).toBe(5);
 		expect(store.state.settings.controlsHideSeconds).toBe(3);
 		expect(store.state.settings.hlsBufferSeconds).toBe(60);
+	});
+
+	it("mutes the old sound default once without changing language or other preferences", async () => {
+		const previous = {
+			locale: "en",
+			volume: 37,
+			muted: true,
+			sfxEnabled: true,
+			sfxVolume: 0.35,
+			theme: Theme.deepblue,
+			roomLayout: RoomLayoutMode.theater,
+			chatOverlaySeconds: 3,
+		};
+		saved.set("settings", JSON.stringify({ ...previous, defaultLocaleVersion: "v0.15.0-cn3" }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings).toMatchObject({ ...previous, sfxEnabled: false });
+		expect(JSON.parse(saved.get("settings")!)).toMatchObject({
+			...previous,
+			sfxEnabled: false,
+			defaultLocaleVersion: "v0.15.0-cn3",
+			defaultSfxVersion: "v0.15.0-cn6",
+		});
+	});
+
+	it.each([
+		true,
+		false,
+	])("preserves a deliberate sound choice across visits: %s", async enabled => {
+		const firstVisit = newStore();
+		await firstVisit.dispatch("settings/load");
+		firstVisit.commit("settings/UPDATE", {
+			sfxEnabled: enabled,
+			sfxVolume: 0.23,
+			locale: "en",
+		});
+		const nextVisit = newStore();
+		await nextVisit.dispatch("settings/load");
+		await nextVisit.dispatch("settings/load");
+		expect(nextVisit.state.settings.sfxEnabled).toBe(enabled);
+		expect(nextVisit.state.settings.sfxVolume).toBe(0.23);
+		expect(nextVisit.state.settings.locale).toBe("en");
+	});
+
+	it.each([null, -1, 2, "0.5"])("rejects damaged saved sound settings: %s", async volume => {
+		saved.set(
+			"settings",
+			JSON.stringify({
+				defaultLocaleVersion: "v0.15.0-cn3",
+				defaultSfxVersion: "v0.15.0-cn6",
+				locale: "en",
+				sfxEnabled: "true",
+				sfxVolume: volume,
+			}),
+		);
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.sfxEnabled).toBe(false);
+		expect(store.state.settings.sfxVolume).toBe(0.8);
+		expect(store.state.settings.locale).toBe("en");
 	});
 
 	it("persists viewing preferences across visits, including disabled message overlays", async () => {
