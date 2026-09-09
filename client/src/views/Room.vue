@@ -58,10 +58,16 @@
 						<OmniPlayer
 							v-if="hasRoomSync"
 							:source="currentSource"
+							:playback-blocked="mediaPlaybackBlocked"
+							:preparing-playback="playbackPreparationState.active"
+							:preparation-failed="playbackPreparationState.failed"
+							:waiting-for-prepared-playback="waitingForPreparedPlayback"
 							@apiready="onPlayerApiReady"
 							@playing="onPlaybackChange(true)"
 							@paused="onPlaybackChange(false)"
 							@ready="onPlayerReady"
+							@loading-state="onMediaLoadingState"
+							@retry="onPlayerRetry"
 						/>
 						<div
 							v-else
@@ -112,6 +118,7 @@
 							v-show="chatInside"
 						></div>
 						<div class="playback-blocked-prompt" v-if="mediaPlaybackBlocked">
+							<p role="status">{{ $t("player.loading.autoplay") }}</p>
 							<v-btn
 								:prepend-icon="mdiPlay"
 								size="x-large"
@@ -324,6 +331,11 @@ import { createPlayerFullscreen, PlayerFullscreenKey } from "@/util/player-fulls
 import { PlayerControlsActivityKey, usePlayerControls } from "@/util/player-controls";
 import { createPlayerGestures } from "@/util/player-gestures";
 import { createPlaybackSync } from "@/util/playback-sync";
+import {
+	createPlaybackPreparation,
+	type PlaybackPreparationState,
+} from "@/util/playback-preparation";
+import type { MediaLoadingState } from "@/util/media-loading-state";
 import { useTemporaryPlaybackSpeed } from "@/util/temporary-playback-speed";
 import { TEMPORARY_PLAYBACK_SPEED } from "ott-common/constants";
 import PlayerShortcutsDialog from "@/components/PlayerShortcutsDialog.vue";
@@ -442,6 +454,68 @@ export default defineComponent({
 		const iTimestampUpdater: Ref<ReturnType<typeof setInterval> | null> = ref(null);
 		let disposed = false;
 		let playbackApplication = 0;
+		const localPlaying = ref(false);
+		const localMediaState = ref<MediaLoadingState | null>(null);
+		let mediaFrameVersion = 0;
+		const playbackPreparationState = ref<PlaybackPreparationState>({
+			phase: "idle",
+			active: false,
+			priming: false,
+			failed: false,
+		});
+		const waitingForPreparedPlayback = computed(
+			() =>
+				hasRoomSync.value &&
+				!!store.state.room.playbackPreparation &&
+				!store.state.room.isPlaying &&
+				!playbackPreparationState.value.active,
+		);
+		const playbackPreparation = createPlaybackPreparation({
+			getState: () => ({
+				preparation: hasRoomSync.value ? store.state.room.playbackPreparation : null,
+				clientId: store.state.users.you.id,
+				source: currentSource.value?.id ? currentSource.value : null,
+				player: player.player.value,
+				connected: connection.connected.value,
+				roomPlaying: store.state.room.isPlaying,
+				ready: player.apiReady.value,
+				playing: localPlaying.value,
+				blocked: mediaPlaybackBlocked.value,
+				error: store.state.playerStatus === PlayerStatus.error,
+				seeking: player.isSeeking(),
+				recovering: player.isRecovering(),
+				loading: localMediaState.value,
+				frameVersion: mediaFrameVersion,
+			}),
+			getPosition: () => player.getPosition(),
+			setPosition: position => player.setPosition(position),
+			pause: () => player.pause(),
+			sendReady: playbackPrepared =>
+				connection.send({ action: "status", status: PlayerStatus.ready, playbackPrepared }),
+			onChange: state => {
+				playbackPreparationState.value = state;
+			},
+			onError: error => console.warn("Could not prepare the saved playback position", error),
+		});
+		watch(
+			[
+				() => store.state.room.playbackPreparation,
+				() => store.state.room.isPlaying,
+				() => store.state.users.you.id,
+				() => store.state.playerStatus,
+				hasRoomSync,
+				connection.connected,
+				player.apiReady,
+				mediaPlaybackBlocked,
+			],
+			() => void playbackPreparation.tick(),
+			{ flush: "post" },
+		);
+		watch(
+			() => playbackPreparationState.value.priming,
+			() => void applyIsPlaying(),
+			{ flush: "post" },
+		);
 
 		function roomPosition() {
 			if (!currentSource.value?.id) {
@@ -461,7 +535,7 @@ export default defineComponent({
 			getState: () => ({
 				source: currentSource.value?.id ? currentSource.value : null,
 				player: player.player.value,
-				ready: player.apiReady.value,
+				ready: player.apiReady.value && !playbackPreparationState.value.active,
 				error: store.state.playerStatus === PlayerStatus.error,
 				blocked: mediaPlaybackBlocked.value,
 				seeking: player.isSeeking(),
@@ -474,9 +548,13 @@ export default defineComponent({
 			onError: error => console.warn("Could not synchronize playback position", error),
 		});
 		watch(
-			currentSource,
+			[currentSource, player.player],
 			() => {
 				playbackApplication++;
+				localPlaying.value = false;
+				localMediaState.value = null;
+				mediaFrameVersion++;
+				mediaPlaybackBlocked.value = false;
 				playbackSync.reset();
 			},
 			{ flush: "sync" },
@@ -489,6 +567,7 @@ export default defineComponent({
 				0,
 				store.state.room.currentSource?.length ?? 0,
 			);
+			void playbackPreparation.tick();
 			void playbackSync.tick();
 		}
 
@@ -499,6 +578,7 @@ export default defineComponent({
 		onUnmounted(() => {
 			disposed = true;
 			playbackApplication++;
+			playbackPreparation.dispose();
 			playbackSync.dispose();
 			if (iTimestampUpdater.value) {
 				clearInterval(iTimestampUpdater.value);
@@ -567,11 +647,14 @@ export default defineComponent({
 					return;
 				}
 			}
+			void playbackPreparation.tick();
 			if (msg.playbackPosition !== undefined || "currentSource" in msg) {
-				void playbackSync.requestSeek();
+				if (!playbackPreparationState.value.active) {
+					void playbackSync.requestSeek();
+				}
 				timestampUpdate();
 			}
-			if (msg.isPlaying !== undefined) {
+			if (msg.isPlaying !== undefined || "playbackPreparation" in msg) {
 				await applyIsPlaying();
 			}
 		}
@@ -631,6 +714,7 @@ export default defineComponent({
 
 		// player management
 		function togglePlayback() {
+			playbackPreparation.cancel();
 			if (store.state.room.isPlaying) {
 				roomapi.pause();
 			} else {
@@ -641,6 +725,7 @@ export default defineComponent({
 		function seekDelta(delta: number) {
 			const bounds = seekBounds();
 			if (bounds && connection.connected.value) {
+				playbackPreparation.cancel();
 				roomapi.seek(_.clamp(truePosition.value + delta, bounds.start, bounds.end));
 				activateVideoControls();
 			}
@@ -649,11 +734,16 @@ export default defineComponent({
 		// Indicates that starting playback is blocked by the browser. This usually means that the user needs
 		// to interact with the page before playback can start. This is because browsers block autoplaying videos.
 
+		function wantsPlayback() {
+			return store.state.room.isPlaying || playbackPreparationState.value.priming;
+		}
+
 		async function applyIsPlaying(unblock = false): Promise<void> {
 			const application = ++playbackApplication;
 			const source = currentSource.value;
 			const currentPlayer = player.player.value;
-			const playing = store.state.room.isPlaying;
+			const playing = wantsPlayback();
+			const preparationId = store.state.room.playbackPreparation?.id;
 			if (
 				disposed ||
 				!source?.id ||
@@ -668,7 +758,9 @@ export default defineComponent({
 				!disposed &&
 				application === playbackApplication &&
 				currentSource.value === source &&
-				player.player.value === currentPlayer;
+				player.player.value === currentPlayer &&
+				playing === wantsPlayback() &&
+				preparationId === store.state.room.playbackPreparation?.id;
 			try {
 				if (playing) {
 					await player.play();
@@ -677,22 +769,40 @@ export default defineComponent({
 				}
 				if (stillCurrent()) {
 					mediaPlaybackBlocked.value = false;
+					void playbackPreparation.tick();
 				}
 			} catch (error) {
 				if (!stillCurrent()) {
 					return;
 				}
 				if (error instanceof DOMException && error.name === "NotAllowedError") {
+					localPlaying.value = false;
 					mediaPlaybackBlocked.value = true;
 				} else {
+					localPlaying.value = false;
+					playbackPreparation.fail(error);
 					console.warn("Could not apply room playback state", error);
 				}
 			}
 		}
 
 		function onClickUnblockPlayback(): void {
-			void playbackSync.requestSeek();
+			if (!playbackPreparationState.value.active) {
+				void playbackSync.requestSeek();
+			}
 			void applyIsPlaying(true);
+		}
+
+		function onMediaLoadingState(state: MediaLoadingState) {
+			localMediaState.value = state;
+			mediaFrameVersion++;
+			void playbackPreparation.tick();
+		}
+
+		function onPlayerRetry() {
+			localPlaying.value = false;
+			mediaPlaybackBlocked.value = false;
+			playbackPreparation.retry();
 		}
 
 		function onPlayerApiReady() {
@@ -703,12 +813,14 @@ export default defineComponent({
 
 		async function onPlaybackChange(changeTo: boolean) {
 			console.debug(`onPlaybackChange: ${changeTo}`);
+			localPlaying.value = changeTo;
+			void playbackPreparation.tick();
 			if (!changeTo) {
 				setVideoControlsVisibility(true);
 			} else {
 				activateVideoControls();
 			}
-			if (changeTo === store.state.room.isPlaying) {
+			if (changeTo === wantsPlayback()) {
 				return;
 			}
 
@@ -844,6 +956,7 @@ export default defineComponent({
 				void fullscreen.toggle();
 			},
 			onSeek: position => {
+				playbackPreparation.cancel();
 				roomapi.seek(position);
 				activateVideoControls();
 			},
@@ -954,11 +1067,13 @@ export default defineComponent({
 		);
 		shortcuts.bind({ code: "Home" }, () => {
 			if (granted("playback.seek")) {
+				playbackPreparation.cancel();
 				roomapi.seek(0);
 			}
 		});
 		shortcuts.bind({ code: "End" }, () => {
 			if (granted("playback.skip")) {
+				playbackPreparation.cancel();
 				roomapi.skip();
 			}
 		});
@@ -1100,6 +1215,10 @@ export default defineComponent({
 			onPlayerApiReady,
 			onPlayerReady,
 			onPlaybackChange,
+			onMediaLoadingState,
+			onPlayerRetry,
+			playbackPreparationState,
+			waitingForPreparedPlayback,
 			isCaptionsSupported,
 			getCaptionsTracks,
 
@@ -1337,6 +1456,12 @@ $in-video-chat-width-small: 250px;
 	height: 100%;
 	z-index: 200;
 	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 20px;
+	text-align: center;
+	color: white;
+	background: rgba(0, 0, 0, 0.6);
 	justify-content: center;
 	align-items: center;
 }

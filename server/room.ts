@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import permissions, { type GrantMask, Grants } from "ott-common/permissions.js";
 import { redisClient } from "./redisclient.js";
 import { getLogger } from "./logger.js";
@@ -30,6 +31,8 @@ import type {
 	UpdateQueueItemRequest,
 	TemporaryPlaybackSpeed,
 	TemporaryPlaybackSpeedRequest,
+	PlaybackPreparation,
+	PlaybackPrepared,
 } from "ott-common/models/messages.js";
 import { RoomRequestType } from "ott-common/models/messages.js";
 import _ from "lodash";
@@ -88,6 +91,7 @@ import {
 import { Mutex } from "@divine/synchronization";
 
 const TEMPORARY_PLAYBACK_GESTURE_ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
+const NATIVE_ODYSEE_MIME_REGEX = /video\/mp4|application\/(?:vnd\.apple\.mpegurl|x-mpegURL)/;
 
 /**
  * Represents a User from the Room's perspective.
@@ -144,6 +148,8 @@ export interface RoomState extends RoomOptions, RoomStateComputed {
 	playbackPosition: number;
 	playbackSpeed: number;
 	temporaryPlaybackSpeed: TemporaryPlaybackSpeed | null;
+	playbackPreparation: PlaybackPreparation | null;
+	resumeOnNextJoin: boolean;
 	users: RoomUserInfo[];
 	votes: Map<string, Set<ClientId>>;
 	votesToSkip: Set<ClientId>;
@@ -161,12 +167,21 @@ export interface RoomStateComputed {
 }
 
 // Only these should be sent to clients, all others should be considered unsafe
-export type RoomStateSyncable = Omit<RoomState, "owner" | "votes" | "userRoles" | "users">;
+export type RoomStateSyncable = Omit<
+	RoomState,
+	"owner" | "votes" | "userRoles" | "users" | "resumeOnNextJoin"
+>;
 
 // Only these should be stored in redis
 export type RoomStateStorable = Omit<
 	RoomState,
-	"hasOwner" | "votes" | "voteCounts" | "users" | "votesToSkip" | "temporaryPlaybackSpeed"
+	| "hasOwner"
+	| "votes"
+	| "voteCounts"
+	| "users"
+	| "votesToSkip"
+	| "temporaryPlaybackSpeed"
+	| "playbackPreparation"
 > & { _playbackStart: Dayjs | null };
 
 const syncableProps: (keyof RoomStateSyncable)[] = [
@@ -182,6 +197,7 @@ const syncableProps: (keyof RoomStateSyncable)[] = [
 	"playbackPosition",
 	"playbackSpeed",
 	"temporaryPlaybackSpeed",
+	"playbackPreparation",
 	"grants",
 	"hasOwner",
 	"voteCounts",
@@ -205,6 +221,7 @@ const storableProps: (keyof RoomStateStorable)[] = [
 	"isPlaying",
 	"playbackPosition",
 	"playbackSpeed",
+	"resumeOnNextJoin",
 	"grants",
 	"userRoles",
 	"owner",
@@ -226,6 +243,8 @@ export type RoomStatePersistable = Omit<
 	| "playbackPosition"
 	| "playbackSpeed"
 	| "temporaryPlaybackSpeed"
+	| "playbackPreparation"
+	| "resumeOnNextJoin"
 	| "users"
 	| "votes"
 	| "videoSegments"
@@ -256,6 +275,8 @@ export class Room implements RoomState {
 	_playbackSpeed = 1;
 	private temporarySpeed: (TemporaryPlaybackSpeed & { previousSpeed: number }) | null = null;
 	private temporarySpeedTimer: ReturnType<typeof setTimeout> | null = null;
+	playbackPreparation: PlaybackPreparation | null = null;
+	resumeOnNextJoin = false;
 	realusers: RoomUser[] = [];
 	/**
 	 * Map of videos in the format service + id to a set of client votes.
@@ -276,7 +297,7 @@ export class Room implements RoomState {
 	dontSkipSegmentsUntil: number | null = null;
 	loadEpoch: number = -1;
 
-	constructor(options: Partial<RoomOptions>) {
+	constructor(options: Partial<RoomOptions> & { resumeOnNextJoin?: boolean }) {
 		this.log = getLogger(`room/${options.name}`);
 		this.queue = new VideoQueue();
 		this.userRoles = new Map([
@@ -310,6 +331,7 @@ export class Room implements RoomState {
 				"votesToSkip",
 			),
 		);
+		this.resumeOnNextJoin = options.resumeOnNextJoin === true;
 		if (this.restoreQueueBehavior === BehaviorOption.Never) {
 			this.prevQueue = null;
 		}
@@ -429,6 +451,7 @@ export class Room implements RoomState {
 
 	public set currentSource(value: QueueItem | null) {
 		this.endTemporaryPlaybackSpeed();
+		this.cancelPlaybackPreparation();
 		this._currentSource = value;
 		this.markDirty("currentSource");
 	}
@@ -764,6 +787,14 @@ export class Room implements RoomState {
 	}
 
 	public async update(): Promise<void> {
+		if (this.playbackPreparation) {
+			const owner = this.getUser(this.playbackPreparation.clientId);
+			if (!owner || !this.grants.granted(this.getRole(owner), "playback.play-pause")) {
+				this.playbackPreparation = null;
+				this.markDirty("playbackPreparation");
+				this.prepareEmptyRoomPlayback();
+			}
+		}
 		if (this.temporarySpeed) {
 			const owner = this.getUser(this.temporarySpeed.clientId);
 			if (!owner || !this.grants.granted(this.getRole(owner), "playback.speed")) {
@@ -1006,7 +1037,8 @@ export class Room implements RoomState {
 	public async onBeforeUnload(): Promise<void> {
 		this.endTemporaryPlaybackSpeed();
 		if (!this.isTemporary) {
-			await this.pause();
+			// A preparation belongs to a connection, but its paused resume intent may survive in Redis.
+			this.pausePlaybackClock();
 			// Force a final checkpoint through the same lock as background saves.
 			this.markDirty("currentSource");
 		}
@@ -1205,6 +1237,7 @@ export class Room implements RoomState {
 	}
 
 	public async play(): Promise<void> {
+		this.cancelPlaybackPreparation();
 		if (this.isPlaying) {
 			this.log.silly("already playing");
 			return;
@@ -1215,6 +1248,12 @@ export class Room implements RoomState {
 	}
 
 	public async pause(): Promise<void> {
+		// An explicit pause cancels even a preparation that has not started the clock yet.
+		this.cancelPlaybackPreparation();
+		this.pausePlaybackClock();
+	}
+
+	private pausePlaybackClock(): void {
 		this.endTemporaryPlaybackSpeed();
 		if (!this.isPlaying) {
 			this.log.silly("already paused");
@@ -1224,6 +1263,102 @@ export class Room implements RoomState {
 		this.flushPlaybackPosition();
 		this._playbackStart = null;
 		this.isPlaying = false;
+	}
+
+	private cancelPlaybackPreparation(): void {
+		if (this.playbackPreparation) {
+			this.playbackPreparation = null;
+			this.markDirty("playbackPreparation");
+		}
+		if (this.resumeOnNextJoin) {
+			this.resumeOnNextJoin = false;
+			// This also checkpoints the private Redis-only resume intent.
+			this.markDirty("isPlaying");
+		}
+	}
+
+	private canPreparePlayback(): boolean {
+		const source = this.currentSource;
+		if (!source || !Number.isFinite(source.length) || (source.length ?? 0) <= 0) {
+			return false;
+		}
+		return (
+			["direct", "googledrive", "hls", "reddit", "tubi", "pluto", "dash"].includes(
+				source.service,
+			) ||
+			(source.service === "odysee" && !!source.mime?.match(NATIVE_ODYSEE_MIME_REGEX))
+		);
+	}
+
+	/** Also protect older Redis snapshots, or a play request sent while the room was empty. */
+	public holdEmptyPlaybackForJoin(): void {
+		if (this.realusers.length > 0 || !this.isPlaying || !this.canPreparePlayback()) {
+			return;
+		}
+		this.pausePlaybackClock();
+		this.resumeOnNextJoin = true;
+		this.markDirty("isPlaying");
+	}
+
+	/** Hold the saved position until the first eligible viewer has actually rendered playback. */
+	private prepareEmptyRoomPlayback(): void {
+		if (
+			!this.resumeOnNextJoin ||
+			this.isPlaying ||
+			this.playbackPreparation ||
+			!this.canPreparePlayback() ||
+			!this.currentSource ||
+			!Number.isFinite(this.playbackPosition) ||
+			this.playbackPosition < 0
+		) {
+			return;
+		}
+		const viewer = this.realusers.find(user =>
+			this.grants.granted(this.getRole(user), "playback.play-pause"),
+		);
+		if (!viewer) {
+			return;
+		}
+		this.playbackPreparation = {
+			id: randomUUID(),
+			clientId: viewer.id,
+			video: { service: this.currentSource.service, id: this.currentSource.id },
+			position: this.playbackPosition,
+		};
+		this._playbackStart = null;
+		this.markDirty("playbackPreparation");
+	}
+
+	private async finishPlaybackPreparation(
+		clientId: ClientId,
+		status: PlayerStatus | undefined,
+		prepared: PlaybackPrepared | undefined,
+	): Promise<void> {
+		const preparation = this.playbackPreparation;
+		if (
+			!preparation ||
+			!prepared ||
+			status !== PlayerStatus.ready ||
+			preparation.clientId !== clientId ||
+			typeof prepared.id !== "string" ||
+			prepared.id !== preparation.id ||
+			!Number.isFinite(prepared.position) ||
+			prepared.position < 0 ||
+			Math.abs(prepared.position - preparation.position) > 1 ||
+			this.currentSource?.service !== preparation.video.service ||
+			this.currentSource?.id !== preparation.video.id ||
+			this.playbackPosition !== preparation.position ||
+			this.isPlaying
+		) {
+			return;
+		}
+		const viewer = this.getUser(clientId);
+		if (!viewer || !this.grants.granted(this.getRole(viewer), "playback.play-pause")) {
+			return;
+		}
+		await this.play();
+		// Receivers must anchor playback to this newly started clock, not an earlier receipt time.
+		this.markDirty("playbackPosition");
 	}
 
 	/**
@@ -1282,6 +1417,7 @@ export class Room implements RoomState {
 	 * Seek to the specified position in the video. This does the bare minimum to maintain state and record metrics.
 	 */
 	private seekRaw(value: number): void {
+		this.cancelPlaybackPreparation();
 		counterSecondsWatched
 			.labels({ service: this.currentSource?.service })
 			.inc(this.calcDurationFromPlaybackStart());
@@ -1412,9 +1548,11 @@ export class Room implements RoomState {
 			this.log.error("Received a join request without an auth token");
 			throw new Error("No auth token");
 		}
+		this.holdEmptyPlaybackForJoin();
 		const user = new RoomUser(request.info.id, context.auth?.token);
 		await user.updateInfo(request.info);
 		this.realusers.push(user);
+		this.prepareEmptyRoomPlayback();
 		this.log.info(`${user.username} joined the room`);
 		await this.publishRoomEvent(request, context);
 		// HACK: force the client to receive the correct playback position
@@ -1453,11 +1591,20 @@ export class Room implements RoomState {
 				break;
 			}
 		}
-		if (!this.isTemporary && this.realusers.length === 0) {
-			await this.pause();
+		if (this.realusers.length === 0) {
+			const shouldResume =
+				this.isPlaying || this.playbackPreparation !== null || this.resumeOnNextJoin;
+			this.pausePlaybackClock();
+			this.cancelPlaybackPreparation();
+			this.resumeOnNextJoin = shouldResume && this.canPreparePlayback();
+			this.markDirty("isPlaying");
 			this._keepAlivePing = dayjs();
 			await this.sync();
 			await this.saveStateToRedisDebounced.flush();
+		} else if (this.playbackPreparation?.clientId === context.clientId) {
+			this.playbackPreparation = null;
+			this.markDirty("playbackPreparation");
+			this.prepareEmptyRoomPlayback();
 		}
 	}
 
@@ -1467,6 +1614,11 @@ export class Room implements RoomState {
 			if (this.realusers[i].id === request.info.id) {
 				await this.realusers[i].updateInfo(request.info);
 				await this.syncUser(this.getUserInfo(this.realusers[i].id));
+				await this.finishPlaybackPreparation(
+					request.info.id,
+					request.info.status,
+					request.playbackPrepared,
+				);
 				break;
 			}
 		}

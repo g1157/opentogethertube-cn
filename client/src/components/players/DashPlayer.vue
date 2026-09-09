@@ -2,27 +2,33 @@
 	<div class="dash">
 		<video
 			id="dashplayer"
+			ref="videoElem"
 			playsinline
 			webkit-playsinline
 			preload="auto"
 			crossorigin="anonymous"
 			:poster="thumbnail || ''"
+			@loadedmetadata="applyPendingPosition"
 			@canplay="onReady"
 			@ready="onReady"
 			@playing="onPlaying"
 			@pause="onPaused"
-			@stalled="onBuffering"
+			@waiting="onBuffering"
+			@stalled="onStalled"
 			@loadstart="onBuffering"
 			@progress="onProgress"
+			@error="onNativeError"
 		></video>
 	</div>
-	<div id="dashplayer-ttml-rendering"></div>
+	<div id="dashplayer-ttml-rendering" ref="ttlmCaption"></div>
 </template>
 
 <script lang="ts" setup>
 import { type ErrorEvent, MediaPlayer, type MediaPlayerClass } from "dashjs";
 import { onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
+import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
+import { nativeMediaError } from "@/util/media-recovery";
 import type {
 	MediaPlayerError,
 	MediaPlayerWithAudioBoost,
@@ -45,24 +51,40 @@ const captions = useCaptions();
 const qualities = useQualities();
 const dash = ref<MediaPlayerClass | undefined>(undefined);
 const audioBoost = useMediaAudioBoost(videoElem);
+let sourceGeneration = 0;
+let audioOnly = false;
+let streamReady = false;
+let pendingPosition: number | null = null;
 
-const emit = defineEmits([
-	"apiready",
-	"ready",
-	"playing",
-	"paused",
-	"buffering",
-	"error",
-	"buffer-progress",
-	"buffer-spans",
-]);
+const emit = defineEmits<{
+	"apiready": [];
+	"ready": [];
+	"playing": [];
+	"paused": [];
+	"buffering": [];
+	"error": [error: MediaPlayerError];
+	"buffer-progress": [progress: number];
+	"buffer-spans": [spans: TimeRanges];
+	"loading-state": [state: MediaLoadingState];
+}>();
+
+const loadingState = createMediaLoadingState({
+	media: () => videoElem.value,
+	onChange: state => emit("loading-state", state),
+	isAudioOnly: () => audioOnly,
+});
 
 function play() {
-	if (!videoElem.value) {
+	const media = videoElem.value;
+	if (!media) {
 		console.error("video element not ready");
 		return;
 	}
-	return videoElem.value.play();
+	if (!media.currentSrc && !media.src && !media.srcObject) {
+		// dash.js attaches MediaSource after reading the manifest. Room retries on ready.
+		return;
+	}
+	return media.play();
 }
 
 function pause() {
@@ -90,11 +112,39 @@ function getPosition() {
 }
 
 function setPosition(position: number) {
-	if (!videoElem.value) {
-		console.error("video element not ready");
+	if (!Number.isFinite(position) || position < 0) {
 		return;
 	}
-	videoElem.value.currentTime = position;
+	pendingPosition = position;
+	applyPendingPosition();
+}
+
+function applyPendingPosition() {
+	const media = videoElem.value;
+	if (pendingPosition === null || !media || !streamReady || media.readyState < 1) {
+		return;
+	}
+	try {
+		media.currentTime = pendingPosition;
+		pendingPosition = null;
+	} catch {
+		// Some MediaSource timelines become seekable only at canplay. Keep the latest request.
+	}
+}
+
+function isSeeking() {
+	return videoElem.value?.seeking ?? false;
+}
+
+function isRecovering() {
+	return !streamReady || (videoElem.value?.readyState ?? 0) < 1 || pendingPosition !== null;
+}
+
+function retry() {
+	const position = pendingPosition ?? videoElem.value?.currentTime;
+	loadVideoSource(
+		position !== undefined && Number.isFinite(position) && position >= 0 ? position : null,
+	);
 }
 
 function isCaptionsSupported(): boolean {
@@ -266,12 +316,17 @@ function setAudioBoost(boost: number): void {
 	audioBoost.setBoost(boost);
 }
 
-function loadVideoSource() {
+function loadVideoSource(resumePosition: number | null = null) {
 	console.log("DashPlayer: loading video source:", props.videoUrl);
 	if (!videoElem.value) {
 		console.error("video element not ready");
 		return;
 	}
+	const generation = ++sourceGeneration;
+	audioOnly = false;
+	streamReady = false;
+	pendingPosition = resumePosition;
+	loadingState.reset();
 	audioBoost.resetFailedSetup();
 
 	dash.value?.destroy();
@@ -296,10 +351,16 @@ function loadVideoSource() {
 	});
 
 	dash.value.on(MediaPlayer.events.MANIFEST_LOADED, () => {
+		if (generation !== sourceGeneration) {
+			return;
+		}
 		console.info("DashPlayer: dash.js manifest loaded");
 		emit("ready");
 	});
 	dash.value.on(MediaPlayer.events.TEXT_TRACKS_ADDED, () => {
+		if (generation !== sourceGeneration) {
+			return;
+		}
 		captions.captionsTracks.value = getCaptionsTracks();
 		captions.isCaptionsEnabled.value = isCaptionsEnabled();
 		if (dash.value?.getCurrentTextTrackIndex() !== -1) {
@@ -310,6 +371,10 @@ function loadVideoSource() {
 		}
 	});
 	dash.value.on(MediaPlayer.events.ERROR, (event: ErrorEvent) => {
+		if (generation !== sourceGeneration) {
+			return;
+		}
+		loadingState.stop();
 		console.error("DashPlayer: dash.js error:", event);
 		console.log("DashPlayer: dash.js error event type:", typeof event);
 		const errorEvent: MediaPlayerError = {
@@ -323,7 +388,16 @@ function loadVideoSource() {
 	// 	emit("error");
 	// });
 	dash.value.on(MediaPlayer.events.STREAM_INITIALIZED, () => {
+		if (generation !== sourceGeneration) {
+			return;
+		}
 		console.info("DashPlayer: dash.js stream initialized");
+		streamReady = true;
+		applyPendingPosition();
+		audioOnly =
+			(dash.value?.getTracksFor("audio").length ?? 0) > 0 &&
+			dash.value?.getTracksFor("video").length === 0;
+		loadingState.refresh();
 		qualities.videoTracks.value = getVideoTracks();
 		const isAuto = dash.value?.getSettings()?.streaming?.abr?.autoSwitchBitrate?.video || false;
 		const currentVideoTrack = dash.value?.getCurrentRepresentationForType("video")?.index || 0;
@@ -331,38 +405,47 @@ function loadVideoSource() {
 		console.log("DashPlayer: current video track:", qualities.currentVideoTrack.value);
 		qualities.currentActiveQuality.value = getCurrentActiveQuality();
 		console.log("DashPlayer: current active quality:", qualities.currentActiveQuality.value);
+		emit("ready");
 	});
 	dash.value.on(MediaPlayer.events.BUFFER_EMPTY, () => {
+		if (generation !== sourceGeneration) {
+			return;
+		}
 		console.info("DashPlayer: dash.js buffer stalled");
 		emit("buffering");
 	});
 	dash.value.on(MediaPlayer.events.BUFFER_LOADED, () => {
+		if (generation !== sourceGeneration) {
+			return;
+		}
+		applyPendingPosition();
+		loadingState.refresh();
 		console.info("DashPlayer: dash.js buffer loaded");
 		emit("ready");
 	});
 	dash.value.on(MediaPlayer.events.QUALITY_CHANGE_RENDERED, () => {
+		if (generation !== sourceGeneration) {
+			return;
+		}
 		console.info("DashPlayer: dash.js quality change rendered");
 		qualities.currentActiveQuality.value = getCurrentActiveQuality();
 	});
 
-	// this is needed to get the player to keep playing after the previous video has ended
-	videoElem.value.play();
-
+	// Room applies the latest play/pause state and handles autoplay rejection through this API.
 	emit("apiready");
 }
 
 onMounted(() => {
-	videoElem.value = document.getElementById("dashplayer") as HTMLVideoElement;
-	ttlmCaption.value = document.getElementById("dashplayer-ttml-rendering") as HTMLDivElement;
-
 	if (!videoElem.value) {
 		console.error("Dash player video element not found");
 		return;
 	}
+	loadingState.attach();
 	loadVideoSource();
 });
 
 function onReady() {
+	applyPendingPosition();
 	emit("ready");
 }
 
@@ -377,6 +460,21 @@ function onPaused() {
 function onBuffering() {
 	emit("buffering");
 }
+
+function onStalled() {
+	if (videoElem.value && !videoElem.value.paused && videoElem.value.readyState < 3) {
+		onBuffering();
+	}
+}
+
+function onNativeError() {
+	const error = nativeMediaError(videoElem.value?.error ?? null);
+	if (error) {
+		loadingState.stop();
+		emit("error", error);
+	}
+}
+
 function onProgress() {
 	if (videoElem.value) {
 		const buffered = videoElem.value.buffered;
@@ -392,7 +490,14 @@ function onProgress() {
 }
 
 onBeforeUnmount(() => {
+	sourceGeneration++;
+	streamReady = false;
+	pendingPosition = null;
+	loadingState.dispose();
 	dash.value?.destroy();
+	videoElem.value?.pause();
+	videoElem.value?.removeAttribute("src");
+	videoElem.value?.load();
 });
 
 watch(videoUrl, () => {
@@ -401,11 +506,14 @@ watch(videoUrl, () => {
 });
 
 defineExpose({
+	retry,
 	play,
 	pause,
 	setVolume,
 	getPosition,
 	setPosition,
+	isSeeking,
+	isRecovering,
 	isCaptionsSupported,
 	setCaptionsEnabled,
 	isCaptionsEnabled,
