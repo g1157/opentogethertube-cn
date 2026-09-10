@@ -1,6 +1,9 @@
 <template>
+	<v-btn v-if="isEdgePreview" class="nav-user" variant="text" to="/my-rooms">
+		{{ $t("edge-preview.guest") }}
+	</v-btn>
 	<v-menu
-		v-if="store.state.user"
+		v-else-if="store.state.user"
 		v-model="menuOpen"
 		location="bottom end"
 		:offset="8"
@@ -41,6 +44,7 @@ import { ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { goLoginDiscord } from "@/util/discord";
 import { useStore } from "@/store";
+import { isEdgePreview } from "@/edge-preview";
 
 defineEmits(["login", "logout"]);
 const store = useStore();

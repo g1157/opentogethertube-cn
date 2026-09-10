@@ -1,6 +1,18 @@
 import { BehaviorOption, OttWebsocketError, Role } from "ott-common/models/types";
 
 export default {
+	"edge-preview": {
+		notice: "Cloudflare 预览版 · 支持视频直链 · 使用独立房间与浏览器身份",
+		guest: "访客预览",
+		ownership:
+			"创建者在当前浏览器中拥有房主权限。清除站点数据或超过 30 天未访问可能失去此身份；预览版暂不支持账号登录和身份找回。",
+		"connection-failed": "暂时无法连接，请重试。",
+		"add-label": "视频链接",
+		"add-placeholder": "粘贴 MP4、M3U8、MPD 或自定义媒体 JSON 链接",
+		"media-help":
+			"支持 MP4、HLS、DASH 和自定义媒体清单。请使用允许本站播放的 HTTPS 直链，视频由原片源直接加载。",
+		"try-video": "试播示例视频",
+	},
 	common: {
 		retry: "重试",
 		"nav-menu": "导航菜单",

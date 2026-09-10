@@ -1,5 +1,9 @@
 # 简体中文分支部署与回退
 
+> **Cloudflare 分支请使用 [Cloudflare 开发与部署说明](packages/ott-edge/README.md)。**
+> 新预览版发布到独立的 Workers 地址，使用 D1 和 Durable Objects；下面的 Docker、Redis、
+> PostgreSQL 与服务器端口操作只用于原 cn8 实例，不是 Cloudflare 版的发布步骤。
+
 此文档适用于 `v0.15.0-cn8`。每次发布都先在独立的 18080 端口验收，通过后将同一个已验收镜像
 切换到正式 8080 端口。已有实例升级也遵循这一顺序，保留配置与数据卷；不直接在正式端口试新版本。
 示例中的 `YOUR_HOST`、仓库地址和旧容器名称需要替换为自己的值。

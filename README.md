@@ -1,4 +1,15 @@
-# OpenTogetherTube 简体中文体验版
+# OpenTogetherTube Cloudflare 预览版
+
+当前 `feat/cloudflare` 分支开发独立的 `cloudflare-preview-0.1.0`，基于简体中文 cn8 的前端，
+使用 **Cloudflare Workers + Workers Static Assets + SQLite Durable Objects + D1** 运行。
+页面、API、房间同步和持久化均在 Cloudflare 上；不需要腾讯云服务器、Tunnel、Docker、Redis 或 PostgreSQL。
+视频由浏览器直接从用户提供的片源加载，不经过腾讯云或本应用的媒体代理。
+
+功能范围、本地运行、部署及源码包生成见 **[Cloudflare 开发与部署说明](packages/ott-edge/README.md)**。
+此版本使用当前浏览器的访客身份，支持直链媒体；账号登录及平台视频解析尚未迁移。
+仓库保留原 Node.js 服务端供参考，下面的历史说明及根目录 Docker 部署文档适用于原有分支。
+
+## 原 Node.js 简体中文分支说明
 
 和朋友同步看视频、聊天，并保留下次继续观看的房间。源码版本为 `v0.15.0-cn4`，
 核心基于 [OpenTogetherTube v0.15.0](https://github.com/dyc3/opentogethertube/releases/tag/v0.15.0)。
