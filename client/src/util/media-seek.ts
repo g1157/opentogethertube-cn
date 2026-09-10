@@ -25,12 +25,7 @@ export function createMediaSeek(getMedia: () => HTMLVideoElement | undefined) {
 		const media = getMedia();
 		// A completed seek with current-frame data is enough to restart fetching. Some
 		// mobile browsers will not preload future data until play() is requested again.
-		if (
-			!media ||
-			media.error ||
-			media.seeking ||
-			media.readyState < (target === null ? 3 : 2)
-		) {
+		if (!media || media.error || media.seeking || media.readyState < 2) {
 			return false;
 		}
 		if (target !== null && Math.abs(media.currentTime - target) > 0.5) {

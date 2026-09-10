@@ -1,6 +1,18 @@
 import { BehaviorOption, OttWebsocketError, Role } from "ott-common/models/types";
 
 export default {
+	"edge-preview": {
+		notice: "Cloudflare preview · Direct video links · Separate rooms and browser identity",
+		guest: "Guest preview",
+		ownership:
+			"The creator owns this room in the current browser. Clearing site data or not visiting for 30 days can lose this identity. Account sign-in and recovery are not available in this preview.",
+		"connection-failed": "Could not connect. Please try again.",
+		"add-label": "Video link",
+		"add-placeholder": "Paste an MP4, M3U8, MPD or custom media JSON URL",
+		"media-help":
+			"Supports MP4, HLS, DASH and custom media manifests. Use HTTPS links that allow playback from this website. Videos load directly from their original source.",
+		"try-video": "Try a sample video",
+	},
 	common: {
 		retry: "Retry",
 		"nav-menu": "Navigation",
@@ -254,6 +266,9 @@ export default {
 	},
 	"add-preview": {
 		label: "Link or Search",
+		loading: "Reading video information…",
+		"loading-slow": "The source is responding slowly. Reading video information…",
+		retry: "Retry",
 		"add-all": "Add All",
 		placeholder: "Type to search YouTube or enter a Video URL to add to the queue",
 		title: "What can I add?",
@@ -270,6 +285,10 @@ export default {
 			"youtube-channels": "Youtube channels: {url}",
 		},
 		messages: {
+			timeout:
+				"Reading video information timed out after 45 seconds. The link may still be playable. Please retry.",
+			"metadata-timeout":
+				"The source took too long to return video information. The link may still be playable. Please retry.",
 			"unknown-status": "Unknown status for add preview response: {status}.",
 			"unknown-error": "An unknown error occurred when getting add preview. Try again later.",
 			"failed-to-get-add-preview":

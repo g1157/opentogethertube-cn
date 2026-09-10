@@ -3,6 +3,9 @@
 		<v-form ref="form" @submit="submit" v-model="isValid">
 			<v-card-title>{{ $t("create-room-form.card-title") }}</v-card-title>
 			<v-card-text>
+				<v-alert v-if="isEdgePreview" type="info" variant="tonal" class="mb-4">
+					{{ $t("edge-preview.ownership") }}
+				</v-alert>
 				<v-text-field
 					:label="$t('create-room-form.name')"
 					:hint="$t('create-room-form.name-hint')"
@@ -50,7 +53,9 @@
 								{ title: $t('create-room-form.manual'), value: 'manual' },
 								{ title: $t('create-room-form.vote'), value: 'vote' },
 								{ title: $t('create-room-form.loop'), value: 'loop' },
-								{ title: $t('create-room-form.dj'), value: 'dj' },
+								...(!isEdgePreview
+									? [{ title: $t('create-room-form.dj'), value: 'dj' }]
+									: []),
 							]"
 							v-model="options.queueMode"
 							:rules="rules.queueMode"
@@ -85,6 +90,7 @@ import { ROOM_NAME_REGEX } from "ott-common/constants";
 import { Visibility, QueueMode } from "ott-common/models/types";
 import { useI18n } from "vue-i18n";
 import { useStore } from "@/store";
+import { isEdgePreview } from "@/edge-preview";
 
 const emit = defineEmits(["roomCreated", "cancel"]);
 

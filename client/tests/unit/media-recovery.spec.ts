@@ -31,6 +31,19 @@ describe("media error recovery", () => {
 		vi.useRealTimers();
 	});
 
+	it("accepts current data and cancels recovery timeout without waiting for future frames", async () => {
+		recovery.handleError({ type: "network" });
+		await vi.advanceTimersByTimeAsync(1000);
+		Object.defineProperty(media, "readyState", { configurable: true, value: 2 });
+		expect(recovery.canPlay()).toBe(true);
+		expect(recovery.isRecovering()).toBe(false);
+		recovery.play();
+		expect(media.play).toHaveBeenCalledOnce();
+		await vi.advanceTimersByTimeAsync(120000);
+		expect(restart).toHaveBeenCalledOnce();
+		expect(onError).not.toHaveBeenCalled();
+	});
+
 	it("starts an attached source before canplay even when the browser does not preload", async () => {
 		recovery.reset();
 		Object.defineProperty(media, "readyState", { configurable: true, value: 0 });

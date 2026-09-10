@@ -1,0 +1,39 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "ott-edge-preview",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-09-08",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": true,
+	"preview_urls": false,
+	"assets": {
+		"directory": "../../client/dist",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": ["/api/*"]
+	},
+	"durable_objects": {
+		"bindings": [
+			{ "name": "ROOMS", "class_name": "RoomObject" },
+			{ "name": "MAINTENANCE", "class_name": "MaintenanceObject" }
+		]
+	},
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["RoomObject"] },
+		{ "tag": "v2-maintenance", "new_sqlite_classes": ["MaintenanceObject"] }
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "ott-edge-preview",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		}
+	],
+	"vars": {
+		"OTT_INSTANCE_ID": "ott-edge-preview",
+		"OTT_CLIENT_REVISION": "cloudflare-preview-0.1.2",
+		"ROOM_IDLE_SECONDS": "300"
+	},
+	"dev": { "ip": "127.0.0.1", "port": 18787 }
+}

@@ -6,7 +6,7 @@
 		</span>
 		<div class="bar" :style="{ 'animation-duration': `${toast.duration}ms` }"></div>
 		<div class="toast-actions">
-			<v-btn variant="text" v-if="undoable" @click="undo">
+			<v-btn variant="text" v-if="undoable && !isEdgePreview" @click="undo">
 				{{ $t("common.undo") }}
 			</v-btn>
 			<v-btn
@@ -23,6 +23,7 @@
 </template>
 
 <script lang="ts" setup>
+import { isEdgePreview } from "@/edge-preview";
 import { mdiClose, mdiCheckBold, mdiAlertCircle } from "@mdi/js";
 import { ref, toRefs, onMounted, onUnmounted, type Ref, computed } from "vue";
 import { type Toast, ToastStyle } from "@/models/toast";

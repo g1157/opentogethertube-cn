@@ -8,6 +8,7 @@
 			crossorigin="anonymous"
 			:poster="thumbnail || ''"
 			@loadedmetadata="recovery.restoreMetadata"
+			@loadeddata="onReady"
 			@canplay="onReady"
 			@seeked="onReady"
 			@playing="onPlaying"
@@ -403,6 +404,9 @@ function onMediaError() {
 	}
 }
 function onProgress() {
+	if (recovery.isRecovering() || recovery.isSeeking()) {
+		onReady();
+	}
 	if (videoElem.value) {
 		const buffered = videoElem.value.buffered;
 		emit("buffer-spans", buffered);

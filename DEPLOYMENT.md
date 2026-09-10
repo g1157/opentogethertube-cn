@@ -1,13 +1,17 @@
-# 简体中文分支部署与回退
+# Docker / Node.js 部署与回退
 
-此文档适用于 `v0.15.0-cn8`。每次发布都先在独立的 18080 端口验收，通过后将同一个已验收镜像
+> **Cloudflare 部署请使用 [Cloudflare 开发与部署说明](packages/ott-edge/README.md)。**
+> 新预览版发布到独立的 Workers 地址，使用 D1 和 Durable Objects；下面的 Docker、Redis、
+> PostgreSQL 与服务器端口操作只用于 Docker / Node.js 实例，不是 Cloudflare 版的发布步骤。
+
+此文档适用于本仓库的 Docker / Node.js 后端；当前部署示例为 `v0.15.0-cn9`，新发布应使用自己的提交标识。每次发布都先在独立的 18080 端口验收，通过后将同一个已验收镜像
 切换到正式 8080 端口。已有实例升级也遵循这一顺序，保留配置与数据卷；不直接在正式端口试新版本。
 示例中的 `YOUR_HOST`、仓库地址和旧容器名称需要替换为自己的值。
 
 ## 版本与运行环境
 
 源码基于官方 `v0.15.0`，工作区 `package.json` 保留上游的 `0.14.1`。Compose 的缺省镜像名为
-`ott-next:0.15.0-cn8`；下面的独立验收示例显式使用 `ott-preview:0.15.0-cn8`，避免覆盖现有镜像标签。
+`ott-next:0.15.0-cn9`；下面的独立验收示例显式使用 `ott-preview:0.15.0-cn9`，避免覆盖现有镜像标签。
 镜像的 revision 标签记录构建所用提交。
 
 cn4 选择性移植官方 master 提交 `4ea9029429a98561ba7c213c54c55ef0f0c56800` 的配色、字体、首页、
@@ -36,6 +40,12 @@ cn8 移除遮挡画面的自动播放提示，改用原有播放按钮启动本�
 目标位置有可播放数据后恢复。手机竖屏采用精简控件，横屏或全屏展开；用户进出与跳转提醒
 可分别调整为关闭或 1、2、3、5、10、20 秒，默认 3 秒。本轮没有服务端协议或数据库迁移。
 
+cn9 进一步降低原生视频启动要求：只要当前帧数据可用就能尝试播放，不再强制等待额外的画面回调；
+缓冲恢复和本机重载也会及时取消恢复超时。该播放器修复由两种后端共用，不涉及生产数据库迁移。
+同时将 `FFPROBE_STRATEGY` 默认与部署值改为 `run`，通过 HTTP Range 读取 MP4 尾部索引，避免旧 `stream`
+顺序下载大文件后超时。添加面板增加 45 秒请求上限、慢响应提示和重试；详见
+[MP4 解析与排查](docs/media-parsing.zh-CN.md)。已有环境中显式设置的 `stream` 需改为 `run`，重建应用容器后才生效。
+
 需要 Docker Engine、Compose v2、Git 和 Node.js；构建推荐 Node.js 24，使用仓库自带的 Yarn 4.1.0。
 第一次安装依赖可能需要 Python 和 C/C++ 编译工具。部署使用独立的 PostgreSQL、Redis、
 数据卷、Compose 项目名称和登录 Cookie。
@@ -48,6 +58,43 @@ dyc3/opentogethertube@sha256:feec95f418e7d438b632bb05311bfa522d5e40f13d019e21462
 
 生产运行依赖沿用该 Linux 镜像，未完成全面升级。构建机器上的 `node_modules` 不会复制入镜像；
 仅更新 lockfile 不能证明生产运行依赖已更新。更换基础镜像、CPU 架构或依赖组合时应重新验收。
+
+## 资源配置与容量
+
+运行需要自有服务器或兼容的持续运行容器平台，腾讯云不是唯一选择。域名/CDN/Tunnel 只作为入口，
+把 Node.js 站点放到 Cloudflare Tunnel 后面仍然需要服务器；与本文不同的纯 Cloudflare 运行方式见
+[两版对照](README.md#选择部署方式)。
+
+建议从 **2 vCPU / 2 GiB 内存**起步，并为操作系统、Docker、HTTPS 入口和其他服务留余量。
+这不是并发保证，构建前端也可能需要比稳定运行更多的内存，可在开发机或 CI 构建后上传产物。
+
+| 服务 | Compose 配置上限 | 2026-09-10 低负载采样 | 额外说明 |
+| --- | --- | --- | --- |
+| Node.js 应用 | 512 MiB、1 CPU，Node heap 上限 384 MiB | 64.31 MiB、0.46% CPU | 原生库、ffprobe 和缓冲区也占容器内存，不只有 JS heap |
+| PostgreSQL 15 | 384 MiB，shared_buffers 64 MB，连接数最多 50 | 50.56 MiB、0.00% CPU | 数据卷随账号、永久房及索引增长；未单独设置 CPU 上限 |
+| Redis 7 | 容器 192 MiB，数据 maxmemory 128 MB | 6.891 MiB、0.49% CPU | AOF 每秒刷盘、noeviction；达到数据限制会拒绝新写入，不能依靠自动淘汰 |
+| 合计 | 内存上限 1,088 MiB（1.0625 GiB） | 约 121.8 MiB | 不含宿主机、Docker、Tunnel、其他容器及备份；不是预留内存或峰值实测 |
+
+采样机器为 4 核、约 3.64 GiB 可见内存，只观察三个应用容器的一次低负载快照。
+`docker stats` 的 CPU 百分比按 Docker 口径，不应误解为整台多核主机的固定比例。
+媒体通常由浏览器从原片源加载，应用带宽主要用于页面、控制消息和元信息探测；平台解析、ffprobe、
+代理配置及外部服务可能改变 CPU/网络消耗，应按实际启用能力测量。
+`run` 在源站支持时使用 Range 跳读；它没有固定下载字节上限，不能当作所有片源恒定只读几 KiB。
+单次网络读取超时为约 12 秒，探测进程总上限 35 秒，避免慢源长期占用子进程。
+
+默认每个服务的 Docker 日志为 10 MB × 3 文件，三个服务约 90 MB 的日志轮转预算；它不限制数据库、
+Redis AOF、镜像、源码包或备份占用。按实际数据和保留周期规划磁盘与备份，不要把容器内存上限当成磁盘上限。
+
+```sh
+sudo docker stats --no-stream
+sudo docker system df
+df -h
+```
+
+结合 PostgreSQL/Redis 数据量、连接数、应用响应时间以及双客户端同步延迟评估容量。
+容器上限是保护宿主机的配置，达到上限可能出现 OOM、数据库写入失败或卡顿；公开开放前需要按目标负载验收。
+Cloudflare 的日请求/数据库免费额度与此处的服务器 CPU、内存费用是不同的成本模型，见
+[Cloudflare 容量评估](docs/cloudflare-quotas.zh-CN.md)。
 
 ## 首次建立独立实例
 
@@ -89,7 +136,7 @@ NODE
 
 ```dotenv
 OTT_PROJECT_NAME=ott-preview
-OTT_IMAGE=ott-preview:0.15.0-cn8
+OTT_IMAGE=ott-preview:0.15.0-cn9
 OTT_INSTANCE_ID=ott-preview
 OTT_AUTH_COOKIE_NAME=ott_preview_token
 OTT_SESSION_COOKIE_NAME=ott_preview_sid

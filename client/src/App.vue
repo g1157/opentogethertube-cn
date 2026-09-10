@@ -33,7 +33,7 @@
 					:aria-label="$t('common.nav-menu')"
 				>
 					<v-btn variant="text" to="/rooms">{{ $t("nav.browse") }}</v-btn>
-					<v-btn v-if="store.state.user" variant="text" to="/my-rooms">{{
+					<v-btn v-if="store.state.user || isEdgePreview" variant="text" to="/my-rooms">{{
 						$t("nav.my-rooms")
 					}}</v-btn>
 					<v-btn
@@ -61,6 +61,7 @@
 								color="primary"
 								:prepend-icon="mdiPlusBox"
 								v-bind="props"
+								:disabled="isEdgePreview && !identityReady"
 								>{{ $t("nav.create.title") }}</v-btn
 							>
 						</template>
@@ -130,9 +131,12 @@
 				<v-list-item to="/rooms" @click="drawer = false">{{
 					$t("nav.browse")
 				}}</v-list-item>
-				<v-list-item v-if="store.state.user" to="/my-rooms" @click="drawer = false">{{
-					$t("nav.my-rooms")
-				}}</v-list-item>
+				<v-list-item
+					v-if="store.state.user || isEdgePreview"
+					to="/my-rooms"
+					@click="drawer = false"
+					>{{ $t("nav.my-rooms") }}</v-list-item
+				>
 				<v-list-item
 					href="https://github.com/dyc3/opentogethertube/discussions/830"
 					target="_blank"
@@ -147,7 +151,11 @@
 					>{{ $t("nav.bug") }}</v-list-item
 				>
 				<v-divider class="drawer-divider" />
-				<NavCreateRoom @createtemp="createTempRoom" @createperm="createPermanentRoom" />
+				<NavCreateRoom
+					v-if="!isEdgePreview || identityReady"
+					@createtemp="createTempRoom"
+					@createperm="createPermanentRoom"
+				/>
 			</v-list>
 			<template #append>
 				<div v-if="drawer" class="drawer-account">
@@ -155,7 +163,21 @@
 				</div>
 			</template>
 		</v-navigation-drawer>
-		<v-main id="main-content" tabindex="-1"><router-view /></v-main>
+		<v-main id="main-content" tabindex="-1">
+			<p v-if="isEdgePreview && !fullscreen" class="edge-preview-notice">
+				{{ $t("edge-preview.notice") }}
+				<a class="ml-2" href="/source-code.tar.gz">{{ $t("landing.hero.btns.source") }}</a>
+			</p>
+			<router-view v-if="!isEdgePreview || identityReady" />
+			<div v-else class="room-creation-progress" role="status">
+				<span>{{
+					identityFailed ? $t("edge-preview.connection-failed") : $t("common.loading")
+				}}</span>
+				<v-btn v-if="identityFailed" variant="outlined" @click="loadIdentity">{{
+					$t("common.retry")
+				}}</v-btn>
+			</div>
+		</v-main>
 		<v-dialog
 			v-model="showCreateRoomForm"
 			persistent
@@ -210,6 +232,7 @@ import { useStore } from "@/store";
 import LocaleSelector from "@/components/navbar/LocaleSelector.vue";
 import { ALL_THEMES, Theme } from "@/stores/settings";
 import "@/styles/cinema-fonts.css";
+import { isEdgePreview } from "@/edge-preview";
 
 // biome-ignore lint/nursery/noVueOptionsApi: TODO: convert to setup
 const App = defineComponent({
@@ -243,6 +266,17 @@ const App = defineComponent({
 		const drawer = ref(false);
 		const showCreateMenu = ref(false);
 		const showMoreMenu = ref(false);
+		const identityReady = ref(false);
+		const identityFailed = ref(false);
+		const loadIdentity = async () => {
+			identityFailed.value = false;
+			try {
+				await store.dispatch("users/getNewToken");
+				identityReady.value = true;
+			} catch {
+				identityFailed.value = true;
+			}
+		};
 		watch([() => store.state.fullscreen, () => router.currentRoute.value.fullPath], () => {
 			drawer.value = false;
 			showCreateMenu.value = false;
@@ -297,8 +331,11 @@ const App = defineComponent({
 			});
 
 			await store.dispatch("settings/load");
-			await store.dispatch("users/getNewToken");
+			await loadIdentity();
 			await setLocale(store.state.settings.locale);
+			if (isEdgePreview) {
+				return;
+			}
 
 			// ask the server if we are logged in or not, and update the client to reflect that status.
 			const resp = await API.get("/user");
@@ -312,6 +349,10 @@ const App = defineComponent({
 		const fullscreen = computed(() => store.state.fullscreen);
 
 		return {
+			isEdgePreview,
+			identityReady,
+			identityFailed,
+			loadIdentity,
 			showCreateRoomForm,
 			showLogin,
 			drawer,
@@ -360,6 +401,15 @@ export default App;
 }
 .text-muted {
 	opacity: 0.7;
+}
+.edge-preview-notice {
+	padding: 10px 20px;
+	margin: 0;
+	text-align: center;
+	font-size: 0.8rem;
+	color: var(--text-secondary);
+	background: var(--surface);
+	border-bottom: 1px solid var(--line-strong);
 }
 
 .ott-app .ott-app-bar {

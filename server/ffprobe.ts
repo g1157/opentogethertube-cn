@@ -220,7 +220,13 @@ export class RunFfprobe extends FfprobeStrategy {
 		// minimal change: use spawn with args
 		const args = [
 			"-v",
-			"quiet",
+			"error",
+			// Keep direct probes on HTTP(S), including redirects and nested resources.
+			// Passing the URL lets ffprobe seek with Range instead of draining stdin.
+			"-protocol_whitelist",
+			"http,https,tcp,tls",
+			"-rw_timeout",
+			"12000000",
 			"-i",
 			uri,
 			"-print_format",

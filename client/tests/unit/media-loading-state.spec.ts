@@ -116,7 +116,31 @@ describe("local media frame readiness", () => {
 		vi.useRealTimers();
 	});
 
-	it("waits for the first presented frame even after canplay, playing and time progression", () => {
+	it("releases current frame data without waiting for a callback or a buffer-duration threshold", () => {
+		trackPresentedFrames(1);
+		Object.assign(mediaState, {
+			readyState: 2,
+			videoWidth: 1280,
+			videoHeight: 720,
+			buffered: ranges([[0, 0.05]]),
+		});
+		event("loadeddata");
+		expect(last()).toEqual({ phase: null, currentTime: 0, bufferAhead: 0.05 });
+		vi.advanceTimersByTime(30000);
+		expect(last().phase).toBeNull();
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("clears an actual buffering notice when canplay returns without another frame callback", () => {
+		Object.assign(mediaState, { readyState: 2, paused: false });
+		event("waiting");
+		expect(last().phase).toBe("buffering");
+		Object.assign(mediaState, { readyState: 3, videoWidth: 1280, videoHeight: 720 });
+		event("canplay");
+		expect(last().phase).toBeNull();
+	});
+
+	it("accepts playable native data and ignores a late compositor callback", () => {
 		expect(last()).toEqual({ phase: "preparing", currentTime: null, bufferAhead: null });
 		event("loadstart");
 		mediaState.readyState = 1;
@@ -132,7 +156,7 @@ describe("local media frame readiness", () => {
 		event("playing");
 		mediaState.currentTime = 311;
 		event("timeupdate");
-		expect(last()).toEqual({ phase: "waiting-frame", currentTime: 311, bufferAhead: 39 });
+		expect(last()).toEqual({ phase: null, currentTime: 310, bufferAhead: 40 });
 		expect(video.requestVideoFrameCallback).toHaveBeenCalledOnce();
 		frame();
 		expect(last().phase).toBeNull();
@@ -274,6 +298,7 @@ describe("local media frame readiness", () => {
 			throw new DOMException("Not available", "NotSupportedError");
 		});
 		mediaState.readyState = 2;
+		event("loadeddata");
 		mediaState.videoWidth = 1280;
 		mediaState.videoHeight = 720;
 		event("loadeddata");
@@ -282,138 +307,63 @@ describe("local media frame readiness", () => {
 		expect(vi.getTimerCount()).toBe(0);
 	});
 
-	it("recognizes newly displayed frames when the frame callback API never calls back", () => {
-		const counts = trackPresentedFrames();
-		currentVideoData();
-		mediaState.paused = false;
-		event("playing");
-		mediaState.currentTime = 1;
-		event("timeupdate");
-		expect(last().phase).toBe("waiting-frame");
-		counts.total = 1;
-		event("timeupdate");
-		expect(last().phase).toBeNull();
-		expect(video.cancelVideoFrameCallback).toHaveBeenCalledWith(nextFrameId);
-		expect(vi.getTimerCount()).toBe(0);
-	});
-
-	it("briefly observes displayed frames after the last native event, including paused playback", () => {
-		const counts = trackPresentedFrames();
-		currentVideoData();
-		expect(last().phase).toBe("waiting-frame");
-		counts.total = 1;
-		vi.advanceTimersByTime(250);
-		expect(last().phase).toBeNull();
-		expect(mediaState.paused).toBe(true);
-		expect(vi.getTimerCount()).toBe(0);
-	});
-
-	it("bounds frame observation without treating a timeout or playback clock as a displayed frame", () => {
-		const counts = trackPresentedFrames();
-		currentVideoData();
-		mediaState.paused = false;
-		event("playing");
-		mediaState.currentTime = 10;
-		event("timeupdate");
-		vi.advanceTimersByTime(10000);
-		expect(last().phase).toBe("waiting-frame");
-		expect(vi.getTimerCount()).toBe(0);
-		counts.total = 1;
-		event("timeupdate");
-		expect(last().phase).toBeNull();
-	});
-
-	it("does not reuse displayed frames from a previous source or frames observed during a seek", () => {
-		const counts = trackPresentedFrames(10);
-		currentVideoData();
-		vi.advanceTimersByTime(250);
-		expect(last().phase).toBe("waiting-frame");
-		counts.total = 11;
-		event("timeupdate");
-		expect(last().phase).toBeNull();
-		mediaState.currentTime = 310;
-		mediaState.seeking = true;
-		event("seeking");
-		counts.total = 12;
-		event("progress");
-		mediaState.seeking = false;
-		event("seeked");
-		expect(last().phase).toBe("waiting-frame");
-		counts.total = 13;
-		vi.advanceTimersByTime(250);
-		expect(last().phase).toBeNull();
-	});
-
 	it.each([
+		{ total: 0, dropped: 0 },
 		{ total: 4, dropped: 4 },
 		{ total: 4, dropped: 5 },
 		{ total: Number.NaN, dropped: 0 },
 		{ total: 4, dropped: Number.NaN },
-	])("ignores dropped or invalid frame counters ($total total / $dropped dropped)", values => {
-		const counts = trackPresentedFrames();
+	])("does not let optional counters block current media data: %j", values => {
+		trackPresentedFrames(values.total, values.dropped);
 		currentVideoData();
-		Object.assign(counts, values);
-		mediaState.paused = false;
-		event("playing");
-		mediaState.currentTime = 10;
-		event("timeupdate");
-		vi.advanceTimersByTime(2500);
-		expect(last().phase).toBe("waiting-frame");
-	});
-
-	it("does not accept frame counters without current video data and dimensions", () => {
-		const counts = trackPresentedFrames();
-		counts.total = 1;
-		mediaState.readyState = 4;
-		event("playing");
-		expect(last().phase).toBe("waiting-frame");
-		counts.total = 2;
-		Object.assign(mediaState, { readyState: 1, videoWidth: 1280, videoHeight: 720 });
-		event("loadedmetadata");
-		expect(last().phase).toBe("buffering");
-		mediaState.readyState = 4;
-		event("canplay");
-		expect(last().phase).toBe("waiting-frame");
-		counts.total = 3;
-		event("timeupdate");
 		expect(last().phase).toBeNull();
 	});
 
-	it("rebases reset frame counters and requires fresh evidence after buffering", () => {
-		const counts = trackPresentedFrames(10);
+	it("keeps real buffering until playable data returns, even when an old frame is visible", () => {
 		currentVideoData();
-		counts.total = 0;
-		event("progress");
-		expect(last().phase).toBe("waiting-frame");
-		counts.total = 1;
-		event("timeupdate");
-		expect(last().phase).toBeNull();
-		mediaState.paused = false;
-		mediaState.readyState = 2;
+		Object.assign(mediaState, { paused: false, readyState: 2 });
 		event("waiting");
-		mediaState.readyState = 4;
+		expect(last().phase).toBe("buffering");
+		event("progress");
+		expect(last().phase).toBe("buffering");
+		mediaState.readyState = 3;
 		event("canplay");
-		event("playing");
-		mediaState.currentTime = 1;
-		event("timeupdate");
-		expect(last().phase).toBe("waiting-frame");
-		counts.total = 2;
-		event("timeupdate");
 		expect(last().phase).toBeNull();
 	});
 
-	it("accepts a paused low-frame-rate seek once a new frame was actually displayed", () => {
-		const counts = trackPresentedFrames();
+	it("waits for the current seek to finish but does not require a later displayed-frame count", () => {
+		trackPresentedFrames(10);
 		currentVideoData();
-		mediaState.currentTime = 310.8;
-		mediaState.seeking = true;
+		Object.assign(mediaState, { currentTime: 310.8, seeking: true });
 		event("seeking");
+		event("progress");
+		expect(last().phase).toBe("seeking");
 		mediaState.seeking = false;
+		event("progress");
+		expect(last().phase).toBe("seeking");
 		event("seeked");
-		counts.total = 1;
-		frame(nextFrameId, 310);
 		expect(last().phase).toBeNull();
 		expect(mediaState.paused).toBe(true);
+	});
+
+	it("does not accept a clock, old dimensions or elapsed time when current data is missing", () => {
+		currentVideoData();
+		mediaState.readyState = 1;
+		controller.reset();
+		mediaState.currentTime = 10;
+		event("timeupdate");
+		vi.advanceTimersByTime(30000);
+		expect(last().phase).toBe("buffering");
+		mediaState.readyState = 2;
+		event("loadeddata");
+		expect(last().phase).toBeNull();
+	});
+
+	it("does not keep a previously ready state after current data is lost", () => {
+		currentVideoData();
+		mediaState.readyState = 1;
+		event("progress");
+		expect(last().phase).toBe("buffering");
 	});
 
 	it("accounts for main-thread delay between a frame's presentation and its callback", () => {
@@ -468,7 +418,9 @@ describe("local media frame readiness", () => {
 		{},
 	])("uses current media dimensions when a real frame callback has partial metadata: %j", metadata => {
 		mediaState.currentTime = 310;
-		currentVideoData();
+		mediaState.readyState = 4;
+		event("canplay");
+		Object.assign(mediaState, { videoWidth: 1280, videoHeight: 720 });
 		frameCallbacks.get(nextFrameId)!(
 			0,
 			metadata as unknown as Parameters<VideoFrameRequestCallback>[1],
@@ -490,53 +442,6 @@ describe("local media frame readiness", () => {
 		event("loadeddata");
 		frameCallbacks.get(nextFrameId)!(0, partial);
 		expect(last().phase).toBeNull();
-	});
-
-	it("requires multiple non-dropped WebKit frames and actual playback advancement for decoded-frame fallback", () => {
-		let decoded = 0;
-		let dropped = 0;
-		Object.defineProperties(video, {
-			webkitDecodedFrameCount: { configurable: true, get: () => decoded },
-			webkitDroppedFrameCount: { configurable: true, get: () => dropped },
-		});
-		controller.reset();
-		currentVideoData();
-		mediaState.paused = false;
-		event("playing");
-		decoded = 2;
-		event("timeupdate");
-		expect(last().phase).toBe("waiting-frame");
-		mediaState.currentTime = 1;
-		dropped = 2;
-		event("timeupdate");
-		expect(last().phase).toBe("waiting-frame");
-		decoded = 4;
-		event("timeupdate");
-		expect(last().phase).toBeNull();
-	});
-
-	it("cancels pending frame observation on hiding, reset, error and disposal", () => {
-		trackPresentedFrames();
-		currentVideoData();
-		expect(vi.getTimerCount()).toBe(1);
-		hidden = true;
-		document.dispatchEvent(new Event("visibilitychange"));
-		expect(vi.getTimerCount()).toBe(0);
-		hidden = false;
-		document.dispatchEvent(new Event("visibilitychange"));
-		expect(vi.getTimerCount()).toBe(1);
-		controller.reset();
-		expect(vi.getTimerCount()).toBe(0);
-		event("canplay");
-		mediaState.error = { code: 3 } as MediaError;
-		event("error");
-		expect(vi.getTimerCount()).toBe(0);
-		mediaState.error = null;
-		controller.reset();
-		event("canplay");
-		expect(vi.getTimerCount()).toBe(1);
-		controller.dispose();
-		expect(vi.getTimerCount()).toBe(0);
 	});
 
 	it("does not wait for nonexistent video frames on a declared audio source", () => {

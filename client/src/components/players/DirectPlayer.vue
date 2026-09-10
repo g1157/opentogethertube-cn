@@ -7,6 +7,7 @@
 			preload="auto"
 			crossorigin="anonymous"
 			@loadedmetadata="recovery.restoreMetadata"
+			@loadeddata="onCanPlay"
 			@canplay="onCanPlay"
 			@seeked="onCanPlay"
 			@playing="onPlaying"
@@ -424,6 +425,9 @@ function onStalled() {
 }
 
 function onProgress() {
+	if (recovery.isRecovering() || recovery.isSeeking()) {
+		onCanPlay();
+	}
 	if (videoElem.value) {
 		const buffered = videoElem.value.buffered;
 		emit("buffer-spans", buffered);
