@@ -50,11 +50,15 @@
 						value: QueueMode.Loop,
 						description: $t('room-settings.loop-hint'),
 					},
-					{
-						title: $t('room-settings.dj'),
-						value: QueueMode.Dj,
-						description: $t('room-settings.dj-hint'),
-					},
+					...(!isEdgePreview
+						? [
+								{
+									title: $t('room-settings.dj'),
+									value: QueueMode.Dj,
+									description: $t('room-settings.dj-hint'),
+								},
+						  ]
+						: []),
 				]"
 				v-model="settings.queueMode.value"
 				:loading="isLoadingRoomSettings || dirtySettings.includes('queueMode')"
@@ -68,6 +72,7 @@
 				</template>
 			</v-select>
 			<AutoSkipSegmentSettings
+				v-if="!isEdgePreview"
 				:loading="
 					isLoadingRoomSettings || dirtySettings.includes('autoSkipSegmentCategories')
 				"
@@ -75,6 +80,7 @@
 				v-model="settings.autoSkipSegmentCategories.value"
 			/>
 			<v-select
+				v-if="!isEdgePreview"
 				:label="$t('room-settings.restore-queue')"
 				:items="[
 					{
@@ -106,7 +112,12 @@
 				data-cy="input-vote-skip"
 			/>
 			<PermissionsEditor
-				v-if="store.state.user && store.state.room.hasOwner"
+				v-if="
+					store.state.room.hasOwner &&
+					(isEdgePreview
+						? store.getters['users/self']?.role === Role.Owner
+						: store.state.user)
+				"
 				v-model="settings.grants.value as Grants"
 				:current-role="store.getters['users/self']?.role ?? Role.Owner"
 			/>
@@ -151,6 +162,7 @@
 <script lang="ts" setup>
 import _ from "lodash";
 import PermissionsEditor from "@/components/PermissionsEditor.vue";
+import { isEdgePreview } from "@/edge-preview";
 import { ToastStyle } from "@/models/toast";
 import { API } from "@/common-http";
 import {

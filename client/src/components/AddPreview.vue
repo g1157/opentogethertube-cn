@@ -7,8 +7,14 @@
 					auto-grow
 					variant="underlined"
 					rows="1"
-					:label="$t('add-preview.label')"
-					:placeholder="$t('add-preview.placeholder')"
+					:label="$t(isEdgePreview ? 'edge-preview.add-label' : 'add-preview.label')"
+					:placeholder="
+						$t(
+							isEdgePreview
+								? 'edge-preview.add-placeholder'
+								: 'add-preview.placeholder',
+						)
+					"
 					v-model="inputAddPreview"
 					@keydown="onInputAddPreviewKeyDown"
 					@focus="onFocusHighlightText"
@@ -83,7 +89,8 @@
 					videos.length === 0 &&
 					inputAddPreview.length > 0 &&
 					!hasAddPreviewFailed &&
-					!isAddPreviewInputUrl
+					!isAddPreviewInputUrl &&
+					!isEdgePreview
 				"
 			>
 				<v-row>
@@ -100,7 +107,16 @@
 			</v-container>
 			<v-container v-else-if="inputAddPreview.length === 0">
 				<v-row style="justify-content: center">
-					<AddPreviewHelper @link-click="setAddPreviewText" />
+					<div v-if="isEdgePreview" class="py-4">
+						<p>{{ $t("edge-preview.media-help") }}</p>
+						<v-btn
+							variant="text"
+							@click="setAddPreviewText('https://vjs.zencdn.net/v/oceans.mp4')"
+						>
+							{{ $t("edge-preview.try-video") }}
+						</v-btn>
+					</div>
+					<AddPreviewHelper v-else @link-click="setAddPreviewText" />
 				</v-row>
 			</v-container>
 		</v-row>
@@ -137,6 +153,7 @@ import type { OttResponseBody, OttApiResponseAddPreview } from "ott-common/model
 import axios from "axios";
 import AddPreviewHelper from "./AddPreviewHelper.vue";
 import { ALL_VIDEO_SERVICES } from "ott-common/constants";
+import { isEdgePreview } from "@/edge-preview";
 
 const store = useStore();
 const { t } = useI18n();
@@ -263,7 +280,7 @@ const production = computed(() => {
 	return store.state.production;
 });
 const showAdapterSelector = computed(() => {
-	return store.state.settings.enableAdapterSelector;
+	return !isEdgePreview && store.state.settings.enableAdapterSelector;
 });
 const adapterOptions = computed(() => {
 	return [

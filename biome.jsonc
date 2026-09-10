@@ -147,6 +147,12 @@
 	},
 	"overrides": [
 		{
+			"includes": ["packages/ott-edge/src/**"],
+			"javascript": {
+				"globals": ["WebSocketPair", "WebSocketRequestResponsePair"]
+			}
+		},
+		{
 			"includes": ["**/package.json"],
 			"formatter": { "expand": "always" }
 		},
