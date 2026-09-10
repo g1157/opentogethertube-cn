@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { Grants } from "ott-common/permissions.js";
 import {
 	BehaviorOption,
@@ -474,7 +475,7 @@ export class RoomState {
 			}
 			case R.ShuffleRequest:
 				for (let i = s.queue.length - 1; i > 0; i--) {
-					const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+					const j = randomInt(i + 1);
 					[s.queue[i], s.queue[j]] = [s.queue[j], s.queue[i]];
 				}
 				this.mark("queue");
