@@ -470,7 +470,11 @@ pub(crate) fn set_connected_monolith_metrics(connected_monolith_count: usize) {
 }
 
 fn is_authorized<B>(req: &Request<B>) -> bool {
-    if let Some(api_key) = BalancerConfig::get().api_key.as_ref() {
+    is_authorized_with_key(req, BalancerConfig::get().api_key.as_deref())
+}
+
+fn is_authorized_with_key<B>(req: &Request<B>, api_key: Option<&str>) -> bool {
+    if let Some(api_key) = api_key {
         let headers = req.headers();
         let auth = headers.get("Authorization");
         if let Some(auth) = auth {
@@ -618,69 +622,49 @@ mod test {
 
     #[test]
     fn test_is_authorized_with_valid_api_key() {
-        BalancerConfig::init_default();
-        unsafe {
-            BalancerConfig::get_mut().api_key = Some("YOUR_API_KEY".to_owned());
-        }
         let req = Request::builder()
             .header("Authorization", "Bearer YOUR_API_KEY")
             .body(Full::new(Bytes::new()))
             .unwrap();
 
-        assert!(is_authorized(&req));
+        assert!(is_authorized_with_key(&req, Some("YOUR_API_KEY")));
     }
 
     #[test]
     fn test_is_authorized_with_invalid_api_key() {
-        BalancerConfig::init_default();
-        unsafe {
-            BalancerConfig::get_mut().api_key = Some("YOUR_API_KEY".to_owned());
-        }
         let req = Request::builder()
             .header("Authorization", "Bearer INVALID_API_KEY")
             .body(Full::new(Bytes::new()))
             .unwrap();
 
-        assert!(!is_authorized(&req));
+        assert!(!is_authorized_with_key(&req, Some("YOUR_API_KEY")));
     }
 
     #[test]
     fn test_is_authorized_without_authorization_header() {
-        BalancerConfig::init_default();
-        unsafe {
-            BalancerConfig::get_mut().api_key = Some("YOUR_API_KEY".to_owned());
-        }
         let req = Request::builder().body(Full::new(Bytes::new())).unwrap();
 
-        assert!(!is_authorized(&req));
+        assert!(!is_authorized_with_key(&req, Some("YOUR_API_KEY")));
     }
 
     #[test]
     fn test_is_authorized_with_different_authorization_scheme() {
-        BalancerConfig::init_default();
-        unsafe {
-            BalancerConfig::get_mut().api_key = Some("YOUR_API_KEY".to_owned());
-        }
         let req = Request::builder()
             .header("Authorization", "Basic YOUR_API_KEY")
             .body(Full::new(Bytes::new()))
             .unwrap();
 
-        assert!(!is_authorized(&req));
+        assert!(!is_authorized_with_key(&req, Some("YOUR_API_KEY")));
     }
 
     #[test]
     fn test_is_authorized_without_api_key_set() {
-        BalancerConfig::init_default();
-        unsafe {
-            BalancerConfig::get_mut().api_key = None;
-        }
         let req = Request::builder()
-            .header("Authorization", "Basic YOUR_API_KEY")
+            .header("Authorization", "Bearer YOUR_API_KEY")
             .body(Full::new(Bytes::new()))
             .unwrap();
 
-        assert!(!is_authorized(&req));
+        assert!(!is_authorized_with_key(&req, None));
     }
 
     #[test]
