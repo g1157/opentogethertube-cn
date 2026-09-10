@@ -13,9 +13,15 @@
 		"run_worker_first": ["/api/*"]
 	},
 	"durable_objects": {
-		"bindings": [{ "name": "ROOMS", "class_name": "RoomObject" }]
+		"bindings": [
+			{ "name": "ROOMS", "class_name": "RoomObject" },
+			{ "name": "MAINTENANCE", "class_name": "MaintenanceObject" }
+		]
 	},
-	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomObject"] }],
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["RoomObject"] },
+		{ "tag": "v2-maintenance", "new_sqlite_classes": ["MaintenanceObject"] }
+	],
 	"d1_databases": [
 		{
 			"binding": "DB",
@@ -26,9 +32,8 @@
 	],
 	"vars": {
 		"OTT_INSTANCE_ID": "ott-edge-preview",
-		"OTT_CLIENT_REVISION": "cloudflare-preview-0.1.0",
+		"OTT_CLIENT_REVISION": "cloudflare-preview-0.1.1",
 		"ROOM_IDLE_SECONDS": "300"
 	},
-	"triggers": { "crons": ["17 */6 * * *"] },
 	"dev": { "ip": "127.0.0.1", "port": 18787 }
 }

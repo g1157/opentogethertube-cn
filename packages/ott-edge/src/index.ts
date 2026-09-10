@@ -9,6 +9,9 @@ import { checkOrigin, digest, grant, limit, requireSession } from "./session";
 import { ApiError, errorResponse, json, readJson, type Env, type GuestSession } from "./types";
 
 export { RoomObject } from "./room-object";
+export { MaintenanceObject } from "./maintenance-object";
+
+let maintenance: Promise<void> | undefined;
 
 const TRAILING_SLASH = /\/$/;
 const ROOM_ROUTE = /^\/api\/room\/([^/]+)(?:\/(queue|vote|undo))?$/;
@@ -257,7 +260,17 @@ async function api(request: Request, env: Env): Promise<Response> {
 }
 
 export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
+	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+		maintenance ??= env.MAINTENANCE.get(env.MAINTENANCE.idFromName("maintenance"))
+			.ensureScheduled()
+			.catch(error => {
+				maintenance = undefined;
+				console.error(
+					"edge cleanup scheduling failed",
+					error instanceof Error ? error.name : "Unknown",
+				);
+			});
+		ctx.waitUntil(maintenance);
 		try {
 			if (new URL(request.url).pathname.startsWith("/api/")) {
 				return await api(request, env);
@@ -265,22 +278,6 @@ export default {
 			return await env.ASSETS.fetch(request);
 		} catch (error) {
 			return errorResponse(error);
-		}
-	},
-	async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-		const now = Date.now();
-		await env.DB.batch([
-			env.DB.prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(now),
-			env.DB.prepare("DELETE FROM media_cache WHERE expires_at <= ?").bind(now),
-			env.DB.prepare("DELETE FROM rate_limits WHERE expires_at <= ?").bind(now),
-		]);
-		const expired = await env.DB.prepare(
-			"SELECT instance_id FROM rooms WHERE expires_at <= ? LIMIT 100",
-		)
-			.bind(now)
-			.all<{ instance_id: string }>();
-		for (const row of expired.results) {
-			await roomStub(env, row.instance_id).expire();
 		}
 	},
 } satisfies ExportedHandler<Env>;

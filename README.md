@@ -1,6 +1,6 @@
 # OpenTogetherTube Cloudflare 预览版
 
-当前 `feat/cloudflare` 分支开发独立的 `cloudflare-preview-0.1.0`，基于简体中文 cn8 的前端，
+当前 `feat/cloudflare` 分支开发独立的 `cloudflare-preview-0.1.1`，基于简体中文 cn8 的前端，
 使用 **Cloudflare Workers + Workers Static Assets + SQLite Durable Objects + D1** 运行。
 页面、API、房间同步和持久化均在 Cloudflare 上；不需要腾讯云服务器、Tunnel、Docker、Redis 或 PostgreSQL。
 视频由浏览器直接从用户提供的片源加载，不经过腾讯云或本应用的媒体代理。
