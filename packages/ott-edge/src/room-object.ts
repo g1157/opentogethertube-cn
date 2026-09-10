@@ -196,13 +196,17 @@ export class RoomObject extends DurableObject<Env> {
 		});
 	}
 
-	async expire(): Promise<void> {
+	async expire(): Promise<boolean> {
 		return this.serial(async () => {
+			if (!this.room) {
+				return true;
+			}
 			if (this.expired()) {
 				await this.erase();
-			} else if (this.room) {
-				await this.commit();
+				return true;
 			}
+			await this.commit();
+			return false;
 		});
 	}
 

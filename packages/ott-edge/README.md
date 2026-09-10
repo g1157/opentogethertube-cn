@@ -1,6 +1,6 @@
 # OpenTogetherTube Cloudflare 预览版
 
-`cloudflare-preview-0.1.0` 复用 cn8 的 Vue 播放器，将房间服务改写为 Cloudflare 原生运行方式。
+`cloudflare-preview-0.1.1` 复用 cn8 的 Vue 播放器，将房间服务改写为 Cloudflare 原生运行方式。
 部署目标是独立 Worker `ott-edge-preview`，不依赖腾讯云、Cloudflare Tunnel、Node.js 常驻进程、
 Redis、PostgreSQL 或 `ffprobe`。保留在仓库中的原 `server/` 不参与此 Worker 构建。
 
@@ -12,6 +12,7 @@ Redis、PostgreSQL 或 `ffprobe`。保留在仓库中的原 `server/` 不参与�
 | HTTP API | Workers | 访客身份、房间创建和发现、媒体元信息读取 |
 | 每个房间 | SQLite Durable Objects | WebSocket 同步、权限、播放时钟、队列、快照及定时任务 |
 | 跨房间索引 | D1 | 访客令牌摘要、房间索引、媒体元信息缓存和限流计数 |
+| 后台清理 | 单个 SQLite Durable Object | 用 alarm 每 6 小时清理过期记录，不占用账户 Cron 配额 |
 
 ```mermaid
 flowchart LR
@@ -30,6 +31,10 @@ Durable Object 是房间状态的唯一权威来源，D1 只保存可查询的�
 WebSocket 使用休眠接口；播放结束、临时倍速到期、访客认证超时及临时房回收由 alarm 驱动。
 播放期间约每 30 秒保存一次时钟检查点，状态变更会立即保存。完整运行时重启可以恢复队列和位置；
 空房暂停后，重新进入的首位有播放权限观众确认本机画面准备完成才继续播放。
+
+首个 API 请求会在后台启动维护对象的持久化 alarm；首次清理约在 1 秒后，此后每 6 小时执行。
+失败后 1 分钟重试，临时房索引清理每批最多 20 个，存在积压时继续分批运行。
+维护对象在没有访问流量时仍能按 alarm 调度，不需要外部定时器。
 
 视频数据由浏览器从原片源读取，Worker 只读取有上限的元信息。应用不提供视频上传、转码、
 片源代理或破解防盗链。HTTPS 站点应使用浏览器能访问且允许本站播放的 HTTPS 视频链接；
@@ -102,7 +107,7 @@ node .yarn/releases/yarn-4.1.0.cjs workspace ott-edge deploy:preview
 
 Wrangler 返回 `https://ott-edge-preview.<账户子域>.workers.dev`。前端通过同源 `/api/` 访问 Worker，
 不配置腾讯云 API 地址。`build:client` 与 Worker 的 `OTT_CLIENT_REVISION` 当前都使用
-`cloudflare-preview-0.1.0`；每次发布新代码须同时更新两处值，供已打开的页面检测新版本。
+`cloudflare-preview-0.1.1`；每次发布新代码须同时更新两处值，供已打开的页面检测新版本。
 
 源码归档必须在前端构建之后生成，因为构建会清空 `client/dist`。
 `git archive` 包含已提交的前端、Worker、公共模块、迁移、构建配置和锁文件，保留 AGPL 许可证；
@@ -117,7 +122,7 @@ Wrangler 返回 `https://ott-edge-preview.<账户子域>.workers.dev`。前端�
 
 `ott-edge test` 会先生成独立测试 Worker，再在真实本地 workerd、D1、SQLite Durable Objects 和
 WebSocket 上执行集成测试，片源响应使用可控 fixture。覆盖权限、并发创建、元信息解析边界、
-慢片源期间控制响应、双人同步、休眠、空房重入、临时房到期及完整运行时重启。
+慢片源期间控制响应、双人同步、自动下一条、休眠、空房重入、临时房到期、后台清理及完整运行时重启。
 这些测试不等于浏览器已经成功解码远程视频。
 
 线上验收应检查健康接口、版本、SPA 深链接、静态资源及源码下载，并使用两个不同访客身份验证

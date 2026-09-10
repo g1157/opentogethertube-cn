@@ -1,7 +1,9 @@
 import type { RoomObject } from "./room-object";
+import type { MaintenanceObject } from "./maintenance-object";
 
 export interface Env {
 	ROOMS: DurableObjectNamespace<RoomObject>;
+	MAINTENANCE: DurableObjectNamespace<MaintenanceObject>;
 	DB: D1Database;
 	ASSETS: Fetcher;
 	OTT_INSTANCE_ID: string;

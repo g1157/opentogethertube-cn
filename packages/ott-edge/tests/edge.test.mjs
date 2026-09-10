@@ -150,7 +150,10 @@ function options() {
 			ROOM_IDLE_SECONDS: "2",
 		},
 		d1Databases: { DB: "test-database" },
-		durableObjects: { ROOMS: { className: "RoomObject", useSQLite: true } },
+		durableObjects: {
+			ROOMS: { className: "RoomObject", useSQLite: true },
+			MAINTENANCE: { className: "MaintenanceObject", useSQLite: true },
+		},
 		resourcePersistencePath: persistence,
 		unsafeInspectDurableObjects: true,
 		outboundService: outbound,
@@ -335,6 +338,86 @@ async function add(name, token, file = "one.mp4") {
 	});
 	assert.equal(response.status, 200, JSON.stringify(await response.json()));
 }
+
+it("maintenance starts from a request and cleans only expired D1 records through its own alarm", async () => {
+	const expiry = Date.now() + 60_000;
+	await db.batch([
+		db.prepare("INSERT INTO sessions VALUES ('expired-session', 'old', 'old', 1)"),
+		db
+			.prepare("INSERT INTO sessions VALUES ('current-session', 'current', 'current', ?)")
+			.bind(expiry),
+		db.prepare("INSERT INTO media_cache VALUES ('expired-media', '{}', 1)"),
+		db.prepare("INSERT INTO media_cache VALUES ('current-media', '{}', ?)").bind(expiry),
+		db.prepare("INSERT INTO rate_limits VALUES ('expired-limit', 1, 1)"),
+		db.prepare("INSERT INTO rate_limits VALUES ('current-limit', 1, ?)").bind(expiry),
+		db.prepare(
+			"INSERT INTO rooms (name, instance_id, owner_id, title, visibility, is_temporary, queue_mode, expires_at, created_at) VALUES ('orphaned-room', 'never-initialized', 'old', 'Orphan', 'unlisted', 1, 'manual', 1, 1)",
+		),
+	]);
+	assert.equal((await request("/status")).status, 200);
+	let expired = 1;
+	for (let attempt = 0; attempt < 30 && expired; attempt++) {
+		await new Promise(resolve => setTimeout(resolve, 100));
+		expired = (
+			await db
+				.prepare(
+					"SELECT (SELECT COUNT(*) FROM sessions WHERE token_hash = 'expired-session') + (SELECT COUNT(*) FROM rooms WHERE name = 'orphaned-room') AS count",
+				)
+				.first()
+		).count;
+	}
+	assert.equal(expired, 0);
+	assert.equal(
+		(
+			await db
+				.prepare(
+					"SELECT COUNT(*) AS count FROM media_cache WHERE cache_key = 'expired-media'",
+				)
+				.first()
+		).count,
+		0,
+	);
+	assert.equal(
+		(
+			await db
+				.prepare(
+					"SELECT COUNT(*) AS count FROM rate_limits WHERE limit_key = 'expired-limit'",
+				)
+				.first()
+		).count,
+		0,
+	);
+	assert.equal(
+		(
+			await db
+				.prepare(
+					"SELECT COUNT(*) AS count FROM sessions WHERE token_hash = 'current-session'",
+				)
+				.first()
+		).count,
+		1,
+	);
+	assert.equal(
+		(
+			await db
+				.prepare(
+					"SELECT COUNT(*) AS count FROM media_cache WHERE cache_key = 'current-media'",
+				)
+				.first()
+		).count,
+		1,
+	);
+	assert.equal(
+		(
+			await db
+				.prepare(
+					"SELECT COUNT(*) AS count FROM rate_limits WHERE limit_key = 'current-limit'",
+				)
+				.first()
+		).count,
+		1,
+	);
+});
 
 it("health and asset routing return the expected version without caching API data", async () => {
 	const health = await request("/status");
