@@ -13,7 +13,7 @@ truncate_description = 509
 
 [info_extractor.direct]
 ffprobe_path = "/usr/bin/ffprobe"
-ffprobe_strategy = "stream"
+ffprobe_strategy = "run"
 
 [add_preview.search]
 enabled = true

@@ -1,4 +1,5 @@
-const REVISION_PATTERN = /^[a-f\d]{7,40}$/i;
+const GIT_REVISION_PATTERN = /^[a-f\d]{7,40}$/i;
+const REVISION_PATTERN = /^(?:[a-f\d]{7,40}|cloudflare-preview-\d+\.\d+\.\d+)$/i;
 const UPDATE_QUERY = "_ott_update";
 
 interface ClientUpdateOptions {
@@ -10,7 +11,12 @@ interface ClientUpdateOptions {
 }
 
 function sameRevision(a: string, b: string) {
-	return a.startsWith(b) || b.startsWith(a);
+	return (
+		a === b ||
+		(GIT_REVISION_PATTERN.test(a) &&
+			GIT_REVISION_PATTERN.test(b) &&
+			(a.startsWith(b) || b.startsWith(a)))
+	);
 }
 
 function mayRefresh() {

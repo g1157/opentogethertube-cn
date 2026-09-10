@@ -155,7 +155,7 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 			phase === "scheduled" ||
 			phase === "failed" ||
 			phase === "disposed" ||
-			(options.media()?.readyState ?? 0) < (seek.pending() ? 2 : 3)
+			(options.media()?.readyState ?? 0) < 2
 		) {
 			return false;
 		}

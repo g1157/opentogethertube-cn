@@ -171,100 +171,127 @@ interface Box {
 	size: number;
 	header: number;
 }
-function boxAt(bytes: Uint8Array, offset: number, total?: number | null): Box | null {
-	if (offset + 8 > bytes.byteLength) {
-		return null;
-	}
-	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-	let size = view.getUint32(offset);
-	let header = 8;
-	if (size === 1) {
-		if (offset + 16 > bytes.byteLength) {
-			return null;
-		}
-		size = Number(view.getBigUint64(offset + 8));
-		header = 16;
-	} else if (size === 0) {
-		size = (total ?? bytes.byteLength) - offset;
-	}
-	if (!Number.isSafeInteger(size) || size < header) {
-		throw new ApiError(400, "无效的 MP4 文件结构。");
-	}
-	return {
-		type: new TextDecoder().decode(bytes.subarray(offset + 4, offset + 8)),
-		size,
-		header,
-		offset,
-	};
-}
 
-function mp4Info(data: Uint8Array): { length: number; video: boolean } {
+async function probeMp4(url: URL, probe: Probe): Promise<Partial<Video>> {
+	let target = url;
+	let total: number | null = null;
+	let cached: Uint8Array = new Uint8Array(0);
+	let cachedOffset = 0;
+	let boxes = 0;
 	let duration: number | undefined;
 	let video = false;
 	let audio = false;
-	function walk(start: number, end: number, depth: number) {
-		if (depth > 5) {
-			return;
-		}
-		for (let offset = start; offset < end; ) {
-			const box = boxAt(data, offset, end);
-			if (!box || offset + box.size > end) {
+	const decoder = new TextDecoder();
+
+	async function readAt(offset: number, length: number): Promise<Uint8Array> {
+		if (offset < cachedOffset || offset + length > cachedOffset + cached.byteLength) {
+			const end = Math.min(
+				offset + 4095,
+				total === null ? Number.MAX_SAFE_INTEGER : total - 1,
+			);
+			if (!Number.isSafeInteger(offset) || offset < 0 || end < offset + length - 1) {
 				throw new ApiError(400, "MP4 媒体信息不完整。");
 			}
+			const response = await probe.read(target, offset, end);
+			if (total !== null && response.total !== null && total !== response.total) {
+				throw new ApiError(400, "片源文件在读取期间发生变化，请重试。");
+			}
+			total ??= response.total;
+			target = response.url;
+			cached = response.bytes;
+			cachedOffset = offset;
+		}
+		const start = offset - cachedOffset;
+		if (start < 0 || start + length > cached.byteLength) {
+			throw new ApiError(400, "MP4 媒体信息不完整。");
+		}
+		return cached.subarray(start, start + length);
+	}
+
+	async function readBox(offset: number, parentEnd: number | null): Promise<Box> {
+		if (++boxes > 256 || (parentEnd !== null && offset + 8 > parentEnd)) {
+			throw new ApiError(400, "MP4 媒体信息结构过于复杂或不完整。");
+		}
+		const bytes = await readAt(offset, 8);
+		let size = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0);
+		let header = 8;
+		if (size === 1) {
+			if (parentEnd !== null && offset + 16 > parentEnd) {
+				throw new ApiError(400, "MP4 媒体信息不完整。");
+			}
+			const extended = await readAt(offset + 8, 8);
+			size = Number(new DataView(extended.buffer, extended.byteOffset, 8).getBigUint64(0));
+			header = 16;
+		}
+		const limit = parentEnd ?? total;
+		if (size === 0) {
+			if (limit === null) {
+				throw new ApiError(400, "片源未提供读取 MP4 媒体信息所需的文件大小。");
+			}
+			size = limit - offset;
+		}
+		if (
+			!Number.isSafeInteger(offset + size) ||
+			size < header ||
+			(limit !== null && offset + size > limit)
+		) {
+			throw new ApiError(400, "无效的 MP4 文件结构。");
+		}
+		return { type: decoder.decode(bytes.subarray(4, 8)), offset, size, header };
+	}
+
+	async function walk(start: number, end: number, depth: number): Promise<void> {
+		if (depth > 5) {
+			throw new ApiError(400, "MP4 媒体信息嵌套过深。");
+		}
+		for (let offset = start; offset < end; ) {
+			const box = await readBox(offset, end);
 			const content = offset + box.header;
-			const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+			const boxEnd = offset + box.size;
 			if (box.type === "mvhd") {
-				const version = data[content];
-				const timeOffset = content + (version === 1 ? 20 : 12);
-				if (
-					(version !== 0 && version !== 1) ||
-					timeOffset + (version === 1 ? 12 : 8) > offset + box.size
-				) {
+				if (content + 1 > boxEnd) {
 					throw new ApiError(400, "无效的 MP4 时间信息。");
 				}
-				const timescale = view.getUint32(timeOffset);
-				const ticks =
-					version === 1
-						? Number(view.getBigUint64(timeOffset + 4))
-						: view.getUint32(timeOffset + 4);
+				const version = (await readAt(content, 1))[0];
+				const timeOffset = content + (version === 1 ? 20 : 12);
+				const length = version === 1 ? 12 : 8;
+				if ((version !== 0 && version !== 1) || timeOffset + length > boxEnd) {
+					throw new ApiError(400, "无效的 MP4 时间信息。");
+				}
+				const bytes = await readAt(timeOffset, length);
+				const view = new DataView(bytes.buffer, bytes.byteOffset, length);
+				const timescale = view.getUint32(0);
+				const ticks = version === 1 ? Number(view.getBigUint64(4)) : view.getUint32(4);
 				duration = ticks / timescale;
-			} else if (box.type === "hdlr" && content + 12 <= offset + box.size) {
-				const handler = new TextDecoder().decode(data.subarray(content + 8, content + 12));
+			} else if (box.type === "hdlr" && content + 12 <= boxEnd) {
+				const handler = decoder.decode(await readAt(content + 8, 4));
 				video ||= handler === "vide";
 				audio ||= handler === "soun";
-			} else if (["moov", "trak", "mdia"].includes(box.type)) {
-				walk(content, offset + box.size, depth + 1);
+			} else if (["trak", "mdia"].includes(box.type)) {
+				await walk(content, boxEnd, depth + 1);
 			}
-			offset += box.size;
+			// The queue only needs duration and media kind, not sample/chunk tables.
+			// Stop once a video track is known; audio-only files inspect every track.
+			if (video && duration !== undefined) {
+				return;
+			}
+			offset = boxEnd;
 		}
 	}
-	walk(0, data.byteLength, 0);
-	if (!duration || !Number.isFinite(duration) || duration > 31 * 86400 || (!video && !audio)) {
-		throw new ApiError(400, "无法确定此 MP4 的有效时长和音视频轨道。");
-	}
-	return { length: duration, video };
-}
 
-async function probeMp4(url: URL, probe: Probe): Promise<Partial<Video>> {
-	let offset = 0;
-	let total: number | null = null;
-	for (let attempt = 0; attempt < 12; attempt++) {
-		const response = await probe.read(url, offset, offset + 4095);
-		total ??= response.total;
-		const box = boxAt(response.bytes, 0, total === null ? null : total - offset);
-		if (!box) {
-			break;
-		}
+	for (let offset = 0, attempt = 0; attempt < 12; attempt++) {
+		const box = await readBox(offset, total);
 		if (box.type === "moov") {
-			if (box.size > MAX_BYTES - probe.bytes) {
-				throw new ApiError(400, "此 MP4 的媒体索引太大，超出原型支持范围。");
+			await walk(offset + box.header, offset + box.size, 0);
+			if (
+				!duration ||
+				!Number.isFinite(duration) ||
+				duration > 31 * 86400 ||
+				(!video && !audio)
+			) {
+				throw new ApiError(400, "无法确定此 MP4 的有效时长和音视频轨道。");
 			}
-			const bytes =
-				box.size <= response.bytes.byteLength
-					? response.bytes.subarray(0, box.size)
-					: (await probe.read(url, offset, offset + box.size - 1)).bytes;
-			const info = mp4Info(bytes);
-			return { length: info.length, mime: info.video ? "video/mp4" : "audio/mp4" };
+			return { length: duration, mime: video ? "video/mp4" : "audio/mp4" };
 		}
 		offset += box.size;
 		if (total !== null && offset >= total) {

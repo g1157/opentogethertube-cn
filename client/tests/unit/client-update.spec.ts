@@ -48,6 +48,37 @@ describe("client build updates", () => {
 		);
 		expect(navigate).not.toHaveBeenCalled();
 	});
+	it("polls a Cloudflare release and keeps the matching version", async () => {
+		reply({ revision: "cloudflare-preview-0.1.2" });
+		start("cloudflare-preview-0.1.2");
+		await flush();
+		await vi.advanceTimersByTimeAsync(30000);
+		expect(request).toHaveBeenCalledTimes(2);
+		expect(navigate).not.toHaveBeenCalled();
+	});
+	it("treats Cloudflare patch versions as exact values, not Git hash prefixes", async () => {
+		reply({ revision: "cloudflare-preview-0.1.10" });
+		start("cloudflare-preview-0.1.1");
+		await flush();
+		expect(navigate).toHaveBeenCalledWith(
+			"https://example.com/room/watch?view=chat&_ott_update=cloudflare-preview-0.1.10#player",
+		);
+	});
+	it("cleans a matching Cloudflare update marker and prevents stale-release reload loops", async () => {
+		currentUrl = "https://example.com/room/watch?_ott_update=cloudflare-preview-0.1.2";
+		reply({ revision: "cloudflare-preview-0.1.2" });
+		start("cloudflare-preview-0.1.2");
+		expect(updateUrl).toHaveBeenCalledWith("https://example.com/room/watch");
+		watcher?.dispose();
+		start("cloudflare-preview-0.1.1");
+		await flush();
+		expect(navigate).not.toHaveBeenCalled();
+	});
+	it("does not poll development placeholders", async () => {
+		start("development");
+		await vi.advanceTimersByTimeAsync(60000);
+		expect(request).not.toHaveBeenCalled();
+	});
 	it("refreshes once for a new revision while retaining room, query and hash", async () => {
 		reply({ revision: "bbbbbbb" });
 		start();

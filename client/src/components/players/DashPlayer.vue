@@ -9,6 +9,7 @@
 			crossorigin="anonymous"
 			:poster="thumbnail || ''"
 			@loadedmetadata="applyPendingPosition"
+			@loadeddata="onReady"
 			@canplay="onReady"
 			@seeked="onReady"
 			@ready="onReady"
@@ -485,6 +486,9 @@ function onNativeError() {
 }
 
 function onProgress() {
+	if (isRecovering() || isSeeking()) {
+		onReady();
+	}
 	if (videoElem.value) {
 		const buffered = videoElem.value.buffered;
 		emit("buffer-spans", buffered);

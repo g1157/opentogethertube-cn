@@ -263,6 +263,9 @@ export default {
 	},
 	"add-preview": {
 		label: "链接或搜索",
+		loading: "正在读取视频信息…",
+		"loading-slow": "片源响应较慢，仍在读取视频信息…",
+		retry: "重试",
 		"add-all": "全部添加",
 		placeholder: "输入以搜索 YouTube，或输入视频网址添加到队列",
 		title: "我可以添加什么？",
@@ -279,6 +282,8 @@ export default {
 			"youtube-channels": "Youtube 频道：{url}",
 		},
 		messages: {
+			timeout: "读取视频信息超时（45 秒）。链接可能仍可播放，请重试。",
+			"metadata-timeout": "片源的视频信息读取超时。链接可能仍可播放，请重试。",
 			"unknown-status": "添加预览响应的未知状态：{status}。",
 			"unknown-error": "获取添加预览时发生未知错误。请稍后重试。",
 			"failed-to-get-add-preview": "获取添加预览失败。这可能是个 Bug，请查看控制台了解详情。",

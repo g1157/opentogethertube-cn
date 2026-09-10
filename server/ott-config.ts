@@ -252,9 +252,9 @@ export const conf = convict({
 				nullable: true,
 			},
 			ffprobe_strategy: {
-				doc: "The strategy to use for running ffprobe.",
+				doc: "The strategy to use for running ffprobe. Run supports HTTP seeking to MP4 tail indexes; stream reads sequentially.",
 				format: ["stream", "disk", "run"],
-				default: "stream",
+				default: "run",
 				env: "FFPROBE_STRATEGY",
 			},
 		},

@@ -54,6 +54,55 @@ const mp4 = Buffer.concat([
 	box("mdat", Buffer.alloc(8192)),
 	box("moov", Buffer.concat([box("mvhd", time), box("trak", box("mdia", box("hdlr", handler)))])),
 ]);
+const largeIndexMp4 = Buffer.concat([
+	box("ftyp", Buffer.from("isom0000isom")),
+	box("mdat", Buffer.alloc(8192)),
+	box(
+		"moov",
+		Buffer.concat([
+			box("mvhd", time),
+			box(
+				"trak",
+				box(
+					"mdia",
+					Buffer.concat([
+						box("hdlr", handler),
+						box("minf", Buffer.alloc(3 * 1024 * 1024)),
+					]),
+				),
+			),
+		]),
+	),
+]);
+const audioHandler = Buffer.from(handler);
+audioHandler.write("soun", 8);
+const longTime = Buffer.alloc(32);
+longTime[0] = 1;
+longTime.writeUInt32BE(1000, 20);
+longTime.writeBigUInt64BE(1421090n, 24);
+const audioTrack = box(
+	"trak",
+	box(
+		"mdia",
+		Buffer.concat([box("hdlr", audioHandler), box("minf", Buffer.alloc(3 * 1024 * 1024))]),
+	),
+);
+const metadataFixtures = new Map([
+	["/large-index.mp4", largeIndexMp4],
+	["/audio-only.mp4", box("moov", Buffer.concat([box("mvhd", longTime), audioTrack]))],
+	[
+		"/audio-first.mp4",
+		box(
+			"moov",
+			Buffer.concat([
+				box("mvhd", longTime),
+				audioTrack,
+				box("trak", box("mdia", box("hdlr", handler))),
+			]),
+		),
+	],
+	["/bad-box.mp4", box("moov", Buffer.from([0, 0, 255, 255, 109, 118, 104, 100]))],
+]);
 
 async function outbound(request) {
 	const url = new URL(request.url);
@@ -122,15 +171,16 @@ async function outbound(request) {
 		return new Response("not a movie", { status: 404 });
 	}
 	const range = RANGE.exec(request.headers.get("range") ?? "");
+	const file = metadataFixtures.get(url.pathname) ?? mp4;
 	if (!range || url.pathname === "/no-range.mp4") {
-		return new Response(mp4, { headers: { "Content-Length": String(mp4.length) } });
+		return new Response(file, { headers: { "Content-Length": String(file.length) } });
 	}
 	const start = Number(range[1]);
-	const end = Math.min(Number(range[2]), mp4.length - 1);
-	return new Response(mp4.subarray(start, end + 1), {
+	const end = Math.min(Number(range[2]), file.length - 1);
+	return new Response(file.subarray(start, end + 1), {
 		status: 206,
 		headers: {
-			"Content-Range": `bytes ${url.pathname === "/bad-range.mp4" ? start + 1 : start}-${end}/${mp4.length}`,
+			"Content-Range": `bytes ${url.pathname === "/bad-range.mp4" ? start + 1 : start}-${end}/${file.length}`,
 			"Content-Length": String(end - start + 1),
 			"Content-Type": "video/mp4",
 		},
@@ -546,10 +596,51 @@ it("MP4 tail indexes, HLS variants, DASH and custom manifests produce bounded me
 	assert.ok(outboundCalls.some(call => call.range?.startsWith("bytes=8220-")));
 });
 
+it("MP4 metadata skips large sample tables and reuses already fetched box headers", async () => {
+	const owner = await identity();
+	const before = outboundCalls.length;
+	const response = await request(
+		`/data/previewAdd?input=${encodeURIComponent(`${mediaOrigin}/large-index.mp4`)}`,
+		owner,
+	);
+	assert.equal(response.status, 200);
+	const data = await response.json();
+	assert.equal(data.result[0].length, 120);
+	assert.equal(data.result[0].mime, "video/mp4");
+	const calls = outboundCalls.slice(before);
+	assert.equal(calls.length, 2, "one file header read and one tail metadata read");
+	assert.ok(
+		calls.every(call => {
+			const [, start, end] = RANGE.exec(call.range);
+			return Number(end) - Number(start) + 1 <= 4096;
+		}),
+	);
+});
+
+it("MP4 sparse metadata reads handle 64-bit durations and audio before video", async () => {
+	const owner = await identity();
+	for (const [file, mime] of [
+		["audio-only.mp4", "audio/mp4"],
+		["audio-first.mp4", "video/mp4"],
+	]) {
+		const before = outboundCalls.length;
+		const response = await request(
+			`/data/previewAdd?input=${encodeURIComponent(`${mediaOrigin}/${file}`)}`,
+			owner,
+		);
+		assert.equal(response.status, 200);
+		const data = await response.json();
+		assert.equal(data.result[0].length, 1421.09);
+		assert.equal(data.result[0].mime, mime);
+		assert.ok(outboundCalls.length - before <= 2);
+	}
+});
+
 it("invalid range responses, failed media and redirects to private addresses are rejected", async () => {
 	const owner = await identity();
 	for (const input of [
 		`${mediaOrigin}/bad-range.mp4`,
+		`${mediaOrigin}/bad-box.mp4`,
 		`${mediaOrigin}/no-range.mp4`,
 		`${mediaOrigin}/private.mp4`,
 		`${mediaOrigin}/broken.mp4`,

@@ -1,6 +1,9 @@
 # OpenTogetherTube Cloudflare 预览版
 
-`cloudflare-preview-0.1.1` 复用 cn8 的 Vue 播放器，将房间服务改写为 Cloudflare 原生运行方式。
+`cloudflare-preview-0.1.2` 复用本仓库的 Vue 播放器，将房间服务改写为 Cloudflare 原生运行方式。
+两种后端的选择见 [主文档](../../README.md)，官方额度、实际用量和容量模型见
+[免费额度与费用评估](../../docs/cloudflare-quotas.zh-CN.md)。同一仓库中的 `server/` 继续维护 Docker / Node.js 版。
+
 部署目标是独立 Worker `ott-edge-preview`，不依赖腾讯云、Cloudflare Tunnel、Node.js 常驻进程、
 Redis、PostgreSQL 或 `ffprobe`。保留在仓库中的原 `server/` 不参与此 Worker 构建。
 
@@ -38,7 +41,8 @@ WebSocket 使用休眠接口；播放结束、临时倍速到期、访客认证�
 
 视频数据由浏览器从原片源读取，Worker 只读取有上限的元信息。应用不提供视频上传、转码、
 片源代理或破解防盗链。HTTPS 站点应使用浏览器能访问且允许本站播放的 HTTPS 视频链接；
-HLS、DASH、自定义媒体 JSON 和字幕还需要片源正确设置跨域响应。
+播放器设置了 `crossorigin="anonymous"`，因此 MP4 等原生媒体也需要片源允许跨域；
+HLS/DASH 清单、分片、自定义媒体 JSON 和字幕同样需要正确的 CORS 响应。
 
 ## 已实现与当前限制
 
@@ -55,8 +59,26 @@ HLS、DASH、自定义媒体 JSON 和字幕还需要片源正确设置跨域响�
 每个身份最多保留 20 个房间，每房最多 100 个 WebSocket 连接、每身份每房 4 个连接。
 队列最多 200 项且元信息总量不超过 512 KiB，单条 HTTP/WS 消息上限 64 KiB。
 一次媒体解析（批量添加共用）最多读取 2 MiB、16 次请求（包括重定向），总期限 20 秒；
-单个 MP4 索引过大、不支持所需 Range 或无有效时长时会返回错误，不会下载整段视频。
-媒体缓存有效期 30 分钟。需要使用 Cloudflare 账户可用的 Workers、D1 和 SQLite Durable Objects 配额。
+MP4 按最多 4 KiB 的块读取必要索引头，跳过大的采样表；结构过于复杂、不支持所需 Range 或无有效时长时
+会返回错误，不会下载整段视频。添加面板另有 45 秒等待上限和重试，见 [MP4 解析说明](../../docs/media-parsing.zh-CN.md)。
+媒体缓存有效期 30 分钟。需要使用 Cloudflare 账户可用的 Workers、D1 和 SQLite Durable Objects 配额。以上连接/队列数是保护边界，
+不是免费并发容量承诺。
+
+## 部署条件与资源
+
+- Cloudflare 账户中可用的 Workers、D1 和 SQLite Durable Objects；Free 可部署，无需购买服务器。
+- 一个 D1 数据库名额、一个 Worker 和两个 DO 类的名额；资源和日额度按账户共享。
+- 在开发机上运行 Node.js 24、Yarn 4.1.0 和 Wrangler，完成安装、构建和发布；发布后开发机可关机。
+- `workers.dev` 地址可直接使用，自定义域名可选；浏览器必须能访问该地址及原视频源。
+- 数据库迁移、Worker 配置和前端 revision 必须属于同一个实例。只部署静态页面不能提供房间服务。
+
+本应用不要求 Cloudflare Pages、R2、Stream 或账户 Cron 名额。Free 的主要日额度是 Worker 10 万次、
+DO 10 万计费请求及 13,000 GB-s；D1 与 DO SQLite 分别有 500 万行读、10 万行写。D1 Free 单库最多
+500 MB，尽管账户总存储为 5 GB。持续播放约每房每小时有 240 行 DO 检查点写入，冷唤醒还会重新更新
+D1 摘要；因此不能只计算观众人数或视频流量。
+
+Free 超额会限制服务，不会自动升级收费；Paid 超出月度包含量可按量计费。完整的官方来源、
+多种观看规模算例、监控和数据恢复限制见 [额度文档](../../docs/cloudflare-quotas.zh-CN.md)。
 
 ## 本地开发
 
@@ -107,7 +129,9 @@ node .yarn/releases/yarn-4.1.0.cjs workspace ott-edge deploy:preview
 
 Wrangler 返回 `https://ott-edge-preview.<账户子域>.workers.dev`。前端通过同源 `/api/` 访问 Worker，
 不配置腾讯云 API 地址。`build:client` 与 Worker 的 `OTT_CLIENT_REVISION` 当前都使用
-`cloudflare-preview-0.1.1`；每次发布新代码须同时更新两处值，供已打开的页面检测新版本。
+`cloudflare-preview-0.1.2`；每次发布新代码须同时更新两处值，供已打开的页面检测新版本。
+`0.1.1` 及更早的预览版本号未被旧检测器识别，这些已打开的页面需要先手动刷新一次。
+`0.1.2` 同时修复原生播放器就绪判定：当前帧数据已可用时不再强制等待额外画面回调或后续帧预读。
 
 源码归档必须在前端构建之后生成，因为构建会清空 `client/dist`。
 `git archive` 包含已提交的前端、Worker、公共模块、迁移、构建配置和锁文件，保留 AGPL 许可证；
@@ -129,6 +153,6 @@ WebSocket 上执行集成测试，片源响应使用可控 fixture。覆盖权�
 HTTPS API、WSS 同步、队列、权限、聊天、断线重连与空房恢复；测试房间使用独立名称并在结束时删除。
 片源示例：`https://vjs.zencdn.net/v/oceans.mp4`。
 
-本轮环境的内置浏览器和隔离 Chromium 启动受到沙箱限制，尚未完成真实浏览器画面、视频解码、
-手机全屏与自动播放策略验收。现有前端组件测试、workerd 测试及 WSS 客户端的准备完成消息
-不能替代这些检查；发布结果应区分这些证据。
+自动化测试应把媒体解码、真实 DOM 遮罩及服务端同步分别检查；仅模拟 WSS 准备完成消息不能替代浏览器验收。
+原生播放器回归覆盖 MP4/HLS/DASH 在 `readyState = 2`、仅有极少连续缓存、缺失画面回调时的启动，
+以及保存位置恢复、真正缺少数据和未完成跳转。目标手机的全屏、解码支持与自动播放策略仍应在该设备验收。

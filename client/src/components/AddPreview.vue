@@ -77,12 +77,27 @@
 				{{ $t("add-preview.add-all") }}
 			</v-btn>
 		</v-row>
-		<v-row class="video-list" v-if="isLoadingAddPreview">
+		<v-row
+			class="video-list"
+			v-if="isLoadingAddPreview"
+			role="status"
+			data-cy="add-preview-loading"
+		>
 			<v-progress-circular indeterminate />
+			<span class="ml-3">{{
+				$t(isAddPreviewSlow ? "add-preview.loading-slow" : "add-preview.loading")
+			}}</span>
 		</v-row>
 		<v-row class="video-list" v-if="!isLoadingAddPreview">
-			<div v-if="hasAddPreviewFailed">
-				{{ videosLoadFailureText }}
+			<div v-if="hasAddPreviewFailed" data-cy="add-preview-error" role="alert">
+				<p>{{ videosLoadFailureText }}</p>
+				<v-btn
+					@click="requestAddPreviewExplicit"
+					data-cy="add-preview-retry"
+					variant="text"
+				>
+					{{ $t("add-preview.retry") }}
+				</v-btn>
 			</div>
 			<v-container
 				v-if="
@@ -139,7 +154,7 @@
 
 <script lang="ts" setup>
 import { mdiMagnify, mdiPlus } from "@mdi/js";
-import { ref, computed, watch, type Ref } from "vue";
+import { ref, computed, watch, onBeforeUnmount, type Ref } from "vue";
 import { useRoute } from "vue-router";
 import { useStore } from "@/store";
 import { useI18n } from "vue-i18n";
@@ -161,12 +176,36 @@ const route = useRoute();
 
 const videos: Ref<Video[]> = ref([]);
 const isLoadingAddPreview = ref(false);
+const isAddPreviewSlow = ref(false);
 const hasAddPreviewFailed = ref(false);
 const inputAddPreview = ref("");
 const isLoadingAddAll = ref(false);
 const videosLoadFailureText = ref("");
 const selectedTestVideo = ref<string | undefined>(undefined);
 const selectedAdapter = ref<string | null>(null);
+const PREVIEW_TIMEOUT_MS = 45_000;
+let previewRequest: AbortController | null = null;
+let previewTimeout: ReturnType<typeof setTimeout> | undefined;
+let previewSlowTimeout: ReturnType<typeof setTimeout> | undefined;
+
+function clearPreviewTimers() {
+	clearTimeout(previewTimeout);
+	clearTimeout(previewSlowTimeout);
+	previewTimeout = undefined;
+	previewSlowTimeout = undefined;
+	isAddPreviewSlow.value = false;
+}
+
+function cancelAddPreview() {
+	requestAddPreviewDebounced.cancel();
+	const request = previewRequest;
+	previewRequest = null;
+	request?.abort();
+	clearPreviewTimers();
+	isLoadingAddPreview.value = false;
+}
+
+onBeforeUnmount(cancelAddPreview);
 
 const testVideos: Record<string, Array<[string, string]>> = import.meta.env.DEV
 	? {
@@ -293,12 +332,34 @@ const adapterOptions = computed(() => {
 });
 
 async function requestAddPreview() {
+	cancelAddPreview();
+	const request = new AbortController();
+	previewRequest = request;
+	isLoadingAddPreview.value = true;
+	isAddPreviewSlow.value = false;
+	previewSlowTimeout = setTimeout(() => {
+		isAddPreviewSlow.value = true;
+	}, 8000);
+	previewTimeout = setTimeout(() => {
+		if (previewRequest !== request) {
+			return;
+		}
+		cancelAddPreview();
+		hasAddPreviewFailed.value = true;
+		videosLoadFailureText.value = t("add-preview.messages.timeout");
+	}, PREVIEW_TIMEOUT_MS);
 	try {
 		let url = `/data/previewAdd?input=${encodeURIComponent(inputAddPreview.value)}`;
 		if (selectedAdapter.value) {
 			url += `&adapter=${encodeURIComponent(selectedAdapter.value)}`;
 		}
-		const res = await API.get<OttResponseBody<OttApiResponseAddPreview>>(url);
+		const res = await API.get<OttResponseBody<OttApiResponseAddPreview>>(url, {
+			timeout: PREVIEW_TIMEOUT_MS,
+			signal: request.signal,
+		});
+		if (previewRequest !== request) {
+			return;
+		}
 
 		hasAddPreviewFailed.value = false;
 		if (res.data.success) {
@@ -309,16 +370,26 @@ async function requestAddPreview() {
 			throw new Error(res.data.error.message);
 		}
 	} catch (err) {
+		if (previewRequest !== request) {
+			return;
+		}
 		hasAddPreviewFailed.value = true;
 		videosLoadFailureText.value = t("add-preview.messages.unknown-error");
 		console.error("Failed to get add preview", err);
 		let unknownFail = true;
+		if (axios.isAxiosError(err) && ["ECONNABORTED", "ETIMEDOUT"].includes(err.code ?? "")) {
+			unknownFail = false;
+			videosLoadFailureText.value = t("add-preview.messages.timeout");
+		}
 		if (axios.isAxiosError(err) && err.response) {
 			console.error(`add preview response: ${err.response.status}`, err.response.data);
 
 			if (err.response.status === 400) {
 				unknownFail = false;
-				videosLoadFailureText.value = err.response.data.error.message;
+				videosLoadFailureText.value =
+					err.response.data.error.name === "FfprobeTimeoutError"
+						? t("add-preview.messages.metadata-timeout")
+						: err.response.data.error.message;
 				if (
 					err.response.data.error.name === "FeatureDisabledException" &&
 					!isAddPreviewInputUrl.value
@@ -346,7 +417,11 @@ async function requestAddPreview() {
 			});
 		}
 	} finally {
-		isLoadingAddPreview.value = false;
+		if (previewRequest === request) {
+			previewRequest = null;
+			clearPreviewTimers();
+			isLoadingAddPreview.value = false;
+		}
 	}
 }
 const requestAddPreviewDebounced = _.debounce(requestAddPreview, 1000);
@@ -380,6 +455,7 @@ async function addAllToQueue() {
 	isLoadingAddAll.value = false;
 }
 function onInputAddPreviewChange() {
+	cancelAddPreview();
 	hasAddPreviewFailed.value = false;
 	if (!inputAddPreview.value || _.trim(inputAddPreview.value).length === 0) {
 		videos.value = [];
@@ -403,7 +479,7 @@ function onInputAddPreviewKeyDown(e) {
 		e.preventDefault();
 	}
 
-	if (_.trim(inputAddPreview.value).length === 0 || isAddPreviewInputUrl.value) {
+	if (_.trim(inputAddPreview.value).length === 0 || isLoadingAddPreview.value) {
 		return;
 	}
 

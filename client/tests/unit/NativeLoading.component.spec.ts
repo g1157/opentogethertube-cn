@@ -339,6 +339,28 @@ describe("native player loading-state integration", () => {
 	}
 
 	describe.each(players)("$name", fixture => {
+		it("starts from loadeddata with only current-frame data and a tiny buffer", async () => {
+			const target = mountPlayer(fixture);
+			state(target.video).readyState = 1;
+			await target.wrapper.get("video").trigger("loadedmetadata");
+			dashMock.instances.at(-1)?.listeners.get(DashSdk.events.STREAM_INITIALIZED)?.();
+			Object.assign(state(target.video), {
+				readyState: 2,
+				videoWidth: 1280,
+				videoHeight: 720,
+				buffered: ranges([[0, 0.05]]),
+			});
+			await target.wrapper.get("video").trigger("loadeddata");
+			expect(target.wrapper.emitted("ready")?.length).toBeGreaterThan(0);
+			expect(target.api.isRecovering?.()).toBe(false);
+			await target.api.play();
+			await target.wrapper.get("video").trigger("playing");
+			expect(latest(target.wrapper).phase).toBeNull();
+			await vi.advanceTimersByTimeAsync(30000);
+			expect(target.video.play).toHaveBeenCalledOnce();
+			expect(target.wrapper.emitted("error")).toBeUndefined();
+		});
+
 		it("pauses the old position immediately and holds ordinary play until the latest seek is ready", async () => {
 			const target = mountPlayer(fixture);
 			await makePlayable(target);
@@ -390,7 +412,7 @@ describe("native player loading-state integration", () => {
 			expect(target.api.isSeeking?.()).toBe(false);
 		});
 
-		it("keeps waiting after ready, playing and time progression until a frame is presented", async () => {
+		it("releases playable media without waiting for another compositor frame", async () => {
 			const target = mountPlayer(fixture);
 			expect(latest(target.wrapper).phase).toBe("preparing");
 			await makePlayable(target);
@@ -402,9 +424,9 @@ describe("native player loading-state integration", () => {
 			await target.wrapper.get("video").trigger("timeupdate");
 			expect(target.wrapper.emitted("playing")?.length).toBeGreaterThan(0);
 			expect(latest(target.wrapper)).toEqual({
-				phase: "waiting-frame",
-				currentTime: 311,
-				bufferAhead: 39,
+				phase: null,
+				currentTime: 310,
+				bufferAhead: 40,
 			});
 			presentFrame(currentFrame(target.video));
 			expect(latest(target.wrapper).phase).toBeNull();
@@ -412,19 +434,21 @@ describe("native player loading-state integration", () => {
 			expect(target.video.play).toHaveBeenCalledOnce();
 		});
 
-		it("ignores a queued old-source frame and waits for the replacement source's frame", async () => {
+		it("ignores an old-source callback until the replacement source has current data", async () => {
 			const target = mountPlayer(fixture);
 			await makePlayable(target);
 			const oldFrame = currentFrame(target.video);
 			await target.wrapper.setProps({ videoUrl: fixture.nextVideoUrl });
 			expect(latest(target.wrapper).phase).toBe("preparing");
 			expect(target.video.src).toBe(fixture.nextVideoUrl);
+			presentFrame(oldFrame, target.video.currentTime);
+			expect(latest(target.wrapper).phase).toBe("preparing");
 			await makePlayable(target, 320);
 			const newFrame = currentFrame(target.video);
 			expect(newFrame).not.toBe(oldFrame);
 			// The same position alone must not make a cancelled source's frame current.
 			presentFrame(oldFrame, target.video.currentTime);
-			expect(latest(target.wrapper).phase).toBe("waiting-frame");
+			expect(latest(target.wrapper).phase).toBeNull();
 			presentFrame(newFrame);
 			expect(latest(target.wrapper).phase).toBeNull();
 			expect(target.video.play).not.toHaveBeenCalled();
@@ -580,7 +604,7 @@ describe("native player loading-state integration", () => {
 		await expect(target.api.play()).rejects.toBe(blocked);
 		expect(target.video.play).toHaveBeenCalledOnce();
 		expect(target.wrapper.emitted("error")).toBeUndefined();
-		expect(latest(target.wrapper).phase).toBe("waiting-frame");
+		expect(latest(target.wrapper).phase).toBeNull();
 	});
 
 	it("holds a DASH seek until both stream initialization and metadata are available", async () => {

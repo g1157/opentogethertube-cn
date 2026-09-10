@@ -335,9 +335,10 @@ const roomNotices = [
 	{ setting: "seekNoticeSeconds", label: "seek-notice-duration" },
 ] as const;
 const roomNoticeOptions = computed(() =>
-	ROOM_NOTICE_SECONDS_OPTIONS.map(value => ({
-		title: value > 0 ? t("player.interactions.seconds", { count: value }) : t("common.off"),
-		value,
+	ROOM_NOTICE_SECONDS_OPTIONS.map(seconds => ({
+		// biome-ignore lint/nursery/noVueRefAsOperand: seconds is a numeric option, not a Vue ref.
+		title: seconds > 0 ? t("player.interactions.seconds", { count: seconds }) : t("common.off"),
+		value: seconds,
 	})),
 );
 const hlsBufferOptions = computed(() =>

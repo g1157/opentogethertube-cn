@@ -1,11 +1,11 @@
 {
 	"name": "ott-edge",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"private": true,
 	"type": "module",
 	"license": "AGPL-3.0-or-later",
 	"scripts": {
-		"build:client": "OTT_EDGE_PREVIEW=true GIT_COMMIT=cloudflare-preview-0.1.1 VITE_SOURCE_URL=/source-code.tar.gz yarn workspace ott-client build && cp assets/_headers ../../client/dist/_headers",
+		"build:client": "OTT_EDGE_PREVIEW=true GIT_COMMIT=cloudflare-preview-0.1.2 VITE_SOURCE_URL=/source-code.tar.gz yarn workspace ott-client build && cp assets/_headers ../../client/dist/_headers",
 		"build": "wrangler deploy --dry-run --outdir dist",
 		"dev": "wrangler dev --ip 127.0.0.1 --port 18787",
 		"db:local": "wrangler d1 migrations apply ott-edge-preview --local",

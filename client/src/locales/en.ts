@@ -266,6 +266,9 @@ export default {
 	},
 	"add-preview": {
 		label: "Link or Search",
+		loading: "Reading video information…",
+		"loading-slow": "The source is responding slowly. Reading video information…",
+		retry: "Retry",
 		"add-all": "Add All",
 		placeholder: "Type to search YouTube or enter a Video URL to add to the queue",
 		title: "What can I add?",
@@ -282,6 +285,10 @@ export default {
 			"youtube-channels": "Youtube channels: {url}",
 		},
 		messages: {
+			timeout:
+				"Reading video information timed out after 45 seconds. The link may still be playable. Please retry.",
+			"metadata-timeout":
+				"The source took too long to return video information. The link may still be playable. Please retry.",
 			"unknown-status": "Unknown status for add preview response: {status}.",
 			"unknown-error": "An unknown error occurred when getting add preview. Try again later.",
 			"failed-to-get-add-preview":
