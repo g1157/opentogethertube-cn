@@ -6,35 +6,55 @@ x-logging: &logging
     max-size: "10m"
     max-file: "3"
 
+x-ott-env: &ott-env
+  NODE_ENV: production
+  OTT_INSTANCE_ID: ${OTT_INSTANCE_ID:-ott-next}
+  DOCKER: "1"
+  PORT: "8080"
+  OTT_HOSTNAME: ${OTT_PUBLIC_HOSTNAME:-localhost:8080}
+  FORCE_INSECURE_COOKIES: "true"
+  AUTH_COOKIE_NAME: ${OTT_AUTH_COOKIE_NAME:-ott_next_token}
+  SESSION_COOKIE_NAME: ${OTT_SESSION_COOKIE_NAME:-ott_next_sid}
+  SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+  OPENTOGETHERTUBE_API_KEY: ${ADMIN_API_KEY:?ADMIN_API_KEY is required}
+  TRUST_PROXY: "0"
+  DB_MODE: postgres
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ott
+  POSTGRES_USER: ott
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  DATABASE_URL: postgres://ott:${POSTGRES_PASSWORD}@postgres:5432/ott
+  REDIS_URL: redis://redis:6379
+  NODE_OPTIONS: --max-old-space-size=384
+  FFPROBE_STRATEGY: ${FFPROBE_STRATEGY:-run}
+
 services:
+  # 每次启动应用前自动执行数据库迁移（幂等）；失败时应用不会启动。
+  migrate:
+    image: ${OTT_IMAGE:-ghcr.io/g1157/opentogethertube-cn:latest}
+    restart: "no"
+    command:
+      - node
+      - /app/node_modules/sequelize-cli/lib/sequelize
+      - db:migrate
+      - --config
+      - config/config.mjs
+    environment: *ott-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+
   ott:
     image: ${OTT_IMAGE:-ghcr.io/g1157/opentogethertube-cn:latest}
     restart: unless-stopped
     ports:
       - "${OTT_PUBLIC_PORT:-8080}:8080"
-    environment:
-      NODE_ENV: production
-      OTT_INSTANCE_ID: ${OTT_INSTANCE_ID:-ott-next}
-      DOCKER: "1"
-      PORT: "8080"
-      OTT_HOSTNAME: ${OTT_PUBLIC_HOSTNAME:-localhost:8080}
-      FORCE_INSECURE_COOKIES: "true"
-      AUTH_COOKIE_NAME: ${OTT_AUTH_COOKIE_NAME:-ott_next_token}
-      SESSION_COOKIE_NAME: ${OTT_SESSION_COOKIE_NAME:-ott_next_sid}
-      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
-      OPENTOGETHERTUBE_API_KEY: ${ADMIN_API_KEY:?ADMIN_API_KEY is required}
-      TRUST_PROXY: "0"
-      DB_MODE: postgres
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: ott
-      POSTGRES_USER: ott
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      DATABASE_URL: postgres://ott:${POSTGRES_PASSWORD}@postgres:5432/ott
-      REDIS_URL: redis://redis:6379
-      NODE_OPTIONS: --max-old-space-size=384
-      FFPROBE_STRATEGY: ${FFPROBE_STRATEGY:-run}
+    environment: *ott-env
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -52,7 +72,6 @@ services:
 
   postgres:
     image: postgres:15-bullseye
-    pull_policy: never
     restart: unless-stopped
     environment:
       POSTGRES_DB: ott
@@ -71,7 +90,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    pull_policy: never
     restart: unless-stopped
     command: [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory, 128mb, --maxmemory-policy, noeviction]
     volumes:

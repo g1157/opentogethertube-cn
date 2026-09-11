@@ -30,55 +30,29 @@ dyc3/opentogethertube@sha256:feec95f418e7d438b632bb05311bfa522d5e40f13d019e21462
 
 ```sh
 git clone https://github.com/g1157/opentogethertube-cn.git source
-cp source/deploy/next-compose.yml compose.yml
-cp source/deploy/next-backup.sh backup.sh
-chmod 700 backup.sh
-```
-
-生成一次性配置文件，密钥直接写入文件而不输出到终端；已有 `.env` 时下面的命令会拒绝覆盖：
-
-```sh
-( set -C; umask 077; sed \
-    -e "s/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=$(openssl rand -hex 32)/" \
-    -e "s/^SESSION_SECRET=$/SESSION_SECRET=$(openssl rand -hex 48)/" \
-    -e "s/^ADMIN_API_KEY=$/ADMIN_API_KEY=$(openssl rand -hex 32)/" \
-    source/deploy/.env.example > .env )
-```
-
-编辑 `.env`，将 `OTT_PUBLIC_HOSTNAME` 设为 `YOUR_HOST:8080`（不带协议和路径）；默认
-`OTT_PUBLIC_PORT=8080` 为宿主机端口，容器内部始终使用 8080。PostgreSQL / Redis 镜像使用
-`pull_policy: never`，首次先单独拉取，再拉取应用镜像：
-
-```sh
-sudo docker pull postgres:15-bullseye
-sudo docker pull redis:7-alpine
-sudo docker compose pull ott
-```
-
-启动数据库并初始化表结构（新库必须执行一次迁移），再启动应用：
-
-```sh
-sudo docker compose up -d postgres redis
-sudo docker compose run --rm --no-deps ott node /app/node_modules/sequelize-cli/lib/sequelize db:migrate --config config/config.mjs
-sudo docker compose up -d
+bash source/deploy/init.sh   # 生成 compose.yml、backup.sh 和 .env（随机密钥；已有 .env 时拒绝覆盖）
+# 编辑 .env：把 OTT_PUBLIC_HOSTNAME 设为 YOUR_HOST:8080（不带协议和路径）
+sudo docker compose up -d    # 自动拉取缺失镜像、等待数据库、执行迁移、启动应用
 curl --fail http://127.0.0.1:8080/api/status
 ```
+
+`init.sh` 只负责一次性配置，之后所有操作都通过 `docker compose`。默认
+`OTT_PUBLIC_PORT=8080` 为宿主机端口，容器内部始终使用 8080。数据库迁移由 `migrate` 服务在
+应用启动前自动执行（幂等；迁移失败时应用不会启动），首次部署和升级都不需要手动迁移。
 
 ## 升级
 
 ```sh
-./backup.sh    # 先备份；记下当前镜像 ID（sudo docker images 中的 ott 镜像）
-cd source && git pull && cd ..   # 只更新 compose、backup 等部署文件，应用代码在镜像里
-sudo docker compose pull ott
-sudo docker compose up -d --no-deps ott
+./backup.sh
+sudo docker compose pull      # 拉取新镜像
+sudo docker compose up -d     # 先自动迁移，再重建应用容器
 curl --fail http://127.0.0.1:8080/api/status
 ```
 
 `.env` 的 `OTT_IMAGE` 默认指向 `ghcr.io/g1157/opentogethertube-cn:latest`；想固定版本就改成
-具体的发布标签（如 `...:v0.15.0-cn10`）或镜像摘要（`@sha256:…`）。升级前先看
-[版本记录](docs/version-notes.zh-CN.md) 是否包含数据库迁移；有迁移则先执行再启动应用
-（命令同新机器部署）。不要使用 `down -v`，它会删除数据卷。升级后检查健康接口、双客户端
-同步和手机全屏手势是否正常。
+具体的发布标签（如 `...:v0.15.0-cn10`）或镜像摘要（`@sha256:…`）。升级前仍建议看一眼
+[版本记录](docs/version-notes.zh-CN.md) 确认迁移与行为变化。不要使用 `down -v`，它会删除
+数据卷。升级后检查健康接口、双客户端同步和手机全屏手势是否正常。
 
 ## 回退
 
@@ -88,6 +62,8 @@ curl --fail http://127.0.0.1:8080/api/status
 ```sh
 sudo docker compose up -d --no-deps --no-build ott
 ```
+
+`--no-deps` 会跳过 `migrate` 服务——回退时不应自动执行迁移，请确认旧版本与当前数据库结构兼容。
 
 ## 从源码构建镜像（可选）
 
