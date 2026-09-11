@@ -67,8 +67,14 @@ export default defineConfig({
 					if (!id.includes("node_modules")) {
 						return;
 					}
-					// Keep lazily imported players in their own async chunks.
-					if (id.includes("hls.js") || id.includes("dashjs")) {
+					// Keep lazily imported players and the WebGL shaders bundle (with three.js)
+					// in their own async chunks instead of the startup vendor chunk.
+					if (
+						id.includes("hls.js") ||
+						id.includes("dashjs") ||
+						id.includes("node_modules/shaders") ||
+						id.includes("node_modules/three")
+					) {
 						return;
 					}
 					return "vendor";
