@@ -68,26 +68,43 @@ function updateCaptions() {
 	}
 }
 
+function scheduleMonitor() {
+	const video = props.video;
+	if (video && monitorFrame) {
+		video.cancelVideoFrameCallback(monitorFrame);
+	}
+	monitorFrame = video ? video.requestVideoFrameCallback(monitorPerformance) : 0;
+}
+
 function monitorPerformance() {
 	const video = props.video;
 	if (!video || degraded) {
 		return;
 	}
 	const now = performance.now();
+	if (video.paused) {
+		// Paused videos produce no frames; counting that time would look like 0 fps.
+		monitorWindowStart = 0;
+		monitorFrames = 0;
+		scheduleMonitor();
+		return;
+	}
 	if (!monitorWindowStart) {
 		monitorWindowStart = now;
 	}
 	monitorFrames++;
-	if (monitorFrame) {
-		video.cancelVideoFrameCallback(monitorFrame);
-	}
-	monitorFrame = video.requestVideoFrameCallback(monitorPerformance);
+	scheduleMonitor();
 	if (now - monitorWindowStart < 6000) {
 		return;
 	}
-	const fps = monitorFrames / ((now - monitorWindowStart) / 1000);
+	const elapsed = (now - monitorWindowStart) / 1000;
+	const frames = monitorFrames;
 	monitorWindowStart = now;
 	monitorFrames = 0;
+	if (frames < 24) {
+		return;
+	}
+	const fps = frames / elapsed;
 	if (fps >= 18) {
 		return;
 	}
@@ -99,6 +116,15 @@ function monitorPerformance() {
 		duration: 6000,
 	});
 	store.commit("settings/UPDATE", { upscaleMode: nextMode });
+}
+
+function handleViewportChange() {
+	const video = props.video;
+	const canvas = canvasElem.value;
+	if (props.mode === "sharpen" && renderer && video && canvas) {
+		// The sharpen pass reads the canvas size every frame, so a resize is enough.
+		sizeCanvas(video, canvas);
+	}
 }
 
 function stopRenderers() {
@@ -201,10 +227,14 @@ watch(
 
 onMounted(() => {
 	attachVideo(props.video);
+	window.addEventListener("resize", handleViewportChange);
+	document.addEventListener("fullscreenchange", handleViewportChange);
 	void start();
 });
 
 onBeforeUnmount(() => {
+	window.removeEventListener("resize", handleViewportChange);
+	document.removeEventListener("fullscreenchange", handleViewportChange);
 	detachVideo(props.video);
 	stopRenderers();
 });

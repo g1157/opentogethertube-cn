@@ -82,7 +82,7 @@ export function startSharpenRenderer(
 	gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 
 	gl.uniform1i(gl.getUniformLocation(program, "uTexture"), 0);
-	gl.uniform1f(gl.getUniformLocation(program, "uAmount"), 0.6);
+	gl.uniform1f(gl.getUniformLocation(program, "uAmount"), 0.75);
 	gl.uniform2f(
 		gl.getUniformLocation(program, "uTexel"),
 		1 / Math.max(1, video.videoWidth),
