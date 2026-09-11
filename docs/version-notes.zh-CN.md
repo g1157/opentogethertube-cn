@@ -27,3 +27,6 @@
   避免旧 `stream` 顺序下载大文件后超时；添加面板增加 45 秒请求上限、慢响应提示和重试，
   详见 [MP4 解析与排查](media-parsing.zh-CN.md)。无生产数据库迁移；已有环境中显式设置的
   `stream` 需改为 `run`，重建应用容器后才生效。
+- **cn10**：发布与部署流程更新——镜像由 GitHub Actions 构建并发布到
+  `ghcr.io/g1157/opentogethertube-cn`，部署改为 `docker compose pull && up -d`（服务器不再编译，
+  也不需要 Node.js）；包含 cn9 之后的原生播放探测与队列修复。无数据库迁移。
