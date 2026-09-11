@@ -17,8 +17,9 @@ Cloudflare 上，**不需要腾讯云或其他自有服务器**。腾讯云可�
 - **Cloudflare 预览版（不需要服务器，约 15 分钟）**：注册 Cloudflare 账户后，在开发机上按
   [Cloudflare 分步部署](DEPLOYMENT-CLOUDFLARE.md) 发布，使用免费的 `workers.dev` 地址，
   无需服务器运维。适合以 HTTPS 视频直链观看为主的小规模共同观看。
-- **Docker / Node.js 自托管版**：按 [部署文档](DEPLOYMENT.md) 在任意 Linux 服务器部署
-  （建议 2 vCPU / 2 GiB 起步）；国内服务器没有开放 80/443 时可用
+- **Docker / Node.js 自托管版**：按 [部署文档](DEPLOYMENT.md) 在任意 Linux 服务器部署；应用镜像已
+  发布到 GHCR，`docker compose pull && up -d` 即可，无需在服务器上编译（建议 2 vCPU / 2 GiB 起步）。
+  国内服务器没有开放 80/443 时可用
   [Cloudflare Tunnel 入口](DEPLOYMENT.md#可选cloudflare-tunnel-入口适合没有开放-80443-的服务器)。
   适合需要账号体系、平台解析或完整服务端能力的场景。
 
@@ -101,9 +102,10 @@ Cloudflare 版按 [分步部署文档](DEPLOYMENT-CLOUDFLARE.md) 操作：登录
 配置绑定、应用迁移、构建前端并使用 Wrangler 发布；可使用免费 `workers.dev` 地址，
 自定义域名可选。开发机器只在构建、发布或本地调试时使用，发布完成后无需保持在线。
 
-Docker 版按 [部署文档](DEPLOYMENT.md) 建立 PostgreSQL、Redis 和应用容器，配置数据卷、密钥、
-域名与 HTTPS（国内服务器可用 Cloudflare Tunnel 作为入口）；升级时原地重建应用容器并保留数据卷，
-先备份、保留旧镜像以便回退。开发方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+Docker 版按 [部署文档](DEPLOYMENT.md) 拉取已发布镜像（`ghcr.io/g1157/opentogethertube-cn`）并建立
+PostgreSQL、Redis 和应用容器，配置数据卷、密钥、域名与 HTTPS（国内服务器可用 Cloudflare Tunnel
+作为入口）；升级时换镜像标签、原地重建应用容器并保留数据卷，先备份以便回退。需要自行编译时见
+部署文档的“从源码构建镜像”。开发方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 文档索引
 

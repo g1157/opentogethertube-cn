@@ -1,0 +1,59 @@
+name: Publish Image
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: publish-image
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - run: node .yarn/releases/yarn-4.1.0.cjs install --immutable
+      - name: Build workspaces
+        run: |
+          node .yarn/releases/yarn-4.1.0.cjs workspace ott-common build
+          node .yarn/releases/yarn-4.1.0.cjs workspace ott-server build
+          GIT_COMMIT=$(git rev-parse HEAD) VITE_SOURCE_URL=/source-code.tar.gz \
+            node .yarn/releases/yarn-4.1.0.cjs workspace ott-client build
+          git archive --format=tar.gz -o client/dist/source-code.tar.gz HEAD
+      - name: Resolve version
+        id: meta
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=edge" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        env:
+          IMAGE: ghcr.io/g1157/opentogethertube-cn
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          docker build -f deploy/next.Dockerfile \
+            --build-arg SOURCE_COMMIT=$(git rev-parse HEAD) \
+            --build-arg OTT_VERSION="$VERSION" \
+            -t "$IMAGE:$VERSION" \
+            -t "$IMAGE:latest" \
+            .
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:latest"
