@@ -15,7 +15,8 @@
 ## 运行环境
 
 需要 Docker Engine、Compose v2 和 Git（只用来取部署文件）。发布镜像是 **linux/amd64**，适配常见
-云服务器；`docker compose pull` 从公开的 `ghcr.io/g1157/opentogethertube-cn` 拉取，不需要登录。
+云服务器；`docker compose pull` 从公开的 `ghcr.io/g1157/opentogethertube-cn` 拉取，不需要登录
+（部分网络访问 ghcr.io 可能缓慢或超时；可配置可用代理，或在其他机器 `docker save` 后传输导入）。
 镜像内的运行依赖沿用固定基础镜像：
 
 ```text
@@ -74,7 +75,7 @@ curl --fail http://127.0.0.1:8080/api/status
 ```
 
 `.env` 的 `OTT_IMAGE` 默认指向 `ghcr.io/g1157/opentogethertube-cn:latest`；想固定版本就改成
-具体的发布标签（如 `...:v0.15.0-cn10`）。升级前先看
+具体的发布标签（如 `...:v0.15.0-cn10`）或镜像摘要（`@sha256:…`）。升级前先看
 [版本记录](docs/version-notes.zh-CN.md) 是否包含数据库迁移；有迁移则先执行再启动应用
 （命令同新机器部署）。不要使用 `down -v`，它会删除数据卷。升级后检查健康接口、双客户端
 同步和手机全屏手势是否正常。
