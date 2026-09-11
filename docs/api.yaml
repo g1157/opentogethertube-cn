@@ -1,0 +1,742 @@
+openapi: 3.0.3
+x-optic-path-ignore:
+  - "**/*.+(js|ts|jsx|tsx)"
+  - "**/*.+(css|vue|jpg|jpeg|png|gif|ico|svg|html)"
+  - /@(id|fs)/**
+  - /node_modules/**
+info:
+  title: OpenTogetherTube REST API
+  description: This specifies all the endpoints available on OpenTogetherTube. All
+    endpoints are subject to change spontaneously and without warning as new
+    features are added or bugs are fixed.
+  version: 0.2.0
+externalDocs:
+  description: Other docs
+  url: https://github.com/dyc3/opentogethertube/tree/master/docs
+servers:
+  - url: http://localhost:8080/
+  - url: https://staging.opentogethertube.com/
+  - url: https://opentogethertube.com/
+tags:
+  - name: room
+    description: Operations on Rooms
+  - name: data
+    description: Grabbing metadata
+  - name: user
+    description: Operations on Users
+  - name: dev
+    description: Endpoints only available when not in production mode
+paths:
+  /api/room/list:
+    get:
+      tags:
+        - room
+      summary: List open public rooms.
+      description: List open public rooms. If a valid api key is provided, it will
+        list all rooms, including unlisted or private rooms.
+      responses:
+        "200":
+          description: List of rooms, sorted by number of users in descending order, then
+            by room name.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  "/api/room/{RoomName}/queue":
+    parameters:
+      - $ref: "#/components/parameters/RoomName"
+    post:
+      tags:
+        - room
+      summary: Add one or more videos to the queue.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/VideoAdd"
+                - type: object
+                  properties:
+                    url:
+                      type: string
+                - type: object
+                  properties:
+                    videos:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/VideoAdd"
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+    patch:
+      tags:
+        - room
+      summary: Update a video in the queue.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoAdd"
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+    delete:
+      tags:
+        - room
+      summary: Remove a video from the queue.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+  "/api/room/{RoomName}":
+    parameters:
+      - $ref: "#/components/parameters/RoomName"
+    get:
+      summary: Get room metadata
+      tags:
+        - room
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      grants:
+                        type: array
+                        items:
+                          type: array
+                          items:
+                            type: number
+                      autoSkipSegmentCategories:
+                        $ref: "#/components/schemas/autoSkipSegmentCategories"
+                      users:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            status:
+                              type: string
+                            role:
+                              type: number
+                            name:
+                              type: string
+                            isLoggedIn:
+                              type: boolean
+                            id:
+                              type: string
+                          required:
+                            - status
+                            - role
+                            - name
+                            - isLoggedIn
+                            - id
+                      visibility:
+                        $ref: "#/components/schemas/visibility"
+                      title:
+                        type: string
+                      queueMode:
+                        $ref: "#/components/schemas/queuemode"
+                      queue:
+                        type: array
+                        items: {}
+                      name:
+                        type: string
+                      isTemporary:
+                        type: boolean
+                      hasOwner:
+                        type: boolean
+                      description:
+                        type: string
+                      clients:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            username:
+                              type: string
+                            name:
+                              type: string
+                            isLoggedIn:
+                              type: boolean
+                          required:
+                            - isLoggedIn
+                    required:
+                      - grants
+                      - autoSkipSegmentCategories
+                      - users
+                      - visibility
+                      - title
+                      - queueMode
+                      - queue
+                      - name
+                      - isTemporary
+                      - hasOwner
+                      - description
+                      - clients
+                  - type: array
+                    items: {}
+        "304":
+          description: ""
+          content: {}
+    patch:
+      summary: Change a room's settings or claim ownership of it
+      tags:
+        - room
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  properties:
+                    title:
+                      type: string
+                    description:
+                      type: string
+                    visibility:
+                      $ref: "#/components/schemas/visibility"
+                    queueMode:
+                      $ref: "#/components/schemas/queuemode"
+                    autoSkipSegmentCategories:
+                      $ref: "#/components/schemas/autoSkipSegmentCategories"
+                    grants:
+                      description: Map of role numbers to the bitmask of permissions that role has
+                        been granted
+                      type: array
+                      items:
+                        type: array
+                        items:
+                          type: number
+                  example:
+                    title: New title
+                - type: object
+                  properties:
+                    claim:
+                      type: boolean
+                  example:
+                    claim: true
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+    delete:
+      description: Unloads the room from memory, if present. Does **not** delete
+        permanent rooms from the database.
+      tags:
+        - room
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+  /api/user:
+    get:
+      tags:
+        - user
+      summary: Get the current user associated with this token.
+      description: Get the current user associated with this token. Effectively
+        represents a session.
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username:
+                    type: string
+                  loggedIn:
+                    type: boolean
+                  discordLinked:
+                    type: boolean
+                required:
+                  - username
+                  - loggedIn
+  /api/room/generate:
+    post:
+      tags:
+        - room
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  room:
+                    type: string
+                    description: The name of the room that was created. Should be automatically
+                      joined by the client.
+                required:
+                  - success
+                  - room
+  /api/data/permissions:
+    get:
+      tags:
+        - data
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  roles:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        id:
+                          type: number
+                        display:
+                          type: string
+                      required:
+                        - name
+                        - id
+                        - display
+                  permissions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        minRole:
+                          type: number
+                        mask:
+                          type: number
+                      required:
+                        - name
+                        - minRole
+                        - mask
+                required:
+                  - roles
+                  - permissions
+  /api/room/create:
+    post:
+      tags:
+        - room
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                visibility:
+                  $ref: "#/components/schemas/visibility"
+                title:
+                  type: string
+                temporary:
+                  type: boolean
+                queueMode:
+                  $ref: "#/components/schemas/queuemode"
+                name:
+                  type: string
+                description:
+                  type: string
+              required:
+                - visibility
+                - title
+                - temporary
+                - queueMode
+                - name
+                - description
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+  /api/data/previewAdd:
+    get:
+      description: Used to display videos to the end user before they add them to the
+        queue. Effectively allowing them to "preview" the add-to-queue
+        operation.
+      tags:
+        - data
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        title:
+                          type: string
+                        thumbnail:
+                          type: string
+                        service:
+                          type: string
+                        length:
+                          type: number
+                        id:
+                          type: string
+                        description:
+                          type: string
+                        mime:
+                          type: string
+                      required:
+                        - service
+                        - id
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/user/auth/discord:
+    get:
+      tags:
+        - user
+      responses:
+        "302":
+          description: ""
+          content: {}
+  /api/user/auth/discord/callback:
+    get:
+      responses:
+        "302":
+          description: ""
+          content:
+            text/html:
+              schema:
+                type: string
+  /api/dev/reset-rate-limit:
+    post:
+      tags:
+        - dev
+      description: Only available in development mode.
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+  /api/user/register:
+    post:
+      tags:
+        - user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                email:
+                  type: string
+              required:
+                - username
+                - password
+                - email
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: object
+                    properties:
+                      username:
+                        type: string
+                      email:
+                        type: string
+                    required:
+                      - username
+                      - email
+                  success:
+                    type: boolean
+                required:
+                  - user
+                  - success
+        "400":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      message:
+                        type: string
+                      fields:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - name
+                      - message
+                      - fields
+                required:
+                  - success
+                  - error
+  /api/user/login:
+    post:
+      tags:
+        - user
+      summary: Log the current user into an account.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                email:
+                  type: string
+              required:
+                - password
+                - email
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: object
+                    properties:
+                      username:
+                        type: string
+                      email:
+                        type: string
+                    required:
+                      - username
+                      - email
+                  success:
+                    type: boolean
+                required:
+                  - user
+                  - success
+        "401":
+          $ref: "#/components/responses/Error"
+  /api/user/logout:
+    post:
+      tags:
+        - user
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/auth/grant:
+    get:
+      summary: Get an auth token. Required for most other operations.
+      description: Get an auth token from the server.
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                required:
+                  - token
+  /api/auth/discord:
+    get:
+      responses:
+        "302":
+          description: ""
+          content: {}
+  /api/auth/discord/callback:
+    get:
+      responses:
+        "302":
+          description: ""
+          content:
+            text/html:
+              schema:
+                type: string
+  /api/status:
+    get:
+      responses:
+        "200":
+          description: The status of the server. This is used by monitoring to determine
+            if the server is online or not.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                required:
+                  - status
+  /api/status/metrics:
+    get:
+      responses:
+        "200":
+          description: Metrics exported for Prometheus.
+          content:
+            text/plain; charset=utf-8; version=0.0.4: {}
+  /api/room/{RoomName}/vote:
+    post:
+      tags:
+        - room
+      summary: Add a vote for a video.
+      parameters:
+        - $ref: "#/components/parameters/RoomName"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+        "400":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags:
+        - room
+      summary: Remove a vote for a video.
+      parameters:
+        - $ref: "#/components/parameters/RoomName"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+        "400":
+          $ref: "#/components/responses/Error"
+components:
+  schemas:
+    visibility:
+      type: string
+      enum:
+        - public
+        - unlisted
+        - private
+      example: public
+    queuemode:
+      type: string
+      enum:
+        - manual
+        - vote
+        - loop
+        - dj
+      example: manual
+    Error:
+      type: object
+      properties:
+        name:
+          type: string
+          example: PermissionDeniedException
+        message:
+          type: string
+      required:
+        - message
+    VideoId:
+      type: object
+      properties:
+        service:
+          type: string
+          example: youtube
+        id:
+          type: string
+          example: dQw4w9WgXcQ
+      required:
+        - service
+        - id
+    VideoAdd:
+      type: object
+      properties:
+        service:
+          type: string
+          example: youtube
+        id:
+          type: string
+          example: dQw4w9WgXcQ
+        subtitleUrl:
+          type: string
+          format: uri
+          description: URL to a WebVTT subtitle file.
+      required:
+        - service
+        - id
+    autoSkipSegmentCategories:
+      type: array
+      items:
+        type: string
+  responses:
+    Success:
+      description: The operation was successful.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: true
+            required:
+              - success
+    Error:
+      description: The operation failed for the given reason.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              error:
+                $ref: "#/components/schemas/Error"
+            required:
+              - success
+              - error
+  parameters:
+    RoomName:
+      name: RoomName
+      in: path
+      schema:
+        type: string
+      required: true
+  securitySchemes:
+    tokenAuth:
+      type: http
+      scheme: bearer
+    apikeyAuth:
+      type: apiKey
+      in: header
+      name: apikey

@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/.env
+**/.env.*
+**/tests
+**/fixtures
+crates
+packages
+docs
+.yarn
+backups
+*.log

@@ -1,0 +1,12 @@
+hostname = "opentogethertube.com"
+force_insecure_cookies = true
+cors_proxy = "cors.opentogethertube.com"
+
+[log]
+level = "info"
+
+[mail]
+enabled = true
+
+[balancing]
+enabled = true

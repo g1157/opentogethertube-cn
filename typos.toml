@@ -1,0 +1,26 @@
+[default]
+locale = "en-us"
+
+[default.extend-words]
+guage = "gauge"
+AVOD = "AVOD"
+ser = "ser"
+seeked = "seeked"
+# google drive misspelled this in their API
+aknowledge = "aknowledge"
+# Odysee
+Ody = "Ody"
+
+[type.css]
+extend-glob = ["*.css"]
+# CSS unicode-range values contain hexadecimal code points.
+extend-ignore-re = ["\\b[Uu]\\+[0-9A-Fa-f]{1,6}(?:-[0-9A-Fa-f]{1,6})?\\b"]
+
+[files]
+extend-exclude = [
+	"server/tests/unit/fixtures",
+	"server/tests/unit/services/youtube.spec.ts",
+	"client/src/locales",
+	"!client/src/locales/en.ts",
+	"deploy/nginx.prod.conf",
+]
