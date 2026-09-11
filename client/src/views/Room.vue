@@ -154,7 +154,7 @@
 						<v-tab>
 							<v-icon :icon="mdiFormatListBulleted" />
 							<span class="tab-text">{{ $t("room.tabs.queue") }}</span>
-							<v-chip size="x-small">
+							<v-chip size="x-small" class="room-tab-count">
 								{{
 									store.state.room.queue.length <= 99
 										? $n(store.state.room.queue.length)
@@ -171,7 +171,12 @@
 							<span class="tab-text">{{ $t("room.tabs.settings") }}</span>
 						</v-tab>
 					</v-tabs>
-					<v-window v-model="queueTab" class="queue-tab-content">
+					<v-window
+						v-model="queueTab"
+						class="queue-tab-content"
+						transition="tab-slide"
+						reverse-transition="tab-slide-back"
+					>
 						<v-window-item>
 							<VideoQueue @switchtab="queueTab = 1" />
 						</v-window-item>
@@ -1515,10 +1520,64 @@ $in-video-chat-width-small: 250px;
 .queue-tab-content {
 	// HACK: the save button in room settings is not sticky if overflow is not "visible"
 	overflow: visible;
+
+	// Upstream-style tab panel swap: opacity + 48px horizontal shift, 250ms ease-out.
+	:deep(.tab-slide-enter-active),
+	:deep(.tab-slide-back-enter-active),
+	:deep(.tab-slide-leave-active),
+	:deep(.tab-slide-back-leave-active) {
+		transition: opacity 250ms ease-out, transform 250ms ease-out;
+	}
+
+	:deep(.tab-slide-enter-from) {
+		opacity: 0;
+		transform: translateX(48px);
+	}
+
+	:deep(.tab-slide-leave-to) {
+		opacity: 0;
+		transform: translateX(-48px);
+	}
+
+	:deep(.tab-slide-back-enter-from) {
+		opacity: 0;
+		transform: translateX(-48px);
+	}
+
+	:deep(.tab-slide-back-leave-to) {
+		opacity: 0;
+		transform: translateX(48px);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		:deep(.tab-slide-enter-active),
+		:deep(.tab-slide-back-enter-active),
+		:deep(.tab-slide-leave-active),
+		:deep(.tab-slide-back-leave-active) {
+			transition: none;
+		}
+	}
+}
+
+.room-tab-count {
+	height: 18px;
+	background: var(--secondary);
+	color: var(--secondary-foreground);
+	font-family: var(--font-mono);
+	font-size: 11px;
 }
 
 .tab-text {
 	margin: 0 8px;
+
+	@media (max-width: variables.$sm-max) {
+		display: none;
+	}
+}
+
+.room-status {
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
 }
 
 .room-player-loading {
