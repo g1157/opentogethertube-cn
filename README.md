@@ -24,10 +24,15 @@ Cloudflare 上，**不需要腾讯云或其他自有服务器**。腾讯云可�
 | 媒体处理 | 可运行 `ffprobe` 等原有服务端工具 | 有限量元信息探测；无常驻进程、视频转码或媒体代理 |
 | 成本模型 | 服务器、磁盘、备份和网络费用 | 账户共享的请求、CPU、DO 执行时长、数据库读写与存储额度 |
 | 适合场景 | 需要账号、平台适配或完整服务端能力，并愿意维护服务器 | 以直链点播为主，希望省去服务器运维的小规模共同观看 |
-| 部署说明 | [Docker 部署、升级与回退](DEPLOYMENT.md) | [Cloudflare 开发与部署](packages/ott-edge/README.md) |
+| 部署说明 | [Docker 分步部署、升级与回退](DEPLOYMENT.md) | [Cloudflare 分步部署](DEPLOYMENT-CLOUDFLARE.md)（[开发与架构](packages/ott-edge/README.md)） |
 
 两版的数据、身份与房间地址相互独立，没有自动同步或导入。Cloudflare 仍是预览版，不能把
 “无需服务器”理解成与原后端所有功能完全等价。浏览器仍需能直接访问、解码用户提供的有效片源。
+
+**不确定选哪个？** 只有 HTTPS 视频直链、不想维护服务器：选 Cloudflare 预览版，按
+[分步部署](DEPLOYMENT-CLOUDFLARE.md) 约 15 分钟上线（Free 即可）。需要账号体系、平台解析或
+完整服务端能力：选 Docker 版，按 [部署文档](DEPLOYMENT.md) 在任意 Linux 服务器部署；国内服务器
+没有开放 80/443 时可用 [Cloudflare Tunnel 入口](DEPLOYMENT.md#可选cloudflare-tunnel-入口适合没有开放-80443-的服务器)。
 
 ## 资源消耗与免费额度
 
@@ -82,12 +87,13 @@ Cloudflare 预览版 `0.1.1` 及更早已打开的页面需要先手动刷新一
 node .yarn/releases/yarn-4.1.0.cjs install --immutable
 ```
 
-Cloudflare 版从 [独立部署步骤](packages/ott-edge/README.md#发布独立-cloudflare-预览站) 开始：
-创建 D1、配置两个 SQLite DO 绑定、应用迁移、构建前端并使用 Wrangler 发布；可使用免费 `workers.dev` 地址，
+Cloudflare 版按 [分步部署文档](DEPLOYMENT-CLOUDFLARE.md) 操作：登录 Wrangler、创建 D1、
+配置绑定、应用迁移、构建前端并使用 Wrangler 发布；可使用免费 `workers.dev` 地址，
 自定义域名可选。开发机器只在构建、发布或本地调试时使用，发布完成后无需保持在线。
 
-Docker 版按 [部署文档](DEPLOYMENT.md) 建立 PostgreSQL、Redis 和应用容器，配置数据卷、密钥、域名与 HTTPS；
-更新先在独立的 18080 端口验收，再复用已验收镜像更新正式实例。开发方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+Docker 版按 [部署文档](DEPLOYMENT.md) 建立 PostgreSQL、Redis 和应用容器，配置数据卷、密钥、
+域名与 HTTPS（国内服务器可用 Cloudflare Tunnel 作为入口）；升级时原地重建应用容器并保留数据卷，
+先备份、保留旧镜像以便回退。开发方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 版本、源码与许可证
 

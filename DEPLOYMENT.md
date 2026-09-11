@@ -1,7 +1,7 @@
 # 简体中文分支部署（Docker / Node.js）
 
-> Cloudflare 版（Workers / D1 / Durable Objects）见
-> [Cloudflare 开发与部署说明](packages/ott-edge/README.md)；本文只适用于 Docker / Node.js 实例。
+> Cloudflare 版部署见 [DEPLOYMENT-CLOUDFLARE.md](DEPLOYMENT-CLOUDFLARE.md)，架构与限制见
+> [packages/ott-edge/README.md](packages/ott-edge/README.md)；本文只适用于 Docker / Node.js 实例。
 
 本分支基于官方 `v0.15.0`（工作区 `package.json` 保留上游的 `0.14.1`），当前版本 `v0.15.0-cn9`，
 采用单一生产环境部署：正式机器上只运行一个实例，升级时原地重建应用容器，保留 `.env`、
@@ -125,6 +125,19 @@ Compose 示例按直接 HTTP 端口访问设计（`FORCE_INSECURE_COOKIES=true`�
 长期公开部署应配置域名、TLS 和支持 WebSocket 的反向代理，关闭强制不安全 Cookie、按实际
 代理层数设置 `TRUST_PROXY`，并限制外部直接访问后端端口，避免绕过代理。参考
 [上游 HTTPS 配置](docs/how-to-deploy.md#reverse-proxy)。
+
+### 可选：Cloudflare Tunnel 入口（适合没有开放 80/443 的服务器）
+
+本仓库的线上示例使用这种方式：应用只监听 8080，`cloudflared` 以出站连接接入 Cloudflare，
+由 Cloudflare 把域名转发到 `http://localhost:8080`，不需要开放入站端口或本地 TLS 证书。
+
+1. Cloudflare 控制台 → Zero Trust → Networks → Tunnels 创建 Tunnel（连接器选 cloudflared），
+   在 Public Hostname 里把域名指向 `http://localhost:8080`，并复制 Tunnel token。
+2. 在服务器安装 cloudflared 后执行 `sudo cloudflared service install <token>` 注册为系统服务
+   （也可像线上示例一样手写 systemd 单元并用 `--token-file` 启动）。
+3. `.env` 的 `OTT_PUBLIC_HOSTNAME` 改为该域名。线上配置保持
+   `FORCE_INSECURE_COOKIES=true`、`TRUST_PROXY=0` 即可正常工作；若前面还有别的反向代理，
+   再按代理层数调整 `TRUST_PROXY`。
 
 HTML、源码包和 `/api/status/version` 使用 `Cache-Control: no-store`，前端每 30 秒及网络恢复、
 重新可见时检查服务器 revision 并自动重载；反向代理 / CDN 必须保留这些缓存规则，不能将 HTML

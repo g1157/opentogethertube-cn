@@ -99,48 +99,20 @@ node .yarn/releases/yarn-4.1.0.cjs workspace ott-edge dev
 
 ## 发布独立 Cloudflare 预览站
 
-OAuth 首次授权需要读取账户、写入 Workers 和 D1 的权限。Wrangler 登录配置留在用户配置目录，
-不写入仓库。部署使用 Git 忽略的 `wrangler.preview.jsonc` 存放当前账户与数据库绑定。
+首次配置（Wrangler 登录、创建 D1、填写 `wrangler.preview.jsonc`、应用迁移）、构建与发布、
+上线检查、更新、回退和常见问题，见分步文档
+**[Cloudflare 预览版部署](../../DEPLOYMENT-CLOUDFLARE.md)**。要点：
 
-首次配置：
-
-```sh
-node .yarn/releases/yarn-4.1.0.cjs workspace ott-edge exec wrangler login --scopes account:read user:read workers_scripts:write d1:write
-cp packages/ott-edge/wrangler.jsonc packages/ott-edge/wrangler.preview.jsonc
-node .yarn/releases/yarn-4.1.0.cjs workspace ott-edge exec wrangler d1 create ott-edge-preview --location apac
-```
-
-在 `wrangler.preview.jsonc` 填入 `account_id` 与创建命令返回的 `database_id`。
-Worker 名称、数据库名称和 `OTT_INSTANCE_ID` 应与这个独立实例保持一致；已有数据库时复用其 ID，
-不要再次创建。配置不包含生产域名的 routes，不需要修改 DNS、Tunnel 或腾讯云容器。
-
-发布前执行检查，审查并提交所有准备发布的源码，确保工作区与 `HEAD` 一致，再构建与归档：
-
-```sh
-node .yarn/releases/yarn-4.1.0.cjs workspace ott-edge lint-ci
-node .yarn/releases/yarn-4.1.0.cjs workspace ott-edge test
-node .yarn/releases/yarn-4.1.0.cjs workspace ott-client lint-ci
-node .yarn/releases/yarn-4.1.0.cjs workspace ott-client test
-node .yarn/releases/yarn-4.1.0.cjs workspace ott-edge build:client
-git archive --format=tar.gz --output=client/dist/source-code.tar.gz HEAD
-node .yarn/releases/yarn-4.1.0.cjs workspace ott-edge db:remote
-node .yarn/releases/yarn-4.1.0.cjs workspace ott-edge deploy:preview
-```
-
-Wrangler 返回 `https://ott-edge-preview.<账户子域>.workers.dev`。前端通过同源 `/api/` 访问 Worker，
-不配置腾讯云 API 地址。`build:client` 与 Worker 的 `OTT_CLIENT_REVISION` 当前都使用
-`cloudflare-preview-0.1.2`；每次发布新代码须同时更新两处值，供已打开的页面检测新版本。
-`0.1.1` 及更早的预览版本号未被旧检测器识别，这些已打开的页面需要先手动刷新一次。
-`0.1.2` 同时修复原生播放器就绪判定：当前帧数据已可用时不再强制等待额外画面回调或后续帧预读。
-
-源码归档必须在前端构建之后生成，因为构建会清空 `client/dist`。
-`git archive` 包含已提交的前端、Worker、公共模块、迁移、构建配置和锁文件，保留 AGPL 许可证；
-不包含 Git 历史、OAuth 凭证、私有部署配置、数据库、依赖目录或本地验收记录。
-源码包在 `/source-code.tar.gz` 公开提供，页面上的源码入口指向该包。
-禁止把整个工作目录打包后直接公开。
-
-更新继续使用同一 Worker、D1 和 Durable Objects 绑定。保存 Wrangler 的部署版本 ID 便于回退；
-有 schema 变化时先确认旧 Worker 是否兼容，Worker 版本回退不会回退数据库数据或迁移。
+- OAuth 首次授权需要读取账户、写入 Workers 和 D1 的权限；登录配置留在用户配置目录，不写入仓库。
+- 账户与数据库绑定放在 Git 忽略的 `wrangler.preview.jsonc`，不提交；已有数据库复用其 ID。
+- 发布：`build:client` → `git archive` 生成源码包 → `deploy:preview`，继续使用同一 Worker、D1
+  和 Durable Objects 绑定。源码归档必须在前端构建之后生成（构建会清空 `client/dist`），且只
+  包含已提交内容；禁止把整个工作目录打包后直接公开。
+- 每次发布同步更新两处版本号（`package.json` 的 `build:client` 与 `wrangler.jsonc` 的
+  `OTT_CLIENT_REVISION`），供已打开的页面检测新版本；`0.1.1` 及更早的页面需先手动刷新一次。
+- 保存 Wrangler 的部署版本 ID 便于回退；`0.1.2` 同时修复原生播放器就绪判定：当前帧数据可用
+  时不再强制等待额外画面回调或后续帧预读。Worker 版本回退不会回退数据库数据或迁移；
+  有 schema 变化时先确认旧 Worker 是否兼容。
 
 ## 验证范围
 
