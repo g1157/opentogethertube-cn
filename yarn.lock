@@ -17086,7 +17086,6 @@ __metadata:
     lodash: "npm:^4.18.1"
     ott-common: "workspace:*"
     sass: "npm:^1.93.1"
-    shaders: "npm:^2.5.128"
     sortablejs: "npm:^1.15.0"
     sortablejs-vue3: "npm:^1.2.3"
     typescript: "npm:5.4.5"
@@ -20121,37 +20120,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"shaders@npm:^2.5.128":
-  version: 2.5.135
-  resolution: "shaders@npm:2.5.135"
-  dependencies:
-    three: "npm:^0.185.0"
-  peerDependencies:
-    pixi.js: ^8.0.0
-    react: ^18.0.0 || ^19.0.0
-    react-dom: ^18.0.0 || ^19.0.0
-    solid-js: ^1.8.0
-    svelte: ^5
-    vue: ^3.5.0
-  peerDependenciesMeta:
-    pixi.js:
-      optional: true
-    react:
-      optional: true
-    react-dom:
-      optional: true
-    solid-js:
-      optional: true
-    svelte:
-      optional: true
-    vue:
-      optional: true
-  bin:
-    shaders: dist/cli.js
-  checksum: 10c0/3d3e8cc7169da17161a7a0161e9b13bdbb2ac57799b9acaa26a7d9a2da1a6170d48b92850b3ed7e526a057eae5a72a129b93961220633b5276b02892e2a15c7a
-  languageName: node
-  linkType: hard
-
 "shallow-clone@npm:^3.0.0":
   version: 3.0.1
   resolution: "shallow-clone@npm:3.0.1"
@@ -21363,13 +21331,6 @@ __metadata:
   version: 0.2.0
   resolution: "text-table@npm:0.2.0"
   checksum: 10c0/02805740c12851ea5982686810702e2f14369a5f4c5c40a836821e3eefc65ffeec3131ba324692a37608294b0fd8c1e55a2dd571ffed4909822787668ddbee5c
-  languageName: node
-  linkType: hard
-
-"three@npm:^0.185.0":
-  version: 0.185.1
-  resolution: "three@npm:0.185.1"
-  checksum: 10c0/d15d3fa934f53c9fd6706965ff9946f55653bc728cf582e68acb03421c0179d7662f7d270e14bcf72923e140c36779e7fba6b0f6e542e07deade7342f63c8bdf
   languageName: node
   linkType: hard
 

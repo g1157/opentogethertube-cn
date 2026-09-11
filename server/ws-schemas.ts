@@ -29,8 +29,9 @@ export const clientMessageSchema = z.discriminatedUnion("action", [
 		message: z.literal("usernameChanged"),
 	}),
 	// Room requests are validated per command inside the room; the envelope guards size and shape.
+	// RoomRequestType values are numeric enum members on the wire (e.g. PlaybackRequest = 2).
 	z.object({
 		action: z.literal("req"),
-		request: z.object({ type: z.string().max(64) }).passthrough(),
+		request: z.object({ type: z.number().int().min(0).max(999) }).passthrough(),
 	}),
 ]);

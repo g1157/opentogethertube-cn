@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RoomRequestType } from "ott-common/models/messages.js";
 import { PlayerStatus } from "ott-common/models/types.js";
 import { clientMessageSchema } from "../../ws-schemas.js";
 
@@ -18,13 +19,11 @@ describe("inbound websocket messages", () => {
 				status: PlayerStatus.ready,
 				playbackPrepared: { id: "preparation-1", position: 42.5 },
 			},
-			{ action: "req", request: { type: "join" } },
+			// The client sends numeric RoomRequestType values on the wire.
+			{ action: "req", request: { type: RoomRequestType.JoinRequest } },
 			{
 				action: "req",
-				request: {
-					type: "play",
-					video: { service: "direct", id: "https://example.com/a.mp4" },
-				},
+				request: { type: RoomRequestType.PlaybackRequest, state: true },
 			},
 		];
 		expect(realisticToken).toHaveLength(684);
@@ -42,6 +41,7 @@ describe("inbound websocket messages", () => {
 			{ action: "status", status: "wat" },
 			{ action: "notify", message: "somethingElse" },
 			{ action: "req" },
+			{ action: "req", request: { type: "play" } },
 			{ action: "unknown" },
 			{},
 		];

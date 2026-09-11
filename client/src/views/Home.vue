@@ -1,8 +1,7 @@
 <template>
 	<div class="home" :lang="$i18n.locale">
 		<section ref="hero" class="hero" :class="{ 'motion-active': effectsActive }">
-			<HeroShaderLight v-if="showShader && isLightTheme" aria-hidden="true" />
-			<HeroShader v-else-if="showShader" aria-hidden="true" />
+			<HeroShader :active="effectsActive" :light="isLightTheme" />
 			<div class="hero-content">
 				<p class="hero-eyebrow">
 					<span class="hero-status" aria-hidden="true"></span>
@@ -153,15 +152,12 @@ import {
 	useIntersectionObserver,
 	usePreferredReducedMotion,
 } from "@vueuse/core";
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
 import AppFooter from "@/components/AppFooter.vue";
+import HeroShader from "@/components/HeroShader.vue";
 import { useStore } from "@/store";
 import { isEdgePreview } from "@/edge-preview";
 import { createRoomHelper } from "@/util/roomcreator";
-
-// Lazy-loaded so the shaders bundle stays its own chunk; the CSS hero gradient shows until it mounts.
-const HeroShader = defineAsyncComponent(() => import("@/components/HeroShader.vue"));
-const HeroShaderLight = defineAsyncComponent(() => import("@/components/HeroShaderLight.vue"));
 
 const store = useStore();
 const sourceUrl = import.meta.env.VITE_SOURCE_URL || "https://github.com/g1157/opentogethertube-cn";
@@ -176,22 +172,6 @@ const effectsActive = computed(
 		preferredMotion.value !== "reduce",
 );
 const isLightTheme = computed(() => ["light", "strawberry"].includes(store.state.settings.theme));
-
-// Dark themes use the amber Plasma backdrop; light themes get the Silk mesh.
-const reducedMotion = ref(false);
-const showShader = computed(() => !reducedMotion.value);
-let reducedMotionQuery: MediaQueryList | null = null;
-function updateReducedMotion(event: MediaQueryList | MediaQueryListEvent) {
-	reducedMotion.value = event.matches;
-}
-onMounted(() => {
-	reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-	updateReducedMotion(reducedMotionQuery);
-	reducedMotionQuery.addEventListener("change", updateReducedMotion);
-});
-onBeforeUnmount(() => {
-	reducedMotionQuery?.removeEventListener("change", updateReducedMotion);
-});
 
 // VueUse releases the observer and visibility/media listeners when this view unmounts.
 useIntersectionObserver(hero, ([entry]) => {
