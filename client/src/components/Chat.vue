@@ -31,7 +31,7 @@
 			</transition-group>
 		</div>
 		<div v-if="!stickToBottom" class="to-bottom">
-			<v-btn size="x-small" icon @click="forceToBottom">
+			<v-btn size="x-small" icon :aria-label="$t('chat.to-bottom')" @click="forceToBottom">
 				<v-icon :icon="mdiChevronDoubleDown" />
 			</v-btn>
 		</div>

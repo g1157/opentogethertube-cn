@@ -33,7 +33,8 @@
 	"vars": {
 		"OTT_INSTANCE_ID": "ott-edge-preview",
 		"OTT_CLIENT_REVISION": "cloudflare-preview-0.1.2",
-		"ROOM_IDLE_SECONDS": "300"
+		"ROOM_IDLE_SECONDS": "300",
+		"CHECKPOINT_SECONDS": "30"
 	},
 	"dev": { "ip": "127.0.0.1", "port": 18787 }
 }

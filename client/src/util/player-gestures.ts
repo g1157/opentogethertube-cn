@@ -92,9 +92,10 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 				(event.pointerType === "mouse" ? 12 : 32)
 		);
 		if (lastClick) {
-			// Wait for the second release before acting; it may become a swipe or a hold.
+			// The previous tap already toggled the controls; undo that for a double tap so
+			// the pair acts as play/pause instead.
 			clearClickTimer();
-			if (!doubleTap) {
+			if (doubleTap) {
 				options.onTap();
 			}
 		}
@@ -214,9 +215,10 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 					time: Date.now(),
 					pointerType: current.pointerType,
 				};
+				// Toggle immediately; a double tap rolls the toggle back on its second press.
+				options.onTap();
 				clickTimer = setTimeout(() => {
 					clearClickTimer();
-					options.onTap();
 				}, 280);
 			}
 		}

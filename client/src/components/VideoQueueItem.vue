@@ -96,7 +96,13 @@
 					scroll-strategy="reposition"
 				>
 					<template v-slot:activator="{ props: p }">
-						<v-btn icon variant="flat" v-bind="p" data-cy="btn-menu">
+						<v-btn
+							icon
+							variant="flat"
+							v-bind="p"
+							data-cy="btn-menu"
+							:aria-label="$t('video-queue.item-actions')"
+						>
 							<v-icon :icon="mdiDotsVertical" />
 						</v-btn>
 					</template>

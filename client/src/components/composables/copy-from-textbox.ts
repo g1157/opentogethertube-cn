@@ -13,13 +13,8 @@ export function useCopyFromTextbox(
 				await navigator.clipboard.writeText(text.value);
 			} catch (err) {
 				console.error("Failed to copy invite link", err);
+				return;
 			}
-			if (copySuccessTimeoutId) {
-				clearTimeout(copySuccessTimeoutId);
-			}
-			copySuccessTimeoutId = setTimeout(() => {
-				copySuccess.value = false;
-			}, 3000);
 		} else {
 			const textfield: HTMLInputElement | HTMLTextAreaElement | null = (
 				textboxComponent.value.$el as HTMLInputElement | HTMLTextAreaElement
@@ -29,15 +24,18 @@ export function useCopyFromTextbox(
 				return;
 			}
 			textfield.select();
-			document.execCommand("copy");
-			if (copySuccessTimeoutId) {
-				clearTimeout(copySuccessTimeoutId);
+			if (!document.execCommand("copy")) {
+				console.error("failed to copy link: execCommand returned false");
+				return;
 			}
-			copySuccessTimeoutId = setTimeout(() => {
-				copySuccess.value = false;
-				textfield?.blur();
-			}, 3000);
+			textfield.blur();
 		}
+		if (copySuccessTimeoutId) {
+			clearTimeout(copySuccessTimeoutId);
+		}
+		copySuccessTimeoutId = setTimeout(() => {
+			copySuccess.value = false;
+		}, 3000);
 		copySuccess.value = true;
 	}
 

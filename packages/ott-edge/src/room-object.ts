@@ -5,7 +5,7 @@ import { PlayerStatus } from "ott-common/models/types.js";
 import type { QueueItem, VideoAdd } from "ott-common/models/video.js";
 import { commandSchema, type Command } from "./commands";
 import { applyExtras, Probe, resolveAdd, resolveMedia } from "./media";
-import { idleMilliseconds, indexValues } from "./room-index";
+import { checkpointMilliseconds, idleMilliseconds, indexValues } from "./room-index";
 import { createSnapshot, RoomState, sameVideo, type Member, type Snapshot } from "./room-state";
 import { digest, findSession } from "./session";
 import { ApiError, errorResponse, json, type Env, type GuestSession } from "./types";
@@ -521,7 +521,9 @@ export class RoomObject extends DurableObject<Env> {
 		if (!room) {
 			return;
 		}
-		if (checkpoint || JSON.stringify(room.snapshot) !== this.saved) {
+		// The dirty set is only populated when sync-visible fields change, which always implies
+		// a changed snapshot; the full comparison is a fallback for anything not marked.
+		if (checkpoint || room.dirty.size > 0 || JSON.stringify(room.snapshot) !== this.saved) {
 			const snapshot = room.persisted();
 			await this.ctx.storage.put("room", {
 				instance: this.instance,
@@ -567,7 +569,10 @@ export class RoomObject extends DurableObject<Env> {
 			await this.commit();
 			return;
 		}
-		const times = [room.nextAlarm(idleMilliseconds(this.env)), this.indexRetryAt];
+		const times = [
+			room.nextAlarm(idleMilliseconds(this.env), checkpointMilliseconds(this.env)),
+			this.indexRetryAt,
+		];
 		for (const [, attachment] of this.sockets()) {
 			times.push(attachment.session?.expires_at ?? attachment.authDeadline);
 		}

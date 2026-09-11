@@ -57,13 +57,15 @@
 				/>
 			</li>
 		</ul>
-		<span>{{ $t("add-preview.text") }}</span>
+		<span>{{ $t(searchEnabled ? "add-preview.text" : "add-preview.text-no-search") }}</span>
 	</div>
 </template>
 
 <script lang="ts" setup>
 import { defineEmits } from "vue";
 import ProcessedText from "./ProcessedText.vue";
+
+withDefaults(defineProps<{ searchEnabled?: boolean }>(), { searchEnabled: true });
 
 const emit = defineEmits<{
 	"link-click": [url: string];

@@ -24,6 +24,11 @@ export function idleMilliseconds(env: Env): number {
 	return Number.isFinite(seconds) && seconds >= 1 && seconds <= 86400 ? seconds * 1000 : 300_000;
 }
 
+export function checkpointMilliseconds(env: Env): number {
+	const seconds = Number(env.CHECKPOINT_SECONDS ?? 30);
+	return Number.isFinite(seconds) && seconds >= 15 && seconds <= 600 ? seconds * 1000 : 30_000;
+}
+
 export function roomName(value: string): string {
 	if (!ROOM_NAME.test(value)) {
 		throw new ApiError(404, "房间不存在。", "RoomNotFoundException");

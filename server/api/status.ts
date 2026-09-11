@@ -11,6 +11,7 @@ const log = getLogger("api/status");
 router.get("/", (req, res) => {
 	res.json({
 		status: "ok",
+		searchEnabled: conf.get("add_preview.search.enabled"),
 	});
 });
 

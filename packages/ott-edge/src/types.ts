@@ -9,6 +9,7 @@ export interface Env {
 	OTT_INSTANCE_ID: string;
 	OTT_CLIENT_REVISION: string;
 	ROOM_IDLE_SECONDS?: string;
+	CHECKPOINT_SECONDS?: string;
 }
 
 export interface GuestSession {

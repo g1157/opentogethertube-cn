@@ -1,7 +1,9 @@
 import type { InjectionKey } from "vue";
 
 export interface PlayerFullscreen {
-	enter(): Promise<void>;
+	/** Resolves true when native fullscreen is active (or was already); false when only the
+	 * in-page fallback applies. */
+	enter(): Promise<boolean>;
 	exit(): Promise<void>;
 	toggle(): Promise<void>;
 	dispose(): void;
@@ -100,17 +102,17 @@ export function createPlayerFullscreen(
 		}
 	}
 
-	async function enter() {
+	async function enter(): Promise<boolean> {
 		const target = getTarget() as FullscreenElement | null;
 		if (disposed || activeTarget || !target) {
-			return;
+			return !!activeTarget;
 		}
 		const requestGeneration = ++generation;
 		setActive(target);
 		const request = target.requestFullscreen ?? target.webkitRequestFullscreen;
 		fallback = !request;
 		if (!request) {
-			return;
+			return false;
 		}
 		requesting = true;
 		try {
@@ -126,7 +128,9 @@ export function createPlayerFullscreen(
 			await exitNative();
 			fallback = false;
 			setActive(null);
+			return false;
 		}
+		return !!nativeElement();
 	}
 
 	async function exit() {
@@ -161,7 +165,13 @@ export function createPlayerFullscreen(
 	return {
 		enter,
 		exit,
-		toggle: () => (activeTarget ? exit() : enter()),
+		toggle: async () => {
+			if (activeTarget) {
+				await exit();
+			} else {
+				await enter();
+			}
+		},
 		dispose() {
 			disposed = true;
 			void exit();

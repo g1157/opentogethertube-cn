@@ -9,6 +9,7 @@ export default {
 		"connection-failed": "暂时无法连接，请重试。",
 		"add-label": "视频链接",
 		"add-placeholder": "粘贴 MP4、M3U8、MPD 或自定义媒体 JSON 链接",
+		"intro-text3": "目前，你可以和朋友一起观看 MP4、HLS、DASH 直链或自定义媒体清单的视频，",
 		"media-help":
 			"支持 MP4、HLS、DASH 和自定义媒体清单。请使用允许本站播放的 HTTPS 直链，视频由原片源直接加载。",
 		"try-video": "试播示例视频",
@@ -207,6 +208,7 @@ export default {
 		"next-video": "下一个视频",
 		"next-video-vote": "投票跳过视频",
 		"toggle-fullscreen": "切换全屏",
+		"fullscreen-hint": "浏览器未允许自动进入全屏，可点击全屏按钮手动进入。",
 		pip: "画中画",
 		"player-settings": "播放器设置",
 		subtitles: "字幕/CC",
@@ -248,6 +250,7 @@ export default {
 		open: "展开聊天（不会自动打开键盘）",
 		close: "收起聊天",
 		"type-here": "在此输入你的消息…",
+		"to-bottom": "跳到最新消息",
 	},
 	"share-invite": {
 		title: "分享邀请",
@@ -268,11 +271,13 @@ export default {
 		retry: "重试",
 		"add-all": "全部添加",
 		placeholder: "输入以搜索 YouTube，或输入视频网址添加到队列",
+		"placeholder-no-search": "输入视频网址添加到队列",
 		title: "我可以添加什么？",
 		"single-videos": "单个视频",
 		playlists: "播放列表",
 		playlist: "播放列表",
 		text: "或直接输入文字来搜索 Youtube。",
+		"text-no-search": "搜索功能未启用，请直接粘贴视频网址。",
 		"search-for": "按回车或点击搜索，在 YouTube 上搜索“{search}”。",
 		platforms: {
 			"youtube-videos": "Youtube 视频：{url}",
@@ -300,6 +305,8 @@ export default {
 	"video-queue": {
 		"no-videos": "队列里还没有任何视频。",
 		"add-video": "添加视频",
+		shuffle: "随机排序队列",
+		"item-actions": "视频操作菜单",
 		export: "导出",
 		"export-diag-title": "导出队列",
 		"export-hint": "复制并粘贴此文本到“添加”标签页，即可恢复此队列。",
@@ -361,6 +368,7 @@ export default {
 	"create-room-form": {
 		"card-title": "创建永久房间",
 		"create-room": "创建房间",
+		"create-failed": "创建房间失败，请稍后重试。",
 		name: "名称",
 		"name-hint": "用于房间网址。之后无法更改。",
 		title: "标题",

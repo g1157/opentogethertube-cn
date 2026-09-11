@@ -12,7 +12,9 @@
 						$t(
 							isEdgePreview
 								? 'edge-preview.add-placeholder'
-								: 'add-preview.placeholder',
+								: searchEnabled
+								? 'add-preview.placeholder'
+								: 'add-preview.placeholder-no-search',
 						)
 					"
 					v-model="inputAddPreview"
@@ -131,7 +133,11 @@
 							{{ $t("edge-preview.try-video") }}
 						</v-btn>
 					</div>
-					<AddPreviewHelper v-else @link-click="setAddPreviewText" />
+					<AddPreviewHelper
+						v-else
+						:search-enabled="searchEnabled"
+						@link-click="setAddPreviewText"
+					/>
 				</v-row>
 			</v-container>
 		</v-row>
@@ -154,7 +160,7 @@
 
 <script lang="ts" setup>
 import { mdiMagnify, mdiPlus } from "@mdi/js";
-import { ref, computed, watch, onBeforeUnmount, type Ref } from "vue";
+import { ref, computed, watch, onBeforeUnmount, onMounted, type Ref } from "vue";
 import { useRoute } from "vue-router";
 import { useStore } from "@/store";
 import { useI18n } from "vue-i18n";
@@ -169,6 +175,7 @@ import axios from "axios";
 import AddPreviewHelper from "./AddPreviewHelper.vue";
 import { ALL_VIDEO_SERVICES } from "ott-common/constants";
 import { isEdgePreview } from "@/edge-preview";
+import { getSearchEnabled } from "@/util/backend-status";
 
 const store = useStore();
 const { t } = useI18n();
@@ -179,6 +186,10 @@ const isLoadingAddPreview = ref(false);
 const isAddPreviewSlow = ref(false);
 const hasAddPreviewFailed = ref(false);
 const inputAddPreview = ref("");
+const searchEnabled = ref(true);
+onMounted(async () => {
+	searchEnabled.value = await getSearchEnabled();
+});
 const isLoadingAddAll = ref(false);
 const videosLoadFailureText = ref("");
 const selectedTestVideo = ref<string | undefined>(undefined);

@@ -60,6 +60,22 @@ export default defineConfig({
 	},
 	envDir: path.resolve(searchForWorkspaceRoot(process.cwd()), "env"),
 	envPrefix: ["VITE_", "VUE_APP_", "OTT_"],
+	build: {
+		rollupOptions: {
+			output: {
+				manualChunks(id) {
+					if (!id.includes("node_modules")) {
+						return;
+					}
+					// Keep lazily imported players in their own async chunks.
+					if (id.includes("hls.js") || id.includes("dashjs")) {
+						return;
+					}
+					return "vendor";
+				},
+			},
+		},
+	},
 	// optimizeDeps: {
 	// 	// this attempts to mitigate https://github.com/cypress-io/cypress/issues/25913
 	// 	entries: [

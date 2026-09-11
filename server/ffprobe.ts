@@ -9,6 +9,8 @@ import path from "node:path";
 import { AbortController } from "node-abort-controller";
 import http from "node:http";
 import https from "node:https";
+import dns from "node:dns/promises";
+import net from "node:net";
 import { Counter } from "prom-client";
 import { FfprobeTimeoutError } from "./exceptions.js";
 import { conf } from "./ott-config.js";
@@ -17,6 +19,65 @@ const log = getLogger("infoextract/ffprobe");
 
 // Hard ffprobe, 35 Seconds.
 const FFPROBE_TIMEOUT_MS = 35000;
+
+/** Reject private, loopback, link-local and other non-public targets for user supplied URLs. */
+export function isPrivateAddress(address: string): boolean {
+	if (net.isIPv4(address)) {
+		const [a, b] = address.split(".").map(Number);
+		return (
+			a === 0 ||
+			a === 10 ||
+			a === 127 ||
+			(a === 100 && b >= 64 && b <= 127) ||
+			(a === 169 && b === 254) ||
+			(a === 172 && b >= 16 && b <= 31) ||
+			(a === 192 && b === 168) ||
+			a >= 224
+		);
+	}
+	if (net.isIPv6(address)) {
+		const ip = address.toLowerCase();
+		if (ip.startsWith("::ffff:")) {
+			return isPrivateAddress(ip.slice("::ffff:".length));
+		}
+		return (
+			ip === "::" ||
+			ip === "::1" ||
+			ip.startsWith("fc") ||
+			ip.startsWith("fd") ||
+			ip.startsWith("fe8") ||
+			ip.startsWith("fe9") ||
+			ip.startsWith("fea") ||
+			ip.startsWith("feb") ||
+			ip.startsWith("ff")
+		);
+	}
+	return true;
+}
+
+/**
+ * Guards direct probes against SSRF via user supplied media URLs.
+ * Resolution here can race a re-resolve inside ffprobe, but it blocks the practical cases.
+ */
+export async function assertPublicMediaUrl(uri: string): Promise<void> {
+	if (process.env.NODE_ENV === "test") {
+		// Unit tests intentionally probe a loopback fixture server.
+		return;
+	}
+	const url = new URL(uri);
+	if (url.protocol !== "http:" && url.protocol !== "https:") {
+		throw new Error(`Unsupported media URL protocol: ${url.protocol}`);
+	}
+	const resolved = await dns.lookup(url.hostname, { all: true });
+	if (resolved.length === 0) {
+		throw new Error("Media URL host did not resolve");
+	}
+	for (const { address } of resolved) {
+		if (isPrivateAddress(address)) {
+			throw new Error("Media URL resolves to a private or local address");
+		}
+	}
+}
 
 // Track all spawned ffprobe children so we can always clean them up.
 const FFPROBE_CHILDREN = new Set<childProcess.ChildProcess>();
@@ -208,6 +269,7 @@ export abstract class FfprobeStrategy {
 
 export class RunFfprobe extends FfprobeStrategy {
 	async getFileInfo(uri: string): Promise<any> {
+		await assertPublicMediaUrl(uri);
 		log.debug(`Grabbing file info from ${uri}`);
 		if (uri.includes('"')) {
 			// if, by some weird off chance, the uri SOMEHOW contains a quote, don't execute the command
@@ -286,6 +348,7 @@ export class RunFfprobe extends FfprobeStrategy {
 
 export class OnDiskPreviewFfprobe extends FfprobeStrategy {
 	async getFileInfo(uri: string): Promise<any> {
+		await assertPublicMediaUrl(uri);
 		log.debug(`Grabbing file info from ${uri}`);
 
 		const tmpdir = await fs.mkdtemp("/tmp/ott");
@@ -395,6 +458,7 @@ export class OnDiskPreviewFfprobe extends FfprobeStrategy {
 
 export class StreamFfprobe extends FfprobeStrategy {
 	async getFileInfo(uri: string): Promise<any> {
+		await assertPublicMediaUrl(uri);
 		log.debug(`Grabbing file info from ${uri}`);
 
 		const httpAgent = new http.Agent({ keepAlive: false });

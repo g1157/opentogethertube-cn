@@ -59,11 +59,12 @@ describe("player touch and mouse gestures", () => {
 		vi.useRealTimers();
 	});
 
-	it("waits briefly for a second mobile tap before toggling controls", () => {
+	it("toggles controls immediately on a single tap", () => {
 		pointer("pointerdown");
 		pointer("pointerup");
+		expect(options.onTap).toHaveBeenCalledOnce();
 		vi.advanceTimersByTime(279);
-		expect(options.onTap).not.toHaveBeenCalled();
+		expect(options.onTap).toHaveBeenCalledOnce();
 		vi.advanceTimersByTime(1);
 		expect(options.onTap).toHaveBeenCalledOnce();
 		expect(options.onDoubleTap).not.toHaveBeenCalled();
@@ -85,7 +86,8 @@ describe("player touch and mouse gestures", () => {
 		vi.advanceTimersByTime(500);
 		expect(options.onDoubleTap).toHaveBeenCalledOnce();
 		expect(options.onDoubleClick).not.toHaveBeenCalled();
-		expect(options.onTap).not.toHaveBeenCalled();
+		// The first tap toggled immediately; the second press rolls the toggle back.
+		expect(options.onTap).toHaveBeenCalledTimes(2);
 		expect(options.onHoldStart).not.toHaveBeenCalled();
 		expect(options.onSeek).not.toHaveBeenCalled();
 	});
@@ -108,7 +110,7 @@ describe("player touch and mouse gestures", () => {
 		expect(options.onDoubleClick).not.toHaveBeenCalled();
 	});
 
-	it("cancels a pending tap when the second press becomes a hold", () => {
+	it("rolls back the first tap when the second press becomes a hold", () => {
 		pointer("pointerdown");
 		pointer("pointerup");
 		vi.advanceTimersByTime(100);
@@ -118,11 +120,11 @@ describe("player touch and mouse gestures", () => {
 		vi.advanceTimersByTime(300);
 		expect(options.onHoldStart).toHaveBeenCalledOnce();
 		expect(options.onHoldEnd).toHaveBeenCalledOnce();
-		expect(options.onTap).not.toHaveBeenCalled();
+		expect(options.onTap).toHaveBeenCalledTimes(2);
 		expect(options.onDoubleTap).not.toHaveBeenCalled();
 	});
 
-	it("cancels a pending tap when the second press becomes a swipe", () => {
+	it("rolls back the first tap when the second press becomes a swipe", () => {
 		pointer("pointerdown");
 		pointer("pointerup");
 		vi.advanceTimersByTime(100);
@@ -131,7 +133,7 @@ describe("player touch and mouse gestures", () => {
 		pointer("pointerup", 260);
 		vi.advanceTimersByTime(500);
 		expect(options.onSeek).toHaveBeenCalledOnce();
-		expect(options.onTap).not.toHaveBeenCalled();
+		expect(options.onTap).toHaveBeenCalledTimes(2);
 		expect(options.onDoubleTap).not.toHaveBeenCalled();
 		expect(options.onHoldStart).not.toHaveBeenCalled();
 	});
@@ -145,16 +147,17 @@ describe("player touch and mouse gestures", () => {
 		vi.advanceTimersByTime(600);
 		pointer("pointerup");
 		vi.advanceTimersByTime(300);
-		expect(options.onTap).not.toHaveBeenCalled();
+		expect(options.onTap).toHaveBeenCalledTimes(2);
 		expect(options.onDoubleTap).not.toHaveBeenCalled();
 	});
 
-	it("clears a pending single tap on cancellation", () => {
+	it("keeps a completed tap after cancellation", () => {
 		pointer("pointerdown");
 		pointer("pointerup");
+		expect(options.onTap).toHaveBeenCalledOnce();
 		controls.cancel();
 		vi.advanceTimersByTime(500);
-		expect(options.onTap).not.toHaveBeenCalled();
+		expect(options.onTap).toHaveBeenCalledOnce();
 		expect(options.onDoubleTap).not.toHaveBeenCalled();
 	});
 
@@ -272,7 +275,7 @@ describe("player touch and mouse gestures", () => {
 		expect(options.onSeek).not.toHaveBeenCalled();
 	});
 
-	it("separates desktop double-click fullscreen from delayed single-click toggling", () => {
+	it("separates desktop double-click fullscreen from instant single-click toggling", () => {
 		pointer("pointerdown", 200, 150, "mouse");
 		pointer("pointerup", 200, 150, "mouse");
 		pointer("lostpointercapture", 200, 150, "mouse");
@@ -281,10 +284,11 @@ describe("player touch and mouse gestures", () => {
 		pointer("pointerup", 200, 150, "mouse");
 		vi.advanceTimersByTime(300);
 		expect(options.onDoubleClick).toHaveBeenCalledOnce();
-		expect(options.onTap).not.toHaveBeenCalled();
+		// The toggle from the first click and its rollback cancel out.
+		expect(options.onTap).toHaveBeenCalledTimes(2);
 		pointer("pointerdown", 200, 150, "mouse");
 		pointer("pointerup", 200, 150, "mouse");
 		vi.advanceTimersByTime(300);
-		expect(options.onTap).toHaveBeenCalledOnce();
+		expect(options.onTap).toHaveBeenCalledTimes(3);
 	});
 });

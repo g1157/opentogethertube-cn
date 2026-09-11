@@ -115,11 +115,11 @@ Compose 示例按直接 HTTP 端口访问设计（`FORCE_INSECURE_COOKIES=true`�
    在 Public Hostname 里把域名指向 `http://localhost:8080`，并复制 Tunnel token。
 2. 在服务器安装 cloudflared 后执行 `sudo cloudflared service install <token>` 注册为系统服务
    （也可像线上示例一样手写 systemd 单元并用 `--token-file` 启动）。
-3. `.env` 的 `OTT_PUBLIC_HOSTNAME` 改为该域名。线上配置保持
-   `FORCE_INSECURE_COOKIES=true`、`TRUST_PROXY=0` 即可正常工作；若前面还有别的反向代理，
-   再按代理层数调整 `TRUST_PROXY`。
+3. `.env` 的 `OTT_PUBLIC_HOSTNAME` 改为该域名；`TRUST_PROXY` 设为 `1`，让限流按访客 IP 生效
+   （经 Tunnel 时客户端 IP 由 `X-Forwarded-For` 提供；若前面还有别的代理层，按实际层数调整）。
+   `FORCE_INSECURE_COOKIES=true` 可保持不变。
 
-HTML、源码包和 `/api/status/version` 使用 `Cache-Control: no-store`，前端每 30 秒及网络恢复、
+HTML、源码包和 `/api/status/version` 使用 `Cache-Control: no-store`，前端每 2 分钟及网络恢复、
 重新可见时检查服务器 revision 并自动重载；反向代理 / CDN 必须保留这些缓存规则，不能将 HTML
 或版本接口改为长期缓存。本次不包含外部解析器部署；媒体链接本身必须仍然有效。
 

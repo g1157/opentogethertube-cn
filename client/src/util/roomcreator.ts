@@ -1,4 +1,5 @@
 import { API } from "@/common-http";
+import { i18n } from "@/i18n";
 import { ToastStyle } from "@/models/toast";
 import type {
 	OttResponseBody,
@@ -79,7 +80,7 @@ export async function createRoomHelper(
 		console.error(err);
 		store.commit("toast/ADD_TOAST", {
 			style: ToastStyle.Error,
-			content: `Failed to create a new room`,
+			content: i18n.global.t("create-room-form.create-failed"),
 			duration: 6000,
 		});
 		throw err;

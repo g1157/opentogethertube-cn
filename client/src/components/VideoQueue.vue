@@ -16,7 +16,7 @@
 			</v-container>
 		</div>
 		<div class="queue-controls" v-if="store.state.room.queue.length > 0">
-			<v-btn icon @click="roomapi.shuffle()">
+			<v-btn icon :aria-label="$t('video-queue.shuffle')" @click="roomapi.shuffle()">
 				<v-icon :icon="mdiShuffleVariant" />
 			</v-btn>
 			<v-dialog v-model="exportDialog" width="600">

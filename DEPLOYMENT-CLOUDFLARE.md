@@ -122,6 +122,10 @@ node .yarn/releases/yarn-4.1.0.cjs workspace ott-edge deploy:preview
 两处使用同一个新标识（例如新的日期或提交短 SHA），已打开的页面靠它检测新版本。
 `cloudflare-preview-0.1.1` 及更早的已打开页面没有版本检测，需要先手动刷新一次。
 
+可选变量（同一 `vars` 内）：`ROOM_IDLE_SECONDS`（默认 300 秒）控制临时房空闲回收；
+`CHECKPOINT_SECONDS`（默认 30 秒，范围 15–600）控制播放中房间的检查点间隔，
+调大可以减少 Durable Object 写入与 alarm 次数，代价是崩溃后恢复的播放进度粒度更粗。
+
 ## 回退
 
 在 Cloudflare 控制台 → Workers & Pages → `ott-edge-preview` → Deployments，选择上一个

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { installClientUpdateCheck } from "@/util/client-update";
+import { CHECK_INTERVAL_MS, installClientUpdateCheck } from "@/util/client-update";
 
 describe("client build updates", () => {
 	let watcher: ReturnType<typeof installClientUpdateCheck> | undefined;
@@ -52,7 +52,7 @@ describe("client build updates", () => {
 		reply({ revision: "cloudflare-preview-0.1.2" });
 		start("cloudflare-preview-0.1.2");
 		await flush();
-		await vi.advanceTimersByTimeAsync(30000);
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
 		expect(request).toHaveBeenCalledTimes(2);
 		expect(navigate).not.toHaveBeenCalled();
 	});
@@ -140,7 +140,7 @@ describe("client build updates", () => {
 		start();
 		expect(request).not.toHaveBeenCalled();
 		input.blur();
-		await vi.advanceTimersByTimeAsync(30000);
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
 		expect(navigate).toHaveBeenCalledOnce();
 	});
 	it("stops polling and ignores late responses after disposal", async () => {
@@ -174,7 +174,7 @@ describe("client build updates", () => {
 		await flush();
 		expect(navigate).not.toHaveBeenCalled();
 		input.blur();
-		await vi.advanceTimersByTimeAsync(30000);
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
 		expect(navigate).toHaveBeenCalledOnce();
 	});
 });

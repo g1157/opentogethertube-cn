@@ -4,9 +4,42 @@ import { readFile } from "node:fs/promises";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import DirectVideoAdapter from "../../services/direct.js";
+import { isPrivateAddress } from "../../ffprobe.js";
 
 const RANGE = /^bytes=(\d+)-(\d*)$/;
 let server: Server | undefined;
+
+describe("media URL address guard", () => {
+	it.each([
+		"127.0.0.1",
+		"10.1.2.3",
+		"172.16.0.1",
+		"172.31.255.255",
+		"192.168.1.1",
+		"169.254.169.254",
+		"100.64.0.1",
+		"0.0.0.0",
+		"224.0.0.1",
+		"::1",
+		"::",
+		"fd00::1",
+		"fe80::1",
+		"::ffff:127.0.0.1",
+		"not-an-ip",
+	])("rejects %s", address => {
+		expect(isPrivateAddress(address)).toBe(true);
+	});
+
+	it.each([
+		"8.8.8.8",
+		"1.1.1.1",
+		"172.32.0.1",
+		"2606:4700:4700::1111",
+		"::ffff:8.8.8.8",
+	])("accepts %s", address => {
+		expect(isPrivateAddress(address)).toBe(false);
+	});
+});
 
 describe("direct media probing", () => {
 	afterEach(async () => {

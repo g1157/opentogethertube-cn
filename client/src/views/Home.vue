@@ -59,7 +59,7 @@
 					</p>
 					<p>{{ $t("landing.intro.text2") }}</p>
 					<p>
-						{{ $t("landing.intro.text3") }}
+						{{ $t(isEdgePreview ? "edge-preview.intro-text3" : "landing.intro.text3") }}
 						<a
 							href="https://github.com/dyc3/opentogethertube/labels/service%20support%20request"
 							>{{ $t("landing.intro.link") }}</a
@@ -156,6 +156,7 @@ import { computed, ref } from "vue";
 import AppFooter from "@/components/AppFooter.vue";
 import HeroShader from "@/components/HeroShader.vue";
 import { useStore } from "@/store";
+import { isEdgePreview } from "@/edge-preview";
 import { createRoomHelper } from "@/util/roomcreator";
 
 const store = useStore();
@@ -184,7 +185,7 @@ const features = [
 	{ key: "room-permissions", icon: mdiShieldLock },
 	{ key: "voting-system", icon: mdiVote },
 	{ key: "playlist-copying", icon: mdiContentCopy },
-];
+].filter(feature => !(isEdgePreview && feature.key === "playlist-copying"));
 
 async function createTempRoom() {
 	if (store.state.misc.isLoadingCreateRoom) {

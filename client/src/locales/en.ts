@@ -9,6 +9,8 @@ export default {
 		"connection-failed": "Could not connect. Please try again.",
 		"add-label": "Video link",
 		"add-placeholder": "Paste an MP4, M3U8, MPD or custom media JSON URL",
+		"intro-text3":
+			"Currently, you can watch together from direct MP4, HLS and DASH links or custom media manifests, and",
 		"media-help":
 			"Supports MP4, HLS, DASH and custom media manifests. Use HTTPS links that allow playback from this website. Videos load directly from their original source.",
 		"try-video": "Try a sample video",
@@ -209,6 +211,8 @@ export default {
 		"next-video": "Next video",
 		"next-video-vote": "Vote to skip video",
 		"toggle-fullscreen": "Toggle fullscreen",
+		"fullscreen-hint":
+			"The browser blocked automatic fullscreen. Use the fullscreen button if needed.",
 		pip: "Picture in Picture",
 		"player-settings": "Player settings",
 		subtitles: "Subtitles/CC",
@@ -250,6 +254,7 @@ export default {
 		open: "Open chat without focusing the input",
 		close: "Close chat",
 		"type-here": "Type your message here...",
+		"to-bottom": "Jump to latest messages",
 	},
 	"share-invite": {
 		title: "Share Invite",
@@ -271,11 +276,13 @@ export default {
 		retry: "Retry",
 		"add-all": "Add All",
 		placeholder: "Type to search YouTube or enter a Video URL to add to the queue",
+		"placeholder-no-search": "Paste a video URL to add it to the queue",
 		title: "What can I add?",
 		"single-videos": "Single Videos",
 		playlists: "Playlists",
 		playlist: "Playlist",
 		text: "Or just type text to search Youtube.",
+		"text-no-search": "Search is disabled; paste a video URL instead.",
 		"search-for": 'Search YouTube for "{search}" by pressing enter, or by clicking search.',
 		platforms: {
 			"youtube-videos": "Youtube videos: {url}",
@@ -306,6 +313,8 @@ export default {
 	"video-queue": {
 		"no-videos": "There aren't any videos queued up.",
 		"add-video": "Add a video",
+		shuffle: "Shuffle the queue",
+		"item-actions": "Video actions menu",
 		export: "Export",
 		"export-diag-title": "Export Queue",
 		"export-hint": 'Copy and paste this text into the "Add" tab to restore this queue.',
@@ -370,6 +379,7 @@ export default {
 	"create-room-form": {
 		"card-title": "Create a Permanent Room",
 		"create-room": "Create Room",
+		"create-failed": "Failed to create a room. Please try again.",
 		name: "Name",
 		"name-hint": "Used in the room URL. Can't be changed later.",
 		title: "Title",

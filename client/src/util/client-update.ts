@@ -1,6 +1,8 @@
 const GIT_REVISION_PATTERN = /^[a-f\d]{7,40}$/i;
 const REVISION_PATTERN = /^(?:[a-f\d]{7,40}|cloudflare-preview-\d+\.\d+\.\d+)$/i;
 const UPDATE_QUERY = "_ott_update";
+/** Poll interval for the version check; also used by tests. */
+export const CHECK_INTERVAL_MS = 120_000;
 
 interface ClientUpdateOptions {
 	revision: string;
@@ -96,7 +98,8 @@ export function installClientUpdateCheck(options: ClientUpdateOptions) {
 	}
 
 	const onWake = () => void check();
-	const timer = setInterval(onWake, 30000);
+	// 2 minutes keeps Cloudflare Worker requests low while still noticing new deployments quickly.
+	const timer = setInterval(onWake, CHECK_INTERVAL_MS);
 	window.addEventListener("pageshow", onWake);
 	window.addEventListener("online", onWake);
 	document.addEventListener("visibilitychange", onWake);

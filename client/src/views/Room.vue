@@ -318,6 +318,9 @@ import { useCaptions, useMediaPlayer, usePlaybackRate, useVolume } from "@/compo
 import { useGrants } from "@/components/composables/grants";
 import { PlayerStatus, Visibility } from "ott-common/models/types";
 import { createPlayerFullscreen, PlayerFullscreenKey } from "@/util/player-fullscreen";
+import toast from "@/util/toast";
+import { ToastStyle } from "@/models/toast";
+import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 import { PlayerControlsActivityKey, usePlayerControls } from "@/util/player-controls";
 import { createPlayerGestures } from "@/util/player-gestures";
 import { createPlaybackSync } from "@/util/playback-sync";
@@ -901,11 +904,10 @@ export default defineComponent({
 		}
 
 		// misc UI stuff
-		const isMobile = computed(
-			() => window.matchMedia("only screen and (max-width: 760px)").matches,
-		);
+		const isMobile = computed(() => window.matchMedia(PHONE_MAX_QUERY).matches);
 		const orientation = useScreenOrientation();
 		const queueTab = ref(0);
+		let fullscreenHintShown = false;
 		const roomSettingsForm = ref<typeof RoomSettingsForm | null>(null);
 
 		onMounted(() => {
@@ -919,7 +921,15 @@ export default defineComponent({
 				}
 				if (isMobile.value) {
 					if (newOrientation.startsWith("landscape")) {
-						await fullscreen.enter();
+						const native = await fullscreen.enter();
+						if (!native && !fullscreenHintShown) {
+							fullscreenHintShown = true;
+							toast.add({
+								style: ToastStyle.Neutral,
+								content: t("room.fullscreen-hint"),
+								duration: 6000,
+							});
+						}
 					} else {
 						await fullscreen.exit();
 					}

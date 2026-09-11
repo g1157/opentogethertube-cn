@@ -734,7 +734,7 @@ export class RoomState {
 		this.anchor();
 		return structuredClone(this.snapshot);
 	}
-	nextAlarm(idleMs: number): number | null {
+	nextAlarm(idleMs: number, checkpointMs = 30_000): number | null {
 		const s = this.snapshot;
 		const times: number[] = [];
 		if (s.isTemporary && s.emptySince !== null) {
@@ -747,7 +747,7 @@ export class RoomState {
 			times.push(s.preparation.expiresAt);
 		}
 		if (s.isPlaying && this.members.size) {
-			times.push(s.anchorAt + 30_000); // Status/chat traffic must not postpone the checkpoint.
+			times.push(s.anchorAt + checkpointMs); // Status/chat traffic must not postpone the checkpoint.
 			const end = s.currentSource?.endAt ?? s.currentSource?.length;
 			if (end !== undefined) {
 				times.push(

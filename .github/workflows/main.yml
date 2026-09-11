@@ -101,6 +101,64 @@ jobs:
         env:
           REDIS_HOST: localhost
           REDIS_PORT: 6379
+  test-postgres:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [24.x]
+    services:
+      postgres:
+        image: postgres:15-bullseye
+        env:
+          POSTGRES_DB: ott
+          POSTGRES_USER: ott
+          POSTGRES_PASSWORD: ott
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ott -d ott" --health-interval 5s
+          --health-timeout 3s --health-retries 12
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout
+          5s --health-retries 5
+        ports:
+          - 6379:6379
+    env:
+      DB_MODE: postgres
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ott
+      POSTGRES_USER: ott
+      POSTGRES_PASSWORD: ott
+      DATABASE_URL: postgres://ott:ott@localhost:5432/ott
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          check-latest: true
+      - uses: actions/cache@v4
+        with:
+          path: .yarn/cache
+          key: yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-${{
+            hashFiles('yarn.lock') }}
+          restore-keys: |
+            yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-
+      - run: command -v corepack || npm install --global corepack@latest
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn workspace ott-server run sequelize db:migrate
+        env:
+          NODE_ENV: test
+      - run: yarn run build
+      - run: yarn run test
+        env:
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+
   grafana-compatibilitycheck:
     runs-on: ubuntu-latest
     strategy:

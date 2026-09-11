@@ -47,6 +47,7 @@ import PictureInPictureButton from "./PictureInPictureButton.vue";
 import { computed, inject, onMounted, onUnmounted, ref, watch } from "vue";
 import { useMediaQuery, useResizeObserver } from "@vueuse/core";
 import { PlayerControlsActivityKey } from "@/util/player-controls";
+import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 import { useStore } from "@/store";
 
 const emit = defineEmits(["show-shortcuts", "resize"]);
@@ -59,7 +60,7 @@ useResizeObserver(controlsBar, entries => {
 });
 const controls = inject(PlayerControlsActivityKey, undefined);
 const store = useStore();
-const mobilePortrait = useMediaQuery("(max-width: 760px) and (orientation: portrait)");
+const mobilePortrait = useMediaQuery(`${PHONE_MAX_QUERY} and (orientation: portrait)`);
 const compact = computed(() => mobilePortrait.value && !store.state.fullscreen);
 const hoverKey = Symbol("player:hover");
 const dragKey = Symbol("player:drag");

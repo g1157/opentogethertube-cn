@@ -118,10 +118,10 @@ onBeforeUnmount(() => clearInterval(timer));
 	gap: 10px;
 	width: min(360px, 100%);
 	padding: 18px;
-	border: 1px solid rgba(255, 255, 255, 0.16);
+	border: 1px solid var(--line-strong);
 	border-radius: 12px;
-	background: rgba(12, 14, 20, 0.92);
-	color: #fff;
+	background: color-mix(in srgb, var(--ink) 92%, transparent);
+	color: var(--foreground);
 	text-align: center;
 	font-size: 0.875rem;
 
@@ -135,12 +135,12 @@ onBeforeUnmount(() => clearInterval(timer));
 	}
 
 	.loading-timing {
-		color: #d0d3dc;
+		color: var(--text-dim);
 		font-variant-numeric: tabular-nums;
 	}
 
 	.loading-slow {
-		color: #ffe1a3;
+		color: var(--warning);
 	}
 
 	.v-btn {

@@ -6,7 +6,8 @@
 		</p>
 		<p class="footer-credit">
 			{{ new Date().getFullYear() }} —
-			<a href="https://carsonmcmanus.com/">Carson McManus</a> — {{ $t("footer.made-in") }} —
+			<a href="https://carsonmcmanus.com/">Carson McManus</a> —
+			<template v-if="isOfficialSite()">{{ $t("footer.made-in") }} — </template>
 			{{ $t("footer.thanks-to") }} <a href="https://softe.club">SEC</a> @ Stevens
 		</p>
 		<nav class="footer-links">

@@ -49,13 +49,14 @@ import { useMediaQuery } from "@vueuse/core";
 import { useStore } from "@/store";
 import { RoomLayoutMode } from "@/stores/settings";
 import { PlayerFullscreenKey } from "@/util/player-fullscreen";
+import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 
 const store = useStore();
 const fullscreen = inject(PlayerFullscreenKey);
 const layoutTooltip = shallowRef(false);
 const fullscreenTooltip = shallowRef(false);
 const canHover = useMediaQuery("(hover: hover) and (pointer: fine)");
-const isMobile = useMediaQuery("(max-width: 760px)");
+const isMobile = useMediaQuery(PHONE_MAX_QUERY);
 
 watch([isMobile, () => store.state.fullscreen], () => {
 	layoutTooltip.value = false;

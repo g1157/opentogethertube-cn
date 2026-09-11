@@ -31,6 +31,10 @@ jobs:
           GIT_COMMIT=$(git rev-parse HEAD) VITE_SOURCE_URL=/source-code.tar.gz \
             node .yarn/releases/yarn-4.1.0.cjs workspace ott-client build
           git archive --format=tar.gz -o client/dist/source-code.tar.gz HEAD
+      - name: Normalize timestamps for stable image layers
+        run: |
+          find server common client/dist deploy/import-room-state.mjs \
+            -path '*/node_modules' -prune -o -exec touch -h -d '2026-01-01T00:00:00Z' {} +
       - name: Resolve version
         id: meta
         run: |
