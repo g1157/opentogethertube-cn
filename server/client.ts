@@ -3,9 +3,8 @@ import {
 	type ClientId,
 	type ClientInfo,
 	OttWebsocketError,
-	PlayerStatus,
 } from "ott-common/models/types.js";
-import { z } from "zod";
+import { clientMessageSchema } from "./ws-schemas.js";
 import type { ClientMessage, ServerMessage } from "ott-common/models/messages.js";
 import type WebSocket from "ws";
 import { type SessionInfo, setSessionInfo } from "./auth/tokens.js";
@@ -120,36 +119,6 @@ export abstract class Client {
 /**
  * A client that is connected directly to the server.
  */
-const playbackPreparedSchema = z.object({
-	id: z.string().max(100),
-	position: z.number().finite(),
-});
-
-const clientMessageSchema = z.discriminatedUnion("action", [
-	z.object({
-		action: z.literal("auth"),
-		token: z.string().max(512),
-	}),
-	z.object({
-		action: z.literal("kickme"),
-		reason: z.number().optional(),
-	}),
-	z.object({
-		action: z.literal("status"),
-		status: z.nativeEnum(PlayerStatus),
-		playbackPrepared: playbackPreparedSchema.optional(),
-	}),
-	z.object({
-		action: z.literal("notify"),
-		message: z.literal("usernameChanged"),
-	}),
-	// Room requests are validated per command inside the room; the envelope guards size and shape.
-	z.object({
-		action: z.literal("req"),
-		request: z.object({ type: z.string().max(64) }).passthrough(),
-	}),
-]);
-
 export class DirectClient extends Client {
 	socket: WebSocket;
 	private authTimeout: ReturnType<typeof setTimeout>;
