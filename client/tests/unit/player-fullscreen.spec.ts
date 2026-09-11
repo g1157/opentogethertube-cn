@@ -76,7 +76,7 @@ describe("player fullscreen", () => {
 	it("falls back when the browser rejects fullscreen and still supports the exit button", async () => {
 		// eslint-disable-next-line vitest/prefer-spy-on -- jsdom does not provide this native API.
 		target.requestFullscreen = vi.fn().mockRejectedValue(new Error("Not allowed"));
-		await expect(controller.toggle()).resolves.toBe(false);
+		await expect(controller.toggle()).resolves.toBeUndefined();
 		expect(onChange).toHaveBeenLastCalledWith(true);
 		await controller.toggle();
 		expect(onChange).toHaveBeenLastCalledWith(false);
