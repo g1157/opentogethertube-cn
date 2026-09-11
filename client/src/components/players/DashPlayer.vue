@@ -21,13 +21,18 @@
 			@progress="onProgress"
 			@error="onNativeError"
 		></video>
+		<UpscaleLayer
+			v-if="upscaleMode !== 'off'"
+			:video="videoElem"
+			:mode="upscaleMode === 'anime4k' ? 'anime4k' : 'sharpen'"
+		/>
 	</div>
 	<div id="dashplayer-ttml-rendering" ref="ttlmCaption"></div>
 </template>
 
 <script lang="ts" setup>
 import { type ErrorEvent, MediaPlayer, type MediaPlayerClass } from "dashjs";
-import { onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
 import { nativeMediaError } from "@/util/media-recovery";
@@ -40,6 +45,8 @@ import type {
 	MediaPlayerWithQuality,
 } from "../composables";
 import { useCaptions, useMediaAudioBoost, useQualities } from "../composables";
+import UpscaleLayer from "./UpscaleLayer.vue";
+import { useStore } from "@/store";
 
 interface Props {
 	videoUrl: string;
@@ -53,6 +60,8 @@ const seek = createMediaSeek(() => videoElem.value);
 const ttlmCaption = ref<HTMLDivElement>();
 const captions = useCaptions();
 const qualities = useQualities();
+const store = useStore();
+const upscaleMode = computed(() => store.state.settings.upscaleMode);
 const dash = ref<MediaPlayerClass | undefined>(undefined);
 const audioBoost = useMediaAudioBoost(videoElem);
 let sourceGeneration = 0;
@@ -547,6 +556,7 @@ defineExpose({
 <!-- biome-ignore lint/nursery/useScopedStyles: biome migration -->
 <style lang="scss">
 .dash {
+	position: relative;
 	display: flex;
 	align-items: center;
 	justify-content: center;

@@ -213,6 +213,15 @@ export default {
 		"toggle-fullscreen": "Toggle fullscreen",
 		"fullscreen-hint":
 			"The browser blocked automatic fullscreen. Use the fullscreen button if needed.",
+		upscale: {
+			title: "Video enhancement",
+			off: "Off",
+			sharpen: "Sharpen",
+			anime4k: "AI upscale (Anime4K)",
+			"webgpu-fallback": "WebGPU is unavailable here; switched to Sharpen.",
+			failed: "Could not enable video enhancement; it was turned off.",
+			degraded: "Performance is too low; video enhancement was reduced.",
+		},
 		pip: "Picture in Picture",
 		"player-settings": "Player settings",
 		subtitles: "Subtitles/CC",

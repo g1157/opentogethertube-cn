@@ -7554,6 +7554,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@webgpu/types@npm:^0.1.38":
+  version: 0.1.72
+  resolution: "@webgpu/types@npm:0.1.72"
+  checksum: 10c0/f03af4f3db0543158bbc39810d57a01269cc315e9ba5c1f8690a6c6f3c969d1c1cc53bc55899c5aa2f9d3702fa866682c3cd33129d614487d4a763f0dbea72c0
+  languageName: node
+  linkType: hard
+
 "@webpack-cli/configtest@npm:^2.1.1":
   version: 2.1.1
   resolution: "@webpack-cli/configtest@npm:2.1.1"
@@ -7841,6 +7848,15 @@ __metadata:
     require-from-string: "npm:^2.0.2"
     uri-js: "npm:^4.2.2"
   checksum: 10c0/ac4f72adf727ee425e049bc9d8b31d4a57e1c90da8d28bcd23d60781b12fcd6fc3d68db5df16994c57b78b94eed7988f5a6b482fd376dc5b084125e20a0a622e
+  languageName: node
+  linkType: hard
+
+"anime4k-webgpu@npm:^1.0.0":
+  version: 1.0.0
+  resolution: "anime4k-webgpu@npm:1.0.0"
+  peerDependencies:
+    "@webgpu/types": ^0.1.38
+  checksum: 10c0/61551af16a01f38f7141679942aec385627ee07b5383abdc5d58b6f3c5c7c3dd1aeaf6f34def71f5a1f990dab75ad150f384cb68e7d2122efc9fee59a6686201
   languageName: node
   linkType: hard
 
@@ -17055,6 +17071,8 @@ __metadata:
     "@vue/eslint-config-typescript": "npm:^11.0.3"
     "@vue/test-utils": "npm:2.2.1"
     "@vueuse/core": "npm:^9.6.0"
+    "@webgpu/types": "npm:^0.1.38"
+    anime4k-webgpu: "npm:^1.0.0"
     axios: "npm:1.13.5"
     dashjs: "npm:5.0.3"
     dayjs: "npm:^1.10.4"

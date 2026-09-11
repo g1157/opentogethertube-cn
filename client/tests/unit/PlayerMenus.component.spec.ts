@@ -297,7 +297,8 @@ describe("player menu placement", () => {
 		const content = menuContent();
 		const previousTop = content.style.top;
 		menuHeight = 560;
-		document.querySelectorAll<HTMLElement>(".settings-menu-container .menu-item")[1].click();
+		// 0 = subtitles, 1 = video enhancement, 2 = quality.
+		document.querySelectorAll<HTMLElement>(".settings-menu-container .menu-item")[2].click();
 		await settle();
 		TestResizeObserver.resize(content);
 		await settle();

@@ -6,6 +6,7 @@ export const CHAT_OVERLAY_SECONDS_OPTIONS = [0, 3, 5, 10, 20] as const;
 export const ROOM_NOTICE_SECONDS_OPTIONS = [0, 1, 2, 3, 5, 10, 20] as const;
 export const CONTROLS_HIDE_SECONDS_OPTIONS = [2, 3, 5, 10] as const;
 export const HLS_BUFFER_SECONDS_OPTIONS = [30, 60, 120] as const;
+export const UPSCALE_MODES = ["off", "sharpen", "anime4k"] as const;
 
 export interface SettingsState {
 	volume: number;
@@ -24,6 +25,7 @@ export interface SettingsState {
 	seekNoticeSeconds: (typeof ROOM_NOTICE_SECONDS_OPTIONS)[number];
 	controlsHideSeconds: (typeof CONTROLS_HIDE_SECONDS_OPTIONS)[number];
 	hlsBufferSeconds: (typeof HLS_BUFFER_SECONDS_OPTIONS)[number];
+	upscaleMode: (typeof UPSCALE_MODES)[number];
 }
 
 export type DefaultRoomSettings = Pick<RoomSettings, "autoSkipSegmentCategories">;
@@ -69,6 +71,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		seekNoticeSeconds: 3,
 		controlsHideSeconds: 3,
 		hlsBufferSeconds: 60,
+		upscaleMode: "off",
 	}),
 	mutations: {
 		UPDATE(state, settings: Partial<SettingsState>) {
@@ -96,6 +99,9 @@ export const settingsModule: Module<SettingsState, unknown> = {
 			}
 			if (!HLS_BUFFER_SECONDS_OPTIONS.includes(state.hlsBufferSeconds)) {
 				state.hlsBufferSeconds = 60;
+			}
+			if (!UPSCALE_MODES.includes(state.upscaleMode)) {
+				state.upscaleMode = "off";
 			}
 			try {
 				// Save defaults and their migration markers together so they cannot diverge.

@@ -35,11 +35,16 @@
 				default
 			/>
 		</video>
+		<UpscaleLayer
+			v-if="upscaleMode !== 'off'"
+			:video="videoElem"
+			:mode="upscaleMode === 'anime4k' ? 'anime4k' : 'sharpen'"
+		/>
 	</div>
 </template>
 
 <script lang="ts" setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
 import {
 	CustomMediaManifestSchema,
@@ -55,6 +60,8 @@ import type {
 	MediaPlayerWithQuality,
 } from "../composables";
 import { useCaptions, useMediaAudioBoost, useQualities } from "../composables";
+import UpscaleLayer from "./UpscaleLayer.vue";
+import { useStore } from "@/store";
 
 interface Props {
 	service: string;
@@ -70,6 +77,8 @@ const videoElem = ref<HTMLVideoElement | undefined>();
 const captions = useCaptions();
 const audioBoost = useMediaAudioBoost(videoElem);
 const qualities = useQualities();
+const store = useStore();
+const upscaleMode = computed(() => store.state.settings.upscaleMode);
 const manifest = ref<CustomMediaManifest | null>(null);
 let activeMediaUrl = "";
 let sourceGeneration = 0;
@@ -501,6 +510,7 @@ defineExpose({
 <!-- biome-ignore lint/nursery/useScopedStyles: biome migration -->
 <style lang="scss">
 .direct {
+	position: relative;
 	display: flex;
 	align-items: center;
 	justify-content: center;

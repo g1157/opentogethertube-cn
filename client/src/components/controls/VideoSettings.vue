@@ -58,6 +58,18 @@
 								</span>
 							</div>
 						</v-list-item>
+						<v-list-item
+							link
+							class="menu-item"
+							:append-icon="mdiChevronRight"
+							:prepend-icon="mdiAutoFix"
+							@click="navigateToMenu('upscale')"
+						>
+							<div class="menu-item-content">
+								<span>{{ $t("room.upscale.title") }}</span>
+								<span class="menu-item-value">{{ upscaleLabel }}</span>
+							</div>
+						</v-list-item>
 
 						<v-list-item
 							link
@@ -254,6 +266,33 @@
 							{{ formatCaption(track) }}
 						</v-list-item>
 					</v-list>
+
+					<!-- Video enhancement submenu -->
+					<v-list
+						v-else-if="currentMenu === 'upscale'"
+						key="upscale"
+						class="menu-content"
+						color="primary"
+					>
+						<v-list-item
+							link
+							class="menu-header"
+							:prepend-icon="mdiChevronLeft"
+							@click="navigateToMenu('main')"
+						>
+							{{ $t("room.upscale.title") }}
+						</v-list-item>
+
+						<v-list-item
+							v-for="option in upscaleOptions"
+							:key="option.value"
+							link
+							:active="store.state.settings.upscaleMode === option.value"
+							@click="selectUpscale(option.value)"
+						>
+							{{ option.text }}
+						</v-list-item>
+					</v-list>
 				</div>
 			</div>
 		</v-container>
@@ -267,6 +306,7 @@ import { useMediaQuery } from "@vueuse/core";
 import { useCaptions, useQualities } from "../composables";
 import {
 	mdiCog,
+	mdiAutoFix,
 	mdiClosedCaptionOutline,
 	mdiClosedCaption,
 	mdiTune,
@@ -291,6 +331,23 @@ defineProps<{ compact?: boolean }>();
 const emit = defineEmits(["show-shortcuts"]);
 const store = useStore();
 const { t } = useI18n();
+
+type UpscaleMode = "off" | "sharpen" | "anime4k";
+const webgpuAvailable = typeof navigator !== "undefined" && "gpu" in navigator;
+const upscaleLabel = computed(() => t(`room.upscale.${store.state.settings.upscaleMode}`));
+const upscaleOptions = computed(() => {
+	const options: Array<{ value: UpscaleMode; text: string }> = [
+		{ value: "off", text: t("room.upscale.off") },
+		{ value: "sharpen", text: t("room.upscale.sharpen") },
+	];
+	if (webgpuAvailable) {
+		options.push({ value: "anime4k", text: t("room.upscale.anime4k") });
+	}
+	return options;
+});
+function selectUpscale(mode: UpscaleMode): void {
+	store.commit("settings/UPDATE", { upscaleMode: mode });
+}
 const canHover = useMediaQuery("(hover: hover) and (pointer: fine)");
 const menu = ref<{ updateLocation: () => void } | null>(null);
 // VMenu resets inherited defaults inside its content, including nested select menus.
@@ -349,7 +406,7 @@ const hlsBufferOptions = computed(() =>
 );
 
 // Menu types - using literal string values instead of enum due to Safari compatibility issues
-const currentMenu = ref<"main" | "quality" | "subtitle" | "preferences">("main");
+const currentMenu = ref<"main" | "quality" | "subtitle" | "preferences" | "upscale">("main");
 const isMenuOpen = ref<boolean>(false);
 usePlayerControlsActivity(isMenuOpen);
 

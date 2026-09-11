@@ -20,14 +20,20 @@
 			@ended="onEnd"
 			@error="onMediaError"
 		></video>
+		<UpscaleLayer
+			v-if="upscaleMode !== 'off'"
+			:video="videoElem"
+			:mode="upscaleMode === 'anime4k' ? 'anime4k' : 'sharpen'"
+		/>
 	</div>
 </template>
 
 <script lang="ts" setup>
 import Hls from "hls.js";
-import { onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
 import { useStore } from "@/store";
+import UpscaleLayer from "./UpscaleLayer.vue";
 import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
 import type {
@@ -51,6 +57,7 @@ const captions = useCaptions();
 const qualities = useQualities();
 const audioBoost = useMediaAudioBoost(videoElem);
 const store = useStore();
+const upscaleMode = computed(() => store.state.settings.upscaleMode);
 let hls: Hls | undefined;
 let audioOnly = false;
 
@@ -477,6 +484,7 @@ defineExpose({
 <!-- biome-ignore lint/nursery/useScopedStyles: biome migration -->
 <style lang="scss">
 .hls {
+	position: relative;
 	display: flex;
 	align-items: center;
 	justify-content: center;
