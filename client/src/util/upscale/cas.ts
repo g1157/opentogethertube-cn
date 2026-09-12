@@ -7,7 +7,8 @@ const VERTEX_SHADER = `#version 300 es
 in vec2 aPos;
 out vec2 vUv;
 void main() {
-	vUv = (aPos + 1.0) * 0.5;
+	// Video frames upload with the first row at v=0; flip Y so the picture is upright.
+	vUv = vec2((aPos.x + 1.0) * 0.5, (1.0 - aPos.y) * 0.5);
 	gl_Position = vec4(aPos, 0.0, 1.0);
 }
 `;
