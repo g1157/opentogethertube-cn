@@ -1,6 +1,6 @@
 <template>
 	<div class="upscale-layer">
-		<canvas ref="canvasElem" class="upscale-canvas" aria-hidden="true"></canvas>
+		<div ref="canvasHost" class="upscale-canvas-host"></div>
 		<div ref="captionElem" class="upscale-captions" role="status" aria-live="polite"></div>
 	</div>
 </template>
@@ -10,12 +10,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { i18n } from "@/i18n";
 import { ToastStyle } from "@/models/toast";
 import { useStore } from "@/store";
-import {
-	DEFAULT_UPSCALE_STRENGTH,
-	MAX_UPSCALE_STRENGTH,
-	MIN_UPSCALE_STRENGTH,
-	type SettingsState,
-} from "@/stores/settings";
+import type { SettingsState } from "@/stores/settings";
 import { computeCanvasSize } from "@/util/upscale/scale";
 import type { UpscaleRenderer } from "@/util/upscale/upscale-renderer";
 import toast from "@/util/toast";
@@ -26,25 +21,48 @@ const props = defineProps<{
 }>();
 
 const store = useStore();
-const canvasElem = ref<HTMLCanvasElement | null>(null);
+const canvasHost = ref<HTMLElement | null>(null);
 const captionElem = ref<HTMLElement | null>(null);
 
 // Degrade ladder, walked one rung per monitoring window.
 const SCALE_STEPS = [2, 1.5, 1, 0.75, 0.5, 0.25] as const;
-const STRENGTH_STEPS = [
-	MAX_UPSCALE_STRENGTH,
-	DEFAULT_UPSCALE_STRENGTH,
-	MIN_UPSCALE_STRENGTH,
-] as const;
+// A gap this long between presented frames means nothing was being drawn — a pause, a
+// seek, a rebuffer or a backgrounded tab. That time says nothing about the device, so
+// the measurement restarts instead of scoring it as an abysmal frame rate. Judging needs
+// 24 frames in a 6s window, so nothing slower than 4fps is judged either way; a second is
+// far above any real frame interval and far below a human pause.
+const STALL_MS = 1000;
 
 let renderer: UpscaleRenderer | null = null;
+let canvas: HTMLCanvasElement | null = null;
 let generation = 0;
 let captionTimer: ReturnType<typeof setInterval> | undefined;
 let monitorFrame = 0;
 let monitorWindowStart = 0;
 let monitorFrames = 0;
+// Negative infinity rather than 0, so "no frame yet" cannot be confused with a clock
+// that legitimately reads 0.
+let lastFrameAt = Number.NEGATIVE_INFINITY;
 
-function sizeCanvas(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
+/**
+ * A canvas keeps whatever context type it was first asked for, and the sharpen renderer
+ * deliberately loses its WebGL context when it stops, so a canvas that has hosted one
+ * renderer can never host another — switching tiers or reloading the media would just
+ * fail to get a context. Every start therefore gets a canvas of its own.
+ */
+function createCanvas(): HTMLCanvasElement | null {
+	const host = canvasHost.value;
+	if (!host) {
+		return null;
+	}
+	const element = document.createElement("canvas");
+	element.className = "upscale-canvas";
+	element.setAttribute("aria-hidden", "true");
+	host.replaceChildren(element);
+	return element;
+}
+
+function sizeCanvas(video: HTMLVideoElement, target: HTMLCanvasElement) {
 	const box = video.getBoundingClientRect();
 	const size = computeCanvasSize({
 		nativeWidth: video.videoWidth,
@@ -54,8 +72,8 @@ function sizeCanvas(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
 		dpr: Math.min(window.devicePixelRatio || 1, 2),
 		requestedScale: store.state.settings.upscaleScale,
 	});
-	canvas.width = size.width;
-	canvas.height = size.height;
+	target.width = size.width;
+	target.height = size.height;
 }
 
 function updateCaptions() {
@@ -102,9 +120,14 @@ function monitorPerformance() {
 		scheduleMonitor();
 		return;
 	}
-	if (!monitorWindowStart) {
+	if (now - lastFrameAt > STALL_MS) {
+		// requestVideoFrameCallback stops firing while the video is paused, so the paused
+		// check above may never run; this is what actually catches it. Without it, resuming
+		// after a pause scores the whole pause as one window and degrades on the first frame.
 		monitorWindowStart = now;
+		monitorFrames = 0;
 	}
+	lastFrameAt = now;
 	monitorFrames++;
 	scheduleMonitor();
 	if (now - monitorWindowStart < 6000) {
@@ -125,17 +148,18 @@ function monitorPerformance() {
 		// The user chose to keep the enhancement on and absorb the stutter.
 		return;
 	}
-	degradeOneStep(video, canvasElem.value);
+	degradeOneStep(video, canvas);
 }
 
 /**
- * The next rung down, ending in turning the enhancement off. Ordered by how much
- * each rung relieves the device: render size first because the cost is proportional
- * to it, then the strength of the effect, and finally the effect itself.
+ * The next rung down, ending in turning the enhancement off. Only render size and the
+ * algorithm appear here: lowering the sharpen strength changes one uniform while the
+ * shader still samples five texels per pixel, so it would spend a whole window waiting
+ * to see no improvement. The slider is a quality control, not a performance one.
  */
 function pickDegradeStep(
 	video: HTMLVideoElement,
-	canvas: HTMLCanvasElement,
+	target: HTMLCanvasElement,
 ): Partial<SettingsState> {
 	if (props.mode === "anime4k") {
 		// The CNN runs at the source resolution, so shrinking the render target buys
@@ -144,26 +168,20 @@ function pickDegradeStep(
 	}
 	// The canvas may already sit below 1x when "auto" sized it to the displayed box,
 	// so step down from what is actually rendered rather than from the named tier.
-	const currentScale = canvas.width / Math.max(1, video.videoWidth);
+	const currentScale = target.width / Math.max(1, video.videoWidth);
 	const scaleStep = SCALE_STEPS.find(step => step < currentScale - 0.01);
 	if (scaleStep !== undefined) {
 		// Store an explicit multiplier so the ladder and "auto" cannot fight over it.
 		return { upscaleScale: scaleStep };
 	}
-	const strengthStep = STRENGTH_STEPS.find(
-		step => step < store.state.settings.upscaleStrength - 0.001,
-	);
-	if (strengthStep !== undefined) {
-		return { upscaleStrength: strengthStep };
-	}
 	return { upscaleMode: "off" };
 }
 
-function degradeOneStep(video: HTMLVideoElement | undefined, canvas: HTMLCanvasElement | null) {
-	if (!video || !canvas) {
+function degradeOneStep(video: HTMLVideoElement | undefined, target: HTMLCanvasElement | null) {
+	if (!video || !target) {
 		return;
 	}
-	const step = pickDegradeStep(video, canvas);
+	const step = pickDegradeStep(video, target);
 	toast.add({
 		style: ToastStyle.Neutral,
 		content: i18n.global.t("room.upscale.degraded"),
@@ -178,7 +196,6 @@ function degradeOneStep(video: HTMLVideoElement | undefined, canvas: HTMLCanvasE
 
 function handleViewportChange() {
 	const video = props.video;
-	const canvas = canvasElem.value;
 	if (props.mode === "sharpen" && renderer && video && canvas) {
 		// The sharpen pass reads the canvas size every frame, so a resize is enough.
 		sizeCanvas(video, canvas);
@@ -203,12 +220,16 @@ function stopRenderers() {
 async function start() {
 	stopRenderers();
 	const video = props.video;
-	const canvas = canvasElem.value;
-	if (!video || !canvas) {
+	const element = createCanvas();
+	if (!video || !element) {
 		return;
 	}
-	sizeCanvas(video, canvas);
+	sizeCanvas(video, element);
 	const current = ++generation;
+	// Hold the result locally until the generation check: assigning straight to `renderer`
+	// lets a slow start clobber the renderer a newer one already installed, after which
+	// nothing holds a reference to stop it and its frame loop and device leak.
+	let created: UpscaleRenderer | null = null;
 	try {
 		if (props.mode === "anime4k") {
 			if (!("gpu" in navigator)) {
@@ -216,17 +237,15 @@ async function start() {
 			}
 			const { startAnime4KRenderer } = await import("@/util/upscale/anime4k");
 			if (current !== generation) {
+				// Skip building a GPU device only to throw it away.
 				return;
 			}
-			renderer = await startAnime4KRenderer(video, canvas);
+			created = await startAnime4KRenderer(video, element);
 		} else {
 			const { startSharpenRenderer } = await import("@/util/upscale/cas");
-			if (current !== generation) {
-				return;
-			}
-			renderer = startSharpenRenderer(
+			created = startSharpenRenderer(
 				video,
-				canvas,
+				element,
 				() => store.state.settings.upscaleStrength,
 			);
 		}
@@ -245,10 +264,11 @@ async function start() {
 		return;
 	}
 	if (current !== generation) {
-		renderer?.stop();
-		renderer = null;
+		created?.stop();
 		return;
 	}
+	renderer = created;
+	canvas = element;
 	updateCaptions();
 	captionTimer = setInterval(updateCaptions, 250);
 	monitorWindowStart = 0;
@@ -290,7 +310,6 @@ watch(
 	() => store.state.settings.upscaleScale,
 	() => {
 		const video = props.video;
-		const canvas = canvasElem.value;
 		if (!video || !canvas) {
 			return;
 		}
@@ -326,13 +345,9 @@ onBeforeUnmount(() => {
 	pointer-events: none;
 }
 
-.upscale-canvas {
+.upscale-canvas-host {
 	position: absolute;
 	inset: 0;
-	width: 100%;
-	height: 100%;
-	object-fit: contain;
-	object-position: 50% 50%;
 }
 
 .upscale-captions {
@@ -350,5 +365,18 @@ onBeforeUnmount(() => {
 
 .upscale-captions:empty {
 	display: none;
+}
+</style>
+
+<!-- Not scoped: the canvas is built in script, so it never receives this component's
+     scope id and a scoped rule would not match it. -->
+<style>
+.upscale-canvas {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	object-position: 50% 50%;
 }
 </style>
