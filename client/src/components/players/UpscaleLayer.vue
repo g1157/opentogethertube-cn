@@ -10,6 +10,13 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { i18n } from "@/i18n";
 import { ToastStyle } from "@/models/toast";
 import { useStore } from "@/store";
+import {
+	DEFAULT_UPSCALE_STRENGTH,
+	MAX_UPSCALE_STRENGTH,
+	MIN_UPSCALE_STRENGTH,
+	type SettingsState,
+} from "@/stores/settings";
+import { computeCanvasSize } from "@/util/upscale/scale";
 import type { UpscaleRenderer } from "@/util/upscale/upscale-renderer";
 import toast from "@/util/toast";
 
@@ -22,27 +29,33 @@ const store = useStore();
 const canvasElem = ref<HTMLCanvasElement | null>(null);
 const captionElem = ref<HTMLElement | null>(null);
 
+// Degrade ladder, walked one rung per monitoring window.
+const SCALE_STEPS = [2, 1.5, 1, 0.75, 0.5, 0.25] as const;
+const STRENGTH_STEPS = [
+	MAX_UPSCALE_STRENGTH,
+	DEFAULT_UPSCALE_STRENGTH,
+	MIN_UPSCALE_STRENGTH,
+] as const;
+
 let renderer: UpscaleRenderer | null = null;
 let generation = 0;
 let captionTimer: ReturnType<typeof setInterval> | undefined;
 let monitorFrame = 0;
 let monitorWindowStart = 0;
 let monitorFrames = 0;
-let degraded = false;
 
 function sizeCanvas(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
-	const nativeWidth = Math.max(1, video.videoWidth);
-	const nativeHeight = Math.max(1, video.videoHeight);
 	const box = video.getBoundingClientRect();
-	const dpr = Math.min(window.devicePixelRatio || 1, 2);
-	// Render at most 2x the source and never more than the displayed box needs.
-	const scale = Math.min(
-		2,
-		Math.max(1, (Math.max(box.width, 1) * dpr) / nativeWidth),
-		Math.max(1, (Math.max(box.height, 1) * dpr) / nativeHeight),
-	);
-	canvas.width = Math.round(nativeWidth * scale);
-	canvas.height = Math.round(nativeHeight * scale);
+	const size = computeCanvasSize({
+		nativeWidth: video.videoWidth,
+		nativeHeight: video.videoHeight,
+		boxWidth: box.width,
+		boxHeight: box.height,
+		dpr: Math.min(window.devicePixelRatio || 1, 2),
+		requestedScale: store.state.settings.upscaleScale,
+	});
+	canvas.width = size.width;
+	canvas.height = size.height;
 }
 
 function updateCaptions() {
@@ -78,7 +91,7 @@ function scheduleMonitor() {
 
 function monitorPerformance() {
 	const video = props.video;
-	if (!video || degraded) {
+	if (!video) {
 		return;
 	}
 	const now = performance.now();
@@ -108,14 +121,59 @@ function monitorPerformance() {
 	if (fps >= 18) {
 		return;
 	}
-	degraded = true;
-	const nextMode = props.mode === "anime4k" ? "sharpen" : "off";
+	if (!store.state.settings.upscaleAutoDegrade) {
+		// The user chose to keep the enhancement on and absorb the stutter.
+		return;
+	}
+	degradeOneStep(video, canvasElem.value);
+}
+
+/**
+ * The next rung down, ending in turning the enhancement off. Ordered by how much
+ * each rung relieves the device: render size first because the cost is proportional
+ * to it, then the strength of the effect, and finally the effect itself.
+ */
+function pickDegradeStep(
+	video: HTMLVideoElement,
+	canvas: HTMLCanvasElement,
+): Partial<SettingsState> {
+	if (props.mode === "anime4k") {
+		// The CNN runs at the source resolution, so shrinking the render target buys
+		// almost nothing; switching to the cheap pass is the step that actually helps.
+		return { upscaleMode: "sharpen" };
+	}
+	// The canvas may already sit below 1x when "auto" sized it to the displayed box,
+	// so step down from what is actually rendered rather than from the named tier.
+	const currentScale = canvas.width / Math.max(1, video.videoWidth);
+	const scaleStep = SCALE_STEPS.find(step => step < currentScale - 0.01);
+	if (scaleStep !== undefined) {
+		// Store an explicit multiplier so the ladder and "auto" cannot fight over it.
+		return { upscaleScale: scaleStep };
+	}
+	const strengthStep = STRENGTH_STEPS.find(
+		step => step < store.state.settings.upscaleStrength - 0.001,
+	);
+	if (strengthStep !== undefined) {
+		return { upscaleStrength: strengthStep };
+	}
+	return { upscaleMode: "off" };
+}
+
+function degradeOneStep(video: HTMLVideoElement | undefined, canvas: HTMLCanvasElement | null) {
+	if (!video || !canvas) {
+		return;
+	}
+	const step = pickDegradeStep(video, canvas);
 	toast.add({
 		style: ToastStyle.Neutral,
 		content: i18n.global.t("room.upscale.degraded"),
 		duration: 6000,
 	});
-	store.commit("settings/UPDATE", { upscaleMode: nextMode });
+	store.commit("settings/UPDATE", step);
+	// Give the new setting a full window to prove itself before stepping again,
+	// whichever watcher it woke.
+	monitorWindowStart = 0;
+	monitorFrames = 0;
 }
 
 function handleViewportChange() {
@@ -144,7 +202,6 @@ function stopRenderers() {
 
 async function start() {
 	stopRenderers();
-	degraded = false;
 	const video = props.video;
 	const canvas = canvasElem.value;
 	if (!video || !canvas) {
@@ -167,7 +224,11 @@ async function start() {
 			if (current !== generation) {
 				return;
 			}
-			renderer = startSharpenRenderer(video, canvas);
+			renderer = startSharpenRenderer(
+				video,
+				canvas,
+				() => store.state.settings.upscaleStrength,
+			);
 		}
 	} catch (err) {
 		console.warn("Video enhancement unavailable:", err);
@@ -223,6 +284,24 @@ watch(
 watch(
 	() => props.mode,
 	() => void start(),
+);
+
+watch(
+	() => store.state.settings.upscaleScale,
+	() => {
+		const video = props.video;
+		const canvas = canvasElem.value;
+		if (!video || !canvas) {
+			return;
+		}
+		if (props.mode === "anime4k") {
+			// The Anime4K pipeline captures its target size when it is built.
+			void start();
+			return;
+		}
+		// The sharpen pass reads the canvas size every frame, so a resize is enough.
+		sizeCanvas(video, canvas);
+	},
 );
 
 onMounted(() => {

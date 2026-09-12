@@ -1,12 +1,20 @@
 import type { RoomSettings } from "ott-common";
 import type { Module } from "vuex/types";
 import vuetify from "@/plugins/vuetify";
+import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 
 export const CHAT_OVERLAY_SECONDS_OPTIONS = [0, 3, 5, 10, 20] as const;
 export const ROOM_NOTICE_SECONDS_OPTIONS = [0, 1, 2, 3, 5, 10, 20] as const;
 export const CONTROLS_HIDE_SECONDS_OPTIONS = [2, 3, 5, 10] as const;
 export const HLS_BUFFER_SECONDS_OPTIONS = [30, 60, 120] as const;
 export const UPSCALE_MODES = ["off", "sharpen", "anime4k"] as const;
+/** Render multipliers for the enhancement canvas; "auto" follows the displayed box. */
+export const UPSCALE_SCALES = ["auto", 0.25, 0.5, 0.75, 1, 1.5, 2] as const;
+export const MIN_UPSCALE_STRENGTH = 0.4;
+export const MAX_UPSCALE_STRENGTH = 1.2;
+export const DEFAULT_UPSCALE_STRENGTH = 0.75;
+/** What phones start on, so the first run is not a stutter the guard has to undo. */
+export const PHONE_UPSCALE_STRENGTH = 0.4;
 
 export interface SettingsState {
 	volume: number;
@@ -26,6 +34,9 @@ export interface SettingsState {
 	controlsHideSeconds: (typeof CONTROLS_HIDE_SECONDS_OPTIONS)[number];
 	hlsBufferSeconds: (typeof HLS_BUFFER_SECONDS_OPTIONS)[number];
 	upscaleMode: (typeof UPSCALE_MODES)[number];
+	upscaleStrength: number;
+	upscaleScale: (typeof UPSCALE_SCALES)[number];
+	upscaleAutoDegrade: boolean;
 }
 
 export type DefaultRoomSettings = Pick<RoomSettings, "autoSkipSegmentCategories">;
@@ -53,6 +64,14 @@ type StoredSettings = Partial<SettingsState> & {
 	defaultSfxVersion?: string;
 };
 
+function isPhoneLayout(): boolean {
+	// jsdom does not implement matchMedia; settings must still load where it is missing.
+	if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+		return false;
+	}
+	return window.matchMedia(PHONE_MAX_QUERY).matches;
+}
+
 export const settingsModule: Module<SettingsState, unknown> = {
 	namespaced: true,
 	state: () => ({
@@ -72,6 +91,9 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		controlsHideSeconds: 3,
 		hlsBufferSeconds: 60,
 		upscaleMode: "off",
+		upscaleStrength: DEFAULT_UPSCALE_STRENGTH,
+		upscaleScale: "auto",
+		upscaleAutoDegrade: true,
 	}),
 	mutations: {
 		UPDATE(state, settings: Partial<SettingsState>) {
@@ -102,6 +124,19 @@ export const settingsModule: Module<SettingsState, unknown> = {
 			}
 			if (!UPSCALE_MODES.includes(state.upscaleMode)) {
 				state.upscaleMode = "off";
+			}
+			if (
+				!Number.isFinite(state.upscaleStrength) ||
+				state.upscaleStrength < MIN_UPSCALE_STRENGTH ||
+				state.upscaleStrength > MAX_UPSCALE_STRENGTH
+			) {
+				state.upscaleStrength = DEFAULT_UPSCALE_STRENGTH;
+			}
+			if (!UPSCALE_SCALES.includes(state.upscaleScale)) {
+				state.upscaleScale = "auto";
+			}
+			if (typeof state.upscaleAutoDegrade !== "boolean") {
+				state.upscaleAutoDegrade = true;
 			}
 			try {
 				// Save defaults and their migration markers together so they cannot diverge.
@@ -151,6 +186,14 @@ export const settingsModule: Module<SettingsState, unknown> = {
 			}
 			if (defaultSfxVersion !== DEFAULT_SFX_VERSION) {
 				settings.sfxEnabled = false;
+			}
+			// Phones start on the cheap tier instead of the very first enhancement being a
+			// stutter the degrade guard immediately undoes. Keyed on the stored field being
+			// absent, which means the user has never picked a tier, so an explicit choice
+			// (including an explicit "off") is never overridden.
+			if (!("upscaleMode" in loaded) && isPhoneLayout()) {
+				settings.upscaleMode = "sharpen";
+				settings.upscaleStrength = PHONE_UPSCALE_STRENGTH;
 			}
 			context.commit("UPDATE", settings);
 		},

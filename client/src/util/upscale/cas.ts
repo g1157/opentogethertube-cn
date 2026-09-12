@@ -50,6 +50,7 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string): WebG
 export function startSharpenRenderer(
 	video: HTMLVideoElement,
 	canvas: HTMLCanvasElement,
+	getAmount: () => number,
 ): UpscaleRenderer {
 	const gl = canvas.getContext("webgl2", { alpha: false, antialias: false });
 	if (!gl) {
@@ -83,7 +84,7 @@ export function startSharpenRenderer(
 	gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 
 	gl.uniform1i(gl.getUniformLocation(program, "uTexture"), 0);
-	gl.uniform1f(gl.getUniformLocation(program, "uAmount"), 0.75);
+	const uAmount = gl.getUniformLocation(program, "uAmount");
 	gl.uniform2f(
 		gl.getUniformLocation(program, "uTexel"),
 		1 / Math.max(1, video.videoWidth),
@@ -105,6 +106,8 @@ export function startSharpenRenderer(
 				1 / Math.max(1, video.videoWidth),
 				1 / Math.max(1, video.videoHeight),
 			);
+			// Read every frame so dragging the strength slider applies without a restart.
+			gl.uniform1f(uAmount, getAmount());
 			gl.viewport(0, 0, canvas.width, canvas.height);
 			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 		}

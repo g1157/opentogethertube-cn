@@ -292,6 +292,60 @@
 						>
 							{{ option.text }}
 						</v-list-item>
+
+						<v-divider class="my-1" />
+
+						<v-list-item
+							link
+							data-cy="upscale-advanced-toggle"
+							@click="showAdvancedUpscale = !showAdvancedUpscale"
+						>
+							<v-list-item-title>{{ $t("room.upscale.advanced") }}</v-list-item-title>
+							<template #append>
+								<v-icon
+									:icon="showAdvancedUpscale ? mdiChevronUp : mdiChevronDown"
+								/>
+							</template>
+						</v-list-item>
+
+						<template v-if="showAdvancedUpscale">
+							<v-list-item>
+								<v-slider
+									v-model="upscaleStrength"
+									:label="$t('room.upscale.strength')"
+									:min="MIN_UPSCALE_STRENGTH"
+									:max="MAX_UPSCALE_STRENGTH"
+									:step="0.05"
+									:disabled="store.state.settings.upscaleMode !== 'sharpen'"
+									density="compact"
+									thumb-label
+									data-cy="upscale-strength"
+								/>
+							</v-list-item>
+							<v-list-item>
+								<v-select
+									v-model="upscaleScale"
+									:label="$t('room.upscale.scale')"
+									:hint="$t('room.upscale.scale-hint')"
+									:items="upscaleScaleOptions"
+									:menu-props="preferenceMenuProps"
+									persistent-hint
+									density="compact"
+									class="my-2"
+									data-cy="upscale-scale"
+								/>
+							</v-list-item>
+							<v-list-item>
+								<v-checkbox
+									v-model="upscaleAutoDegrade"
+									:label="$t('room.upscale.auto-degrade')"
+									:hint="$t('room.upscale.auto-degrade-hint')"
+									persistent-hint
+									density="compact"
+									data-cy="upscale-auto-degrade"
+								/>
+							</v-list-item>
+						</template>
 					</v-list>
 				</div>
 			</div>
@@ -312,6 +366,8 @@ import {
 	mdiTune,
 	mdiChevronLeft,
 	mdiChevronRight,
+	mdiChevronUp,
+	mdiChevronDown,
 	mdiKeyboardOutline,
 } from "@mdi/js";
 import { getFriendlyResolutionLabel } from "@/util/misc";
@@ -322,7 +378,11 @@ import {
 	CHAT_OVERLAY_SECONDS_OPTIONS,
 	CONTROLS_HIDE_SECONDS_OPTIONS,
 	HLS_BUFFER_SECONDS_OPTIONS,
+	MAX_UPSCALE_STRENGTH,
+	MIN_UPSCALE_STRENGTH,
 	ROOM_NOTICE_SECONDS_OPTIONS,
+	UPSCALE_MODES,
+	UPSCALE_SCALES,
 } from "@/stores/settings";
 import VolumeControl from "./VolumeControl.vue";
 import PlaybackRateSwitcher from "./PlaybackRateSwitcher.vue";
@@ -332,7 +392,7 @@ const emit = defineEmits(["show-shortcuts"]);
 const store = useStore();
 const { t } = useI18n();
 
-type UpscaleMode = "off" | "sharpen" | "anime4k";
+type UpscaleMode = (typeof UPSCALE_MODES)[number];
 const webgpuAvailable = typeof navigator !== "undefined" && "gpu" in navigator;
 const upscaleLabel = computed(() => t(`room.upscale.${store.state.settings.upscaleMode}`));
 const upscaleOptions = computed(() => {
@@ -348,6 +408,25 @@ const upscaleOptions = computed(() => {
 function selectUpscale(mode: UpscaleMode): void {
 	store.commit("settings/UPDATE", { upscaleMode: mode });
 }
+const showAdvancedUpscale = ref(false);
+const upscaleStrength = computed({
+	get: () => store.state.settings.upscaleStrength,
+	set: value => store.commit("settings/UPDATE", { upscaleStrength: value }),
+});
+const upscaleScale = computed({
+	get: () => store.state.settings.upscaleScale,
+	set: value => store.commit("settings/UPDATE", { upscaleScale: value }),
+});
+const upscaleAutoDegrade = computed({
+	get: () => store.state.settings.upscaleAutoDegrade,
+	set: value => store.commit("settings/UPDATE", { upscaleAutoDegrade: value }),
+});
+const upscaleScaleOptions = computed(() =>
+	UPSCALE_SCALES.map(scale => ({
+		title: scale === "auto" ? t("room.upscale.scale-auto") : `${scale}×`,
+		value: scale,
+	})),
+);
 const canHover = useMediaQuery("(hover: hover) and (pointer: fine)");
 const menu = ref<{ updateLocation: () => void } | null>(null);
 // VMenu resets inherited defaults inside its content, including nested select menus.
