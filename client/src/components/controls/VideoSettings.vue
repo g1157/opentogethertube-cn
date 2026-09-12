@@ -422,9 +422,10 @@ const upscaleAutoDegrade = computed({
 	set: value => store.commit("settings/UPDATE", { upscaleAutoDegrade: value }),
 });
 const upscaleScaleOptions = computed(() =>
-	UPSCALE_SCALES.map(scale => ({
-		title: scale === "auto" ? t("room.upscale.scale-auto") : `${scale}×`,
-		value: scale,
+	UPSCALE_SCALES.map(option => ({
+		// biome-ignore lint/nursery/noVueRefAsOperand: map iterates plain scale values, not Vue refs.
+		title: option === "auto" ? t("room.upscale.scale-auto") : `${option}×`,
+		value: option,
 	})),
 );
 const canHover = useMediaQuery("(hover: hover) and (pointer: fine)");

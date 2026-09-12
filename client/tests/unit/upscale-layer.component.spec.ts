@@ -43,7 +43,7 @@ function fakeVideo() {
 			x: 0,
 			y: 0,
 			toJSON: () => ({}),
-		} as DOMRect);
+		}) as DOMRect;
 	video.requestVideoFrameCallback = ((callback: () => void) => {
 		const id = nextId++;
 		callbacks.set(id, callback);
