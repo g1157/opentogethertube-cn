@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Grants, parseIntoGrantMask } from "ott-common/permissions";
-import { PlayerStatus, Role } from "ott-common/models/types";
+import { BufferGateMode, PlayerStatus, Role } from "ott-common/models/types";
 import RoomSettingsForm from "@/components/RoomSettingsForm.vue";
 import { flush, mountComponent } from "./component-test-utils";
 
-const { API } = vi.hoisted(() => ({
+const { API, preview } = vi.hoisted(() => ({
 	API: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+	preview: { enabled: false },
 }));
 
 vi.mock("@/common-http", () => ({ API }));
+vi.mock("@/edge-preview", () => ({
+	get isEdgePreview() {
+		return preview.enabled;
+	},
+}));
 
 const roomResponse = {
 	name: "foo",
@@ -30,6 +36,7 @@ const roomResponse = {
 	autoSkipSegmentCategories: [],
 	restoreQueueBehavior: "prompt",
 	enableVoteSkip: false,
+	bufferGateMode: BufferGateMode.Off,
 	hasOwner: true,
 };
 
@@ -65,6 +72,7 @@ function mountRoomSettings(canConfigure = true) {
 describe("RoomSettingsForm component", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		preview.enabled = false;
 		API.patch.mockResolvedValue({ data: { success: true } });
 	});
 
@@ -89,6 +97,7 @@ describe("RoomSettingsForm component", () => {
 		).toBe("Bar");
 		expect(wrapper.get('[data-cy="select-visibility"]').text()).toContain("公开");
 		expect(wrapper.get('[data-cy="select-queueMode"]').text()).toContain("DJ");
+		expect(wrapper.get('[data-cy="select-buffer-gate"]').text()).toContain("关闭");
 	});
 
 	it("submits modified values", async () => {
@@ -101,6 +110,19 @@ describe("RoomSettingsForm component", () => {
 		await flush();
 
 		expect(API.patch).toHaveBeenCalled();
+	});
+
+	it("hides and omits the unsupported buffer setting on the Cloudflare preview", async () => {
+		preview.enabled = true;
+		const { wrapper } = mountRoomSettings();
+		await flush();
+		await flush();
+		expect(wrapper.find('[data-cy="select-buffer-gate"]').exists()).toBe(false);
+		await wrapper.get('[data-cy="input-title"] input').setValue("Preview title");
+		await wrapper.get('[data-cy="save"]').trigger("click");
+		await flush();
+		expect(API.patch).toHaveBeenCalled();
+		expect(API.patch.mock.calls.at(-1)![1]).not.toHaveProperty("bufferGateMode");
 	});
 
 	it("disables inputs without permission", async () => {
@@ -121,5 +143,25 @@ describe("RoomSettingsForm component", () => {
 			"v-input--disabled",
 		);
 		expect(wrapper.get('[data-cy="input-auto-skip"]').classes()).toContain("v-input--disabled");
+		expect(wrapper.get('[data-cy="select-buffer-gate"]').classes()).toContain(
+			"v-input--disabled",
+		);
+	});
+
+	it("submits a changed buffer-gate setting through the existing save path", async () => {
+		const { wrapper } = mountRoomSettings();
+		await flush();
+		await flush();
+		const select = wrapper
+			.findAllComponents({ name: "VSelect" })
+			.find(item => item.attributes("data-cy") === "select-buffer-gate")!;
+		select.vm.$emit("update:modelValue", BufferGateMode.Pause);
+		await flush();
+		await wrapper.get('[data-cy="save"]').trigger("click");
+		await flush();
+		expect(API.patch).toHaveBeenCalledWith(
+			"/room/foo",
+			expect.objectContaining({ bufferGateMode: BufferGateMode.Pause }),
+		);
 	});
 });

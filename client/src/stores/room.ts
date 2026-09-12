@@ -1,7 +1,7 @@
 import _ from "lodash";
 import type { Module } from "vuex/types";
 import { Grants } from "ott-common/permissions";
-import { QueueMode, Visibility } from "ott-common/models/types";
+import { QueueMode, Visibility, BufferGateMode } from "ott-common/models/types";
 import type { QueueItem } from "ott-common/models/video";
 import dayjs, { type Dayjs } from "dayjs";
 import type {
@@ -38,6 +38,7 @@ export interface RoomState {
 	grants: Grants;
 	prevQueue: QueueItem[] | null;
 	enableVoteSkip: boolean;
+	bufferGateMode: BufferGateMode;
 	votesToSkip: Set<string>;
 }
 
@@ -63,6 +64,7 @@ export const roomModule: Module<RoomState, FullOTTStoreState> = {
 		grants: new Grants(),
 		prevQueue: null,
 		enableVoteSkip: false,
+		bufferGateMode: BufferGateMode.Off,
 		votesToSkip: new Set(),
 		videoSegments: [],
 	},
@@ -80,6 +82,7 @@ export const roomModule: Module<RoomState, FullOTTStoreState> = {
 			if (typeof message.name === "string" && "currentSource" in message) {
 				// Older servers omit this field; a previous visit's preparation must not survive.
 				stateupdate.playbackPreparation = message.playbackPreparation ?? null;
+				stateupdate.bufferGateMode = message.bufferGateMode ?? BufferGateMode.Off;
 			}
 			if (
 				message.isPlaying !== undefined &&

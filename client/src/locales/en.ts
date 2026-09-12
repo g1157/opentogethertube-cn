@@ -235,6 +235,7 @@ export default {
 		subtitles: "Subtitles/CC",
 		quality: "Quality",
 		"playback-speed": "Playback speed",
+		"buffer-gate-waiting": "Paused · buffering: {names}",
 		"default-layout": "Default layout",
 		"theater-mode": "Theater mode",
 		"con-status": {
@@ -392,6 +393,11 @@ export default {
 		"load-failed": "Failed to load room settings.",
 		"restore-queue": "Restore the queue when the room is loaded",
 		"enable-vote-skip": "Enable vote skip",
+		"buffer-gate": "Wait for buffering viewers",
+		"buffer-gate-off": "Off",
+		"buffer-gate-pause": "Pause automatically for up to 15 seconds",
+		"buffer-gate-hint":
+			"Wait for viewers with playback permission. Background tabs are excluded. After a timeout, playback continues without another automatic pause for 30 seconds.",
 	},
 	"create-room-form": {
 		"card-title": "Create a Permanent Room",

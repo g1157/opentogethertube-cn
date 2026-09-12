@@ -55,6 +55,7 @@
 					@pointermove.capture="controls.mouseMove"
 				>
 					<div class="player-container">
+						<BufferGateNotice v-if="hasRoomSync" />
 						<OmniPlayer
 							v-if="hasRoomSync"
 							:source="currentSource"
@@ -302,6 +303,7 @@ import ShareInvite from "@/components/ShareInvite.vue";
 import ClientSettingsDialog from "@/components/ClientSettingsDialog.vue";
 import RoomDisconnected from "../components/RoomDisconnected.vue";
 import RoomConnectionNotice from "@/components/RoomConnectionNotice.vue";
+import BufferGateNotice from "@/components/BufferGateNotice.vue";
 import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
 import ServerMessageHandler from "@/components/ServerMessageHandler.vue";
@@ -357,6 +359,7 @@ export default defineComponent({
 		ClientSettingsDialog,
 		RoomDisconnected,
 		RoomConnectionNotice,
+		BufferGateNotice,
 		ServerMessageHandler,
 		WorkaroundPlaybackStatusUpdater,
 		WorkaroundUserStateNotifier,

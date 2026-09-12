@@ -1,5 +1,5 @@
 import { ALL_VIDEO_SERVICES, ROOM_NAME_REGEX } from "ott-common/constants.js";
-import { BehaviorOption, Role } from "ott-common/models/types.js";
+import { BehaviorOption, BufferGateMode, Role } from "ott-common/models/types.js";
 import { Visibility, QueueMode } from "ott-common/models/types.js";
 import { z } from "zod";
 
@@ -119,6 +119,7 @@ export const RoomSettingsSchema = z
 		autoSkipSegmentCategories: z.array(CategorySchema).optional(),
 		restoreQueueBehavior: z.nativeEnum(BehaviorOption).optional(),
 		enableVoteSkip: z.boolean().optional(),
+		bufferGateMode: z.nativeEnum(BufferGateMode).optional(),
 	})
 	.strict();
 

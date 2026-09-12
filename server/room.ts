@@ -51,6 +51,7 @@ import {
 	type RoomSettings,
 	type AuthToken,
 	BehaviorOption,
+	BufferGateMode,
 } from "ott-common/models/types.js";
 import type { User } from "./models/user.js";
 import type { QueueItem, Video, VideoId } from "ott-common/models/video.js";
@@ -87,6 +88,9 @@ import {
 	ALL_SKIP_CATEGORIES,
 	TEMPORARY_PLAYBACK_SPEED,
 	TEMPORARY_PLAYBACK_SPEED_LEASE_MS,
+	BUFFER_GATE_MAX_WAIT_MS,
+	BUFFER_GATE_START_GRACE_MS,
+	BUFFER_GATE_COOLDOWN_MS,
 } from "ott-common/constants.js";
 import { Mutex } from "@divine/synchronization";
 
@@ -206,6 +210,7 @@ const syncableProps: (keyof RoomStateSyncable)[] = [
 	"prevQueue",
 	"restoreQueueBehavior",
 	"enableVoteSkip",
+	"bufferGateMode",
 	"votesToSkip",
 ];
 
@@ -231,6 +236,7 @@ const storableProps: (keyof RoomStateStorable)[] = [
 	"prevQueue",
 	"restoreQueueBehavior",
 	"enableVoteSkip",
+	"bufferGateMode",
 ];
 
 /** Only these should be stored in persistent storage */
@@ -266,6 +272,14 @@ export class Room implements RoomState {
 	_autoSkipSegmentCategories = Array.from(ALL_SKIP_CATEGORIES);
 	restoreQueueBehavior: BehaviorOption = BehaviorOption.Always;
 	_enableVoteSkip: boolean = false;
+	_bufferGateMode = BufferGateMode.Off;
+	private bufferGate: {
+		startedAt: number;
+		waitingOn: ClientId[];
+		pausedByGate: boolean;
+	} | null = null;
+	private lastPlayAt = -Infinity;
+	private bufferGateCooldownUntil = -Infinity;
 
 	_currentSource: QueueItem | null = null;
 	queue: VideoQueue;
@@ -328,6 +342,7 @@ export class Room implements RoomState {
 				"prevQueue",
 				"restoreQueueBehavior",
 				"enableVoteSkip",
+				"bufferGateMode",
 				"votesToSkip",
 			),
 		);
@@ -450,6 +465,9 @@ export class Room implements RoomState {
 	}
 
 	public set currentSource(value: QueueItem | null) {
+		// Status from the previous video must never resume a replacement source.
+		this.bufferGate = null;
+		this.lastPlayAt = Date.now();
 		this.endTemporaryPlaybackSpeed();
 		this.cancelPlaybackPreparation();
 		this._currentSource = value;
@@ -533,6 +551,82 @@ export class Room implements RoomState {
 		this.markDirty("enableVoteSkip");
 	}
 
+	public get bufferGateMode(): BufferGateMode {
+		return this._bufferGateMode;
+	}
+
+	public set bufferGateMode(value: BufferGateMode) {
+		this._bufferGateMode = value;
+		this.markDirty("bufferGateMode");
+	}
+
+	public get bufferingGateHeld(): boolean {
+		return this.bufferGate?.pausedByGate === true;
+	}
+
+	private async releaseBufferGate(timedOut = false): Promise<void> {
+		const gate = this.bufferGate;
+		this.bufferGate = null;
+		if (!gate) {
+			return;
+		}
+		if (timedOut) {
+			this.bufferGateCooldownUntil = Date.now() + BUFFER_GATE_COOLDOWN_MS;
+		}
+		if (
+			gate.pausedByGate &&
+			!this.isPlaying &&
+			this.realusers.length > 0 &&
+			this.currentSource &&
+			!this.playbackPreparation
+		) {
+			await this.play();
+		}
+	}
+
+	private async evaluateBufferGate(): Promise<void> {
+		if (this.bufferGate && Date.now() - this.bufferGate.startedAt >= BUFFER_GATE_MAX_WAIT_MS) {
+			await this.releaseBufferGate(true);
+			return;
+		}
+		if (
+			this.bufferGateMode !== BufferGateMode.Pause ||
+			this.temporarySpeed ||
+			this.playbackPreparation ||
+			!this.currentSource
+		) {
+			await this.releaseBufferGate();
+			return;
+		}
+		const eligible = this.realusers.filter(user =>
+			this.grants.granted(this.getRole(user), "playback.play-pause"),
+		);
+		// Only explicit buffering can hold the room: none/error are not a readiness vote.
+		const waiting = eligible.filter(user => user.playerStatus === PlayerStatus.buffering);
+		if (eligible.length < 2 || waiting.length === 0) {
+			await this.releaseBufferGate();
+			return;
+		}
+		// Evaluate an existing hold even though it deliberately paused the room clock.
+		if (this.bufferGate) {
+			this.bufferGate.waitingOn = waiting.map(user => user.id);
+			return;
+		}
+		if (
+			!this.isPlaying ||
+			Date.now() - this.lastPlayAt < BUFFER_GATE_START_GRACE_MS ||
+			Date.now() < this.bufferGateCooldownUntil
+		) {
+			return;
+		}
+		this.bufferGate = {
+			startedAt: Date.now(),
+			waitingOn: waiting.map(user => user.id),
+			pausedByGate: true,
+		};
+		await this.pause(true);
+	}
+
 	get users(): RoomUserInfo[] {
 		const infos: RoomUserInfo[] = [];
 		for (const user of this.realusers) {
@@ -564,6 +658,7 @@ export class Room implements RoomState {
 	}
 
 	async dequeueNext() {
+		await this.releaseBufferGate();
 		this.log.debug(`dequeuing next video. mode: ${this.queueMode}`);
 		if (this.enableVoteSkip) {
 			this.votesToSkip.clear();
@@ -787,6 +882,8 @@ export class Room implements RoomState {
 	}
 
 	public async update(): Promise<void> {
+		// RoomManager already ticks once per second; no detached gate timers to leak on unload.
+		await this.evaluateBufferGate();
 		if (this.playbackPreparation) {
 			const owner = this.getUser(this.playbackPreparation.clientId);
 			if (!owner || !this.grants.granted(this.getRole(owner), "playback.play-pause")) {
@@ -907,6 +1004,10 @@ export class Room implements RoomState {
 	 */
 	public serializeState(): string {
 		const state: RoomStateStorable = _.pick(this, ...storableProps);
+		if (this.bufferingGateHeld) {
+			// Preserve playback intent through a crash without persisting the transient hold.
+			state.resumeOnNextJoin = true;
+		}
 		if (this.temporarySpeed) {
 			// A crash/restart must never turn a held gesture into a permanent speed setting.
 			state.playbackSpeed = this.temporarySpeed.previousSpeed;
@@ -983,6 +1084,7 @@ export class Room implements RoomState {
 			"prevQueue",
 			"restoreQueueBehavior",
 			"enableVoteSkip",
+			"bufferGateMode",
 		];
 		const settings: Partial<RoomStatePersistable> = _.pick(
 			this,
@@ -1234,20 +1336,31 @@ export class Room implements RoomState {
 	public async setGrants(grants: Grants): Promise<void> {
 		this.grants.setAllGrants(grants);
 		this.markDirty("grants");
+		await this.evaluateBufferGate();
 	}
 
 	public async play(): Promise<void> {
+		if (this.bufferGate) {
+			// A viewer explicitly chose to continue; do not immediately recapture playback.
+			this.bufferGate = null;
+			this.bufferGateCooldownUntil = Date.now() + BUFFER_GATE_COOLDOWN_MS;
+		}
 		this.cancelPlaybackPreparation();
 		if (this.isPlaying) {
 			this.log.silly("already playing");
 			return;
 		}
 		this.log.debug("playback started");
+		this.lastPlayAt = Date.now();
 		this.isPlaying = true;
 		this._playbackStart = dayjs();
 	}
 
-	public async pause(): Promise<void> {
+	public async pause(byBufferGate = false): Promise<void> {
+		if (!byBufferGate) {
+			// A manual pause revokes the gate's right to restart playback.
+			this.bufferGate = null;
+		}
 		// An explicit pause cancels even a preparation that has not started the clock yet.
 		this.cancelPlaybackPreparation();
 		this.pausePlaybackClock();
@@ -1292,9 +1405,14 @@ export class Room implements RoomState {
 
 	/** Also protect older Redis snapshots, or a play request sent while the room was empty. */
 	public holdEmptyPlaybackForJoin(): void {
-		if (this.realusers.length > 0 || !this.isPlaying || !this.canPreparePlayback()) {
+		if (
+			this.realusers.length > 0 ||
+			(!this.isPlaying && !this.bufferingGateHeld) ||
+			!this.canPreparePlayback()
+		) {
 			return;
 		}
+		this.bufferGate = null;
 		this.pausePlaybackClock();
 		this.resumeOnNextJoin = true;
 		this.markDirty("isPlaying");
@@ -1593,7 +1711,11 @@ export class Room implements RoomState {
 		}
 		if (this.realusers.length === 0) {
 			const shouldResume =
-				this.isPlaying || this.playbackPreparation !== null || this.resumeOnNextJoin;
+				this.isPlaying ||
+				this.bufferingGateHeld ||
+				this.playbackPreparation !== null ||
+				this.resumeOnNextJoin;
+			await this.releaseBufferGate();
 			this.pausePlaybackClock();
 			this.cancelPlaybackPreparation();
 			this.resumeOnNextJoin = shouldResume && this.canPreparePlayback();
@@ -1606,6 +1728,7 @@ export class Room implements RoomState {
 			this.markDirty("playbackPreparation");
 			this.prepareEmptyRoomPlayback();
 		}
+		await this.evaluateBufferGate();
 	}
 
 	public async updateUser(request: UpdateUser, context: RoomRequestContext): Promise<void> {
@@ -1622,6 +1745,7 @@ export class Room implements RoomState {
 				break;
 			}
 		}
+		await this.evaluateBufferGate();
 	}
 
 	public async chat(request: ChatRequest, context: RoomRequestContext): Promise<void> {
@@ -1825,6 +1949,7 @@ export class Room implements RoomState {
 			autoSkipSegmentCategories: "configure-room.other",
 			restoreQueueBehavior: "configure-room.other",
 			enableVoteSkip: "configure-room.other",
+			bufferGateMode: "configure-room.other",
 		};
 		const roleToPerms: Record<Exclude<Role, Role.Owner | Role.Administrator>, string> = {
 			[Role.UnregisteredUser]: "configure-room.set-permissions.for-all-unregistered-users",
@@ -1924,6 +2049,7 @@ export class Room implements RoomState {
 		) {
 			this.wantSponsorBlock = true;
 		}
+		await this.evaluateBufferGate();
 	}
 
 	/**
@@ -2060,7 +2186,7 @@ export class Room implements RoomState {
 			return;
 		}
 		if (
-			!this.isPlaying ||
+			(!this.isPlaying && !this.bufferingGateHeld) ||
 			!this.currentSource ||
 			!Number.isFinite(this.currentSource.length) ||
 			(this.currentSource.length ?? 0) <= 0 ||
@@ -2068,6 +2194,10 @@ export class Room implements RoomState {
 			this.currentSource.id !== request.video?.id ||
 			this.temporarySpeed
 		) {
+			return;
+		}
+		await this.releaseBufferGate();
+		if (!this.isPlaying) {
 			return;
 		}
 		this.flushPlaybackPosition();

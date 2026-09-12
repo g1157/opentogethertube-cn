@@ -3,7 +3,7 @@ import _ from "lodash";
 import { CachedVideo, Room as DbRoom, User, loadModels } from "../../models/index.js";
 import storage from "../../storage.js";
 import permissions from "ott-common/permissions.js";
-import { Visibility, QueueMode } from "ott-common/models/types.js";
+import { Visibility, QueueMode, BufferGateMode } from "ott-common/models/types.js";
 import type { Video } from "ott-common/models/video.js";
 import { Room } from "../../room.js";
 import { roomToDb, roomToDbPartial } from "../../storage/room.js";
@@ -95,6 +95,19 @@ describe(
 			expect(_.pick(room, "queueMode")).toEqual({
 				queueMode: QueueMode.Vote,
 			});
+		});
+
+		it("round-trips bufferGateMode through full and partial database writes", async () => {
+			await storage.saveRoom(
+				new Room({ name: "example", bufferGateMode: BufferGateMode.Pause }),
+			);
+			expect((await storage.getRoomByName("example"))?.bufferGateMode).toBe(
+				BufferGateMode.Pause,
+			);
+			await storage.updateRoom({ name: "example", bufferGateMode: BufferGateMode.Off });
+			expect((await storage.getRoomByName("example"))?.bufferGateMode).toBe(
+				BufferGateMode.Off,
+			);
 		});
 
 		it("should create room in database", async () => {

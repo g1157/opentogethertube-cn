@@ -9,7 +9,7 @@ import {
 	type MockInstance,
 } from "vitest";
 import _ from "lodash";
-import { type AuthToken, QueueMode, Visibility } from "ott-common/models/types.js";
+import { type AuthToken, QueueMode, Visibility, BufferGateMode } from "ott-common/models/types.js";
 import request from "supertest";
 import tokens from "../../../../server/auth/tokens.js";
 import roommanager from "../../../../server/roommanager.js";
@@ -361,6 +361,24 @@ describe("Room API", () => {
 					throw e;
 				}
 			}
+		});
+
+		it("round-trips the buffer gate through strict PATCH validation and the GET projection", async () => {
+			await request(app)
+				.patch("/api/room/foo")
+				.auth(token, { type: "bearer" })
+				.send({ bufferGateMode: BufferGateMode.Pause })
+				.expect(200);
+			const response = await request(app)
+				.get("/api/room/foo")
+				.auth(token, { type: "bearer" })
+				.expect(200);
+			expect(response.body.bufferGateMode).toBe(BufferGateMode.Pause);
+			await request(app)
+				.patch("/api/room/foo")
+				.auth(token, { type: "bearer" })
+				.send({ bufferGateMode: "invalid" })
+				.expect(400);
 		});
 
 		it.each([

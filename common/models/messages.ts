@@ -11,6 +11,7 @@ import type {
 	RoomSettings,
 	AuthToken,
 	BehaviorOption,
+	BufferGateMode,
 } from "./types.js";
 import type { QueueItem, QueueItemExtras, VideoId, VideoAdd } from "./video.js";
 
@@ -51,6 +52,7 @@ export interface ServerMessageSync extends ServerMessageBase {
 	voteCounts?: [string, number][];
 	hasOwner?: boolean;
 	enableVoteSkip?: boolean;
+	bufferGateMode?: BufferGateMode;
 	votesToSkip?: string[];
 	autoSkipSegmentCategories?: Category[];
 	videoSegments?: Segment[];

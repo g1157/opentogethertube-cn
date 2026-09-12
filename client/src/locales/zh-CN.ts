@@ -230,6 +230,7 @@ export default {
 		subtitles: "字幕/CC",
 		quality: "画质",
 		"playback-speed": "播放速度",
+		"buffer-gate-waiting": "已暂停，缓冲中：{names}",
 		"default-layout": "默认布局",
 		"theater-mode": "影院模式",
 		"con-status": {
@@ -380,6 +381,11 @@ export default {
 		"load-failed": "加载房间设置失败。",
 		"restore-queue": "房间加载时恢复队列",
 		"enable-vote-skip": "启用投票跳过",
+		"buffer-gate": "等待观众缓冲",
+		"buffer-gate-off": "关闭",
+		"buffer-gate-pause": "自动暂停，最多等待 15 秒",
+		"buffer-gate-hint":
+			"有播放权限的观众缓冲时一起暂停；后台标签页不参与等待。超时后继续播放，30 秒内不再自动暂停。",
 	},
 	"create-room-form": {
 		"card-title": "创建永久房间",

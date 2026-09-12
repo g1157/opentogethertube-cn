@@ -1,5 +1,11 @@
 import { type Sequelize, Model, DataTypes, type Optional } from "sequelize";
-import { QueueMode, Visibility, type Role, BehaviorOption } from "ott-common/models/types.js";
+import {
+	QueueMode,
+	Visibility,
+	type Role,
+	BehaviorOption,
+	BufferGateMode,
+} from "ott-common/models/types.js";
 import type { User } from "./user.js";
 import { ALL_SKIP_CATEGORIES, ROOM_NAME_REGEX } from "ott-common/constants.js";
 import type { OldRoleGrants, GrantMask } from "ott-common/permissions.js";
@@ -22,6 +28,7 @@ export interface RoomAttributes {
 	prevQueue: Array<QueueItem> | null;
 	restoreQueueBehavior: BehaviorOption;
 	enableVoteSkip: boolean;
+	bufferGateMode: BufferGateMode;
 }
 
 type RoomCreationAttributes = Optional<RoomAttributes, "id">;
@@ -45,6 +52,7 @@ export class Room extends Model<RoomAttributes, RoomCreationAttributes> implemen
 	declare prevQueue: Array<QueueItem> | null;
 	declare restoreQueueBehavior: BehaviorOption;
 	declare enableVoteSkip: boolean;
+	declare bufferGateMode: BufferGateMode;
 }
 
 export const createModel = (sequelize: Sequelize) => {
@@ -119,6 +127,12 @@ export const createModel = (sequelize: Sequelize) => {
 				type: DataTypes.BOOLEAN,
 				allowNull: false,
 				defaultValue: false,
+			},
+			bufferGateMode: {
+				type: DataTypes.STRING,
+				allowNull: false,
+				defaultValue: BufferGateMode.Off,
+				validate: { isIn: [[BufferGateMode.Off, BufferGateMode.Pause]] },
 			},
 		},
 		{

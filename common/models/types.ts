@@ -22,6 +22,11 @@ export enum BehaviorOption {
 	Never = 0,
 }
 
+export enum BufferGateMode {
+	Off = "off",
+	Pause = "pause",
+}
+
 export enum OttWebsocketError {
 	AWAY = 1001,
 	UNKNOWN = 4000,
@@ -65,6 +70,7 @@ export interface RoomSettings {
 	autoSkipSegmentCategories: Category[];
 	restoreQueueBehavior: BehaviorOption;
 	enableVoteSkip: boolean;
+	bufferGateMode: BufferGateMode;
 }
 
 /**

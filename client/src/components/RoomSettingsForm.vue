@@ -111,6 +111,20 @@
 				:disabled="!granted('configure-room.other')"
 				data-cy="input-vote-skip"
 			/>
+			<v-select
+				v-if="!isEdgePreview"
+				v-model="settings.bufferGateMode.value"
+				:label="$t('room-settings.buffer-gate')"
+				:hint="$t('room-settings.buffer-gate-hint')"
+				persistent-hint
+				:items="[
+					{ title: $t('room-settings.buffer-gate-off'), value: BufferGateMode.Off },
+					{ title: $t('room-settings.buffer-gate-pause'), value: BufferGateMode.Pause },
+				]"
+				:loading="isLoadingRoomSettings || dirtySettings.includes('bufferGateMode')"
+				:disabled="!granted('configure-room.other')"
+				data-cy="select-buffer-gate"
+			/>
 			<PermissionsEditor
 				v-if="
 					store.state.room.hasOwner &&
@@ -171,6 +185,7 @@ import {
 	type RoomSettings,
 	Role,
 	BehaviorOption,
+	BufferGateMode,
 } from "ott-common/models/types";
 import { Grants } from "ott-common/permissions";
 import toast from "@/util/toast";
@@ -205,6 +220,7 @@ const inputRoomSettings = reactive<RoomSettings>({
 	autoSkipSegmentCategories: Array.from([]),
 	restoreQueueBehavior: BehaviorOption.Prompt,
 	enableVoteSkip: false,
+	bufferGateMode: BufferGateMode.Off,
 });
 
 const settings = toRefs(inputRoomSettings);
@@ -235,6 +251,7 @@ function intoSettings(obj: OttApiResponseGetRoom): RoomSettings {
 	return {
 		..._.omit(obj, ["name", "isTemporary", "users", "queue", "hasOwner", "grants"]),
 		grants: new Grants(obj.grants),
+		bufferGateMode: obj.bufferGateMode ?? BufferGateMode.Off,
 	};
 }
 
@@ -269,8 +286,12 @@ function getRoomSettingsSubmit(): Partial<RoomSettings> {
 		autoSkipSegmentCategories: "other",
 		restoreQueueBehavior: "other",
 		enableVoteSkip: "other",
+		bufferGateMode: "other",
 	};
 	const blocked: (keyof RoomSettings)[] = [];
+	if (isEdgePreview) {
+		blocked.push("bufferGateMode");
+	}
 	for (const prop of Object.keys(propsToGrants)) {
 		if (
 			!dirtySettings.value.includes(prop as keyof typeof propsToGrants) ||

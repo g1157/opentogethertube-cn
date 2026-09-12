@@ -12,7 +12,13 @@ import {
 import dayjs from "dayjs";
 import tokens, { type SessionInfo } from "../../auth/tokens.js";
 import { RoomRequestType } from "ott-common/models/messages.js";
-import { type AuthToken, BehaviorOption, QueueMode, Role } from "ott-common/models/types.js";
+import {
+	type AuthToken,
+	BehaviorOption,
+	BufferGateMode,
+	QueueMode,
+	Role,
+} from "ott-common/models/types.js";
 import { Room, RoomUser } from "../../room.js";
 import infoextractor from "../../infoextractor.js";
 import type { Video, VideoId } from "ott-common/models/video.js";
@@ -21,6 +27,7 @@ import _ from "lodash";
 import { VideoQueue } from "../../videoqueue.js";
 import { loadModels } from "../../models/index.js";
 import { buildClients } from "../../redisclient.js";
+import { redisStateToState } from "../../roommanager.js";
 
 describe("Room", () => {
 	let getSessionInfoSpy: MockInstance<[AuthToken], Promise<SessionInfo>>;
@@ -617,6 +624,26 @@ describe("Room", () => {
 			});
 
 			expect(room.queue.items).toEqual([{ service: "direct", id: "bar" }]);
+		});
+	});
+
+	describe("buffer gate settings", () => {
+		it("round-trips the opt-in setting through room sync and Redis restoration", async () => {
+			const room = new Room({ name: "buffer-settings", isTemporary: true });
+			expect(room.bufferGateMode).toBe(BufferGateMode.Off);
+			await room.applySettings(
+				{
+					type: RoomRequestType.ApplySettingsRequest,
+					settings: { bufferGateMode: BufferGateMode.Pause },
+				},
+				{ username: "owner", role: Role.Owner },
+			);
+			expect(room.syncableState().bufferGateMode).toBe(BufferGateMode.Pause);
+			const restored = new Room(redisStateToState(JSON.parse(room.serializeState())));
+			expect(restored.bufferGateMode).toBe(BufferGateMode.Pause);
+			expect(restored.bufferingGateHeld).toBe(false);
+			room.throttledSync.cancel();
+			room.saveStateToRedisDebounced.cancel();
 		});
 	});
 

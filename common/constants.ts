@@ -6,6 +6,9 @@ export const USERNAME_LENGTH_MAX = 48;
 export const TEMPORARY_PLAYBACK_SPEED = 2;
 export const TEMPORARY_PLAYBACK_SPEED_LEASE_MS = 5000;
 export const TEMPORARY_PLAYBACK_SPEED_RENEW_MS = 1000;
+export const BUFFER_GATE_MAX_WAIT_MS = 15000;
+export const BUFFER_GATE_START_GRACE_MS = 2000;
+export const BUFFER_GATE_COOLDOWN_MS = 30000;
 export const ALL_VIDEO_SERVICES = [
 	"youtube",
 	"vimeo",
