@@ -79,6 +79,10 @@ Docker 初始配置建议 **2 vCPU / 2 GiB 内存**并预留磁盘、系统及�
 
 - 默认简体中文，保留语言选择、聊天设置、快捷键、全屏和手机横竖屏控件。
 - 播放、暂停、跳转和倍速遵循房间权限；长按可临时全房间 2 倍速。
+- 原生 MP4 / HLS / DASH 在播放中对中等漂移做本机速率微调，倍速菜单保持房间基准；
+  YouTube、PeerTube、Vimeo 不启用该微调。
+- Docker / Node.js 版可在房间设置开启“缓冲时一起暂停”，默认关闭；一次等待最多约 15 秒，
+  后台标签页不参与，超时后有 30 秒冷却。
 - 永久房保存当前视频、播放位置及待播队列，不是全部已播历史归档。
 - 最后一人离开后暂停。原生点播视频重入时，首位有权限的观众准备好保存位置并实际启动本机播放后，房间再继续。
 - 手动暂停的房间保持暂停；真正的自动播放限制使用播放按钮解除。
@@ -115,6 +119,10 @@ PostgreSQL、Redis 和应用容器，配置数据卷、密钥、域名与 HTTPS�
 | [DEPLOYMENT-CLOUDFLARE.md](DEPLOYMENT-CLOUDFLARE.md) | Cloudflare 预览版分步部署、更新与回退 |
 | [packages/ott-edge/README.md](packages/ott-edge/README.md) | Cloudflare 版架构、功能范围、限制与本地开发 |
 | [docs/player-interactions.zh-CN.md](docs/player-interactions.zh-CN.md) | 播放器操作与“一直缓冲”排查 |
+| [docs/playback-sync.zh-CN.md](docs/playback-sync.zh-CN.md) | 原生速率微调、参数范围与待完成设备测量 |
+| [docs/buffer-gate.zh-CN.md](docs/buffer-gate.zh-CN.md) | 缓冲联动、权限、超时与数据库迁移 |
+| [docs/security-headers.zh-CN.md](docs/security-headers.zh-CN.md) | 最小响应头和 CSP 报告端点 |
+| [docs/plan-review-2026-09-12.zh-CN.md](docs/plan-review-2026-09-12.zh-CN.md) | 本轮计划复核、蓝牙、语音和弹幕结论 |
 | [docs/media-parsing.zh-CN.md](docs/media-parsing.zh-CN.md) | 大 MP4 解析与 `FFPROBE_STRATEGY` 说明 |
 | [docs/cloudflare-quotas.zh-CN.md](docs/cloudflare-quotas.zh-CN.md) | Cloudflare 免费额度、实测与费用评估 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发环境与贡献流程 |
@@ -124,7 +132,7 @@ PostgreSQL、Redis 和应用容器，配置数据卷、密钥、域名与 HTTPS�
 
 版本以提交 SHA、Cloudflare revision 或镜像 revision 标签识别；历史版本见 Git 标签
 （`v0.14.1`、`v0.15.0-cn2` 起）与 `archive/history` 分支。部分工作区的 `package.json` 保留
-上游 `0.14.1`，不是部署版本的权威标识。当前构建标识为 Docker `v0.15.0-cn12` 与
+上游 `0.14.1`，不是部署版本的权威标识。当前构建标识为 Docker `v0.15.0-cn13` 与
 Cloudflare `cloudflare-preview-0.1.2`。
 
 部署步骤包含对应提交源码包的生成方法，页面的源码入口由 `VITE_SOURCE_URL` 指定。源码归档应来自

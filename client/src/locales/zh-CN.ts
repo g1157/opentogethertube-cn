@@ -133,6 +133,13 @@ export default {
 	attribution: {
 		"sponsorblock-text": "使用来自以下来源的 SponsorBlock 数据",
 	},
+	"page-title": {
+		site: "一起看 · OpenTogetherTube 中文版",
+		room: "观影房间",
+		"password-reset": "重置密码",
+		playground: "组件预览",
+		themes: "主题预览",
+	},
 	nav: {
 		home: "首页",
 		browse: "浏览",

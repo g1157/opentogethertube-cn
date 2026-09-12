@@ -24,6 +24,7 @@ import RedisStore from "connect-redis";
 import { setupPostgresMetricsCollection } from "./storage.metrics.js";
 import cookieparser from "cookie-parser";
 import { clientStaticFiles, setNoStoreHeaders } from "./client-assets.js";
+import { installSecurityHeaders } from "./security-headers.js";
 
 const app = express();
 
@@ -79,6 +80,7 @@ export async function main() {
 	process.on("SIGTERM", shutdown);
 
 	app.use(metricsMiddleware);
+	installSecurityHeaders(app, conf.get("base_url"));
 	app.use(cookieparser(conf.get("session_secret")));
 
 	const server = http.createServer(app);

@@ -136,6 +136,13 @@ export default {
 	attribution: {
 		"sponsorblock-text": "Uses SponsorBlock data from",
 	},
+	"page-title": {
+		site: "OpenTogetherTube",
+		room: "Watch room",
+		"password-reset": "Reset password",
+		playground: "Component playground",
+		themes: "Themes",
+	},
 	nav: {
 		home: "Home",
 		browse: "Browse",

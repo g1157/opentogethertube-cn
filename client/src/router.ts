@@ -47,6 +47,7 @@ export const routes: RouteRecordRaw[] = [
 	},
 	{
 		path: "/passwordreset",
+		name: "password-reset",
 		component: () => import("./views/PasswordReset.vue"),
 	},
 	{

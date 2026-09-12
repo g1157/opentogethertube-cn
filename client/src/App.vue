@@ -216,7 +216,7 @@ import {
 	mdiDotsHorizontal,
 	mdiGithub,
 } from "@mdi/js";
-import { defineComponent, onMounted, onUnmounted, ref, computed, watch } from "vue";
+import { defineComponent, onMounted, onUnmounted, ref, computed, watch, watchEffect } from "vue";
 import { API } from "@/common-http";
 import CreateRoomForm from "@/components/CreateRoomForm.vue";
 import LogInForm from "@/components/LogInForm.vue";
@@ -233,6 +233,19 @@ import LocaleSelector from "@/components/navbar/LocaleSelector.vue";
 import { ALL_THEMES, Theme } from "@/stores/settings";
 import "@/styles/cinema-fonts.css";
 import { isEdgePreview } from "@/edge-preview";
+import { useI18n } from "vue-i18n";
+
+const routeTitleKeys: Record<string, string> = {
+	"room-list": "nav.browse",
+	"my-rooms": "nav.my-rooms",
+	"account": "nav.account",
+	"attribution": "footer.attribution",
+	"not-found": "not-found.title",
+	"privacypolicy": "footer.privacy-policy",
+	"password-reset": "page-title.password-reset",
+	"playground": "page-title.playground",
+	"themes": "page-title.themes",
+};
 
 // biome-ignore lint/nursery/noVueOptionsApi: TODO: convert to setup
 const App = defineComponent({
@@ -248,6 +261,23 @@ const App = defineComponent({
 	setup() {
 		const store = useStore();
 		const router = useRouter();
+		const { t } = useI18n({ useScope: "global" });
+		watchEffect(() => {
+			const route = router.currentRoute.value;
+			const site = t("page-title.site");
+			if (route.name === "room") {
+				const id = typeof route.params.roomId === "string" ? route.params.roomId : "";
+				// Navigation can precede room sync: never reuse the previous room's title.
+				const roomTitle =
+					store.state.room.name.toLowerCase() === id.toLowerCase()
+						? store.state.room.title.trim()
+						: "";
+				document.title = `${roomTitle || id || t("page-title.room")} · ${site}`;
+				return;
+			}
+			const titleKey = routeTitleKeys[String(route.name)];
+			document.title = titleKey ? `${t(titleKey)} · ${site}` : site;
+		});
 		const { lgAndUp } = useDisplay();
 		let unsubscribe: (() => void) | undefined;
 		onUnmounted(() => unsubscribe?.());
