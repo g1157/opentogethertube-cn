@@ -69,11 +69,15 @@ export default defineConfig({
 					}
 					// Keep lazily imported players and the WebGL shaders bundle (with three.js)
 					// in their own async chunks instead of the startup vendor chunk.
+					// anime4k-webgpu is reached only through a dynamic import in
+					// util/upscale/anime4k.ts; without this it lands in the startup vendor
+					// chunk and every page pays for 3.4MB of WebGPU code nobody asked for.
 					if (
 						id.includes("hls.js") ||
 						id.includes("dashjs") ||
 						id.includes("node_modules/shaders") ||
-						id.includes("node_modules/three")
+						id.includes("node_modules/three") ||
+						id.includes("anime4k-webgpu")
 					) {
 						return;
 					}
