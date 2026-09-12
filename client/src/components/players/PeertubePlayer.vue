@@ -103,6 +103,7 @@ const PeertubePlayer = defineComponent({
 		}
 
 		return {
+			supportsRateBend: false,
 			peertubeUrl,
 
 			play,

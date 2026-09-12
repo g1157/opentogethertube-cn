@@ -528,6 +528,7 @@ watch(videoUrl, () => {
 });
 
 defineExpose({
+	supportsRateBend: true,
 	retry,
 	play,
 	pause,

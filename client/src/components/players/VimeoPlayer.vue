@@ -130,6 +130,7 @@ const VimeoPlayer = defineComponent({
 		}
 
 		return {
+			supportsRateBend: false,
 			isBuffering,
 
 			play,

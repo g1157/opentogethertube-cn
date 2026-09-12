@@ -124,7 +124,7 @@ PostgreSQL、Redis 和应用容器，配置数据卷、密钥、域名与 HTTPS�
 
 版本以提交 SHA、Cloudflare revision 或镜像 revision 标签识别；历史版本见 Git 标签
 （`v0.14.1`、`v0.15.0-cn2` 起）与 `archive/history` 分支。部分工作区的 `package.json` 保留
-上游 `0.14.1`，不是部署版本的权威标识。当前构建标识为 Docker `v0.15.0-cn10` 与
+上游 `0.14.1`，不是部署版本的权威标识。当前构建标识为 Docker `v0.15.0-cn12` 与
 Cloudflare `cloudflare-preview-0.1.2`。
 
 部署步骤包含对应提交源码包的生成方法，页面的源码入口由 `VITE_SOURCE_URL` 指定。源码归档应来自

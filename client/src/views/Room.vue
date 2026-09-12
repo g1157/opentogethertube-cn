@@ -320,6 +320,7 @@ import { waitForToken } from "@/util/token";
 import { useSfx } from "@/plugins/sfx";
 import { secondsToTimestamp } from "@/util/timestamp";
 import { useCaptions, useMediaPlayer, usePlaybackRate, useVolume } from "@/components/composables";
+import type { MediaPlayerWithPlaybackRate } from "@/components/composables/media-player";
 import { useGrants } from "@/components/composables/grants";
 import { PlayerStatus, Visibility } from "ott-common/models/types";
 import { createPlayerFullscreen, PlayerFullscreenKey } from "@/util/player-fullscreen";
@@ -547,12 +548,31 @@ export default defineComponent({
 				seeking: player.isSeeking(),
 				recovering: player.isRecovering(),
 				buffering: store.state.playerStatus === PlayerStatus.buffering,
+				playing: store.state.room.isPlaying,
+				temporarySpeed: store.state.room.temporaryPlaybackSpeed != null,
 				position: roomPosition(),
 			}),
 			getPosition: () => player.getPosition(),
 			setPosition: position => player.setPosition(position),
+			getBendBase: () => (player.supportsRateBend() ? store.state.room.playbackSpeed : null),
+			setLocalRate: rate => {
+				const instance = player.player.value;
+				if (instance?.supportsRateBend === true) {
+					return (instance as MediaPlayerWithPlaybackRate).setPlaybackRate(rate);
+				}
+			},
 			onError: error => console.warn("Could not synchronize playback position", error),
 		});
+		watch(
+			[
+				() => store.state.room.playbackSpeed,
+				() => store.state.room.isPlaying,
+				() => store.state.room.temporaryPlaybackSpeed,
+			],
+			() => playbackSync.invalidateRate(),
+			// OmniPlayer first applies the room rate; the next tick can then bend that base.
+			{ flush: "post" },
+		);
 		watch(
 			[currentSource, player.player],
 			() => {

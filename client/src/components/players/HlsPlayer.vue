@@ -456,6 +456,7 @@ watch(
 );
 
 defineExpose({
+	supportsRateBend: true,
 	play,
 	pause,
 	setVolume,

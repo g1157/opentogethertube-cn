@@ -482,6 +482,7 @@ onBeforeUnmount(() => {
 });
 
 defineExpose({
+	supportsRateBend: true,
 	play,
 	pause,
 	setVolume,

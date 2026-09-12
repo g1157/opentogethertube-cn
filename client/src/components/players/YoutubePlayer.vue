@@ -369,6 +369,7 @@ function loadCaptionsIfNeeded(): void {
 }
 
 defineExpose({
+	supportsRateBend: false,
 	play,
 	pause,
 	getPosition,

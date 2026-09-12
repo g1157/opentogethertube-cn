@@ -107,13 +107,16 @@ describe("room player interactions", () => {
 		vi.useRealTimers();
 	});
 
-	function installPlayer(ready = true) {
+	function installPlayer(ready = true, supportsRateBend = false) {
 		const media = {
+			supportsRateBend,
 			play: vi.fn(async (): Promise<void> => undefined),
 			pause: vi.fn(async (): Promise<void> => undefined),
 			getPosition: vi.fn(() => 0),
 			setPosition: vi.fn(),
 			setVolume: vi.fn(),
+			getPlaybackRate: () => 1,
+			setPlaybackRate: vi.fn(),
 			isSeeking: vi.fn(() => false),
 			isRecovering: vi.fn(() => false),
 			isCaptionsSupported: () => false,
@@ -127,6 +130,39 @@ describe("room player interactions", () => {
 		}
 		return media;
 	}
+
+	it("bends the actual player without changing the speed displayed in the controls", async () => {
+		const media = installPlayer(true, true);
+		const roomRate = usePlaybackRate().playbackRate;
+		roomRate.value = 1;
+		media.getPosition.mockImplementation(() => page.wrapper.vm.truePosition - 0.4);
+		await vi.advanceTimersByTimeAsync(500);
+		expect(media.setPlaybackRate).toHaveBeenLastCalledWith(expect.closeTo(1.064, 6));
+		expect(roomRate.value).toBe(1);
+		expect(page.wrapper.get('[data-cy="playback-rate-toggle"]').text()).toBe("1x");
+
+		page.store.commit("room/SYNC", { playbackSpeed: 1.5 });
+		// OmniPlayer's room-rate watcher is stubbed in this suite; emulate its baseline write.
+		media.setPlaybackRate(1.5);
+		roomRate.value = 1.5;
+		await nextTick();
+		await vi.advanceTimersByTimeAsync(250);
+		expect(media.setPlaybackRate).toHaveBeenLastCalledWith(expect.closeTo(1.596, 6));
+		expect(roomRate.value).toBe(1.5);
+		expect(page.wrapper.get('[data-cy="playback-rate-toggle"]').text()).toBe("1.5x");
+
+		page.store.commit("room/SYNC", { isPlaying: false });
+		await nextTick();
+		expect(media.setPlaybackRate).toHaveBeenLastCalledWith(1.5);
+	});
+
+	it("does not infer arbitrary-rate support from an iframe player's speed menu", async () => {
+		const media = installPlayer();
+		media.getAvailablePlaybackRates = () => [0.25, 0.5, 1, 1.5, 2];
+		media.getPosition.mockImplementation(() => page.wrapper.vm.truePosition - 0.4);
+		await vi.advanceTimersByTimeAsync(2500);
+		expect(media.setPlaybackRate).not.toHaveBeenCalled();
+	});
 
 	function playerEvent(event: "ready" | "apiready" | "playing" | "paused") {
 		page.wrapper.findComponent({ name: "OmniPlayer" }).vm.$emit(event);

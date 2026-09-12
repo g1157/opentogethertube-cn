@@ -42,6 +42,8 @@ export function useVolume() {
 }
 
 export interface MediaPlayer {
+	/** Explicit opt-in for arbitrary local rates, independent of the room speed menu. */
+	readonly supportsRateBend?: boolean;
 	/**
 	 * Play the video.
 	 *
@@ -80,7 +82,7 @@ export interface MediaPlayerWithCaptions extends MediaPlayer {
 
 export interface MediaPlayerWithPlaybackRate extends MediaPlayer {
 	getPlaybackRate(): number;
-	setPlaybackRate(rate: number): void;
+	setPlaybackRate(rate: number): void | Promise<void>;
 }
 
 export interface MediaPlayerWithQuality extends MediaPlayer {
@@ -110,6 +112,10 @@ export class MediaPlayerV2 {
 
 	isPlayerPresent(): boolean {
 		return !!this.player.value;
+	}
+
+	supportsRateBend(): boolean {
+		return this.player.value?.supportsRateBend === true;
 	}
 
 	isSeeking(): boolean {
