@@ -117,7 +117,9 @@ Compose 示例按直接 HTTP 端口访问设计（`FORCE_INSECURE_COOKIES=true`�
    （也可像线上示例一样手写 systemd 单元并用 `--token-file` 启动）。
 3. `.env` 的 `OTT_PUBLIC_HOSTNAME` 改为该域名；`TRUST_PROXY` 设为 `1`，让限流按访客 IP 生效
    （经 Tunnel 时客户端 IP 由 `X-Forwarded-For` 提供；若前面还有别的代理层，按实际层数调整）。
-   `FORCE_INSECURE_COOKIES=true` 可保持不变。
+   `FORCE_INSECURE_COOKIES` 要设为 `false`。`Secure` 属性约束的是浏览器到 Cloudflare 那一段，
+   而浏览器看到的始终是 HTTPS，与 cloudflared 用什么协议回源无关；保持 `true` 只会让登录
+   凭据在明文端口上同样可用。
 
 HTML、源码包和 `/api/status/version` 使用 `Cache-Control: no-store`，前端每 2 分钟及网络恢复、
 重新可见时检查服务器 revision 并自动重载；反向代理 / CDN 必须保留这些缓存规则，不能将 HTML
