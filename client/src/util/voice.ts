@@ -13,6 +13,7 @@ import type {
 import type { ClientId } from "ott-common/models/types";
 import { useConnection } from "@/plugins/connection";
 import { useStore } from "@/store";
+import { useVolume } from "@/components/composables";
 
 /**
  * How much the shared media drops while the local microphone is picking up speech. -8 dB is the
@@ -25,6 +26,7 @@ const SPEAKING_POLL_MS = 120;
 export function useVoice() {
 	const connection = useConnection();
 	const store = useStore();
+	const volume = useVolume();
 
 	const available = ref(false);
 	const joined = ref(false);
@@ -40,7 +42,6 @@ export function useVoice() {
 	const peers = new Map<ClientId, RTCPeerConnection>();
 	const pendingCandidates = new Map<ClientId, RTCIceCandidateInit[]>();
 	const audioElements = new Map<ClientId, HTMLAudioElement>();
-	const savedVolumes = new Map<HTMLMediaElement, number>();
 	let audioContext: AudioContext | null = null;
 	let speakingTimer: ReturnType<typeof setInterval> | null = null;
 	let duckActive = false;
@@ -252,31 +253,15 @@ export function useVoice() {
 	}
 
 	/**
-	 * Spike-level ducking: lowers every media element except our own peer audio. This fights the
-	 * player's own volume control, so it has to move into the player store before this ships.
+	 * Ducking multiplies the player volume instead of writing to media elements, so the volume
+	 * slider keeps showing the user's own level and peer audio is never affected.
 	 */
 	function duck(active: boolean) {
 		if (active === duckActive) {
 			return;
 		}
 		duckActive = active;
-		for (const el of document.querySelectorAll<HTMLMediaElement>("video, audio")) {
-			if (el.dataset.ottVoice === "true") {
-				continue;
-			}
-			if (active) {
-				if (!savedVolumes.has(el)) {
-					savedVolumes.set(el, el.volume);
-				}
-				el.volume = (savedVolumes.get(el) ?? 1) * DUCK_FACTOR;
-			} else {
-				const saved = savedVolumes.get(el);
-				if (saved !== undefined) {
-					el.volume = saved;
-					savedVolumes.delete(el);
-				}
-			}
-		}
+		volume.duckFactor.value = active ? DUCK_FACTOR : 1;
 	}
 
 	function startSpeakingDetection() {

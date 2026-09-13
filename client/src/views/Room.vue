@@ -70,14 +70,24 @@
 								@click="voiceJoined ? toggleVoiceMute() : joinVoice()"
 							>
 								<v-icon
-									:icon="voiceJoined && !voiceMuted ? mdiMicrophone : mdiMicrophoneOff"
+									:icon="
+										voiceJoined && !voiceMuted
+											? mdiMicrophone
+											: mdiMicrophoneOff
+									"
 								/>
 								<v-tooltip activator="parent" location="top">
-									{{ voiceJoined ? $t("room.voice-mute") : $t("room.voice-join") }}
+									{{
+										voiceJoined ? $t("room.voice-mute") : $t("room.voice-join")
+									}}
 								</v-tooltip>
 							</v-btn>
 							<span class="voice-count" v-if="voiceParticipants.length > 0">
-								{{ $t("room.voice-participants", { count: voiceParticipants.length }) }}
+								{{
+									$t("room.voice-participants", {
+										count: voiceParticipants.length,
+									})
+								}}
 							</span>
 							<span class="voice-count" v-if="voiceJoined && !voiceRelay">
 								{{ $t("room.voice-direct-only") }}
@@ -1467,6 +1477,8 @@ export default defineComponent({
 			mdiPlus,
 			mdiWrench,
 			mdiCircle,
+			mdiMicrophone,
+			mdiMicrophoneOff,
 		};
 	},
 });
