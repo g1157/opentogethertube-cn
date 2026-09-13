@@ -19,7 +19,7 @@
 			</thead>
 			<tbody>
 				<tr v-for="item in permissions" :key="item.name">
-					<th scope="row">{{ item.name }}</th>
+					<th scope="row">{{ permissionLabel(item.name) }}</th>
 					<td v-for="r in 5" :key="r">
 						<v-checkbox
 							v-if="
@@ -50,9 +50,20 @@
 <script lang="ts" setup>
 import { ref, type Ref, toRefs, watch } from "vue";
 import _ from "lodash";
+import { useI18n } from "vue-i18n";
 import { PERMISSIONS, type Permission, Grants } from "ott-common/permissions";
 import { Role } from "ott-common/models/types";
 import { useGrants } from "./composables/grants";
+
+const { t } = useI18n();
+
+/** Permission names are stable identifiers; show a translated label when one exists. */
+function permissionLabel(name: string): string {
+	const key = `permissions.${name}`;
+	const label = t(key);
+	// vue-i18n returns the key itself when no message exists (new permissions).
+	return label === key ? name : label;
+}
 
 const model = defineModel<Grants>({ required: true, validator: val => val instanceof Grants });
 const props = withDefaults(

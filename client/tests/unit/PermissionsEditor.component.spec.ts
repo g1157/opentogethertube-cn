@@ -9,6 +9,18 @@ function permissionCheckbox(permission: string, role: Role) {
 }
 
 describe("PermissionsEditor component", () => {
+	it("labels permissions in the UI language instead of internal identifiers", () => {
+		const { wrapper } = mountComponent(PermissionsEditor, {
+			props: { modelValue: new Grants(), currentRole: 4 },
+		});
+
+		const text = wrapper.text();
+		expect(text).toContain("播放 / 暂停");
+		expect(text).toContain("踢出用户");
+		expect(text).not.toContain("playback.play-pause");
+		expect(text).not.toContain("manage-users.kick");
+	});
+
 	it("renders grants correctly", async () => {
 		const grants = new Grants();
 		grants.setRoleGrants(Role.UnregisteredUser, (1 << 0) | (1 << 1));
