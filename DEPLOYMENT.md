@@ -132,19 +132,51 @@ Cloudflare 免费版在国内经常被限速：实测同一台服务器，裸 IP
 要 3 s 以上，长连接（WebSocket）更容易直接建不起来——表现是页面能打开但一直「无法连接到房间」。
 线上示例因此同时发布了裸 IP 的直连端口，作为 Cloudflare 之外的第二条通道。
 
-1. 在 `compose.override.yml` 里为 `ott` 服务追加端口（不必改动仓库自带的 `compose.yml`，
-   它保持只绑 `127.0.0.1` 的安全默认值）：
+1. 在 `compose.override.yml` 里给 `ott` 追加明文端口，并加一个只做 TLS 终结的 Caddy
+   （不必改动仓库自带的 `compose.yml`，它保持只绑 `127.0.0.1` 的安全默认值）：
 
     ```yaml
     services:
         ott:
             ports:
                 - "8082:8080"
-                - "8443:8080"
+        caddy:
+            image: caddy:2-alpine
+            restart: unless-stopped
+            ports:
+                - "443:443"
+                - "8443:443"
+            volumes:
+                - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+                - ./caddy/ip.crt:/certs/ip.crt:ro
+                - ./caddy/ip.key:/certs/ip.key:ro
+            depends_on:
+                - ott
     ```
 
-2. `sudo docker compose up -d` 后，访客直接访问 `http://<服务器 IP>:8082`（备用 `:8443`）。
-   记得在云厂商安全组放行对应端口，并确认没有在监听这些端口的其他进程。
+    ```caddyfile
+    {
+    	admin off
+    }
+
+    :443, :8443 {
+    	tls /certs/ip.crt /certs/ip.key
+    	encode zstd gzip
+    	reverse_proxy ott:8080
+    }
+    ```
+
+2. 生成自签名证书（浏览器首次会提示证书不受信任，点「继续前往」即可）：
+
+    ```sh
+    openssl req -x509 -newkey rsa:2048 -nodes -days 1095 \
+      -keyout caddy/ip.key -out caddy/ip.crt \
+      -subj "/CN=<服务器 IP>" -addext "subjectAltName=IP:<服务器 IP>"
+    ```
+
+3. `sudo docker compose up -d` 后，访客用 `http://<服务器 IP>:8082` 看视频，用
+   `https://<服务器 IP>`（备用 `:8443`）拿安全上下文以启用语音。记得在云厂商安全组放行这些端口，
+   并确认没有其他进程占用。将来拿到正式证书，替换 `caddy/` 下两个文件并重启 Caddy 即可。
 
 实测结论与限制（2026-09-13，腾讯云大陆机型，端口探测 + 抓包验证）：
 
@@ -152,10 +184,12 @@ Cloudflare 免费版在国内经常被限速：实测同一台服务器，裸 IP
     `302 → https://dnspod.qcloud.com/static/webblock.html?d=<域名>`；`Host` 为裸 IP 时正常返回
     应用内容。所以明文入口要用 IP，不要用域名。
 -   **HTTPS（443 + SNI）不被拦截**：用域名的 SNI 握手得到的是服务器自己的证书和响应，说明拦截只
-    针对明文 HTTP。也就是说未备案域名 + 有效证书 + 443 可行，证书用 TLS-ALPN-01 签发即可
-    （HTTP-01 会因为上面的拦截失败；Let's Encrypt 不为裸 IP 签发证书）。
--   明文 HTTP 不是安全上下文，`navigator.mediaDevices` 不可用，语音会提示无法使用麦克风；
-    需要语音时走 HTTPS（直连域名或 Cloudflare 域名）。
+    针对明文 HTTP；Let's Encrypt 不为裸 IP 签发证书，HTTP-01 又会撞上上面的拦截。用未备案域名 +
+    TLS-ALPN-01 签证书在技术上可行，但那属于绕开备案要求，本仓库线上示例不走这条路：不碰域名，
+    只用裸 IP + 自签名证书。
+-   明文 HTTP 不是安全上下文，`navigator.mediaDevices` 不可用，语音会提示无法使用麦克风。语音需要
+    `https://<服务器 IP>`：自签名证书实测同样能拿到安全上下文（`isSecureContext` 为真、
+    `navigator.mediaDevices` 可用），只是浏览器首次会提示证书不受信任。
 -   直连端口与 Cloudflare 入口是同一个应用实例，登录态、房间、便签、播放列表完全共享。
 
 HTML、源码包和 `/api/status/version` 使用 `Cache-Control: no-store`，前端每 2 分钟及网络恢复、
