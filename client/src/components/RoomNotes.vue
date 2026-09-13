@@ -31,8 +31,9 @@
 		</p>
 		<ul v-else class="notes-list">
 			<li v-for="note in notes" :key="note.id" class="note" :data-cy="`note-${note.id}`">
-				<div class="note-head">
-					<strong class="note-author">{{ note.authorName }}</strong>
+				<p class="note-text">{{ note.text }}</p>
+				<div class="note-meta">
+					<span class="note-author">{{ note.authorName }}</span>
 					<span class="note-time">{{ noteTime(note.createdAt) }}</span>
 					<v-btn
 						icon
@@ -45,7 +46,6 @@
 						<v-icon :icon="mdiTrashCanOutline" />
 					</v-btn>
 				</div>
-				<p class="note-text">{{ note.text }}</p>
 			</li>
 		</ul>
 	</div>
@@ -135,37 +135,48 @@ function noteTime(createdAt: string): string {
 }
 
 .note {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
 	border: 1px solid var(--line);
 	border-radius: 8px;
 	padding: 10px 12px;
 	background: var(--card);
 }
 
-.note-head {
+.note-text {
+	margin: 0;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	line-height: 1.55;
+	color: var(--foreground);
+}
+
+// Signature line sits at the bottom right and stays visually quieter than the note itself.
+.note-meta {
 	display: flex;
 	align-items: center;
+	justify-content: flex-end;
 	gap: 8px;
-}
-
-.note-author {
-	color: var(--foreground);
-	font-size: 0.875rem;
-}
-
-.note-time {
 	color: var(--muted-foreground);
 	font-family: var(--font-mono);
 	font-size: 0.7rem;
+	letter-spacing: 0.02em;
 }
 
-.note-head .v-btn {
-	margin-left: auto;
+.note-author {
+	max-width: 60%;
+	font-style: italic;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
 }
 
-.note-text {
-	margin: 6px 0 0;
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
-	line-height: 1.5;
+.note-time {
+	font-variant-numeric: tabular-nums;
+}
+
+.note-meta .v-btn {
+	margin-left: 2px;
 }
 </style>

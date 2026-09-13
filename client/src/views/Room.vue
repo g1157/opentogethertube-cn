@@ -1677,6 +1677,11 @@ $in-video-chat-width-small: 250px;
 	background: var(--card);
 }
 
+.video-container.with-notes {
+	// Keep the notes panel from touching the player surface.
+	column-gap: 20px;
+}
+
 .video-container.with-notes .video-side {
 	width: 400px;
 }
