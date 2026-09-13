@@ -258,6 +258,7 @@ export default {
 		"visibility-unknown": "Unknown visibility",
 		tabs: {
 			queue: "Queue",
+			notes: "Notes",
 			settings: "Settings",
 		},
 		users: {
@@ -339,6 +340,16 @@ export default {
 		"to-bottom": "Jump to latest messages",
 		empty: "No messages yet. Say hello!",
 		"empty-hint": "New message sounds are off by default; enable them in Preferences.",
+	},
+	"room-notes": {
+		"input-label": "Add a note",
+		"input-hint": "Everyone in the room can see notes; they can only be added or deleted.",
+		placeholder: "Say what to watch tonight, when to meet next, or anything useful...",
+		add: "Add note",
+		empty: "No notes yet.",
+		counter: "{count} / {max}",
+		full: "The note limit has been reached. Delete one to add another.",
+		"delete-label": "Delete note",
 	},
 	"room-event": {
 		joined: "{user} joined the room",
@@ -717,6 +728,9 @@ export default {
 			"Could not read video information. Check that the link is publicly accessible, then try again.",
 		FfprobeTimeoutError:
 			"Reading video information timed out. The link may still be playable; please retry.",
+		TooManyNotesException: "The note limit has been reached. Delete one before adding another.",
+		NoteTooLongException: "That note is too long. Shorten it and try again.",
+		NoteNotFoundException: "That note no longer exists; someone may have deleted it.",
 		M3u8ParseError: "Could not parse the HLS playlist. Check the link.",
 		PermissionDeniedException: "You do not have permission to do that.",
 		VideoAlreadyQueuedException: "This video is already in the queue.",

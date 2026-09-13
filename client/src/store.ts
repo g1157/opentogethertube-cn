@@ -5,6 +5,7 @@ import { settingsModule, type SettingsState } from "@/stores/settings";
 import { ToastStyle } from "./models/toast";
 import { eventsModule } from "@/stores/events";
 import { miscModule, type MiscState } from "@/stores/misc";
+import { notesModule, type NotesState } from "@/stores/notes";
 import type { InjectionKey } from "vue";
 import { type RoomState, roomModule } from "./stores/room";
 import type { ServerMessageError } from "ott-common/models/messages";
@@ -16,6 +17,7 @@ export type FullOTTStoreState = BaseStoreState & {
 	users: UsersState;
 	settings: SettingsState;
 	misc: MiscState;
+	notes: NotesState;
 };
 
 interface BaseStoreState {
@@ -108,6 +110,7 @@ export function buildNewStore() {
 			users: usersModule,
 			settings: settingsModule,
 			misc: miscModule,
+			notes: notesModule,
 		},
 	}) as Store<FullOTTStoreState>;
 }

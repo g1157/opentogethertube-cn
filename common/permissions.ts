@@ -152,6 +152,11 @@ export const PERMISSIONS = [
 		mask: 1 << 26,
 		minRole: Role.UnregisteredUser,
 	}),
+	new Permission({
+		name: "configure-room.set-notes",
+		mask: 1 << 27,
+		minRole: Role.UnregisteredUser,
+	}),
 ];
 
 const permMaskMap = new Map(PERMISSIONS.map(p => [p.name, p.mask]));
@@ -171,6 +176,7 @@ function defaultPermissions(): Grants {
 			"configure-room.set-visibility",
 			"configure-room.set-queue-mode",
 			"configure-room.other",
+			"configure-room.set-notes",
 		]),
 		[Role.RegisteredUser]: parseIntoGrantMask([]),
 		[Role.TrustedUser]: parseIntoGrantMask([]),

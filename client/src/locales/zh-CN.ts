@@ -253,6 +253,7 @@ export default {
 		"visibility-unknown": "未知可见性",
 		tabs: {
 			queue: "队列",
+			notes: "便签",
 			settings: "设置",
 		},
 		users: {
@@ -334,6 +335,16 @@ export default {
 		"to-bottom": "跳到最新消息",
 		empty: "还没有消息，打个招呼开始吧！",
 		"empty-hint": "新消息提示音默认关闭，可在偏好设置中开启。",
+	},
+	"room-notes": {
+		"input-label": "添加便签",
+		"input-hint": "便签房间内所有人可见；只能追加和删除，不能修改。",
+		placeholder: "写点什么，比如今晚看什么、下次聚会的时间…",
+		add: "添加便签",
+		empty: "还没有便签。",
+		counter: "{count} / {max} 条",
+		full: "便签数量已达上限，删除一些后再添加。",
+		"delete-label": "删除便签",
 	},
 	"room-event": {
 		joined: "{user} 加入了房间",
@@ -688,6 +699,9 @@ export default {
 		InvalidAddPreviewInputException: "请多输入几个字符，或直接粘贴视频链接。",
 		FfprobeError: "无法读取视频信息，请确认链接可公开访问后重试。",
 		FfprobeTimeoutError: "读取视频信息超时，链接可能仍可播放，请重试。",
+		TooManyNotesException: "便签数量已达上限，请先删除一条再添加。",
+		NoteTooLongException: "便签内容过长，请精简后再发送。",
+		NoteNotFoundException: "这条便签已不存在，可能已被其他人删除。",
 		M3u8ParseError: "无法解析 HLS 播放列表，请检查链接。",
 		PermissionDeniedException: "你没有执行此操作的权限。",
 		VideoAlreadyQueuedException: "该视频已在队列中。",

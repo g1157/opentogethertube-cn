@@ -23,6 +23,10 @@ export const ALL_VIDEO_SERVICES = [
 	"invidious",
 	"odysee",
 ] as const;
+/** Notes are append-only; the per-room cap is the only growth gate. */
+export const MAX_NOTES_PER_ROOM = 200;
+export const MAX_NOTE_LENGTH = 1000;
+
 export const ALL_SKIP_CATEGORIES: Category[] = [
 	"sponsor",
 	"intro",

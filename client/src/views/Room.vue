@@ -196,6 +196,11 @@
 							<v-icon :icon="mdiWrench" />
 							<span class="tab-text">{{ $t("room.tabs.settings") }}</span>
 						</v-tab>
+						<v-tab v-if="showNotesTab" data-cy="notes-tab">
+							<v-icon :icon="mdiNoteTextOutline" />
+							<span class="tab-text">{{ $t("room.tabs.notes") }}</span>
+							<v-chip size="x-small" class="room-tab-count">{{ notesCount }}</v-chip>
+						</v-tab>
 					</v-tabs>
 					<v-window
 						v-model="queueTab"
@@ -211,6 +216,9 @@
 						</v-window-item>
 						<v-window-item>
 							<RoomSettingsForm ref="settings" />
+						</v-window-item>
+						<v-window-item v-if="showNotesTab">
+							<RoomNotes />
 						</v-window-item>
 					</v-window>
 				</div>
@@ -301,7 +309,9 @@ import {
 	mdiEyeOff,
 	mdiLock,
 	mdiCircle,
+	mdiNoteTextOutline,
 } from "@mdi/js";
+
 import {
 	defineComponent,
 	ref,
@@ -324,6 +334,7 @@ import UserList from "@/components/UserList.vue";
 import VideoQueue from "@/components/VideoQueue.vue";
 import { useGoTo } from "vuetify";
 import RoomSettingsForm from "@/components/RoomSettingsForm.vue";
+import RoomNotes from "@/components/RoomNotes.vue";
 import ShareInvite from "@/components/ShareInvite.vue";
 import ClientSettingsDialog from "@/components/ClientSettingsDialog.vue";
 import RoomDisconnected from "../components/RoomDisconnected.vue";
@@ -380,6 +391,7 @@ export default defineComponent({
 		AddPreview,
 		UserList,
 		RoomSettingsForm,
+		RoomNotes,
 		ShareInvite,
 		ClientSettingsDialog,
 		RoomDisconnected,
@@ -407,6 +419,9 @@ export default defineComponent({
 		const currentSource = computed(() =>
 			hasRoomSync.value ? store.state.room.currentSource : null,
 		);
+		// Notes are append-only and only permanent rooms have storage for them.
+		const showNotesTab = computed(() => hasRoomSync.value && !store.state.room.isTemporary);
+		const notesCount = computed(() => store.state.notes.notes.length);
 		const nowPlaying = computed(() => nowPlayingDetails(currentSource.value));
 		const episodeLabel = computed(() =>
 			nowPlaying.value.episode
@@ -719,6 +734,8 @@ export default defineComponent({
 				if (!hasRoomSync.value) {
 					store.commit("PLAYBACK_STATUS", PlayerStatus.none);
 					store.commit("PLAYBACK_BUFFER_RESET");
+					// A fresh room must not show the previous room's notes until its own arrive.
+					store.commit("notes/CLEAR");
 				}
 				hasRoomSync.value = true;
 			}
@@ -1385,6 +1402,8 @@ export default defineComponent({
 
 			isMobile,
 			queueTab,
+			showNotesTab,
+			notesCount,
 			settings: roomSettingsForm,
 			addpreview,
 			setAddPreviewText,
@@ -1412,6 +1431,7 @@ export default defineComponent({
 			mdiPlus,
 			mdiWrench,
 			mdiCircle,
+			mdiNoteTextOutline,
 		};
 	},
 });

@@ -4,6 +4,7 @@ import { redisClient } from "./redisclient.js";
 import { getLogger } from "./logger.js";
 import type winston from "winston";
 import type {
+	AddNoteRequest,
 	AddRequest,
 	ApplySettingsRequest,
 	ChatRequest,
@@ -33,6 +34,9 @@ import type {
 	TemporaryPlaybackSpeedRequest,
 	PlaybackPreparation,
 	PlaybackPrepared,
+	DeleteNoteRequest,
+	RoomNote,
+	ServerMessageNotes,
 } from "ott-common/models/messages.js";
 import { RoomRequestType } from "ott-common/models/messages.js";
 import _ from "lodash";
@@ -60,7 +64,11 @@ import type { PickFunctions } from "ott-common/typeutils.js";
 import { replacer } from "ott-common/serialize.js";
 import {
 	ClientNotFoundInRoomException,
+	FeatureDisabledException,
 	ImpossiblePromotionException,
+	NoteNotFoundException,
+	NoteTooLongException,
+	TooManyNotesException,
 	VideoAlreadyQueuedException,
 	VideoNotFoundException,
 	UnsupportedSubtitleType,
@@ -91,6 +99,8 @@ import {
 	BUFFER_GATE_MAX_WAIT_MS,
 	BUFFER_GATE_START_GRACE_MS,
 	BUFFER_GATE_COOLDOWN_MS,
+	MAX_NOTES_PER_ROOM,
+	MAX_NOTE_LENGTH,
 } from "ott-common/constants.js";
 import { Mutex } from "@divine/synchronization";
 
@@ -1278,6 +1288,8 @@ export class Room implements RoomState {
 			[RoomRequestType.ShuffleRequest, "manage-queue.order"],
 			[RoomRequestType.PlaybackSpeedRequest, "playback.speed"],
 			[RoomRequestType.KickRequest, "manage-users.kick"],
+			[RoomRequestType.AddNoteRequest, "configure-room.set-notes"],
+			[RoomRequestType.DeleteNoteRequest, "configure-room.set-notes"],
 		]);
 		const permission = permissions.get(request.type);
 		if (permission) {
@@ -1314,6 +1326,8 @@ export class Room implements RoomState {
 			[RoomRequestType.RestoreQueueRequest]: "restoreQueue",
 			[RoomRequestType.KickRequest]: "kickUser",
 			[RoomRequestType.TemporaryPlaybackSpeedRequest]: "setTemporaryPlaybackSpeed",
+			[RoomRequestType.AddNoteRequest]: "addNote",
+			[RoomRequestType.DeleteNoteRequest]: "deleteNote",
 		};
 
 		const handler = handlers[request.type];
@@ -1758,6 +1772,59 @@ export class Room implements RoomState {
 			from: user,
 			text: request.text,
 		});
+	}
+
+	/** The full note list: sent on join and after every change instead of riding in `sync`. */
+	public buildNotesMessage(notes: RoomNote[]): ServerMessageNotes {
+		return {
+			action: "notes",
+			notes,
+			maxNotes: MAX_NOTES_PER_ROOM,
+			maxLength: MAX_NOTE_LENGTH,
+		};
+	}
+
+	public async publishNotes(): Promise<void> {
+		const notes = await storage.listNotes(this.name);
+		await this.publish(this.buildNotesMessage(notes));
+	}
+
+	public async addNote(request: AddNoteRequest, context: RoomRequestContext): Promise<void> {
+		if (this.isTemporary) {
+			throw new FeatureDisabledException("notes are only available in permanent rooms");
+		}
+		if (context.clientId === undefined) {
+			throw new Error("context.clientId was undefined");
+		}
+		const text = typeof request.text === "string" ? request.text.trim() : "";
+		if (text.length === 0) {
+			return;
+		}
+		if (text.length > MAX_NOTE_LENGTH) {
+			throw new NoteTooLongException(MAX_NOTE_LENGTH);
+		}
+		if ((await storage.countNotes(this.name)) >= MAX_NOTES_PER_ROOM) {
+			throw new TooManyNotesException(MAX_NOTES_PER_ROOM);
+		}
+		const user = this.getUserInfo(context.clientId);
+		await storage.addNote(this.name, user.name, context.clientId, text);
+		await this.publishNotes();
+	}
+
+	public async deleteNote(
+		request: DeleteNoteRequest,
+		context: RoomRequestContext,
+	): Promise<void> {
+		if (this.isTemporary) {
+			throw new FeatureDisabledException("notes are only available in permanent rooms");
+		}
+		if (!Number.isInteger(request.noteId)) {
+			throw new BadApiArgumentException("noteId", "Expected an integer note id");
+		}
+		if (!(await storage.deleteNote(this.name, request.noteId))) {
+			throw new NoteNotFoundException();
+		}
+		await this.publishNotes();
 	}
 
 	public async undo(request: UndoRequest, context: RoomRequestContext): Promise<void> {

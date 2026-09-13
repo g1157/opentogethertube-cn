@@ -178,4 +178,25 @@ class RoomApi {
 			message,
 		});
 	}
+
+	/** Append a note to the room's shared list. */
+	addNote(text: string) {
+		this.connection.send({
+			action: "req",
+			request: {
+				type: RoomRequestType.AddNoteRequest,
+				text,
+			},
+		});
+	}
+
+	deleteNote(noteId: number) {
+		this.connection.send({
+			action: "req",
+			request: {
+				type: RoomRequestType.DeleteNoteRequest,
+				noteId,
+			},
+		});
+	}
 }

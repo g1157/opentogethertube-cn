@@ -22,6 +22,7 @@ import {
 	type ClientId,
 } from "ott-common/models/types.js";
 import roommanager from "./roommanager.js";
+import storage from "./storage.js";
 import { ANNOUNCEMENT_CHANNEL, ROOM_NAME_REGEX } from "ott-common/constants.js";
 import tokens, { type SessionInfo } from "./auth/tokens.js";
 import { Gauge } from "prom-client";
@@ -61,6 +62,8 @@ const CLIENT_ROOM_REQUEST_TYPES = new Set<RoomRequestType>([
 	RoomRequestType.KickRequest,
 	RoomRequestType.UpdateQueueItemRequest,
 	RoomRequestType.TemporaryPlaybackSpeedRequest,
+	RoomRequestType.AddNoteRequest,
+	RoomRequestType.DeleteNoteRequest,
 ]);
 
 const connections: Client[] = [];
@@ -216,6 +219,11 @@ async function joinAuthenticatedClient(client: Client, token: AuthToken, session
 		playbackPosition: room.realPlaybackPosition,
 	};
 	client.send(positionMsg);
+
+	// Notes are a variable-length list, so they are not part of `sync`; the joining client
+	// gets the full list once and receives every later change as a broadcast.
+	const notes = room.isTemporary ? [] : await storage.listNotes(room.name);
+	client.send(room.buildNotesMessage(notes));
 
 	// initialize client info
 	const clientsInit: ServerMessageUser = {

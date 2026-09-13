@@ -13,6 +13,7 @@ import {
 	updateManyVideoInfo,
 	getVideoInfoFields,
 } from "./storage/cachedvideo.js";
+import { addNote, countNotes, deleteAllNotes, deleteNote, listNotes } from "./storage/roomnote.js";
 
 export default {
 	getRoomByName,
@@ -26,4 +27,9 @@ export default {
 	updateVideoInfo,
 	updateManyVideoInfo,
 	getVideoInfoFields,
+	listNotes,
+	countNotes,
+	addNote,
+	deleteNote,
+	deleteAllNotes,
 };

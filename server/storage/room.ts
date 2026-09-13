@@ -7,6 +7,7 @@ import Sequelize from "sequelize";
 import permissions from "ott-common/permissions.js";
 import type { RoomStatePersistable } from "../room.js";
 import _ from "lodash";
+import { deleteAllNotes } from "./roomnote.js";
 
 const log = getLogger("storage/room");
 
@@ -121,6 +122,8 @@ export async function deleteRoom(roomName: string): Promise<boolean> {
 		} else {
 			log.info(`Deleted room ${roomName} from db: ${deleted} row(s)`);
 		}
+		// Notes are keyed by room name without a foreign key, so clean them up explicitly.
+		await deleteAllNotes(roomName);
 		return deleted > 0;
 	} catch (err) {
 		log.error(`Failed to delete room ${roomName} from storage: ${err}`);

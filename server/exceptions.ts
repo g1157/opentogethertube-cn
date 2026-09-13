@@ -140,6 +140,52 @@ export class FfprobeError extends OttException {
 	}
 }
 
+/**
+ * A room already holds the maximum number of notes. Expected request failure, never a
+ * reason to drop the connection.
+ */
+export class TooManyNotesException extends OttException {
+	public readonly status: number = 400;
+	public readonly code: "TOO_MANY_NOTES" = "TOO_MANY_NOTES";
+	public readonly userMessage: string;
+	public readonly expose: boolean = true;
+
+	constructor(maxNotes: number) {
+		const userMessage = `This room already has the maximum of ${maxNotes} notes. Delete one before adding another.`;
+		super(userMessage);
+		this.name = "TooManyNotesException";
+		this.userMessage = userMessage;
+	}
+}
+
+export class NoteTooLongException extends OttException {
+	public readonly status: number = 400;
+	public readonly code: "NOTE_TOO_LONG" = "NOTE_TOO_LONG";
+	public readonly userMessage: string;
+	public readonly expose: boolean = true;
+
+	constructor(maxLength: number) {
+		const userMessage = `Notes are limited to ${maxLength} characters.`;
+		super(userMessage);
+		this.name = "NoteTooLongException";
+		this.userMessage = userMessage;
+	}
+}
+
+export class NoteNotFoundException extends OttException {
+	public readonly status: number = 400;
+	public readonly code: "NOTE_NOT_FOUND" = "NOTE_NOT_FOUND";
+	public readonly userMessage: string;
+	public readonly expose: boolean = true;
+
+	constructor() {
+		const userMessage = "That note no longer exists. It may have been deleted by someone else.";
+		super(userMessage);
+		this.name = "NoteNotFoundException";
+		this.userMessage = userMessage;
+	}
+}
+
 export class OutOfQuotaException extends OttException {
 	constructor(service: string) {
 		if (service === "youtube") {

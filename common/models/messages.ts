@@ -24,7 +24,8 @@ export type ServerMessage =
 	| ServerMessageAnnouncement
 	| ServerMessageUser
 	| ServerMessageYou
-	| ServerMessageError;
+	| ServerMessageError
+	| ServerMessageNotes;
 
 export type ServerMessageActionType = ServerMessage["action"];
 
@@ -113,6 +114,28 @@ export interface ServerMessageError extends ServerMessageBase {
 	action: "error";
 	name: string;
 	message?: string;
+}
+
+/**
+ * A room note. Notes are append-only: they can be added and removed, never edited.
+ */
+export interface RoomNote {
+	id: number;
+	authorName: string;
+	text: string;
+	/** ISO string; the shared layer avoids Date serialization differences. */
+	createdAt: string;
+}
+
+/**
+ * The complete note list. It is sent when a client joins and after every change,
+ * instead of riding along in `sync` (the list is variable length).
+ */
+export interface ServerMessageNotes extends ServerMessageBase {
+	action: "notes";
+	notes: RoomNote[];
+	maxNotes: number;
+	maxLength: number;
 }
 
 export type UserUpdate =
@@ -236,7 +259,9 @@ export type RoomRequest =
 	| RestoreQueueRequest
 	| KickRequest
 	| UpdateQueueItemRequest
-	| TemporaryPlaybackSpeedRequest;
+	| TemporaryPlaybackSpeedRequest
+	| AddNoteRequest
+	| DeleteNoteRequest;
 
 export enum RoomRequestType {
 	JoinRequest,
@@ -260,6 +285,8 @@ export enum RoomRequestType {
 	KickRequest,
 	UpdateQueueItemRequest,
 	TemporaryPlaybackSpeedRequest,
+	AddNoteRequest,
+	DeleteNoteRequest,
 }
 
 export interface RoomRequestBase {
@@ -383,6 +410,18 @@ export interface TemporaryPlaybackSpeedRequest extends RoomRequestBase {
 export interface RestoreQueueRequest extends RoomRequestBase {
 	type: RoomRequestType.RestoreQueueRequest;
 	discard?: boolean;
+}
+
+/** Append a note to the room's shared, append-only list. */
+export interface AddNoteRequest extends RoomRequestBase {
+	type: RoomRequestType.AddNoteRequest;
+	text: string;
+}
+
+/** Remove one note. Any viewer with the notes permission may delete any note. */
+export interface DeleteNoteRequest extends RoomRequestBase {
+	type: RoomRequestType.DeleteNoteRequest;
+	noteId: number;
 }
 
 export interface KickRequest extends RoomRequestBase {
