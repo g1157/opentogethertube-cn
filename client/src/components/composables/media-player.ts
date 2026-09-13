@@ -5,6 +5,11 @@ import { useStore } from "@/store";
 const volume = ref(100);
 const prevVolume = ref(100);
 const isMuted = ref(false);
+/**
+ * Multiplier applied on top of the user's volume without touching it. Room voice uses this to
+ * duck the video while someone is speaking, so the slider never fights the ducking.
+ */
+const duckFactor = ref(1);
 
 export function useVolume() {
 	const store = useStore();
@@ -38,7 +43,7 @@ export function useVolume() {
 		store.commit("settings/UPDATE", { muted: isMuted.value });
 	});
 
-	return { volume, prevVolume, isMuted };
+	return { volume, prevVolume, isMuted, duckFactor };
 }
 
 export interface MediaPlayer {

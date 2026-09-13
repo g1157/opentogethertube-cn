@@ -343,7 +343,10 @@ watch(
 		}
 	},
 );
-watch(volume.volume, v => {
+// Ducking multiplies the user's volume instead of overwriting it, so voice can lower the video
+// without the slider jumping.
+const effectiveVolume = computed(() => volume.volume.value * volume.duckFactor.value);
+watch(effectiveVolume, v => {
 	if (player.value) {
 		player.value.setVolume(v);
 	}
@@ -412,7 +415,7 @@ async function onApiReady() {
 	captions.isCaptionsSupported.value = isCaptionsSupported();
 	qualities.isQualitySupported.value = isQualitySupported();
 	if (player.value) {
-		player.value.setVolume(volume.volume.value);
+		player.value.setVolume(effectiveVolume.value);
 		if (implementsAudioBoost(player.value)) {
 			player.value.setAudioBoost(store.state.settings.audioBoost);
 		}

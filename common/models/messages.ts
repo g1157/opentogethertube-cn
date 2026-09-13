@@ -25,7 +25,9 @@ export type ServerMessage =
 	| ServerMessageUser
 	| ServerMessageYou
 	| ServerMessageError
-	| ServerMessageNotes;
+	| ServerMessageNotes
+	| ServerMessageVoice
+	| ServerMessageSignal;
 
 export type ServerMessageActionType = ServerMessage["action"];
 
@@ -138,6 +140,51 @@ export interface ServerMessageNotes extends ServerMessageBase {
 	maxLength: number;
 }
 
+/**
+ * An ICE server handed to clients by the server, so TURN credentials never reach the client bundle.
+ */
+export interface RtcIceServer {
+	urls: string | string[];
+	username?: string;
+	credential?: string;
+}
+
+/** Mirrors RTCIceCandidateInit without depending on DOM types in shared code. */
+export interface VoiceIceCandidate {
+	candidate: string;
+	sdpMid?: string | null;
+	sdpMLineIndex?: number | null;
+	usernameFragment?: string | null;
+}
+
+export type VoiceSignalPayload =
+	| { kind: "offer"; sdp: string }
+	| { kind: "answer"; sdp: string }
+	| { kind: "candidate"; candidate: VoiceIceCandidate };
+
+export type VoiceDeniedReason = "disabled" | "room-full" | "too-many-rooms" | "budget";
+
+/**
+ * The authoritative list of clients currently in voice in a room. Sent when a client joins the
+ * room and whenever the list changes, so clients never infer presence from user join/leave events.
+ */
+export interface ServerMessageVoice extends ServerMessageBase {
+	action: "voice";
+	participants: ClientId[];
+	iceServers: RtcIceServer[];
+	/** False when relay servers were withheld to stay inside the usage budget. */
+	relay: boolean;
+	/** Set only on the reply to a join request the server refused. */
+	denied?: VoiceDeniedReason;
+}
+
+/** An offer, answer or ICE candidate relayed from another client in the same room. */
+export interface ServerMessageSignal extends ServerMessageBase {
+	action: "signal";
+	from: ClientId;
+	signal: VoiceSignalPayload;
+}
+
 export type UserUpdate =
 	| {
 			kind: "init";
@@ -166,7 +213,9 @@ export type ClientMessage =
 	| ClientMessagePlayerStatus
 	| ClientMessageAuthenticate
 	| ClientMessageNotify
-	| ClientMessageRoomRequest;
+	| ClientMessageRoomRequest
+	| ClientMessageVoice
+	| ClientMessageSignal;
 
 interface ClientMessageBase {
 	action: string;
@@ -217,6 +266,19 @@ export interface ClientMessageNotify extends ClientMessageBase {
 export interface ClientMessageRoomRequest extends ClientMessageBase {
 	action: "req";
 	request: RoomRequest;
+}
+
+/** Ask the server to add or remove this client from the room's voice participants. */
+export interface ClientMessageVoice extends ClientMessageBase {
+	action: "voice";
+	joined: boolean;
+}
+
+/** A WebRTC offer, answer or ICE candidate addressed to one other client in the same room. */
+export interface ClientMessageSignal extends ClientMessageBase {
+	action: "signal";
+	to: ClientId;
+	signal: VoiceSignalPayload;
 }
 
 /**
