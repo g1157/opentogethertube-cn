@@ -60,6 +60,8 @@ const addPreview: RequestHandler<
 			err.name === "UpstreamInvidiousException" ||
 			err.name === "VideoNotFoundException" ||
 			err.name === "FfprobeTimeoutError" ||
+			err.name === "FfprobeError" ||
+			err.name === "M3u8ParseError" ||
 			err.name === "OdyseeUnavailableVideo" ||
 			err.name === "OttException"
 		) {

@@ -662,6 +662,8 @@ export default {
 			"This link is not supported. Check that it points to a supported service or a direct video link.",
 		UnsupportedMimeTypeException: "This file format is not supported.",
 		UnsupportedVideoType: "This type of video is not supported yet.",
+		UnsupportedSubtitleType: "The subtitle URL must end with .vtt.",
+		InvalidVideoIdException: "That video link is not valid. Check it and try again.",
 		InvalidAddPreviewInputException: "Type more characters, or paste a video URL.",
 		FfprobeError:
 			"Could not read video information. Check that the link is publicly accessible, then try again.",

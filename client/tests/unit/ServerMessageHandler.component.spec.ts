@@ -52,6 +52,26 @@ describe("server message handler ownership", () => {
 		expect(dispatch).toHaveBeenCalledWith("room/sync", message);
 	});
 
+	it("localizes a server error for the toast and logs the raw text instead of showing it", async () => {
+		const { connection, store } = mountComponent(ServerMessageHandler);
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		connection.mockReceive({
+			action: "error",
+			name: "FfprobeError",
+			message: "Could not read video information (raw detail)",
+		});
+		await nextTick();
+		const notifications = store.state.toast.notifications;
+		expect(notifications).toHaveLength(1);
+		expect(notifications[0].content).toBe("无法读取视频信息，请确认链接可公开访问后重试。");
+		expect(notifications[0].content).not.toContain("raw detail");
+		expect(errorSpy).toHaveBeenCalled();
+
+		connection.mockReceive({ action: "error", name: "SomeUnexpectedError", message: "english" });
+		await nextTick();
+		expect(store.state.toast.notifications.at(-1)?.content).toBe("操作失败，请稍后再试。");
+	});
+
 	it("removes only its own subscriptions and preserves other sync and chat listeners", () => {
 		const { wrapper, connection, store } = mountComponent(ServerMessageHandler);
 		const dispatch = vi.spyOn(store, "dispatch").mockResolvedValue(undefined);
@@ -67,6 +87,7 @@ describe("server message handler ownership", () => {
 			"you",
 			"event",
 			"eventcustom",
+			"error",
 		] as const;
 		for (const action of actions) {
 			connection.mockReceive({ action } as ServerMessage);

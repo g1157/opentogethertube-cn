@@ -419,13 +419,11 @@ async function requestAddPreview() {
 		if (axios.isAxiosError(err) && err.response) {
 			console.error(`add preview response: ${err.response.status}`, err.response.data);
 
-			if (err.response.status === 400) {
+			const errorName = err.response.data?.error?.name;
+			if (err.response.status === 400 || (errorName && errorName !== "Unknown")) {
 				unknownFail = false;
 				videosLoadFailureText.value = serverErrorMessage(err.response.data.error);
-				if (
-					err.response.data.error.name === "FeatureDisabledException" &&
-					!isAddPreviewInputUrl.value
-				) {
+				if (errorName === "FeatureDisabledException" && !isAddPreviewInputUrl.value) {
 					window.open(
 						`https://www.youtube.com/results?search_query=${encodeURIComponent(
 							inputAddPreview.value,

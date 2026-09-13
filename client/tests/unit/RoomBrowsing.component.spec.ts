@@ -87,12 +87,15 @@ describe("Room browsing", () => {
 
 		expect(wrapper.attributes("aria-busy")).toBe("true");
 		expect(wrapper.find('[role="status"]').exists()).toBe(true);
+		// Skeletons keep the final layout instead of collapsing to a spinner.
+		expect(wrapper.get('[data-cy="rooms-loading"]').findAll(".skeleton")).toHaveLength(6);
 		expect(wrapper.find('[data-cy="rooms-empty"]').exists()).toBe(false);
 
 		finishLoad({ data: [] });
 		await flushPromises();
 
 		expect(wrapper.attributes("aria-busy")).toBe("false");
+		expect(wrapper.find('[data-cy="rooms-loading"]').exists()).toBe(false);
 		expect(wrapper.find('[data-cy="rooms-empty"]').exists()).toBe(true);
 	});
 
