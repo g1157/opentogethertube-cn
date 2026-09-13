@@ -549,6 +549,15 @@ export default {
 		text2: "管理员拥有一切权限。房主自动成为管理员，且不能被降级。",
 		"viewing-as": "查看身份",
 		permission: "权限",
+		"group-count": "{count} 项",
+		groups: {
+			playback: "播放",
+			queue: "队列",
+			chat: "聊天",
+			room: "房间设置",
+			users: "用户管理",
+			advanced: "高级：权限委派",
+		},
 	},
 	permissions: {
 		playback: {

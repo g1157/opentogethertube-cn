@@ -9,16 +9,27 @@ function permissionCheckbox(permission: string, role: Role) {
 }
 
 describe("PermissionsEditor component", () => {
-	it("labels permissions in the UI language instead of internal identifiers", () => {
+	it("labels permissions and groups in the UI language instead of internal identifiers", () => {
 		const { wrapper } = mountComponent(PermissionsEditor, {
 			props: { modelValue: new Grants(), currentRole: 4 },
 		});
 
 		const text = wrapper.text();
 		expect(text).toContain("播放 / 暂停");
-		expect(text).toContain("踢出用户");
+		expect(text).toContain("用户管理");
+		expect(text).toContain("高级：权限委派");
 		expect(text).not.toContain("playback.play-pause");
 		expect(text).not.toContain("manage-users.kick");
+	});
+
+	it("collapses permission groups so the editor is not one long table", () => {
+		const { wrapper } = mountComponent(PermissionsEditor, {
+			props: { modelValue: new Grants(), currentRole: 4 },
+		});
+
+		expect(wrapper.find('[data-cy="perm-group-playback"]').exists()).toBe(true);
+		expect(wrapper.find('[data-cy="perm-chk-playback.play-pause-0"]').exists()).toBe(true);
+		expect(wrapper.find('[data-cy="perm-chk-manage-queue.add-0"]').exists()).toBe(false);
 	});
 
 	it("renders grants correctly", async () => {

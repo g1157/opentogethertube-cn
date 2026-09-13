@@ -567,6 +567,15 @@ export default {
 		text2: "Administrators are granted everything. Room owner is automatically Administrator, and can't be demoted.",
 		"viewing-as": "Viewing as",
 		permission: "Permission",
+		"group-count": "{count} items",
+		groups: {
+			playback: "Playback",
+			queue: "Queue",
+			chat: "Chat",
+			room: "Room settings",
+			users: "User management",
+			advanced: "Advanced: permission delegation",
+		},
 	},
 	permissions: {
 		playback: {
