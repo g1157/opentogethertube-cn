@@ -126,6 +126,38 @@ Compose 示例按直接 HTTP 端口访问设计（`FORCE_INSECURE_COOKIES=true`�
    而浏览器看到的始终是 HTTPS，与 cloudflared 用什么协议回源无关；保持 `true` 只会让登录
    凭据在明文端口上同样可用。
 
+### 可选：裸 IP 直连入口（国内网络不稳时的备用通道）
+
+Cloudflare 免费版在国内经常被限速：实测同一台服务器，裸 IP 取首页约 50 ms，经 Cloudflare 边缘
+要 3 s 以上，长连接（WebSocket）更容易直接建不起来——表现是页面能打开但一直「无法连接到房间」。
+线上示例因此同时发布了裸 IP 的直连端口，作为 Cloudflare 之外的第二条通道。
+
+1. 在 `compose.override.yml` 里为 `ott` 服务追加端口（不必改动仓库自带的 `compose.yml`，
+   它保持只绑 `127.0.0.1` 的安全默认值）：
+
+   ```yaml
+   services:
+     ott:
+       ports:
+         - "8082:8080"
+         - "8443:8080"
+   ```
+
+2. `sudo docker compose up -d` 后，访客直接访问 `http://<服务器 IP>:8082`（备用 `:8443`）。
+   记得在云厂商安全组放行对应端口，并确认没有在监听这些端口的其他进程。
+
+实测结论与限制（2026-09-13，腾讯云大陆机型，端口探测 + 抓包验证）：
+
+- **明文 HTTP 按 Host 头做备案拦截，裸 IP 不受影响**：带域名的 HTTP 请求（任意端口）都会被改写成
+  `302 → https://dnspod.qcloud.com/static/webblock.html?d=<域名>`；`Host` 为裸 IP 时正常返回
+  应用内容。所以明文入口要用 IP，不要用域名。
+- **HTTPS（443 + SNI）不被拦截**：用域名的 SNI 握手得到的是服务器自己的证书和响应，说明拦截只
+  针对明文 HTTP。也就是说未备案域名 + 有效证书 + 443 可行，证书用 TLS-ALPN-01 签发即可
+  （HTTP-01 会因为上面的拦截失败；Let's Encrypt 不为裸 IP 签发证书）。
+- 明文 HTTP 不是安全上下文，`navigator.mediaDevices` 不可用，语音会提示无法使用麦克风；
+  需要语音时走 HTTPS（直连域名或 Cloudflare 域名）。
+- 直连端口与 Cloudflare 入口是同一个应用实例，登录态、房间、便签、播放列表完全共享。
+
 HTML、源码包和 `/api/status/version` 使用 `Cache-Control: no-store`，前端每 2 分钟及网络恢复、
 重新可见时检查服务器 revision 并自动重载；反向代理 / CDN 必须保留这些缓存规则，不能将 HTML
 或版本接口改为长期缓存。本次不包含外部解析器部署；媒体链接本身必须仍然有效。
