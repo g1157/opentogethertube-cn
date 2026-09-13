@@ -131,6 +131,52 @@ describe("room player interactions", () => {
 		return media;
 	}
 
+	it("joins voice and can leave again", async () => {
+		// A joined voice call must be reversible: joining used to be a one-way action.
+		const track = { enabled: true, stop: vi.fn() };
+		vi.stubGlobal("navigator", {
+			...navigator,
+			mediaDevices: {
+				getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [track] }),
+			},
+		});
+		vi.stubGlobal(
+			"AudioContext",
+			class {
+				createMediaStreamSource() {
+					return { connect: () => undefined };
+				}
+				createAnalyser() {
+					return { fftSize: 0, getFloatTimeDomainData: () => undefined };
+				}
+				close() {
+					return Promise.resolve();
+				}
+			},
+		);
+		page.connection.mockReceive({
+			action: "voice",
+			participants: [],
+			iceServers: [],
+			relay: true,
+		});
+		await nextTick();
+
+		await page.wrapper.get('[data-cy="voice-join"]').trigger("click");
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(page.connection.sent).toContainEqual({ action: "voice", joined: true });
+		expect(page.wrapper.find('[data-cy="voice-mute"]').exists()).toBe(true);
+
+		await page.wrapper.get('[data-cy="voice-leave"]').trigger("click");
+		await nextTick();
+
+		expect(page.connection.sent).toContainEqual({ action: "voice", joined: false });
+		expect(page.wrapper.find('[data-cy="voice-leave"]').exists()).toBe(false);
+		expect(page.wrapper.find('[data-cy="voice-join"]').exists()).toBe(true);
+		expect(track.stop).toHaveBeenCalled();
+	});
+
 	it("bends the actual player without changing the speed displayed in the controls", async () => {
 		const media = installPlayer(true, true);
 		const roomRate = usePlaybackRate().playbackRate;

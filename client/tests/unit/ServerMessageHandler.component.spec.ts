@@ -67,7 +67,11 @@ describe("server message handler ownership", () => {
 		expect(notifications[0].content).not.toContain("raw detail");
 		expect(errorSpy).toHaveBeenCalled();
 
-		connection.mockReceive({ action: "error", name: "SomeUnexpectedError", message: "english" });
+		connection.mockReceive({
+			action: "error",
+			name: "SomeUnexpectedError",
+			message: "english",
+		});
 		await nextTick();
 		expect(store.state.toast.notifications.at(-1)?.content).toBe("操作失败，请稍后再试。");
 	});
