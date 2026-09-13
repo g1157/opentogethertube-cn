@@ -56,7 +56,7 @@
 
 <script setup lang="ts">
 const addItems = ["youtube", "vimeo", "direct", "hls", "dash", "manifest"] as const;
-const bufferingItems = ["cors", "retry", "gate", "source"] as const;
+const bufferingItems = ["cors", "unreachable", "retry", "gate", "source"] as const;
 </script>
 
 <style lang="scss" scoped>

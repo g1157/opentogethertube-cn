@@ -37,6 +37,8 @@ export interface SettingsState {
 	upscaleStrength: number;
 	upscaleScale: (typeof UPSCALE_SCALES)[number];
 	upscaleAutoDegrade: boolean;
+	/** Desktop only: whether the room notes panel is expanded next to the video. */
+	notesPanelOpen: boolean;
 }
 
 export type DefaultRoomSettings = Pick<RoomSettings, "autoSkipSegmentCategories">;
@@ -94,6 +96,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		upscaleStrength: DEFAULT_UPSCALE_STRENGTH,
 		upscaleScale: "auto",
 		upscaleAutoDegrade: true,
+		notesPanelOpen: true,
 	}),
 	mutations: {
 		UPDATE(state, settings: Partial<SettingsState>) {
@@ -137,6 +140,9 @@ export const settingsModule: Module<SettingsState, unknown> = {
 			}
 			if (typeof state.upscaleAutoDegrade !== "boolean") {
 				state.upscaleAutoDegrade = true;
+			}
+			if (typeof state.notesPanelOpen !== "boolean") {
+				state.notesPanelOpen = true;
 			}
 			try {
 				// Save defaults and their migration markers together so they cannot diverge.

@@ -244,6 +244,34 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 	};
 }
 
+const SOURCE_PROBE_TIMEOUT_MS = 6000;
+
+/**
+ * Answers whether this device can reach the source at all. Chrome reports MEDIA_ERR_SRC_NOT_SUPPORTED
+ * both for formats it cannot decode and for hosts it cannot resolve or connect to (blocked network,
+ * dead proxy), hiding the difference. A no-cors HEAD request separates them: any HTTP response —
+ * including 403 — proves the host is reachable, while a rejected request proves it is not.
+ */
+export async function probeSourceReachability(url: string): Promise<boolean> {
+	// AbortSignal.timeout is not available everywhere (jsdom, older Safari), and an expired
+	// probe must not hang the error message.
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), SOURCE_PROBE_TIMEOUT_MS);
+	try {
+		await fetch(url, {
+			method: "HEAD",
+			mode: "no-cors",
+			cache: "no-store",
+			signal: controller.signal,
+		});
+		return false;
+	} catch {
+		return true;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 /** Aborts caused by source changes are expected; unsupported formats should not be retried. */
 export function nativeMediaError(error: MediaError | null): MediaPlayerError | undefined {
 	switch (error?.code) {

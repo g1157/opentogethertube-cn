@@ -252,7 +252,7 @@ export default {
 			reconnecting: "Connection interrupted. Retrying…",
 			retry: "Reconnect now",
 			"network-help":
-				"If you use a proxy, add this site's address to your system proxy bypass list or use a proxy that supports WebSockets. A direct routing rule alone may still go through the HTTP proxy. Reconnection is automatic when the network recovers.",
+				"Tell the routes apart first: with a proxy, add this site to the proxy bypass list or use a proxy that supports WebSockets; without one, try another network (a phone hotspot or a different carrier). This site is served through Cloudflare, and some networks throttle or block WebSockets on that route. Reconnection is automatic once the network recovers.",
 		},
 		"visibility-badge-label": "Room visibility",
 		"visibility-unknown": "Unknown visibility",
@@ -318,6 +318,8 @@ export default {
 			title: "Stuck buffering or playback failed?",
 			items: {
 				cors: "When a source does not allow cross-origin access (CORS), video enhancement is turned off automatically and playback is retried; if it still fails, use another source.",
+				unreachable:
+					"When it says the device cannot reach the video source, your browser cannot reach that host (blocked network, bad DNS, or a proxy rule sending it down a dead route). It is unrelated to the server: the server reaching it does not mean you can.",
 				retry: '"Retry my video" in the error message reloads only your device and does not affect the rest of the room.',
 				gate: '"Wait for buffering viewers" in room settings pauses everyone for viewers with slow connections.',
 				source: "A link that plays when opened directly may still refuse to play embedded elsewhere; links that need a Referer, cookies or hotlink protection usually fail.",
@@ -810,11 +812,15 @@ export default {
 				"The video request failed. Check your connection, proxy routing and whether the video source is reachable, then retry.",
 			decode: "Your browser could not decode this video. Retry loading it, or try another browser or video source.",
 			unsupported:
-				"The source may not allow cross-origin access (CORS), the format may be unsupported, or the link may have expired. Retry your video, or ask the person who added it for another source.",
+				"The link may have expired, the format may be unsupported, or the host may block hotlinking or cross-origin access. Retry your video, or ask the person who added it for another source.",
+			"unsupported-unreachable":
+				"This device cannot reach the video source. The server reaching it does not mean your browser can: the host may be blocked on your network, or a proxy rule may send it down a route that does not work. Check your network and proxy rules, then retry.",
 		},
 		"cors-fallback":
-			"This source does not allow cross-origin access; video enhancement was disabled so it can play.",
+			"Video enhancement was disabled so this source can play (it may not allow cross-origin access).",
 		"retry-local": "Retry my video",
+		"notes-collapse": "Collapse notes",
+		"notes-expand": "Expand notes",
 		loading: {
 			preparing: "Preparing video",
 			seeking: "Loading the room's current position",

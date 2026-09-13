@@ -50,7 +50,11 @@ import {
 	CustomMediaManifestSchema,
 	type CustomMediaManifest,
 } from "ott-common/models/zod-schemas.js";
-import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
+import {
+	createMediaRecovery,
+	nativeMediaError,
+	probeSourceReachability,
+} from "@/util/media-recovery";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
 import { ToastStyle } from "@/models/toast";
 import toast from "@/util/toast";
@@ -91,6 +95,8 @@ const manifest = ref<CustomMediaManifest | null>(null);
 let activeMediaUrl = "";
 let sourceGeneration = 0;
 let manifestRequest: AbortController | undefined;
+let corsFallbackPending = false;
+let sourceProbe: Promise<boolean> | undefined;
 
 const emit = defineEmits<{
 	"apiready": [];
@@ -302,6 +308,8 @@ async function loadVideoSource() {
 	manifestRequest?.abort();
 	recovery.reset();
 	crossoriginEnabled.value = true;
+	corsFallbackPending = false;
+	sourceProbe = undefined;
 	activeMediaUrl = "";
 	videoElem.value.pause();
 	videoElem.value.removeAttribute("src");
@@ -409,6 +417,15 @@ async function resolveVideoSource(generation: number) {
 
 function onCanPlay() {
 	if (recovery.canPlay()) {
+		if (corsFallbackPending) {
+			// Only now is it true that dropping crossorigin is what made playback work.
+			corsFallbackPending = false;
+			toast.add({
+				style: ToastStyle.Neutral,
+				content: i18n.global.t("player.cors-fallback"),
+				duration: 8000,
+			});
+		}
 		emit("ready");
 	}
 }
@@ -475,15 +492,22 @@ function onError() {
 		crossoriginEnabled.value = false;
 		// Change the attribute before load(), not after the next Vue patch.
 		videoElem.value?.removeAttribute("crossorigin");
-		toast.add({
-			style: ToastStyle.Neutral,
-			content: i18n.global.t("player.cors-fallback"),
-			duration: 8000,
-		});
+		corsFallbackPending = true;
+		sourceProbe ??= probeSourceReachability(activeMediaUrl);
 		recovery.retry();
 		return;
 	}
 	console.warn("DirectPlayer: media error:", videoElem.value?.error);
+	if (error.type === "unsupported") {
+		// Code 4 cannot tell an unplayable format from an unreachable host, so ask the network.
+		if (!sourceProbe) {
+			sourceProbe = probeSourceReachability(activeMediaUrl);
+		}
+		void sourceProbe.then(unreachable =>
+			recovery.handleError({ ...error, sourceUnreachable: unreachable }),
+		);
+		return;
+	}
 	recovery.handleError(error);
 }
 

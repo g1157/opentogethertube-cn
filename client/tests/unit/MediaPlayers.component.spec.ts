@@ -366,6 +366,7 @@ describe("native and HLS player reliability", () => {
 	});
 
 	it("retries once without crossorigin before offering a local reload after failure", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 206 })));
 		const source: QueueItem = {
 			service: "direct",
 			id: directProps.videoUrl,
@@ -386,10 +387,13 @@ describe("native and HLS player reliability", () => {
 		await nativeError(direct, 4);
 		expect(video.hasAttribute("crossorigin")).toBe(false);
 		expect(page.store.state.playerStatus).not.toBe(PlayerStatus.error);
-		// The same failure again is a real playback error.
+		// The same failure again is a real playback error; the message waits for the reachability
+		// probe so a reachable host is not blamed on the network.
 		await nativeError(direct, 4);
+		await flushPromises();
 		expect(page.store.state.playerStatus).toBe(PlayerStatus.error);
 		expect(wrapper.text()).toContain("无法播放此视频源");
+		expect(wrapper.text()).toContain("源站限制了防盗链");
 		await wrapper.get('[data-cy="retry-local-media"]').trigger("click");
 		expect(page.store.state.playerStatus).toBe(PlayerStatus.buffering);
 		await playable(direct);
@@ -403,5 +407,27 @@ describe("native and HLS player reliability", () => {
 		await wrapper.setProps({ source: { ...source, id: "https://media.example/next.mp4" } });
 		await flushPromises();
 		expect(wrapper.emitted("apiready")!.length).toBeGreaterThan(readyCount);
+	});
+
+	it("blames this device's network when the source host cannot be reached at all", async () => {
+		// Code 4 also fires when the host never answered, so the probe decides the message.
+		vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+		const source: QueueItem = {
+			service: "direct",
+			id: directProps.videoUrl,
+			mime: "video/mp4",
+		};
+		const page = mountComponent(OmniPlayer, { props: { source } });
+		wrapper = page.wrapper;
+		await flushPromises();
+		await nextTick();
+		const direct = wrapper.getComponent(DirectPlayer);
+		await playable(direct);
+		await nativeError(direct, 4);
+		await nativeError(direct, 4);
+		await flushPromises();
+		expect(page.store.state.playerStatus).toBe(PlayerStatus.error);
+		expect(wrapper.text()).toContain("无法播放此视频源");
+		expect(wrapper.text()).toContain("连不上视频源");
 	});
 });

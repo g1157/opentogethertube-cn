@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { MediaPlayerError } from "@/components/composables/media-player";
-import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
+import {
+	createMediaRecovery,
+	nativeMediaError,
+	probeSourceReachability,
+} from "@/util/media-recovery";
 
 describe("media error recovery", () => {
 	let media: HTMLVideoElement;
@@ -208,5 +212,26 @@ describe("media error recovery", () => {
 		expect(nativeMediaError(error(2))).toEqual({ type: "network" });
 		expect(nativeMediaError(error(3))).toEqual({ type: "decode" });
 		expect(nativeMediaError(error(4))).toEqual({ type: "unsupported", retryable: false });
+	});
+});
+
+describe("probeSourceReachability", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+	});
+
+	it("treats any HTTP answer, including a rejection status, as reachable", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 403 })));
+		await expect(probeSourceReachability("https://media.example/episode.mp4")).resolves.toBe(
+			false,
+		);
+	});
+
+	it("treats a failed request as unreachable", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+		await expect(probeSourceReachability("https://media.example/episode.mp4")).resolves.toBe(
+			true,
+		);
 	});
 });

@@ -39,9 +39,7 @@
 						$t(`player.playback-error-title.${currentPlaybackError?.type ?? "unknown"}`)
 					}}
 				</h1>
-				<span>{{
-					$t(`player.playback-error-message.${currentPlaybackError?.type ?? "unknown"}`)
-				}}</span>
+				<span>{{ $t(`player.playback-error-message.${playbackErrorMessageKey}`) }}</span>
 				<span v-if="currentPlaybackError?.message">
 					<br /><br />
 					<em>{{ currentPlaybackError?.message }}</em>
@@ -476,6 +474,18 @@ function onBuffering() {
 const currentPlaybackError = ref<MediaPlayerError | null>(null);
 const showPlaybackError = computed(() => {
 	return store.state.playerStatus === PlayerStatus.error;
+});
+const playbackErrorMessageKey = computed(() => {
+	const error = currentPlaybackError.value;
+	if (!error) {
+		return "unknown";
+	}
+	// An unreachable source fails with the same media error code as an unplayable format, so the
+	// player reports which one it confirmed and the copy follows.
+	if (error.type === "unsupported" && error.sourceUnreachable) {
+		return "unsupported-unreachable";
+	}
+	return error.type;
 });
 
 function onError(errorType?: MediaPlayerError) {

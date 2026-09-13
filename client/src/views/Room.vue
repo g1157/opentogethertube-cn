@@ -214,9 +214,40 @@
 				<div class="video-side">
 					<div class="out-video-chat" ref="outVideoChatTarget" v-show="!chatInside"></div>
 					<aside v-if="showNotesSidebar" class="notes-sidebar" data-cy="notes-sidebar">
-						<RoomNotes />
+						<div class="notes-sidebar-header">
+							<span>{{ $t("room.tabs.notes") }}</span>
+							<v-btn
+								icon
+								size="x-small"
+								variant="text"
+								data-cy="notes-collapse"
+								@click="setNotesPanelOpen(false)"
+							>
+								<v-icon :icon="mdiChevronDoubleRight" />
+								<v-tooltip activator="parent" location="left">
+									{{ $t("room.notes-collapse") }}
+								</v-tooltip>
+							</v-btn>
+						</div>
+						<div class="notes-sidebar-body">
+							<RoomNotes />
+						</div>
 					</aside>
 				</div>
+				<v-btn
+					v-if="showNotesExpandButton"
+					class="notes-expand"
+					icon
+					size="small"
+					variant="flat"
+					data-cy="notes-expand"
+					@click="setNotesPanelOpen(true)"
+				>
+					<v-icon :icon="mdiNoteTextOutline" />
+					<v-tooltip activator="parent" location="left">
+						{{ $t("room.notes-expand") }}
+					</v-tooltip>
+				</v-btn>
 				<Teleport v-if="chatTarget" :to="chatTarget">
 					<Chat
 						ref="chat"
@@ -366,6 +397,7 @@ import {
 	mdiEarth,
 	mdiEyeOff,
 	mdiLock,
+	mdiChevronDoubleRight,
 	mdiCircle,
 	mdiNoteTextOutline,
 	mdiMicrophone,
@@ -485,10 +517,25 @@ export default defineComponent({
 		const showNotesTab = computed(() => hasRoomSync.value && !store.state.room.isTemporary);
 		// Desktop docks the panel next to the video; narrow screens keep the tab instead.
 		const { mdAndUp } = useDisplay();
+		const notesPanelOpen = computed(() => store.state.settings.notesPanelOpen);
 		const showNotesSidebar = computed(
-			() => showNotesTab.value && mdAndUp.value && !store.state.fullscreen,
+			() =>
+				showNotesTab.value &&
+				mdAndUp.value &&
+				!store.state.fullscreen &&
+				notesPanelOpen.value,
+		);
+		const showNotesExpandButton = computed(
+			() =>
+				showNotesTab.value &&
+				mdAndUp.value &&
+				!store.state.fullscreen &&
+				!notesPanelOpen.value,
 		);
 		const showNotesTabButton = computed(() => showNotesTab.value && !mdAndUp.value);
+		function setNotesPanelOpen(open: boolean) {
+			store.commit("settings/UPDATE", { notesPanelOpen: open });
+		}
 		const notesCount = computed(() => store.state.notes.notes.length);
 		const nowPlaying = computed(() => nowPlayingDetails(currentSource.value));
 		const episodeLabel = computed(() =>
@@ -1493,7 +1540,9 @@ export default defineComponent({
 			isMobile,
 			queueTab,
 			showNotesSidebar,
+			showNotesExpandButton,
 			showNotesTabButton,
+			setNotesPanelOpen,
 			notesCount,
 			settings: roomSettingsForm,
 			addpreview,
@@ -1521,6 +1570,7 @@ export default defineComponent({
 			mdiFormatListBulleted,
 			mdiPlus,
 			mdiWrench,
+			mdiChevronDoubleRight,
 			mdiCircle,
 			mdiNoteTextOutline,
 			mdiMicrophone,
@@ -1541,6 +1591,7 @@ $in-video-chat-width: 400px;
 $in-video-chat-width-small: 250px;
 
 .video-container {
+	position: relative;
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) auto;
 	grid-template-rows: minmax(400px, 70vh);
@@ -1669,12 +1720,40 @@ $in-video-chat-width-small: 250px;
 
 // Notes dock next to the video on desktop: same height as the player row, scrolled inside.
 .notes-sidebar {
+	display: flex;
+	flex-direction: column;
 	flex: 1 1 auto;
 	min-height: 0;
-	overflow-y: auto;
+	overflow: hidden;
 	border: 1px solid var(--line-strong);
 	border-radius: 8px;
 	background: var(--card);
+}
+
+.notes-sidebar-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 4px 4px 4px 12px;
+	border-bottom: 1px solid var(--line-strong);
+	color: var(--text-dim);
+	font-size: 12px;
+	letter-spacing: 0.04em;
+}
+
+.notes-sidebar-body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+}
+
+// Collapsed on desktop: only the floating handle remains, so the player re-centers.
+.notes-expand.v-btn {
+	position: absolute;
+	top: 12px;
+	right: 12px;
+	z-index: 6;
 }
 
 .video-container.with-notes {

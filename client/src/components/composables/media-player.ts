@@ -231,4 +231,9 @@ export interface MediaPlayerError {
 	type: "unknown" | "network" | "decode" | "unsupported";
 	message?: string;
 	retryable?: boolean;
+	/**
+	 * Set when the player confirmed that this device cannot reach the source at all. Media error
+	 * code 4 covers both unreachable hosts and unplayable formats, so the UI needs the distinction.
+	 */
+	sourceUnreachable?: boolean;
 }
