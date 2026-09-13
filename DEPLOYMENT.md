@@ -129,7 +129,7 @@ HTML、源码包和 `/api/status/version` 使用 `Cache-Control: no-store`，前
 
 运行需要自有服务器或兼容的持续运行容器平台，腾讯云不是唯一选择。域名/CDN/Tunnel 只作为入口，
 把 Node.js 站点放到 Cloudflare Tunnel 后面仍然需要服务器；与本文不同的纯 Cloudflare 运行方式见
-[两版对照](README.md#选择部署方式)。
+[两版对照](docs/deployment-options.zh-CN.md)。
 
 建议从 **2 vCPU / 2 GiB 内存**起步，并为操作系统、Docker、HTTPS 入口和其他服务留余量。
 这不是并发保证，构建前端也可能需要比稳定运行更多的内存，可在开发机或 CI 构建后上传产物。

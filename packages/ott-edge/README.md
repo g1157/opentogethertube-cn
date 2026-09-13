@@ -1,7 +1,7 @@
 # OpenTogetherTube Cloudflare 预览版
 
 `cloudflare-preview-0.1.2` 复用本仓库的 Vue 播放器，将房间服务改写为 Cloudflare 原生运行方式。
-两种后端的选择见 [主文档](../../README.md)，官方额度、实际用量和容量模型见
+两种后端的选择见 [两版对照](../../docs/deployment-options.zh-CN.md)，官方额度、实际用量和容量模型见
 [免费额度与费用评估](../../docs/cloudflare-quotas.zh-CN.md)。同一仓库中的 `server/` 继续维护 Docker / Node.js 版。
 
 部署目标是独立 Worker `ott-edge-preview`，不依赖腾讯云、Cloudflare Tunnel、Node.js 常驻进程、
