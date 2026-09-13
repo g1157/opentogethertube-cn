@@ -122,6 +122,31 @@ Cloudflare 不提供硬性费用上限，账单告警发生在上量之后。因
 
 注意：配置系统只支持非负整数，所以预算以 MB 表示（`1 MB = 1e6` 字节），与内部字节记账单位对齐。
 
+### 国内部署建议（STUN）
+
+默认的内置 STUN 是 Google / Cloudflare，境内可达性不稳定；把发现的服务器换成国内节点能明显提高
+「拿到公网映射、直连成功」的比例，且**不产生任何费用**。线上实测（2026-09-13，本地与腾讯云各测一次）：
+
+| STUN | 结果 |
+| --- | --- |
+| `stun:stun.miwifi.com:3478` | 可用 |
+| `stun:stun.chat.bilibili.com:3478` | 可用 |
+| `stun:stun.hitv.com:3478` | 可用 |
+| `stun:stun.qq.com:3478` | **已失效**（两处均超时） |
+| `stun:stun.cloudflare.com:3478` | 可用（兜底） |
+
+部署时在 compose override 里设置（数组形式会并发探测，单个失效不影响）：
+
+```yaml
+services:
+  ott:
+    environment:
+      VOICE_ICE_SERVERS: '[{"urls":["stun:stun.miwifi.com:3478","stun:stun.chat.bilibili.com:3478","stun:stun.hitv.com:3478","stun:stun.cloudflare.com:3478"]}]'
+```
+
+这些公共 STUN 免费但**没有 SLA**（可能限速、丢包甚至停服，`stun.qq.com` 就是例子），只负责映射发现、
+不中转流量。改完重启应用容器即可生效，无需重新构建镜像。
+
 ## 资源与费用
 
 以 6 人房间、每路音频 40 kbps 估算。
