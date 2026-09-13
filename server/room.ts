@@ -1673,8 +1673,8 @@ export class Room implements RoomState {
 		this.prepareEmptyRoomPlayback();
 		this.log.info(`${user.username} joined the room`);
 		await this.publishRoomEvent(request, context);
-		// HACK: force the client to receive the correct playback position
-		await this.publish({ action: "sync", playbackPosition: this.realPlaybackPosition });
+		// The joining client receives the authoritative position directly from the client
+		// manager after this request; publishing it here would seek every other viewer.
 		await this.syncUser(this.getUserInfo(user.id));
 	}
 

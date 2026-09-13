@@ -1,5 +1,3 @@
-// Ignoring because this rule is wrong. all the template strings in here use strings.
-/* eslint-disable @typescript-eslint/restrict-template-expressions */
 import type { Module } from "vuex";
 import { ToastStyle } from "@/models/toast";
 import {
@@ -9,64 +7,81 @@ import {
 } from "ott-common/models/messages";
 import { secondsToTimestamp } from "@/util/timestamp";
 import type { FullOTTStoreState } from "@/store";
+import { i18n } from "@/i18n";
 
 export const eventsModule: Module<unknown, FullOTTStoreState> = {
 	actions: {
 		event(context, message: ServerMessageEvent) {
-			let text = `TODO: room event: ${message.request.type}`;
+			const t = i18n.global.t;
+			const user = message.user.name;
+			let text = t("room-event.unknown");
 			let duration = 5000;
 			if (message.request.type === RoomRequestType.PlaybackRequest) {
 				duration = 3000;
-				if (message.request.state) {
-					text = `${message.user.name} played the video`;
-				} else {
-					text = `${message.user.name} paused the video`;
-				}
+				text = t(message.request.state ? "room-event.played" : "room-event.paused", {
+					user,
+				});
 			} else if (
 				message.request.type === RoomRequestType.SkipRequest &&
 				message.additional.video
 			) {
-				text = `${message.user.name} skipped ${message.additional.video.title}`;
+				text = t("room-event.skipped", {
+					user,
+					video: message.additional.video.title,
+				});
 				duration = 20000;
 			} else if (message.request.type === RoomRequestType.SeekRequest) {
-				text = `${message.user.name} seeked to ${secondsToTimestamp(
-					message.request.value,
-				)}`;
+				text = t("room-event.seeked", {
+					user,
+					time: secondsToTimestamp(message.request.value),
+				});
 				duration = context.rootState.settings.seekNoticeSeconds * 1000;
 			} else if (message.request.type === RoomRequestType.JoinRequest) {
-				text = `${message.user.name} joined the room`;
+				text = t("room-event.joined", { user });
 				duration = context.rootState.settings.presenceNoticeSeconds * 1000;
 			} else if (
 				message.request.type === RoomRequestType.LeaveRequest &&
 				message.additional.user
 			) {
-				text = `${message.additional.user.name} left the room`;
+				text = t("room-event.left", { user: message.additional.user.name });
 				duration = context.rootState.settings.presenceNoticeSeconds * 1000;
 			} else if (message.request.type === RoomRequestType.AddRequest) {
 				if (message.request.videos) {
-					text = `${message.user.name} added ${message.request.videos.length} videos`;
+					text = t("room-event.added-many", {
+						user,
+						count: message.request.videos.length,
+					});
 				} else if (message.additional.video) {
-					text = `${message.user.name} added ${message.additional.video.title}`;
+					text = t("room-event.added", {
+						user,
+						video: message.additional.video.title,
+					});
 				} else {
-					text = `${message.user.name} added a video`;
+					text = t("room-event.added-unknown", { user });
 				}
 				duration = 20000;
 			} else if (message.request.type === RoomRequestType.RemoveRequest) {
 				if (message.additional.video) {
-					text = `${message.user.name} removed ${message.additional.video.title}`;
+					text = t("room-event.removed", {
+						user,
+						video: message.additional.video.title,
+					});
 				} else {
-					text = `${message.user.name} removed a video`;
+					text = t("room-event.removed-unknown", { user });
 				}
 				duration = 20000;
 			} else if (message.request.type === RoomRequestType.UpdateQueueItemRequest) {
 				if (message.additional.video) {
-					text = `${message.user.name} updated ${message.additional.video.title}'s settings`;
+					text = t("room-event.updated", {
+						user,
+						video: message.additional.video.title,
+					});
 				} else {
-					text = `${message.user.name} updated a video's settings`;
+					text = t("room-event.updated-unknown", { user });
 				}
 				duration = 20000;
 			} else {
-				text = `${message.user.name} triggered event ${message.request.type}`;
+				console.debug(`Unhandled room event type: ${message.request.type}`);
 			}
 
 			if (duration === 0) {

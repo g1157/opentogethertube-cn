@@ -20,6 +20,10 @@
 		</div>
 		<div ref="messages" @scroll="onScroll" class="messages grow">
 			<div class="grow"><!-- Spacer --></div>
+			<div v-if="activated && chatMessages.length === 0" class="chat-empty">
+				<p>{{ $t("chat.empty") }}</p>
+				<p class="hint">{{ $t("chat.empty-hint") }}</p>
+			</div>
 			<transition-group name="message">
 				<ChatMsg
 					v-for="entry in chatMessages"
@@ -336,6 +340,25 @@ onUpdated(enforceStickToBottom);
 	align-self: flex-end;
 	justify-self: end;
 	pointer-events: auto;
+}
+
+.chat-empty {
+	align-self: center;
+	margin: 0 auto 12px;
+	padding: 8px 12px;
+	color: var(--muted-foreground);
+	font-size: 0.875rem;
+	text-align: center;
+	opacity: 0.85;
+
+	p {
+		margin: 0;
+	}
+
+	.hint {
+		margin-top: 4px;
+		font-size: 0.75rem;
+	}
 }
 
 .to-bottom {

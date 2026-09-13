@@ -46,9 +46,9 @@
 					<v-icon
 						size="x-small"
 						class="role"
-						:aria-label="`${
-							user.id === store.state.users.you.id ? 'you' : user.name
-						} is roles.${user.role}`"
+						:aria-label="
+							userLabel('room.users.role-aria', user, $t(`roles.${user.role}`))
+						"
 						v-if="!!getRoleIcon(user.role)"
 						:icon="getRoleIcon(user.role)"
 					/>
@@ -60,14 +60,18 @@
 					<v-icon
 						size="x-small"
 						class="player-status"
-						:aria-label="`${
-							user.id === store.state.users.you.id ? 'your' : user.name
-						} player is ${user.status}`"
+						:aria-label="
+							userLabel(
+								'room.users.player-status-aria',
+								user,
+								$t(`room.users.player-status.${user.status}`),
+							)
+						"
 						v-if="!!getPlayerStatusIcon(user.status)"
 						:icon="getPlayerStatusIcon(user.status)"
 					/>
 					<v-tooltip activator="parent" location="top">
-						<span>{{ user.status }}</span>
+						<span>{{ $t(`room.users.player-status.${user.status}`) }}</span>
 					</v-tooltip>
 				</span>
 
@@ -143,6 +147,7 @@ import {
 	mdiPencilOutline,
 } from "@mdi/js";
 import { ref, inject, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { API } from "@/common-http";
 import { type ClientId, PlayerStatus, type RoomUserInfo } from "ott-common/models/types";
 import { USERNAME_LENGTH_MAX } from "ott-common/constants";
@@ -153,11 +158,13 @@ import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
 import { canKickUser } from "ott-common/userutils";
 import { useGrants } from "./composables/grants";
+import { serverErrorMessage } from "@/util/server-error";
 
 const props = defineProps<{
 	users: RoomUserInfo[];
 }>();
 
+const { t } = useI18n();
 const store = useStore();
 const roomapi = useRoomApi(useConnection());
 const granted = useGrants();
@@ -208,9 +215,16 @@ async function onEditNameChange() {
 		setUsernameFailureText.value = "";
 		roomapi.notify("usernameChanged");
 	} catch (err) {
-		setUsernameFailureText.value = err.response ? err.response.data.error.message : err.message;
+		console.error("Failed to change the username", err);
+		setUsernameFailureText.value = serverErrorMessage(err.response?.data?.error);
 	}
 	setUsernameLoading.value = false;
+}
+
+/** Screen readers need a full localized sentence, not an English template mix. */
+function userLabel(key: string, user: RoomUserInfo, detail: string): string {
+	const name = user.id === store.state.users.you.id ? t("room.users.you") : user.name;
+	return t(key, { name, detail }) as string;
 }
 
 /** Gets the appropriate permission name for the role and promotion/demotion. */

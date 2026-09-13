@@ -123,8 +123,10 @@ PostgreSQL、Redis 和应用容器，配置数据卷、密钥、域名与 HTTPS�
 | [docs/buffer-gate.zh-CN.md](docs/buffer-gate.zh-CN.md) | 缓冲联动、权限、超时与数据库迁移 |
 | [docs/security-headers.zh-CN.md](docs/security-headers.zh-CN.md) | 最小响应头和 CSP 报告端点 |
 | [docs/plan-review-2026-09-12.zh-CN.md](docs/plan-review-2026-09-12.zh-CN.md) | 本轮计划复核、蓝牙、语音和弹幕结论 |
+| [docs/voice.zh-CN.md](docs/voice.zh-CN.md) | 房间语音：P2P mesh、托管中继与成本刹车（未部署） |
 | [docs/media-parsing.zh-CN.md](docs/media-parsing.zh-CN.md) | 大 MP4 解析与 `FFPROBE_STRATEGY` 说明 |
 | [docs/cloudflare-quotas.zh-CN.md](docs/cloudflare-quotas.zh-CN.md) | Cloudflare 免费额度、实测与费用评估 |
+| [docs/ux-review-2026-09-13.zh-CN.md](docs/ux-review-2026-09-13.zh-CN.md) | 用户体验与产品审查问题清单及修复方案 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发环境与贡献流程 |
 | [UPSTREAM.md](UPSTREAM.md) | 上游来源与移植范围 |
 

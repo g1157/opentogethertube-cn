@@ -12,9 +12,11 @@
 					:class="copySuccess ? 'text-success' : ''"
 					ref="inviteLinkText"
 					:value="inviteLink"
+					:title="inviteLink"
 					:append-icon="mdiClipboardOutline"
 					:messages="copySuccess ? $t('share-invite.copied') : ''"
 					@focus="onFocusHighlightText"
+					@click:control="onFocusHighlightText"
 					@click:append="copyInviteLink"
 					data-cy="share-invite-link"
 				/>
@@ -50,7 +52,10 @@ function getInviteLink() {
 const inviteLink = computed(getInviteLink);
 
 function onFocusHighlightText(e) {
-	e.target.select();
+	// Events can bubble from elements that are not the text input.
+	if (typeof e.target?.select === "function") {
+		e.target.select();
+	}
 }
 
 const { copy: copyInviteLink, copySuccess } = useCopyFromTextbox(inviteLink, inviteLinkText);

@@ -389,6 +389,21 @@ describe("room player interactions", () => {
 		expect(page.store.state.room.isPlaying).toBe(true);
 	});
 
+	it("offers to join playback when the room plays but this device does not", async () => {
+		const media = installPlayer();
+		// A native player reports readiness through OmniPlayer; the stub commits nothing.
+		page.store.commit("PLAYBACK_STATUS", PlayerStatus.ready);
+		await vi.advanceTimersByTimeAsync(0);
+		// The room is playing and this device is not: show an explicit join action instead of
+		// leaving a frozen picture whose play button would pause everyone.
+		expect(page.wrapper.find('[data-cy="join-playback"]').exists()).toBe(true);
+		const playCalls = media.play.mock.calls.length;
+		await page.wrapper.get('[data-cy="join-playback-btn"]').trigger("click");
+		expect(media.play.mock.calls.length).toBeGreaterThan(playCalls);
+		expect(page.connection.sent).toEqual([]);
+		expect(page.store.state.room.isPlaying).toBe(true);
+	});
+
 	it("clears a blocked state on actual playback and ignores a later rejection", async () => {
 		const media = installPlayer();
 		media.play.mockRejectedValueOnce(new DOMException("Blocked", "NotAllowedError"));

@@ -89,6 +89,14 @@
 			<span class="ml-3">{{
 				$t(isAddPreviewSlow ? "add-preview.loading-slow" : "add-preview.loading")
 			}}</span>
+			<v-btn
+				variant="text"
+				class="ml-3"
+				data-cy="add-preview-cancel"
+				@click="cancelAddPreviewByUser"
+			>
+				{{ $t("common.cancel") }}
+			</v-btn>
 		</v-row>
 		<v-row class="video-list" v-if="!isLoadingAddPreview">
 			<div v-if="hasAddPreviewFailed" data-cy="add-preview-error" role="alert">
@@ -176,6 +184,7 @@ import AddPreviewHelper from "./AddPreviewHelper.vue";
 import { ALL_VIDEO_SERVICES } from "ott-common/constants";
 import { isEdgePreview } from "@/edge-preview";
 import { getSearchEnabled } from "@/util/backend-status";
+import { serverErrorMessage } from "@/util/server-error";
 
 const store = useStore();
 const { t } = useI18n();
@@ -217,6 +226,21 @@ function cancelAddPreview() {
 }
 
 onBeforeUnmount(cancelAddPreview);
+
+/** A cancellation is not a failure: stop waiting, keep the input, and say so. */
+function cancelAddPreviewByUser() {
+	if (!isLoadingAddPreview.value) {
+		return;
+	}
+	cancelAddPreview();
+	hasAddPreviewFailed.value = false;
+	videosLoadFailureText.value = "";
+	toast.add({
+		style: ToastStyle.Neutral,
+		content: t("add-preview.canceled"),
+		duration: 3000,
+	});
+}
 
 const testVideos: Record<string, Array<[string, string]>> = import.meta.env.DEV
 	? {
@@ -397,10 +421,7 @@ async function requestAddPreview() {
 
 			if (err.response.status === 400) {
 				unknownFail = false;
-				videosLoadFailureText.value =
-					err.response.data.error.name === "FfprobeTimeoutError"
-						? t("add-preview.messages.metadata-timeout")
-						: err.response.data.error.message;
+				videosLoadFailureText.value = serverErrorMessage(err.response.data.error);
 				if (
 					err.response.data.error.name === "FeatureDisabledException" &&
 					!isAddPreviewInputUrl.value
@@ -451,10 +472,11 @@ async function addAllToQueue() {
 	try {
 		await API.post(`/room/${route.params.roomId}/queue`, { videos: videos.value });
 	} catch (err) {
-		let message = `${err}`;
-		if (err.response) {
-			message = `${err.response.data.error.message}`;
-		}
+		console.error("Failed to add all videos to the queue", err);
+		const message =
+			axios.isAxiosError(err) && err.response
+				? serverErrorMessage(err.response.data.error)
+				: t("errors.network");
 		toast.add({
 			style: ToastStyle.Error,
 			content: t("add-preview.messages.failed-to-all-videos", {

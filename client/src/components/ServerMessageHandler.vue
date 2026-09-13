@@ -20,6 +20,7 @@ const handlers = (
 		["you", "users/you"],
 		["event", "event"],
 		["eventcustom", "eventcustom"],
+		["error", "error"],
 	] as const
 ).map(([action, storeAction]) => {
 	const handler = (message: ServerMessage) => {

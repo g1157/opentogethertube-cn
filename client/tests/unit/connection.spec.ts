@@ -164,10 +164,28 @@ describe("room WebSocket recovery", () => {
 		expect(TestWebSocket.sockets).toHaveLength(2);
 	});
 
-	it("honors a server kick and does not reconnect after it", () => {
+	it("retries a generic close a limited number of times before showing the kick", () => {
 		join().finishClose(4000);
+		// A generic close may be transient: keep retrying before giving up.
+		expect(connection.active.value).toBe(true);
+		expect(connection.kickReason.value).toBeNull();
+		vi.advanceTimersByTime(1000);
+		expect(TestWebSocket.sockets).toHaveLength(2);
+		TestWebSocket.sockets[1].finishClose(4000);
+		vi.advanceTimersByTime(3000);
+		expect(TestWebSocket.sockets).toHaveLength(3);
+		TestWebSocket.sockets[2].finishClose(4000);
 		expect(connection.active.value).toBe(false);
 		expect(connection.kickReason.value).toBe(4000);
+		window.dispatchEvent(new Event("online"));
+		vi.advanceTimersByTime(60000);
+		expect(TestWebSocket.sockets).toHaveLength(3);
+	});
+
+	it("honors an explicit kick and does not reconnect after it", () => {
+		join().finishClose(4005);
+		expect(connection.active.value).toBe(false);
+		expect(connection.kickReason.value).toBe(4005);
 		window.dispatchEvent(new Event("online"));
 		vi.advanceTimersByTime(60000);
 		expect(TestWebSocket.sockets).toHaveLength(1);

@@ -38,6 +38,11 @@ export const routes: RouteRecordRaw[] = [
 		component: () => import("./views/Attribution.vue"),
 	},
 	{
+		path: "/help",
+		name: "help",
+		component: () => import("./views/Help.vue"),
+	},
+	{
 		path: "/r/:roomId",
 		redirect: redirectToRoom,
 	},

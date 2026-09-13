@@ -7,6 +7,8 @@ import { eventsModule } from "@/stores/events";
 import { miscModule, type MiscState } from "@/stores/misc";
 import type { InjectionKey } from "vue";
 import { type RoomState, roomModule } from "./stores/room";
+import type { ServerMessageError } from "ott-common/models/messages";
+import { serverErrorMessage } from "@/util/server-error";
 
 export type FullOTTStoreState = BaseStoreState & {
 	room: RoomState;
@@ -91,11 +93,10 @@ export function buildNewStore() {
 					duration: 60000,
 				});
 			},
-			error(_context, message) {
-				// console.log(`Server sent error: ${message.error}`);
+			error(_context, message: ServerMessageError) {
 				this.commit("toast/ADD_TOAST", {
 					style: ToastStyle.Error,
-					content: message.error,
+					content: serverErrorMessage(message),
 					duration: 5000,
 				});
 			},

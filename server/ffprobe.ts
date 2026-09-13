@@ -12,7 +12,7 @@ import https from "node:https";
 import dns from "node:dns/promises";
 import net from "node:net";
 import { Counter } from "prom-client";
-import { FfprobeTimeoutError } from "./exceptions.js";
+import { FfprobeError, FfprobeTimeoutError } from "./exceptions.js";
 import { conf } from "./ott-config.js";
 
 const log = getLogger("infoextract/ffprobe");
@@ -338,7 +338,9 @@ export class RunFfprobe extends FfprobeStrategy {
 					return resolve();
 				}
 				reject(
-					new Error(`ffprobe exit code ${code} signal ${signal ?? "none"} stderr=${err}`),
+					new FfprobeError(
+						`ffprobe exit code ${code} signal ${signal ?? "none"} stderr=${err}`,
+					),
 				);
 			});
 		});
@@ -443,7 +445,7 @@ export class OnDiskPreviewFfprobe extends FfprobeStrategy {
 						return resolve();
 					}
 					reject(
-						new Error(
+						new FfprobeError(
 							`ffprobe exit code ${code} signal ${signal ?? "none"} stderr=${err}`,
 						),
 					);

@@ -1,6 +1,6 @@
 <template>
 	<v-card>
-		<v-form ref="form" @submit="submit" v-model="isValid">
+		<v-form ref="form" @submit="submit">
 			<v-card-title>{{ $t("create-room-form.card-title") }}</v-card-title>
 			<v-card-text>
 				<v-alert v-if="isEdgePreview" type="info" variant="tonal" class="mb-4">
@@ -72,7 +72,7 @@
 					@click="submit"
 					role="Submit"
 					:loading="isSubmitting"
-					:disabled="!isValid"
+					:disabled="!isFormValid"
 					color="primary"
 					>{{ $t("create-room-form.create-room") }}</v-btn
 				>
@@ -84,13 +84,14 @@
 
 <script lang="ts" setup>
 import { mdiChevronUp, mdiChevronDown } from "@mdi/js";
-import { onMounted, reactive, type Ref, ref, watch } from "vue";
+import { computed, reactive, type Ref, ref, watch } from "vue";
 import { createRoomHelper } from "@/util/roomcreator";
 import { ROOM_NAME_REGEX } from "ott-common/constants";
 import { Visibility, QueueMode } from "ott-common/models/types";
 import { useI18n } from "vue-i18n";
 import { useStore } from "@/store";
 import { isEdgePreview } from "@/edge-preview";
+import { serverErrorMessage } from "@/util/server-error";
 
 const emit = defineEmits(["roomCreated", "cancel"]);
 
@@ -134,19 +135,18 @@ const rules = {
 	],
 };
 
-const isValid = ref(true);
+/** Enable submit only when every rule passes; untouched fields still show no errors. */
+const isFormValid = computed(
+	() =>
+		rules.name.every(rule => rule(options.name) === true) &&
+		rules.visibility.every(rule => rule(options.visibility) === true) &&
+		rules.queueMode.every(rule => rule(options.queueMode) === true),
+);
 const isSubmitting = ref(false);
 const isRoomNameTaken = ref(false);
 const error = ref("");
-const form: Ref<{ validate(): void } | undefined> = ref();
+const form: Ref<{ validate(): Promise<{ valid: boolean }> } | undefined> = ref();
 const showSettings = ref(false);
-
-// HACK: for some reason, the form doesn't start updating the model value unless we do this
-onMounted(() => {
-	if (form.value) {
-		form.value.validate();
-	}
-});
 
 async function submit(e): Promise<void> {
 	e.preventDefault();
@@ -154,8 +154,8 @@ async function submit(e): Promise<void> {
 		console.error("Form not found");
 		return;
 	}
-	form.value.validate();
-	if (!isValid.value) {
+	const { valid } = await form.value.validate();
+	if (!valid) {
 		return;
 	}
 
@@ -178,14 +178,15 @@ async function submit(e): Promise<void> {
 				if (err.response.data.error.name === "RoomNameTakenException") {
 					isRoomNameTaken.value = true;
 				}
-				error.value = err.response.data.error.message;
+				error.value = serverErrorMessage(err.response.data.error);
 			} else {
 				error.value = t("create-room-form.unknown-error");
 			}
 		} else {
-			error.value = err.message;
+			console.error("Failed to create the room", err);
+			error.value = t("errors.network");
 		}
-		form.value.validate();
+		await form.value.validate();
 	}
 }
 

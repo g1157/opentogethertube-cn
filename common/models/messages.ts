@@ -23,7 +23,8 @@ export type ServerMessage =
 	| ServerMessageEventCustom
 	| ServerMessageAnnouncement
 	| ServerMessageUser
-	| ServerMessageYou;
+	| ServerMessageYou
+	| ServerMessageError;
 
 export type ServerMessageActionType = ServerMessage["action"];
 
@@ -102,6 +103,16 @@ export interface ServerMessageYou extends ServerMessageBase {
 	info: {
 		id: ClientId;
 	};
+}
+
+/**
+ * A request from this client failed. The connection stays open; clients should map the
+ * stable `name` to a localized message and only use `message` for debugging.
+ */
+export interface ServerMessageError extends ServerMessageBase {
+	action: "error";
+	name: string;
+	message?: string;
 }
 
 export type UserUpdate =

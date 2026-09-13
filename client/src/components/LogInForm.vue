@@ -180,6 +180,7 @@ import { useI18n } from "vue-i18n";
 import type { VForm } from "vuetify/lib/components/VForm/VForm.mjs";
 import { goLoginDiscord } from "@/util/discord";
 import ForgotPassword from "./ForgotPassword.vue";
+import { serverErrorMessage } from "@/util/server-error";
 
 const emit = defineEmits(["shouldClose"]);
 
@@ -273,8 +274,10 @@ async function login() {
 		}
 	} catch (err) {
 		if (err.response && !err.response.data.success) {
-			if (err.response.data.error) {
-				logInFailureMessage.value = err.response.data.error.message;
+			if (err.response.data.error?.name) {
+				logInFailureMessage.value = serverErrorMessage(err.response.data.error);
+			} else if (err.response.status === 401) {
+				logInFailureMessage.value = t("login-form.errors.invalid-credentials") as string;
 			} else {
 				logInFailureMessage.value = t("login-form.errors.login-failed-noserver") as string;
 			}
@@ -331,7 +334,7 @@ async function register() {
 						registerFieldErrors.username = t("login-form.errors.in-use") as string;
 					}
 				}
-				registerFailureMessage.value = err.response.data.error.message;
+				registerFailureMessage.value = serverErrorMessage(err.response.data.error);
 			} else {
 				registerFailureMessage.value = t(
 					"login-form.errors.register-failed-noserver",

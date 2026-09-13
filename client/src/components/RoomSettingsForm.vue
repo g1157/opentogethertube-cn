@@ -198,6 +198,7 @@ import { useRoute } from "vue-router";
 import { watch } from "vue";
 import { watchDebounced } from "@vueuse/core";
 import AutoSkipSegmentSettings from "./AutoSkipSegmentSettings.vue";
+import { serverErrorMessage } from "@/util/server-error";
 
 const store = useStore();
 const { t } = useI18n();
@@ -318,10 +319,10 @@ async function submitRoomSettings() {
 		});
 		dirtySettings.value = [];
 	} catch (e) {
-		console.log(e);
+		console.error("Failed to apply room settings", e);
 		toast.add({
 			style: ToastStyle.Error,
-			content: e.response.data.error.message,
+			content: serverErrorMessage(e.response?.data?.error),
 			duration: 6000,
 		});
 	}
@@ -342,10 +343,10 @@ async function claimOwnership() {
 			duration: 4000,
 		});
 	} catch (e) {
-		console.log(e);
+		console.error("Failed to claim the room", e);
 		toast.add({
 			style: ToastStyle.Error,
-			content: e.response.data.error.message,
+			content: serverErrorMessage(e.response?.data?.error),
 			duration: 6000,
 		});
 	}

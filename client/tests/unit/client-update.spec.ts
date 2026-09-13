@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CHECK_INTERVAL_MS, installClientUpdateCheck } from "@/util/client-update";
+import {
+	applyClientUpdate,
+	CHECK_INTERVAL_MS,
+	clientUpdateReady,
+	dismissClientUpdate,
+	installClientUpdateCheck,
+} from "@/util/client-update";
 
 describe("client build updates", () => {
 	let watcher: ReturnType<typeof installClientUpdateCheck> | undefined;
@@ -46,6 +52,7 @@ describe("client build updates", () => {
 			"/api/status/version",
 			expect.objectContaining({ cache: "no-store", credentials: "same-origin" }),
 		);
+		expect(clientUpdateReady.value).toBe(false);
 		expect(navigate).not.toHaveBeenCalled();
 	});
 	it("polls a Cloudflare release and keeps the matching version", async () => {
@@ -54,12 +61,15 @@ describe("client build updates", () => {
 		await flush();
 		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
 		expect(request).toHaveBeenCalledTimes(2);
+		expect(clientUpdateReady.value).toBe(false);
 		expect(navigate).not.toHaveBeenCalled();
 	});
 	it("treats Cloudflare patch versions as exact values, not Git hash prefixes", async () => {
 		reply({ revision: "cloudflare-preview-0.1.10" });
 		start("cloudflare-preview-0.1.1");
 		await flush();
+		expect(clientUpdateReady.value).toBe(true);
+		applyClientUpdate();
 		expect(navigate).toHaveBeenCalledWith(
 			"https://example.com/room/watch?view=chat&_ott_update=cloudflare-preview-0.1.10#player",
 		);
@@ -72,6 +82,7 @@ describe("client build updates", () => {
 		watcher?.dispose();
 		start("cloudflare-preview-0.1.1");
 		await flush();
+		expect(clientUpdateReady.value).toBe(false);
 		expect(navigate).not.toHaveBeenCalled();
 	});
 	it("does not poll development placeholders", async () => {
@@ -79,10 +90,12 @@ describe("client build updates", () => {
 		await vi.advanceTimersByTimeAsync(60000);
 		expect(request).not.toHaveBeenCalled();
 	});
-	it("refreshes once for a new revision while retaining room, query and hash", async () => {
+	it("offers a refresh once for a new revision while retaining room, query and hash", async () => {
 		reply({ revision: "bbbbbbb" });
 		start();
 		await flush();
+		expect(clientUpdateReady.value).toBe(true);
+		applyClientUpdate();
 		expect(navigate).toHaveBeenCalledOnce();
 		expect(navigate).toHaveBeenCalledWith(
 			"https://example.com/room/watch?view=chat&_ott_update=bbbbbbb#player",
@@ -90,12 +103,28 @@ describe("client build updates", () => {
 		await vi.advanceTimersByTimeAsync(60000);
 		expect(navigate).toHaveBeenCalledOnce();
 	});
-	it("does not loop if a refreshed document still contains a stale build", async () => {
+	it("keeps the page until the user refreshes or dismisses", async () => {
+		reply({ revision: "bbbbbbb" });
+		start();
+		await flush();
+		expect(clientUpdateReady.value).toBe(true);
+		expect(navigate).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect(navigate).not.toHaveBeenCalled();
+		expect(clientUpdateReady.value).toBe(true);
+		dismissClientUpdate();
+		expect(clientUpdateReady.value).toBe(false);
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect(clientUpdateReady.value).toBe(false);
+		expect(navigate).not.toHaveBeenCalled();
+	});
+	it("does not offer a refresh if the current document already targets the new build", async () => {
 		currentUrl = "https://example.com/room/watch?_ott_update=bbbbbbb";
 		reply({ revision: "bbbbbbb" });
 		start();
 		await flush();
 		await vi.advanceTimersByTimeAsync(30000);
+		expect(clientUpdateReady.value).toBe(false);
 		expect(navigate).not.toHaveBeenCalled();
 	});
 	it("retains the loop guard if the router removes the temporary query", async () => {
@@ -104,6 +133,7 @@ describe("client build updates", () => {
 		start();
 		currentUrl = "https://example.com/room/watch";
 		await flush();
+		expect(clientUpdateReady.value).toBe(false);
 		expect(navigate).not.toHaveBeenCalled();
 	});
 	it("cleans the temporary URL marker once the new build has loaded", () => {
@@ -121,6 +151,7 @@ describe("client build updates", () => {
 		reply(data);
 		start();
 		await flush();
+		expect(clientUpdateReady.value).toBe(false);
 		expect(navigate).not.toHaveBeenCalled();
 	});
 	it("retries after a network failure when the page becomes active", async () => {
@@ -130,6 +161,8 @@ describe("client build updates", () => {
 		reply({ revision: "bbbbbbb" });
 		window.dispatchEvent(new Event("pageshow"));
 		await flush();
+		expect(clientUpdateReady.value).toBe(true);
+		applyClientUpdate();
 		expect(navigate).toHaveBeenCalledOnce();
 	});
 	it("defers while an input is being edited and checks after editing", async () => {
@@ -141,7 +174,7 @@ describe("client build updates", () => {
 		expect(request).not.toHaveBeenCalled();
 		input.blur();
 		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
-		expect(navigate).toHaveBeenCalledOnce();
+		expect(clientUpdateReady.value).toBe(true);
 	});
 	it("stops polling and ignores late responses after disposal", async () => {
 		let resolve: (value: unknown) => void = () => undefined;
@@ -157,6 +190,7 @@ describe("client build updates", () => {
 		await vi.advanceTimersByTimeAsync(60000);
 		window.dispatchEvent(new Event("online"));
 		expect(request).toHaveBeenCalledOnce();
+		expect(clientUpdateReady.value).toBe(false);
 		expect(navigate).not.toHaveBeenCalled();
 	});
 	it("rechecks editing state when a delayed version response arrives", async () => {
@@ -172,9 +206,9 @@ describe("client build updates", () => {
 		input.focus();
 		resolve({ ok: true, json: async () => ({ revision: "bbbbbbb" }) });
 		await flush();
-		expect(navigate).not.toHaveBeenCalled();
+		expect(clientUpdateReady.value).toBe(false);
 		input.blur();
 		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
-		expect(navigate).toHaveBeenCalledOnce();
+		expect(clientUpdateReady.value).toBe(true);
 	});
 });

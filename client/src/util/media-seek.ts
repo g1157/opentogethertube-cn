@@ -1,3 +1,6 @@
+/** Below this distance a hard seek costs more than it corrects; the rate bend handles it. */
+const SEEK_TOLERANCE_SECONDS = 0.05;
+
 /** Hold native playback while a new position is being fetched and decoded. */
 export function createMediaSeek(getMedia: () => HTMLVideoElement | undefined) {
 	let target: number | null = null;
@@ -7,7 +10,7 @@ export function createMediaSeek(getMedia: () => HTMLVideoElement | undefined) {
 		if (!media || !Number.isFinite(position) || position < 0) {
 			return;
 		}
-		if (Math.abs(media.currentTime - position) <= 0.05) {
+		if (Math.abs(media.currentTime - position) <= SEEK_TOLERANCE_SECONDS) {
 			return;
 		}
 		// Set the hold before pause: a parent's pause handler may immediately request play.

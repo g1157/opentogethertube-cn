@@ -5,7 +5,10 @@ import type {
 	ServerMessage,
 	ServerMessageActionType,
 } from "ott-common/models/messages";
-import type { AuthToken, OttWebsocketError } from "ott-common/models/types";
+import { OttWebsocketError, type AuthToken } from "ott-common/models/types";
+
+/** A generic close may be transient; retry a couple of times before giving up. */
+const MAX_UNKNOWN_RECONNECTS = 2;
 
 export interface OttRoomConnection {
 	active: Ref<boolean>;
@@ -204,9 +207,25 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 
 	private onClose(e: { code: number }) {
 		if (e.code >= 4000) {
-			this.clearTimers();
 			this.closeSocket();
 			this.connected.value = false;
+			if (
+				e.code === OttWebsocketError.UNKNOWN &&
+				this.reconnectAttempts.value < MAX_UNKNOWN_RECONNECTS
+			) {
+				// The server could not say why the connection was closed. Try again before
+				// showing the disconnected overlay, so a transient failure can recover.
+				this.clearTimers();
+				this.issue.value = "network";
+				this.reconnecting.value = true;
+				this.dispatchEvent({ kind: "disconnected" });
+				this.reconnectTimeout = setTimeout(
+					() => this.reconnect(),
+					this.getReconnectDelay(),
+				);
+				return;
+			}
+			this.clearTimers();
 			this.reconnecting.value = false;
 			this.issue.value = null;
 			this.kickReason.value = e.code;

@@ -78,8 +78,33 @@
 							role="status"
 							aria-live="polite"
 						>
-							<v-progress-circular indeterminate size="28" width="3" />
-							<span>{{ connectionStatus }}</span>
+							<div class="player-skeleton" aria-hidden="true"></div>
+							<div class="room-player-loading-status">
+								<v-progress-circular indeterminate size="22" width="2" />
+								<span>{{ connectionStatus }}</span>
+							</div>
+						</div>
+						<div
+							v-if="shouldJoinPlayback"
+							class="join-playback"
+							role="status"
+							data-cy="join-playback"
+						>
+							<span class="join-playback-title">{{
+								$t("player.join-playback.title")
+							}}</span>
+							<v-btn
+								color="primary"
+								size="large"
+								:prepend-icon="mdiPlay"
+								data-cy="join-playback-btn"
+								@click.stop="onClickUnblockPlayback"
+							>
+								{{ $t("player.join-playback.action") }}
+							</v-btn>
+							<span class="join-playback-hint">{{
+								$t("player.join-playback.hint")
+							}}</span>
 						</div>
 						<div
 							v-if="currentSource?.id && store.state.playerStatus !== 'error'"
@@ -398,11 +423,6 @@ export default defineComponent({
 		const mediaPlaybackBlocked = ref(false);
 		const pendingLocalSeek = ref(false);
 		let localSeekTimer: ReturnType<typeof setTimeout> | undefined;
-		provide(PlayerActionsKey, {
-			playbackBlocked: mediaPlaybackBlocked,
-			togglePlayback,
-			seek: requestRoomSeek,
-		});
 		const chat = ref<InstanceType<typeof Chat> | null>(null);
 		const chatOpen = ref(false);
 		const chatDraft = ref("");
@@ -480,6 +500,42 @@ export default defineComponent({
 				!store.state.room.isPlaying &&
 				!playbackPreparationState.value.active,
 		);
+		// Native players report a loading phase while they fetch data; embedded players do not,
+		// so fall back to their readiness status.
+		const playerHasPicture = computed(() => {
+			const loading = localMediaState.value;
+			return loading !== null
+				? loading.phase === null
+				: store.state.playerStatus === PlayerStatus.ready;
+		});
+		// The room is playing but this device is not: autoplay was rejected, or playback was
+		// interrupted and never resumed. Show an explicit way to join instead of leaving a
+		// frozen picture whose play button would pause everyone.
+		const shouldJoinPlayback = computed(
+			() =>
+				hasRoomSync.value &&
+				connection.connected.value &&
+				store.state.room.isPlaying &&
+				!!currentSource.value?.id &&
+				player.apiReady.value &&
+				playerHasPicture.value &&
+				store.state.playerStatus !== PlayerStatus.error &&
+				!localPlaying.value &&
+				!pendingLocalSeek.value &&
+				!playbackPreparationState.value.active &&
+				!playbackPreparationState.value.priming &&
+				!waitingForPreparedPlayback.value,
+		);
+		// Controls must treat both a rejected autoplay and "room is playing, this device is
+		// not" as local playback the viewer can start without pausing everyone.
+		const needsLocalPlayback = computed(
+			() => mediaPlaybackBlocked.value || shouldJoinPlayback.value,
+		);
+		provide(PlayerActionsKey, {
+			playbackBlocked: needsLocalPlayback,
+			togglePlayback,
+			seek: requestRoomSeek,
+		});
 		const playbackPreparation = createPlaybackPreparation({
 			getState: () => ({
 				preparation: hasRoomSync.value ? store.state.room.playbackPreparation : null,
@@ -681,7 +737,9 @@ export default defineComponent({
 			void playbackPreparation.tick();
 			if (msg.playbackPosition !== undefined || "currentSource" in msg) {
 				if (!playbackPreparationState.value.active) {
-					void playbackSync.requestSeek();
+					// A room sync should not freeze this device for a drift the rate bend
+					// can absorb; large drift (joining, switching sources) still seeks.
+					void playbackSync.requestSeek("room-sync", { tolerateSmallDrift: true });
 				}
 				clearPendingLocalSeek();
 				timestampUpdate();
@@ -753,7 +811,9 @@ export default defineComponent({
 			if (!connection.connected.value) {
 				return;
 			}
-			if (mediaPlaybackBlocked.value && wantsPlayback()) {
+			if ((mediaPlaybackBlocked.value || shouldJoinPlayback.value) && wantsPlayback()) {
+				// The room is playing but this device is not: join locally instead of
+				// sending a pause that would stop everyone.
 				onClickUnblockPlayback();
 				return;
 			}
@@ -876,7 +936,7 @@ export default defineComponent({
 					currentSource.value === source &&
 					!playbackPreparationState.value.active
 				) {
-					void playbackSync.requestSeek();
+					void playbackSync.requestSeek("unblock");
 				}
 			});
 		}
@@ -987,7 +1047,7 @@ export default defineComponent({
 			if (!connection.connected.value) {
 				return;
 			}
-			if (mediaPlaybackBlocked.value && wantsPlayback()) {
+			if ((mediaPlaybackBlocked.value || shouldJoinPlayback.value) && wantsPlayback()) {
 				onClickUnblockPlayback();
 				return;
 			}
@@ -1252,7 +1312,8 @@ export default defineComponent({
 				case Visibility.Private:
 					return t("room-settings.private");
 				default:
-					return "This is a bug";
+					console.warn(`Unknown room visibility: ${String(roomVisibility.value)}`);
+					return t("room.visibility-unknown");
 			}
 		});
 
@@ -1337,6 +1398,7 @@ export default defineComponent({
 
 			mediaPlaybackBlocked,
 			pendingLocalSeek,
+			shouldJoinPlayback,
 			onClickUnblockPlayback,
 			secondsToTimestamp,
 
@@ -1604,6 +1666,7 @@ $in-video-chat-width-small: 250px;
 }
 
 .room-player-loading {
+	position: relative;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -1611,6 +1674,67 @@ $in-video-chat-width-small: 250px;
 	width: 100%;
 	height: 100%;
 	min-height: 180px;
+	overflow: hidden;
+}
+
+.player-skeleton {
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(
+		100deg,
+		var(--surface) 30%,
+		var(--surface-2) 50%,
+		var(--surface) 70%
+	);
+	background-size: 200% 100%;
+	animation: player-skeleton 1.6s ease-in-out infinite;
+}
+
+@keyframes player-skeleton {
+	from {
+		background-position: 150% 0;
+	}
+	to {
+		background-position: -50% 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.player-skeleton {
+		animation: none;
+	}
+}
+
+.room-player-loading-status {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.join-playback {
+	position: absolute;
+	inset: 0;
+	z-index: 5;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	padding: 16px;
+	background: rgba(0, 0, 0, 0.45);
+	color: white;
+	text-align: center;
+
+	.join-playback-title {
+		font-size: 1.1rem;
+		font-weight: 600;
+	}
+
+	.join-playback-hint {
+		font-size: 0.875rem;
+		opacity: 0.85;
+	}
 }
 
 .flip-list-move {

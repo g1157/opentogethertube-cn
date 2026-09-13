@@ -22,6 +22,14 @@ interface PlaybackSyncOptions {
 	onError(error: unknown): void;
 }
 
+interface SeekRequestOptions {
+	/**
+	 * A room sync only needs a hard seek when the drift is too large for the rate bend.
+	 * Explicit seeks (user gestures, unblocking) keep seeking immediately.
+	 */
+	tolerateSmallDrift?: boolean;
+}
+
 // Engineering starting points, not an industry standard. See docs/playback-sync.zh-CN.md.
 const BEND_START = 0.3;
 const BEND_STOP = 0.15;
@@ -38,6 +46,8 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 	let lastSeekAt = -Infinity;
 	let bufferedSinceLastSeek = false;
 	let pendingSeek = false;
+	let pendingSeekToleratesDrift = false;
+	let pendingSeekReason = "";
 	let inFlight: symbol | null = null;
 	let disposed = false;
 	let bendStartedAt: number | null = null;
@@ -98,6 +108,8 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		lastSeekAt = -Infinity;
 		bufferedSinceLastSeek = false;
 		pendingSeek = true;
+		pendingSeekToleratesDrift = false;
+		pendingSeekReason = "reset";
 		inFlight = null;
 	}
 
@@ -124,7 +136,8 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		);
 	}
 
-	async function seek(state: PlaybackSyncState) {
+	async function seek(state: PlaybackSyncState, reason = "drift") {
+		console.debug("playback-sync: hard seek", { reason, position: state.position });
 		cancelBend();
 		lastSeekAt = Date.now();
 		bufferedSinceLastSeek = state.buffering;
@@ -135,6 +148,22 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			if (!disposed && currentGeneration === generation) {
 				options.onError(error);
 			}
+		}
+	}
+
+	/** A room sync must not freeze playback for a drift the rate bend can absorb. */
+	async function seekIfDriftIsLarge(state: PlaybackSyncState, reason: string) {
+		const read = options.getPosition();
+		// Native players report the position synchronously; keep the seek in the same task
+		// as the sync message instead of deferring it by a microtask.
+		const position = read instanceof Promise ? await read : read;
+		const latest = options.getState();
+		if (disposed || source !== latest.source || player !== latest.player || !canSeek(latest)) {
+			return;
+		}
+		const drift = Math.abs(latest.position - position);
+		if (!Number.isFinite(position) || getBendBase() === null || drift > BEND_START) {
+			await seek(latest, reason);
 		}
 	}
 
@@ -157,7 +186,14 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		}
 		if (pendingSeek) {
 			pendingSeek = false;
-			await seek(state);
+			const reason = pendingSeekReason;
+			const tolerateDrift = pendingSeekToleratesDrift;
+			pendingSeekToleratesDrift = false;
+			if (tolerateDrift) {
+				await seekIfDriftIsLarge(state, reason);
+			} else {
+				await seek(state, reason);
+			}
 			return;
 		}
 		if (inFlight !== null || !canObserve(state)) {
@@ -184,7 +220,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			const drift = latest.position - position;
 			const magnitude = Math.abs(drift);
 			if (magnitude > 1 && canSeekNow(latest)) {
-				await seek(latest);
+				await seek(latest, "drift-large");
 				return;
 			}
 			const base = getBendBase();
@@ -203,7 +239,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			if (bendStartedAt !== null && Date.now() - bendStartedAt >= BEND_DEADLINE_MS) {
 				cancelBend();
 				if (canSeekNow(latest)) {
-					await seek(latest);
+					await seek(latest, "bend-deadline");
 				}
 				return;
 			}
@@ -225,9 +261,11 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		}
 	}
 
-	function requestSeek() {
-		invalidateRate();
+	function requestSeek(reason = "explicit", options?: SeekRequestOptions) {
 		pendingSeek = true;
+		pendingSeekToleratesDrift = options?.tolerateSmallDrift ?? false;
+		pendingSeekReason = reason;
+		invalidateRate();
 		inFlight = null;
 		return tick();
 	}

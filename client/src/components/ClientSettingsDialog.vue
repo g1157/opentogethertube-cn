@@ -19,11 +19,15 @@
 				<v-select
 					:label="$t('client-settings.room-layout')"
 					:items="layouts"
+					item-title="title"
+					item-value="value"
 					v-model="settings.roomLayout"
 				/>
 				<v-select
 					:label="$t('client-settings.theme')"
 					:items="themes"
+					item-title="title"
+					item-value="value"
 					v-model="settings.theme"
 				>
 					<template #item="{ item, props }">
@@ -239,8 +243,20 @@ watch(
 	{ immediate: true },
 );
 
-const layouts = enumKeys(RoomLayoutMode);
-const themes = enumKeys(Theme);
+const layouts = computed(() =>
+	enumKeys(RoomLayoutMode).map(value => ({
+		// biome-ignore lint/nursery/noVueRefAsOperand: value is an enum member, not a Vue ref.
+		title: t(`client-settings.layouts.${value}`),
+		value,
+	})),
+);
+const themes = computed(() =>
+	enumKeys(Theme).map(value => ({
+		// biome-ignore lint/nursery/noVueRefAsOperand: value is an enum member, not a Vue ref.
+		title: t(`client-settings.themes.${value}`),
+		value,
+	})),
+);
 const isAudioBoostUnsupported = computed(() => {
 	if (!controls.checkForPlayer(controls.player.value)) {
 		return false;

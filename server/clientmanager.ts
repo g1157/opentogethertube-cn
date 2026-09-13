@@ -9,6 +9,7 @@ import {
 	type RoomRequest,
 	RoomRequestType,
 	type ServerMessage,
+	type ServerMessageError,
 	type ServerMessageSync,
 	type ServerMessageUser,
 	type ServerMessageYou,
@@ -207,6 +208,15 @@ async function joinAuthenticatedClient(client: Client, token: AuthToken, session
 		return;
 	}
 
+	// Joining can adjust the authoritative position (for example when an empty room resumes).
+	// Only the joining client needs that update; broadcasting it would force every other
+	// viewer to re-align and briefly freeze their playback.
+	const positionMsg: ServerMessageSync = {
+		action: "sync",
+		playbackPosition: room.realPlaybackPosition,
+	};
+	client.send(positionMsg);
+
 	// initialize client info
 	const clientsInit: ServerMessageUser = {
 		action: "user",
@@ -267,14 +277,24 @@ async function onClientMessage(client: Client, msg: ClientMessage) {
 		log.error(
 			`Failed to process client (id=${client.id}, room=${client.room}) message (action=${msg.action}): ${err}`,
 		);
-		if (err instanceof OttException) {
-			if (err instanceof MissingToken) {
-				log.error("Client is missing token, kicking client");
-				client.kick(OttWebsocketError.MISSING_TOKEN);
-			}
-		} else {
-			log.error("Unknown error type, kicking client");
-			client.kick(OttWebsocketError.UNKNOWN);
+		if (err instanceof MissingToken) {
+			// The connection cannot be authorized at all, so there is nothing to recover.
+			log.error("Client is missing token, kicking client");
+			client.kick(OttWebsocketError.MISSING_TOKEN);
+			return;
+		}
+		// A failed request (bad video, permission denied, probe failure, ...) must never
+		// drop the connection. Report it to the client that asked; explicit kicks use
+		// handleCommand, and connection level failures above use their own codes.
+		const errorMsg: ServerMessageError = {
+			action: "error",
+			name: err instanceof Error ? err.name : "UnknownError",
+			message: err instanceof Error ? err.message : String(err),
+		};
+		try {
+			client.send(errorMsg);
+		} catch (sendError) {
+			log.error(`Failed to report a request error to client ${client.id}: ${sendError}`);
 		}
 	}
 }

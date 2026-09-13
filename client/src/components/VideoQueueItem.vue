@@ -23,7 +23,7 @@
 		<div class="meta-container">
 			<div>
 				<div class="video-title" no-gutters>{{ item.title }}</div>
-				<div class="description" no-gutters>{{ item.description }}</div>
+				<div class="description" no-gutters>{{ localizedDescription }}</div>
 				<div v-if="item.service === 'googledrive'" class="experimental">
 					{{ $t("video-queue-item.experimental") }}
 				</div>
@@ -233,6 +233,7 @@ import { useRoomApi } from "@/util/roomapi";
 import { useConnection } from "@/plugins/connection";
 import type { OttResponseBody } from "ott-common/models/rest-api";
 import { useGrants } from "./composables/grants";
+import { serverErrorMessage } from "@/util/server-error";
 
 interface VideoQueueItemProps {
 	item: QueueItem;
@@ -266,6 +267,19 @@ const voted = ref(false);
 const showEditDialog = ref(false);
 const editedSubtitleUrl = props.isPreview ? ref("") : ref(item.value.subtitleUrl);
 const videoLength = computed(() => secondsToTimestamp(item.value?.length ?? 0));
+/** Direct/HLS/DASH descriptions are server-written as "Full Link: <url>"; localize the label. */
+const FULL_LINK_PREFIX = "Full Link: ";
+const localizedDescription = computed(() => {
+	const description = item.value.description ?? "";
+	if (
+		["direct", "hls", "dash"].includes(item.value.service) &&
+		description.startsWith(FULL_LINK_PREFIX)
+	) {
+		const url = description.slice(FULL_LINK_PREFIX.length).trim();
+		return t("video.full-link", { url }) as string;
+	}
+	return description;
+});
 const videoStartAt = computed(() => secondsToTimestamp(item.value?.startAt ?? 0));
 const thumbnailSource = computed(() => {
 	return !thumbnailHasError.value && item.value.thumbnail ? item.value.thumbnail : placeholderUrl;
@@ -332,9 +346,11 @@ async function saveEdit() {
 			if (axios.isAxiosError(e)) {
 				toast.add({
 					style: ToastStyle.Error,
-					content: e.response?.data.error.message,
+					content: serverErrorMessage(e.response?.data?.error),
 					duration: 6000,
 				});
+			} else {
+				console.error("Failed to update the queue item", e);
 			}
 		}
 		isLoadingEdit.value = false;
@@ -357,9 +373,11 @@ async function addToQueue() {
 		if (axios.isAxiosError(e)) {
 			toast.add({
 				style: ToastStyle.Error,
-				content: e.response?.data.error.message,
+				content: serverErrorMessage(e.response?.data?.error),
 				duration: 6000,
 			});
+		} else {
+			console.error("Failed to add the video", e);
 		}
 	}
 	isLoadingAdd.value = false;
@@ -382,9 +400,11 @@ async function removeFromQueue() {
 		if (axios.isAxiosError(e)) {
 			toast.add({
 				style: ToastStyle.Error,
-				content: e.response?.data.error.message,
+				content: serverErrorMessage(e.response?.data?.error),
 				duration: 6000,
 			});
+		} else {
+			console.error("Failed to remove the video", e);
 		}
 	}
 	isLoadingAdd.value = false;
@@ -408,7 +428,9 @@ async function vote() {
 		hasError.value = true;
 		toast.add({
 			style: ToastStyle.Error,
-			content: e.response.data.error.message,
+			content: serverErrorMessage(
+				axios.isAxiosError(e) ? e.response?.data?.error : undefined,
+			),
 			duration: 6000,
 		});
 	}

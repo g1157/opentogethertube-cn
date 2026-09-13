@@ -5,7 +5,7 @@
 			playsinline
 			webkit-playsinline
 			preload="auto"
-			crossorigin="anonymous"
+			:crossorigin="crossoriginEnabled ? 'anonymous' : undefined"
 			@loadedmetadata="recovery.restoreMetadata"
 			@loadeddata="onCanPlay"
 			@canplay="onCanPlay"
@@ -52,6 +52,9 @@ import {
 } from "ott-common/models/zod-schemas.js";
 import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
+import { ToastStyle } from "@/models/toast";
+import toast from "@/util/toast";
+import { i18n } from "@/i18n";
 import type {
 	MediaPlayerError,
 	MediaPlayerWithAudioBoost,
@@ -78,7 +81,12 @@ const captions = useCaptions();
 const audioBoost = useMediaAudioBoost(videoElem);
 const qualities = useQualities();
 const store = useStore();
-const upscaleMode = computed(() => store.state.settings.upscaleMode);
+// Sources without CORS headers can only play without crossorigin, which also disables
+// canvas/WebGL enhancement because the texture would taint the canvas.
+const crossoriginEnabled = ref(true);
+const upscaleMode = computed(() =>
+	crossoriginEnabled.value ? store.state.settings.upscaleMode : "off",
+);
 const manifest = ref<CustomMediaManifest | null>(null);
 let activeMediaUrl = "";
 let sourceGeneration = 0;
@@ -293,6 +301,7 @@ async function loadVideoSource() {
 	loadingState.reset();
 	manifestRequest?.abort();
 	recovery.reset();
+	crossoriginEnabled.value = true;
 	activeMediaUrl = "";
 	videoElem.value.pause();
 	videoElem.value.removeAttribute("src");
@@ -456,10 +465,26 @@ function onEnd() {
 
 function onError() {
 	const error = nativeMediaError(videoElem.value?.error ?? null);
-	if (error) {
-		console.warn("DirectPlayer: media error:", videoElem.value?.error);
-		recovery.handleError(error);
+	if (!error) {
+		return;
 	}
+	if (error.type === "unsupported" && crossoriginEnabled.value) {
+		// The host may simply not send CORS headers. Retrying without crossorigin trades
+		// enhancement and cross-origin subtitles for playback instead of failing.
+		console.warn("DirectPlayer: retrying without crossorigin:", videoElem.value?.error);
+		crossoriginEnabled.value = false;
+		// Change the attribute before load(), not after the next Vue patch.
+		videoElem.value?.removeAttribute("crossorigin");
+		toast.add({
+			style: ToastStyle.Neutral,
+			content: i18n.global.t("player.cors-fallback"),
+			duration: 8000,
+		});
+		recovery.retry();
+		return;
+	}
+	console.warn("DirectPlayer: media error:", videoElem.value?.error);
+	recovery.handleError(error);
 }
 
 onMounted(() => {

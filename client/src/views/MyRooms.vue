@@ -17,9 +17,14 @@
 			</v-btn>
 		</PageHeader>
 
-		<div v-if="isLoading" class="list-state" role="status">
-			<v-progress-circular color="primary" indeterminate :size="36" />
-			<p>{{ $t("common.loading") }}</p>
+		<div
+			v-if="isLoading"
+			class="owned-room-list"
+			role="status"
+			:aria-label="$t('common.loading')"
+			data-cy="rooms-loading"
+		>
+			<RoomCardSkeleton v-for="n in 4" :key="n" variant="row" />
 		</div>
 		<div v-else-if="loadFailed" class="list-state" role="alert" data-cy="rooms-load-error">
 			<v-icon :icon="mdiAlertCircleOutline" :size="36" aria-hidden="true" />
@@ -148,6 +153,7 @@ import type { OttResponseBody, RoomListItem } from "ott-common/models/rest-api";
 import { onMounted, ref } from "vue";
 import { API } from "@/common-http";
 import PageHeader from "@/components/PageHeader.vue";
+import RoomCardSkeleton from "@/components/RoomCardSkeleton.vue";
 import { useStore } from "@/store";
 import { createRoomHelper } from "@/util/roomcreator";
 

@@ -365,7 +365,7 @@ describe("native and HLS player reliability", () => {
 		expect(wrapper.emitted("error")).toBeUndefined();
 	});
 
-	it("offers a local reload after failure without changing room playback or sending a room request", async () => {
+	it("retries once without crossorigin before offering a local reload after failure", async () => {
 		const source: QueueItem = {
 			service: "direct",
 			id: directProps.videoUrl,
@@ -380,9 +380,16 @@ describe("native and HLS player reliability", () => {
 		video.currentTime = 156;
 		page.store.state.room.isPlaying = false;
 		page.store.state.room.playbackPosition = 156;
+		// MEDIA_ERR_SRC_NOT_SUPPORTED may only mean the host sends no CORS headers.
+		// Retry without crossorigin first instead of showing a format error.
+		expect(video.getAttribute("crossorigin")).toBe("anonymous");
+		await nativeError(direct, 4);
+		expect(video.hasAttribute("crossorigin")).toBe(false);
+		expect(page.store.state.playerStatus).not.toBe(PlayerStatus.error);
+		// The same failure again is a real playback error.
 		await nativeError(direct, 4);
 		expect(page.store.state.playerStatus).toBe(PlayerStatus.error);
-		expect(wrapper.text()).toContain("不支持的视频或来源");
+		expect(wrapper.text()).toContain("无法播放此视频源");
 		await wrapper.get('[data-cy="retry-local-media"]').trigger("click");
 		expect(page.store.state.playerStatus).toBe(PlayerStatus.buffering);
 		await playable(direct);

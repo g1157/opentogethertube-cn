@@ -255,6 +255,7 @@ export default {
 				"If you use a proxy, add this site's address to your system proxy bypass list or use a proxy that supports WebSockets. A direct routing rule alone may still go through the HTTP proxy. Reconnection is automatic when the network recovers.",
 		},
 		"visibility-badge-label": "Room visibility",
+		"visibility-unknown": "Unknown visibility",
 		tabs: {
 			queue: "Queue",
 			settings: "Settings",
@@ -269,10 +270,66 @@ export default {
 			demote: "Demote",
 			promote: "Promote",
 			kick: "Kick",
+			"role-aria": "{name}'s role: {detail}",
+			"player-status-aria": "{name}'s player status: {detail}",
+			"player-status": {
+				none: "No status",
+				ready: "Ready",
+				buffering: "Buffering",
+				error: "Player error",
+			},
 		},
 	},
 	privacy: {
 		title: "@:footer.privacy-policy",
+	},
+	help: {
+		title: "Help & FAQ",
+		intro: "A short guide to the most common questions. The room also shows hints about gestures, shortcuts and errors where they matter.",
+		add: {
+			title: "What can I add?",
+			text: "Adding a video first reads its title and length, then every viewer's browser loads the source directly. The link must be publicly reachable; local files cannot be played.",
+			items: {
+				youtube: "YouTube videos, playlists and channels (when search is available)",
+				vimeo: "Vimeo videos",
+				direct: "Direct links to MP4, WebM and similar files",
+				hls: "HLS (.m3u8) live or on-demand playlists",
+				dash: "DASH (.mpd) manifests",
+				manifest: "Custom media manifests (.json)",
+			},
+			note: "Paid sites that require sign-in or use DRM, and links protected by hotlink guards, usually cannot be played.",
+		},
+		playback: {
+			title: "Playback and synchronization",
+			text: 'Playing, pausing and seeking apply to the whole room. When a new viewer opens the link, the browser may block autoplay; clicking "Click to join playback" on the picture catches up with the room.',
+		},
+		buffering: {
+			title: "Stuck buffering or playback failed?",
+			items: {
+				cors: "When a source does not allow cross-origin access (CORS), video enhancement is turned off automatically and playback is retried; if it still fails, use another source.",
+				retry: '"Retry my video" in the error message reloads only your device and does not affect the rest of the room.',
+				gate: '"Wait for buffering viewers" in room settings pauses everyone for viewers with slow connections.',
+				source: "A link that plays when opened directly may still refuse to play embedded elsewhere; links that need a Referer, cookies or hotlink protection usually fail.",
+			},
+		},
+		enhance: {
+			title: "Video enhancement",
+			text: '"Sharpen" uses GPU sharpening; "AI upscale (Anime4K)" needs WebGPU. It steps down automatically on slow devices, and cannot run when the source does not allow CORS or the browser has no WebGPU support.',
+		},
+		shortcuts: {
+			title: "Shortcuts and gestures",
+			text: "Space / K play or pause, ← / → seek 5 seconds, J / L seek 10 seconds, F fullscreen, M mute, T open chat, ? shows the full list. On touch screens, double-tap to play or pause, swipe to seek, and hold for about 0.5 seconds for 2× speed.",
+		},
+		rooms: {
+			title: "Rooms and identity",
+			text: "Temporary rooms are recycled when everyone leaves; permanent rooms keep the video, queue and position. Guest nicknames are random and can be changed in the user list.",
+		},
+		contact: {
+			title: "Still have questions?",
+			text: "You can read the upstream English documentation and discussions, or report a bug (a GitHub account is required).",
+			upstream: "Upstream docs & discussions (English)",
+			bug: "Report a bug",
+		},
 	},
 	chat: {
 		title: "Chat",
@@ -280,6 +337,24 @@ export default {
 		close: "Close chat",
 		"type-here": "Type your message here...",
 		"to-bottom": "Jump to latest messages",
+		empty: "No messages yet. Say hello!",
+		"empty-hint": "New message sounds are off by default; enable them in Preferences.",
+	},
+	"room-event": {
+		joined: "{user} joined the room",
+		left: "{user} left the room",
+		played: "{user} played the video",
+		paused: "{user} paused the video",
+		skipped: "{user} skipped {video}",
+		seeked: "{user} seeked to {time}",
+		added: "{user} added {video}",
+		"added-many": "{user} added {count} videos",
+		"added-unknown": "{user} added a video",
+		removed: "{user} removed {video}",
+		"removed-unknown": "{user} removed a video",
+		updated: "{user} updated {video}'s settings",
+		"updated-unknown": "{user} updated a video's settings",
+		unknown: "Something happened in the room",
 	},
 	"share-invite": {
 		title: "Share Invite",
@@ -288,6 +363,7 @@ export default {
 	},
 	video: {
 		"add-explanation": "Add to the queue.",
+		"full-link": "Full link: {url}",
 		playnow: "Play Now",
 		"playnow-explanation":
 			"Play this video now, pushing the current video to the top of the queue.",
@@ -296,6 +372,7 @@ export default {
 	},
 	"add-preview": {
 		label: "Link or Search",
+		canceled: "Reading video information was canceled.",
 		loading: "Reading video information…",
 		"loading-slow": "The source is responding slowly. Reading video information…",
 		retry: "Retry",
@@ -371,6 +448,7 @@ export default {
 		visibility: "@:create-room-form.visibility",
 		public: "@:create-room-form.public",
 		unlisted: "@:create-room-form.unlisted",
+		private: "Private",
 		"queue-mode": "@:create-room-form.queue-mode",
 		manual: "@:create-room-form.manual",
 		"manual-hint":
@@ -463,6 +541,7 @@ export default {
 		errors: {
 			"something-weird-happened":
 				"Something weird happened, but you might be logged in? Refresh the page.",
+			"invalid-credentials": "The email or password is incorrect.",
 			"login-failed-noserver":
 				"Failed to log in, but the server didn't say why. Report this as a bug.",
 			"login-failed": "Failed to log in, and I don't know why. Report this as a bug.",
@@ -494,7 +573,19 @@ export default {
 		description: "These settings are saved in your browser, and only affect you.",
 		activator: "@:client-settings.title",
 		"room-layout": "Room Layout",
+		layouts: {
+			default: "@:room.default-layout",
+			theater: "@:room.theater-mode",
+		},
 		theme: "Theme",
+		themes: {
+			dark: "Dark",
+			light: "Light",
+			deepred: "Deep red",
+			deepblue: "Deep blue",
+			greenslate: "Green slate",
+			strawberry: "Strawberry",
+		},
 		"playback-preferences": "Viewing preferences",
 		"chat-overlay-duration": "Message display duration",
 		"chat-overlay-hint":
@@ -519,17 +610,24 @@ export default {
 		"room-settings": "Default Room Settings",
 		"enable-adapter-selector": "Show adapter selector (advanced)",
 	},
+	"client-update": {
+		text: "A new version is available.",
+		action: "Refresh",
+		dismiss: "Later",
+	},
 	"connect-overlay": {
 		title: "Disconnected",
 		"find-another": "Find Another Room",
+		reconnect: "Reconnect",
 		"dc-reasons": {
 			[OttWebsocketError.UNKNOWN]: "@:connect-overlay.dc-reasons.unknown",
-			[OttWebsocketError.ROOM_NOT_FOUND]: "Room not found.",
-			[OttWebsocketError.ROOM_UNLOADED]: "Room was unloaded.",
+			[OttWebsocketError.ROOM_NOT_FOUND]: "That room does not exist or was closed.",
+			[OttWebsocketError.ROOM_UNLOADED]: "The room was closed after being empty for a while.",
 			[OttWebsocketError.MISSING_TOKEN]:
-				"A token was not provided. Refresh the page and try again. Otherwise, please open an issue on GitHub.",
-			[OttWebsocketError.KICKED]: "You were kicked from the room by a user.",
-			unknown: "Something happened, but we don't know what. Please report this as a bug.",
+				"Your session expired. Refresh the page and try again.",
+			[OttWebsocketError.KICKED]: "You were kicked from the room by an owner or moderator.",
+			unknown:
+				"The connection was interrupted, possibly by a network issue or a server restart. Try reconnecting, or refresh the page.",
 		},
 	},
 	"vote-skip": {
@@ -544,12 +642,50 @@ export default {
 		[Role.Owner]: "Owner",
 	},
 	errors: {
+		unknown: "Something went wrong. Please try again.",
+		network: "The request failed. Check your connection and try again.",
+		"session-expired": "Your session expired. Log in again and retry.",
+		AlreadyInUse: "That is already in use.",
+		ValidationError: "Some of the provided information is not valid. Check it and try again.",
+		InvalidPassword: "The current password is incorrect.",
+		CurrentPasswordRequired: "The current password is required.",
 		BadPasswordError:
 			"Password does not meet minimum requirements. Must be at least 8 characters long, and contain 2 of the following categories of characters: lowercase letters, uppercase letters, numbers, special characters.",
 		BadApiArgumentException: "Bad API Argument. This is likely a bug, please report it.",
+		FeatureDisabledException: "This feature is currently unavailable.",
+		LocalFileException:
+			"Videos on your computer or the server cannot be played. Use a public link everyone can reach.",
+		MissingMetadataException:
+			"Required video information (such as its length) is missing. Try a different source.",
+		OutOfQuotaException: "The service is out of quota right now. Please try again later.",
+		UnsupportedServiceException:
+			"This link is not supported. Check that it points to a supported service or a direct video link.",
+		UnsupportedMimeTypeException: "This file format is not supported.",
+		UnsupportedVideoType: "This type of video is not supported yet.",
+		InvalidAddPreviewInputException: "Type more characters, or paste a video URL.",
+		FfprobeError:
+			"Could not read video information. Check that the link is publicly accessible, then try again.",
+		FfprobeTimeoutError:
+			"Reading video information timed out. The link may still be playable; please retry.",
+		M3u8ParseError: "Could not parse the HLS playlist. Check the link.",
+		PermissionDeniedException: "You do not have permission to do that.",
+		VideoAlreadyQueuedException: "This video is already in the queue.",
+		VideoNotFoundException: "That video no longer exists.",
+		RoomNotFoundException: "That room does not exist or was closed.",
+		RoomAlreadyLoadedException: "The room is already loaded. Refresh the page and try again.",
+		RoomNameTakenException: "That room name is already taken. Pick another one.",
+		ClientNotFoundInRoomException:
+			"The server could not find your connection. Refresh the page and try again.",
+		MissingToken: "Your session expired. Refresh the page and try again.",
+		InvalidTokenException: "Your session expired. Refresh the page and try again.",
 	},
 	player: {
 		"now-playing": "Now playing",
+		"join-playback": {
+			title: "The room is playing",
+			action: "Click to join playback",
+			hint: "Your browser needs a click here before it can start playing.",
+		},
 		episode: "Episode {episode}",
 		"season-episode": "Season {season} · Episode {episode}",
 		interactions: {
@@ -592,7 +728,7 @@ export default {
 			unknown: "Playback Error",
 			network: "Video network error",
 			decode: "Video decoding error",
-			unsupported: "Unsupported video or source",
+			unsupported: "Could not play this source",
 		},
 		"playback-error-message": {
 			unknown: "Failed to load video.",
@@ -600,8 +736,10 @@ export default {
 				"The video request failed. Check your connection, proxy routing and whether the video source is reachable, then retry.",
 			decode: "Your browser could not decode this video. Retry loading it, or try another browser or video source.",
 			unsupported:
-				"The video format may be unsupported or the link may have expired. Check the link and try a video source supported by your browser.",
+				"The source may not allow cross-origin access (CORS), the format may be unsupported, or the link may have expired. Retry your video, or ask the person who added it for another source.",
 		},
+		"cors-fallback":
+			"This source does not allow cross-origin access; video enhancement was disabled so it can play.",
 		"retry-local": "Retry my video",
 		loading: {
 			preparing: "Preparing video",

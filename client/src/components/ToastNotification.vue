@@ -32,6 +32,8 @@ import { API } from "@/common-http";
 import toasts from "@/util/toast";
 import { useStore } from "@/store";
 import ProcessedText from "./ProcessedText.vue";
+import axios from "axios";
+import { serverErrorMessage } from "@/util/server-error";
 
 const props = defineProps<{ toast: Toast; number?: number }>();
 
@@ -93,9 +95,12 @@ async function undo() {
 		});
 		close();
 	} catch (err) {
+		console.error("Failed to undo the room event", err);
 		toasts.add({
 			style: ToastStyle.Error,
-			content: err.message,
+			content: serverErrorMessage(
+				axios.isAxiosError(err) ? err.response?.data?.error : undefined,
+			),
 			duration: 4000,
 		});
 	}

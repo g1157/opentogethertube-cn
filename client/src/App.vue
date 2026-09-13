@@ -36,13 +36,7 @@
 					<v-btn v-if="store.state.user || isEdgePreview" variant="text" to="/my-rooms">{{
 						$t("nav.my-rooms")
 					}}</v-btn>
-					<v-btn
-						variant="text"
-						href="https://github.com/dyc3/opentogethertube/discussions/830"
-						target="_blank"
-						rel="noopener noreferrer"
-						>{{ $t("nav.faq") }}</v-btn
-					>
+					<v-btn variant="text" to="/help">{{ $t("nav.faq") }}</v-btn>
 				</nav>
 				<div class="nav-actions">
 					<v-menu
@@ -137,12 +131,7 @@
 					@click="drawer = false"
 					>{{ $t("nav.my-rooms") }}</v-list-item
 				>
-				<v-list-item
-					href="https://github.com/dyc3/opentogethertube/discussions/830"
-					target="_blank"
-					rel="noopener noreferrer"
-					>{{ $t("nav.faq") }}</v-list-item
-				>
+				<v-list-item to="/help" @click="drawer = false">{{ $t("nav.faq") }}</v-list-item>
 				<v-list-item
 					href="https://github.com/g1157/opentogethertube-cn/issues"
 					target="_blank"
@@ -168,6 +157,7 @@
 				{{ $t("edge-preview.notice") }}
 				<a class="ml-2" href="/source-code.tar.gz">{{ $t("landing.hero.btns.source") }}</a>
 			</p>
+			<ClientUpdateNotice />
 			<router-view v-if="!isEdgePreview || identityReady" />
 			<div v-else class="room-creation-progress" role="status">
 				<span>{{
@@ -218,6 +208,7 @@ import {
 } from "@mdi/js";
 import { defineComponent, onMounted, onUnmounted, ref, computed, watch, watchEffect } from "vue";
 import { API } from "@/common-http";
+import ClientUpdateNotice from "@/components/ClientUpdateNotice.vue";
 import CreateRoomForm from "@/components/CreateRoomForm.vue";
 import LogInForm from "@/components/LogInForm.vue";
 import NavUser from "@/components/navbar/NavUser.vue";
@@ -242,6 +233,7 @@ const routeTitleKeys: Record<string, string> = {
 	"attribution": "footer.attribution",
 	"not-found": "not-found.title",
 	"privacypolicy": "footer.privacy-policy",
+	"help": "help.title",
 	"password-reset": "page-title.password-reset",
 	"playground": "page-title.playground",
 	"themes": "page-title.themes",
@@ -251,6 +243,7 @@ const routeTitleKeys: Record<string, string> = {
 const App = defineComponent({
 	name: "app",
 	components: {
+		ClientUpdateNotice,
 		CreateRoomForm,
 		LogInForm,
 		NavUser,

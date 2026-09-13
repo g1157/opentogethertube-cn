@@ -120,6 +120,26 @@ export class FfprobeTimeoutError extends OttException {
 	}
 }
 
+/**
+ * The file exists but ffprobe could not read metadata from it (unreachable source,
+ * corrupt file, unsupported container). Expected request failure, never a reason to
+ * drop the connection.
+ */
+export class FfprobeError extends OttException {
+	public readonly status: number = 502;
+	public readonly code: "UPSTREAM_FFPROBE_ERROR" = "UPSTREAM_FFPROBE_ERROR";
+	public readonly userMessage: string;
+	public readonly expose: boolean = true;
+
+	constructor(details?: string) {
+		const userMessage =
+			"Could not read video information from the provided link. Check that the URL is publicly accessible, then try again.";
+		super(details ? `${userMessage} (${details})` : userMessage);
+		this.name = "FfprobeError";
+		this.userMessage = userMessage;
+	}
+}
+
 export class OutOfQuotaException extends OttException {
 	constructor(service: string) {
 		if (service === "youtube") {
