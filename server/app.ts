@@ -107,6 +107,7 @@ export async function main() {
 		proxy: conf.get("env") === "production",
 		cookie: {
 			maxAge: 30 * 24 * 60 * 60 * 1000, // 1 month, in milliseconds
+			sameSite: "lax",
 		},
 	};
 	if (

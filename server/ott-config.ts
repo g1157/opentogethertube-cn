@@ -323,6 +323,62 @@ export const conf = convict({
 			env: "RATE_LIMIT_KEY_PREFIX",
 		},
 	},
+	voice: {
+		enabled: {
+			doc: "Enable room voice chat. Audio is peer-to-peer; the server only relays signaling.",
+			format: Boolean,
+			default: false,
+			env: "ENABLE_VOICE_CHAT",
+		},
+		ice_servers: {
+			doc: 'JSON array of STUN (and optional TURN) servers handed to clients, e.g. [{"urls":"stun:host:3478"},{"urls":"turn:host:3478","username":"u","credential":"p"}]. These cost nothing but never relay. Empty uses a built-in STUN default.',
+			format: String,
+			default: "",
+			env: "VOICE_ICE_SERVERS",
+		},
+		turn_ice_servers: {
+			doc: "JSON array of relay (TURN) servers. Withheld from clients once the monthly budget is exhausted, so direct connections stay free and only relayed traffic is braked. Empty disables relay entirely.",
+			format: String,
+			default: "",
+			env: "VOICE_TURN_ICE_SERVERS",
+		},
+		max_participants_per_room: {
+			doc: "Maximum simultaneous voice participants per room. 0 disables the limit.",
+			format: "nat",
+			default: 6,
+			env: "VOICE_MAX_PARTICIPANTS_PER_ROOM",
+		},
+		max_concurrent_rooms: {
+			doc: "Maximum number of rooms with voice at the same time. 0 disables the limit.",
+			format: "nat",
+			default: 0,
+			env: "VOICE_MAX_CONCURRENT_ROOMS",
+		},
+		monthly_relay_mb: {
+			doc: "Monthly relay budget in megabytes, and the cost brake: above it, TURN servers are withheld and voice continues over direct connections only, so the relay bill stops growing. Defaults to 500 GB, half of Cloudflare Realtime's 1 TB shared SFU+TURN free tier. 0 disables the brake.",
+			format: "nat",
+			default: 500_000,
+			env: "VOICE_MONTHLY_RELAY_MB",
+		},
+		monthly_relay_mb_max: {
+			doc: "Optional hard budget in megabytes: above it new voice joins are refused outright, instead of degrading to direct-only. Leave at 0 unless you would rather stop voice than lose relay.",
+			format: "nat",
+			default: 0,
+			env: "VOICE_MONTHLY_RELAY_MB_MAX",
+		},
+		audio_bitrate_kbps: {
+			doc: "Per-stream bitrate used only to estimate relayed volume for the budget, in kilobits per second.",
+			format: "nat",
+			default: 40,
+			env: "VOICE_AUDIO_BITRATE_KBPS",
+		},
+		usage_tick_seconds: {
+			doc: "How often relayed volume is accrued while voice is active, in seconds.",
+			format: "nat",
+			default: 15,
+			env: "VOICE_USAGE_TICK_SECONDS",
+		},
+	},
 	api_key: {
 		doc: "API key for the performing admin tasks. If not provided, no admin tasks will be available.",
 		format: String,

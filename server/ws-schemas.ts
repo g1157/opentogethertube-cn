@@ -28,6 +28,29 @@ export const clientMessageSchema = z.discriminatedUnion("action", [
 		action: z.literal("notify"),
 		message: z.literal("usernameChanged"),
 	}),
+	// Signaling is relayed verbatim to one other client in the same room. Length caps keep a
+	// single participant from using the relay as a general-purpose message bus.
+	z.object({
+		action: z.literal("signal"),
+		to: z.string().min(1).max(64),
+		signal: z.discriminatedUnion("kind", [
+			z.object({ kind: z.literal("offer"), sdp: z.string().max(16384) }),
+			z.object({ kind: z.literal("answer"), sdp: z.string().max(16384) }),
+			z.object({
+				kind: z.literal("candidate"),
+				candidate: z.object({
+					candidate: z.string().max(1024),
+					sdpMid: z.string().max(64).nullish(),
+					sdpMLineIndex: z.number().int().min(0).max(1024).nullish(),
+					usernameFragment: z.string().max(256).nullish(),
+				}),
+			}),
+		]),
+	}),
+	z.object({
+		action: z.literal("voice"),
+		joined: z.boolean(),
+	}),
 	// Room requests are validated per command inside the room; the envelope guards size and shape.
 	// RoomRequestType values are numeric enum members on the wire (e.g. PlaybackRequest = 2).
 	z.object({

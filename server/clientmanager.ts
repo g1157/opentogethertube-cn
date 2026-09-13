@@ -13,8 +13,13 @@ import {
 	type ServerMessageSync,
 	type ServerMessageUser,
 	type ServerMessageYou,
+	type ServerMessageSignal,
+	type ServerMessageVoice,
+	type ClientMessageSignal,
 } from "ott-common/models/messages.js";
 import { ClientNotFoundInRoomException, MissingToken } from "./exceptions.js";
+import { getVoiceIceServers, isVoiceEnabled } from "./voice.js";
+import { decideVoiceJoin, isRelayAllowedNow, recordUsage } from "./voice-budget.js";
 import {
 	type MySession,
 	OttWebsocketError,
@@ -66,6 +71,101 @@ const CLIENT_ROOM_REQUEST_TYPES = new Set<RoomRequestType>([
 const connections: Client[] = [];
 const roomJoins: Map<string, Client[]> = new Map();
 const pendingRoomJoins = new Map<Client, Promise<void>>();
+const voiceParticipants: Map<string, Set<ClientId>> = new Map();
+
+function buildVoiceMessage(roomName: string, includeRelay: boolean): ServerMessageVoice {
+	return {
+		action: "voice",
+		participants: [...(voiceParticipants.get(roomName) ?? [])],
+		iceServers: getVoiceIceServers(includeRelay),
+		relay: includeRelay,
+	};
+}
+
+/**
+ * Relay a WebRTC signal to exactly one other client. Both parties must already be in voice in the
+ * same room, so this cannot be used to reach arbitrary sockets.
+ */
+function relayVoiceSignal(client: Client, msg: ClientMessageSignal): void {
+	const participants = voiceParticipants.get(client.room);
+	if (!participants?.has(client.id) || !participants.has(msg.to)) {
+		return;
+	}
+	const target = getClient(msg.to);
+	if (!target || target.room !== client.room) {
+		return;
+	}
+	const relay: ServerMessageSignal = {
+		action: "signal",
+		from: client.id,
+		signal: msg.signal,
+	};
+	target.send(relay);
+}
+
+async function setVoicePresence(client: Client, joinedVoice: boolean): Promise<void> {
+	if (!isVoiceEnabled() || client.joinStatus !== ClientJoinStatus.Joined) {
+		if (joinedVoice) {
+			client.send({ ...buildVoiceMessage(client.room, false), denied: "disabled" });
+		}
+		return;
+	}
+	let participants = voiceParticipants.get(client.room);
+	if (!participants) {
+		participants = new Set();
+		voiceParticipants.set(client.room, participants);
+	}
+	if (joinedVoice && !participants.has(client.id)) {
+		let otherVoiceRooms = 0;
+		for (const set of voiceParticipants.values()) {
+			if (set !== participants && set.size > 0) {
+				otherVoiceRooms++;
+			}
+		}
+		const decision = await decideVoiceJoin({
+			roomParticipants: participants.size,
+			roomAlreadyInVoice: participants.size > 0,
+			voiceRoomCount: otherVoiceRooms,
+		});
+		if (!decision.allowed) {
+			// A set created only to hold this refused join must not linger and count as a room.
+			if (participants.size === 0) {
+				voiceParticipants.delete(client.room);
+			}
+			client.send({
+				...buildVoiceMessage(client.room, decision.includeRelay),
+				denied: decision.reason,
+			});
+			return;
+		}
+		participants.add(client.id);
+	} else if (!joinedVoice) {
+		participants.delete(client.id);
+	}
+	if (participants.size === 0) {
+		voiceParticipants.delete(client.room);
+	}
+	await broadcast(client.room, buildVoiceMessage(client.room, await isRelayAllowedNow()));
+}
+
+/**
+ * Called when a socket disconnects. Peers need the updated list, otherwise they keep a dead
+ * connection and the participant lingers in everyone's UI.
+ */
+async function removeFromVoice(client: Client): Promise<void> {
+	const participants = voiceParticipants.get(client.room);
+	if (!participants?.delete(client.id)) {
+		return;
+	}
+	if (participants.size === 0) {
+		voiceParticipants.delete(client.room);
+	}
+	try {
+		await broadcast(client.room, buildVoiceMessage(client.room, await isRelayAllowedNow()));
+	} catch (e) {
+		log.error(`Failed to broadcast voice presence after ${client.id} left: ${e}`);
+	}
+}
 export async function setup(): Promise<void> {
 	log.debug("setting up client manager...");
 	const server = wss;
@@ -234,6 +334,11 @@ async function joinAuthenticatedClient(client: Client, token: AuthToken, session
 		},
 	};
 	client.send(youmsg);
+
+	// Let the client know voice exists and who is already in it, before it joins.
+	if (isVoiceEnabled()) {
+		client.send(buildVoiceMessage(room.name, await isRelayAllowedNow()));
+	}
 }
 
 async function onClientMessage(client: Client, msg: ClientMessage) {
@@ -263,6 +368,10 @@ async function onClientMessage(client: Client, msg: ClientMessage) {
 				return;
 			}
 			await makeRoomRequest(client, msg.request);
+		} else if (msg.action === "voice") {
+			await setVoicePresence(client, msg.joined);
+		} else if (msg.action === "signal") {
+			relayVoiceSignal(client, msg);
 		} else if (msg.action === "notify") {
 			if (msg.message === "usernameChanged") {
 				onUserModified(client.token!);
@@ -317,6 +426,8 @@ async function onClientDisconnect(client: Client) {
 			}
 		}
 	}
+
+	await removeFromVoice(client);
 
 	// A socket can close while joinRoom awaits identity lookup. Do not let its leave run before
 	// the pending join adds the member, leaving a disconnected playback preparer in the room.
@@ -548,6 +659,7 @@ function onRoomUnload(roomName: string, reason: UnloadReason) {
 	}
 
 	roomJoins.delete(roomName);
+	voiceParticipants.delete(roomName);
 }
 
 function onAnnouncement(text: string) {
@@ -610,6 +722,16 @@ setInterval(() => {
 		}
 	}
 }, 10000);
+
+/**
+ * Accrue estimated relayed volume while voice is active. Accounting in the unit Cloudflare bills
+ * on is what lets the budget act as a cost brake instead of a rough guess.
+ */
+const voiceUsageTickSeconds = Math.max(1, conf.get("voice.usage_tick_seconds"));
+setInterval(() => {
+	const counts = [...voiceParticipants.values()].map(participants => participants.size);
+	void recordUsage(counts, voiceUsageTickSeconds);
+}, voiceUsageTickSeconds * 1000);
 
 export type ClientManagerCommand = CmdKick;
 

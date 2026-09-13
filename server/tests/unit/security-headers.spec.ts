@@ -62,7 +62,7 @@ describe("security headers and CSP reporting", () => {
 		expect(response.headers["x-content-type-options"]).toBe("nosniff");
 		expect(response.headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
 		expect(response.headers["permissions-policy"]).toBe(
-			"camera=(), microphone=(), geolocation=()",
+			"camera=(), microphone=(self), geolocation=()",
 		);
 		expect(response.headers["x-frame-options"]).toBe("SAMEORIGIN");
 		expect(response.headers["content-security-policy"]).toBe(enforced);

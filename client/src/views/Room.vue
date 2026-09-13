@@ -56,6 +56,36 @@
 				>
 					<div class="player-container">
 						<BufferGateNotice v-if="hasRoomSync" />
+						<div
+							class="voice-bar"
+							v-if="voiceAvailable && controlsVisible"
+							data-cy="voice-bar"
+						>
+							<v-btn
+								:color="voiceSpeaking ? 'primary' : undefined"
+								:variant="voiceJoined && !voiceMuted ? 'flat' : 'plain'"
+								size="small"
+								density="comfortable"
+								:data-cy="voiceJoined ? 'voice-mute' : 'voice-join'"
+								@click="voiceJoined ? toggleVoiceMute() : joinVoice()"
+							>
+								<v-icon
+									:icon="voiceJoined && !voiceMuted ? mdiMicrophone : mdiMicrophoneOff"
+								/>
+								<v-tooltip activator="parent" location="top">
+									{{ voiceJoined ? $t("room.voice-mute") : $t("room.voice-join") }}
+								</v-tooltip>
+							</v-btn>
+							<span class="voice-count" v-if="voiceParticipants.length > 0">
+								{{ $t("room.voice-participants", { count: voiceParticipants.length }) }}
+							</span>
+							<span class="voice-count" v-if="voiceJoined && !voiceRelay">
+								{{ $t("room.voice-direct-only") }}
+							</span>
+							<span class="voice-error" v-if="voiceError">
+								{{ $t(`room.voice-error-${voiceError}`) }}
+							</span>
+						</div>
 						<OmniPlayer
 							v-if="hasRoomSync"
 							:source="currentSource"
@@ -301,6 +331,8 @@ import {
 	mdiEyeOff,
 	mdiLock,
 	mdiCircle,
+	mdiMicrophone,
+	mdiMicrophoneOff,
 } from "@mdi/js";
 import {
 	defineComponent,
@@ -368,6 +400,7 @@ import { TEMPORARY_PLAYBACK_SPEED } from "ott-common/constants";
 import PlayerShortcutsDialog from "@/components/PlayerShortcutsDialog.vue";
 import AppFooter from "@/components/AppFooter.vue";
 import { nowPlayingDetails } from "@/util/now-playing";
+import { useVoice } from "@/util/voice";
 
 // biome-ignore lint/nursery/noVueOptionsApi: TODO: convert to setup
 export default defineComponent({
@@ -419,6 +452,18 @@ export default defineComponent({
 		const player = useMediaPlayer();
 		const volume = useVolume();
 		const playbackRate = usePlaybackRate();
+		const {
+			available: voiceAvailable,
+			joined: voiceJoined,
+			muted: voiceMuted,
+			speaking: voiceSpeaking,
+			participants: voiceParticipants,
+			relay: voiceRelay,
+			error: voiceError,
+			join: joinVoice,
+			leave: leaveVoice,
+			toggleMute: toggleVoiceMute,
+		} = useVoice();
 		const granted = useGrants();
 		const mediaPlaybackBlocked = ref(false);
 		const pendingLocalSeek = ref(false);
@@ -1372,6 +1417,16 @@ export default defineComponent({
 
 			player,
 			volume,
+			voiceAvailable,
+			voiceJoined,
+			voiceMuted,
+			voiceSpeaking,
+			voiceParticipants,
+			voiceRelay,
+			voiceError,
+			joinVoice,
+			leaveVoice,
+			toggleVoiceMute,
 			togglePlayback,
 			onPlayerApiReady,
 			onPlayerReady,
@@ -1589,6 +1644,31 @@ $in-video-chat-width-small: 250px;
 		overflow: hidden;
 		white-space: nowrap;
 		text-overflow: ellipsis;
+	}
+}
+
+.voice-bar {
+	position: absolute;
+	left: 12px;
+	bottom: calc(var(--player-controls-height, 0px) + 12px);
+	z-index: 4;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px;
+	border-radius: 999px;
+	background: rgba(0, 0, 0, 0.55);
+	color: white;
+
+	.voice-count,
+	.voice-error {
+		padding-right: 10px;
+		font-size: 12px;
+		white-space: nowrap;
+	}
+
+	.voice-error {
+		color: rgb(var(--v-theme-error));
 	}
 }
 
