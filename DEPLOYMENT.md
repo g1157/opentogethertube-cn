@@ -135,28 +135,28 @@ Cloudflare 免费版在国内经常被限速：实测同一台服务器，裸 IP
 1. 在 `compose.override.yml` 里为 `ott` 服务追加端口（不必改动仓库自带的 `compose.yml`，
    它保持只绑 `127.0.0.1` 的安全默认值）：
 
-   ```yaml
-   services:
-     ott:
-       ports:
-         - "8082:8080"
-         - "8443:8080"
-   ```
+    ```yaml
+    services:
+        ott:
+            ports:
+                - "8082:8080"
+                - "8443:8080"
+    ```
 
 2. `sudo docker compose up -d` 后，访客直接访问 `http://<服务器 IP>:8082`（备用 `:8443`）。
    记得在云厂商安全组放行对应端口，并确认没有在监听这些端口的其他进程。
 
 实测结论与限制（2026-09-13，腾讯云大陆机型，端口探测 + 抓包验证）：
 
-- **明文 HTTP 按 Host 头做备案拦截，裸 IP 不受影响**：带域名的 HTTP 请求（任意端口）都会被改写成
-  `302 → https://dnspod.qcloud.com/static/webblock.html?d=<域名>`；`Host` 为裸 IP 时正常返回
-  应用内容。所以明文入口要用 IP，不要用域名。
-- **HTTPS（443 + SNI）不被拦截**：用域名的 SNI 握手得到的是服务器自己的证书和响应，说明拦截只
-  针对明文 HTTP。也就是说未备案域名 + 有效证书 + 443 可行，证书用 TLS-ALPN-01 签发即可
-  （HTTP-01 会因为上面的拦截失败；Let's Encrypt 不为裸 IP 签发证书）。
-- 明文 HTTP 不是安全上下文，`navigator.mediaDevices` 不可用，语音会提示无法使用麦克风；
-  需要语音时走 HTTPS（直连域名或 Cloudflare 域名）。
-- 直连端口与 Cloudflare 入口是同一个应用实例，登录态、房间、便签、播放列表完全共享。
+-   **明文 HTTP 按 Host 头做备案拦截，裸 IP 不受影响**：带域名的 HTTP 请求（任意端口）都会被改写成
+    `302 → https://dnspod.qcloud.com/static/webblock.html?d=<域名>`；`Host` 为裸 IP 时正常返回
+    应用内容。所以明文入口要用 IP，不要用域名。
+-   **HTTPS（443 + SNI）不被拦截**：用域名的 SNI 握手得到的是服务器自己的证书和响应，说明拦截只
+    针对明文 HTTP。也就是说未备案域名 + 有效证书 + 443 可行，证书用 TLS-ALPN-01 签发即可
+    （HTTP-01 会因为上面的拦截失败；Let's Encrypt 不为裸 IP 签发证书）。
+-   明文 HTTP 不是安全上下文，`navigator.mediaDevices` 不可用，语音会提示无法使用麦克风；
+    需要语音时走 HTTPS（直连域名或 Cloudflare 域名）。
+-   直连端口与 Cloudflare 入口是同一个应用实例，登录态、房间、便签、播放列表完全共享。
 
 HTML、源码包和 `/api/status/version` 使用 `Cache-Control: no-store`，前端每 2 分钟及网络恢复、
 重新可见时检查服务器 revision 并自动重载；反向代理 / CDN 必须保留这些缓存规则，不能将 HTML
@@ -171,12 +171,12 @@ HTML、源码包和 `/api/status/version` 使用 `Cache-Control: no-store`，前
 建议从 **2 vCPU / 2 GiB 内存**起步，并为操作系统、Docker、HTTPS 入口和其他服务留余量。
 这不是并发保证，构建前端也可能需要比稳定运行更多的内存，可在开发机或 CI 构建后上传产物。
 
-| 服务 | Compose 配置上限 | 2026-09-10 低负载采样 | 额外说明 |
-| --- | --- | --- | --- |
-| Node.js 应用 | 512 MiB、1 CPU，Node heap 上限 384 MiB | 64.31 MiB、0.46% CPU | 原生库、ffprobe 和缓冲区也占容器内存，不只有 JS heap |
-| PostgreSQL 15 | 384 MiB，shared_buffers 64 MB，连接数最多 50 | 50.56 MiB、0.00% CPU | 数据卷随账号、永久房及索引增长；未单独设置 CPU 上限 |
-| Redis 7 | 容器 192 MiB，数据 maxmemory 128 MB | 6.891 MiB、0.49% CPU | AOF 每秒刷盘、noeviction；达到数据限制会拒绝新写入，不能依靠自动淘汰 |
-| 合计 | 内存上限 1,088 MiB（1.0625 GiB） | 约 121.8 MiB | 不含宿主机、Docker、Tunnel、其他容器及备份；不是预留内存或峰值实测 |
+| 服务          | Compose 配置上限                             | 2026-09-10 低负载采样 | 额外说明                                                             |
+| ------------- | -------------------------------------------- | --------------------- | -------------------------------------------------------------------- |
+| Node.js 应用  | 512 MiB、1 CPU，Node heap 上限 384 MiB       | 64.31 MiB、0.46% CPU  | 原生库、ffprobe 和缓冲区也占容器内存，不只有 JS heap                 |
+| PostgreSQL 15 | 384 MiB，shared_buffers 64 MB，连接数最多 50 | 50.56 MiB、0.00% CPU  | 数据卷随账号、永久房及索引增长；未单独设置 CPU 上限                  |
+| Redis 7       | 容器 192 MiB，数据 maxmemory 128 MB          | 6.891 MiB、0.49% CPU  | AOF 每秒刷盘、noeviction；达到数据限制会拒绝新写入，不能依靠自动淘汰 |
+| 合计          | 内存上限 1,088 MiB（1.0625 GiB）             | 约 121.8 MiB          | 不含宿主机、Docker、Tunnel、其他容器及备份；不是预留内存或峰值实测   |
 
 采样机器为 4 核、约 3.64 GiB 可见内存，只观察三个应用容器的一次低负载快照。
 `docker stats` 的 CPU 百分比按 Docker 口径，不应误解为整台多核主机的固定比例。
