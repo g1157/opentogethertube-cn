@@ -57,7 +57,13 @@ describe("Cloudflare guest identity and room ownership", () => {
 		await flushPromises();
 
 		expect(API.get).toHaveBeenCalledTimes(1);
-		expect(API.get).toHaveBeenCalledWith("/auth/grant");
+		// The guest nickname follows this header, so the UI language is sent with the request.
+		expect(API.get).toHaveBeenCalledWith(
+			"/auth/grant",
+			expect.objectContaining({
+				headers: expect.objectContaining({ "Accept-Language": expect.any(String) }),
+			}),
+		);
 		expect(wrapper.find('[data-testid="room-route"]').exists()).toBe(false);
 		expect((wrapper.get(".nav-create").element as HTMLButtonElement).disabled).toBe(true);
 
@@ -84,7 +90,10 @@ describe("Cloudflare guest identity and room ownership", () => {
 
 		expect(wrapper.find('[data-testid="room-route"]').exists()).toBe(true);
 		expect(localStorage.getItem("token")).toBe("retried-edge-token");
-		expect(API.get.mock.calls).toEqual([["/auth/grant"], ["/auth/grant"]]);
+		expect(API.get.mock.calls).toEqual([
+			["/auth/grant", expect.anything()],
+			["/auth/grant", expect.anything()],
+		]);
 	});
 
 	it("lets the browser's guest owner save grants and hides the editor from other guests", async () => {

@@ -258,6 +258,7 @@ export default {
 		"visibility-unknown": "Unknown visibility",
 		"voice-join": "Join voice",
 		"voice-mute": "Mute",
+		"voice-leave": "Leave voice",
 		"voice-participants": "{count} in voice",
 		"voice-direct-only": "Direct only",
 		"voice-error-mic-permission": "Microphone unavailable",

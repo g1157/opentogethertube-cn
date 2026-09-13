@@ -79,7 +79,11 @@ export const usersModule: Module<UsersState, FullOTTStoreState> = {
 			context.commit("SET_YOU", message);
 		},
 		async getNewToken(context) {
-			const resp = await API.get("/auth/grant");
+			// The generated guest nickname follows this header, so send the chosen UI language
+			// instead of relying on the browser's own Accept-Language.
+			const resp = await API.get("/auth/grant", {
+				headers: { "Accept-Language": context.rootState.settings.locale },
+			});
 			context.commit("SET_AUTH_TOKEN", resp.data.token);
 		},
 	},

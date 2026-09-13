@@ -54,6 +54,11 @@ curl --fail http://127.0.0.1:8080/api/status
 [版本记录](docs/version-notes.zh-CN.md) 确认迁移与行为变化。不要使用 `down -v`，它会删除
 数据卷。升级后检查健康接口、双客户端同步和手机全屏手势是否正常。
 
+> **从 cn17 及更早升级到 cn18+ 时注意**：便签的权限回填只更新数据库；Redis 里已存在的
+> 房间快照仍带旧权限位，会让房间内除房主/管理员外的成员无法添加便签。受影响时先通过
+> 管理接口卸载该房间（`curl -X DELETE -H "apikey: $ADMIN_API_KEY" …/api/room/<房间名>`），
+> 再删除 `room:<房间名>` 键，让它从数据库重新加载。
+
 ## 回退
 
 把 `.env` 的 `OTT_IMAGE` 改回上一版的发布标签或镜像 ID（`sudo docker images` 查看），再只重建

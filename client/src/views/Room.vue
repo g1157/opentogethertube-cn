@@ -43,7 +43,7 @@
 				</div>
 			</div>
 			<RoomConnectionNotice />
-			<div class="video-container">
+			<div class="video-container" :class="{ 'with-notes': showNotesSidebar }">
 				<div
 					class="video-subcontainer"
 					:class="{
@@ -80,6 +80,19 @@
 									{{
 										voiceJoined ? $t("room.voice-mute") : $t("room.voice-join")
 									}}
+								</v-tooltip>
+							</v-btn>
+							<v-btn
+								v-if="voiceJoined"
+								variant="plain"
+								size="small"
+								density="comfortable"
+								data-cy="voice-leave"
+								@click="leaveVoice()"
+							>
+								<v-icon :icon="mdiPhoneHangup" />
+								<v-tooltip activator="parent" location="top">
+									{{ $t("room.voice-leave") }}
 								</v-tooltip>
 							</v-btn>
 							<span class="voice-count" v-if="voiceParticipants.length > 0">
@@ -198,7 +211,12 @@
 						<PlayerShortcutsDialog v-model="shortcutHelp" />
 					</v-defaults-provider>
 				</div>
-				<div class="out-video-chat" ref="outVideoChatTarget" v-show="!chatInside"></div>
+				<div class="video-side">
+					<div class="out-video-chat" ref="outVideoChatTarget" v-show="!chatInside"></div>
+					<aside v-if="showNotesSidebar" class="notes-sidebar" data-cy="notes-sidebar">
+						<RoomNotes />
+					</aside>
+				</div>
 				<Teleport v-if="chatTarget" :to="chatTarget">
 					<Chat
 						ref="chat"
@@ -236,7 +254,7 @@
 							<v-icon :icon="mdiWrench" />
 							<span class="tab-text">{{ $t("room.tabs.settings") }}</span>
 						</v-tab>
-						<v-tab v-if="showNotesTab" data-cy="notes-tab">
+						<v-tab v-if="showNotesTabButton" data-cy="notes-tab">
 							<v-icon :icon="mdiNoteTextOutline" />
 							<span class="tab-text">{{ $t("room.tabs.notes") }}</span>
 							<v-chip size="x-small" class="room-tab-count">{{ notesCount }}</v-chip>
@@ -257,7 +275,7 @@
 						<v-window-item>
 							<RoomSettingsForm ref="settings" />
 						</v-window-item>
-						<v-window-item v-if="showNotesTab">
+						<v-window-item v-if="showNotesTabButton">
 							<RoomNotes />
 						</v-window-item>
 					</v-window>
@@ -352,6 +370,7 @@ import {
 	mdiNoteTextOutline,
 	mdiMicrophone,
 	mdiMicrophoneOff,
+	mdiPhoneHangup,
 } from "@mdi/js";
 
 import {
@@ -374,7 +393,7 @@ import OmniPlayer from "@/components/players/OmniPlayer.vue";
 import Chat from "@/components/Chat.vue";
 import UserList from "@/components/UserList.vue";
 import VideoQueue from "@/components/VideoQueue.vue";
-import { useGoTo } from "vuetify";
+import { useDisplay, useGoTo } from "vuetify";
 import RoomSettingsForm from "@/components/RoomSettingsForm.vue";
 import RoomNotes from "@/components/RoomNotes.vue";
 import ShareInvite from "@/components/ShareInvite.vue";
@@ -464,6 +483,12 @@ export default defineComponent({
 		);
 		// Notes are append-only and only permanent rooms have storage for them.
 		const showNotesTab = computed(() => hasRoomSync.value && !store.state.room.isTemporary);
+		// Desktop docks the panel next to the video; narrow screens keep the tab instead.
+		const { mdAndUp } = useDisplay();
+		const showNotesSidebar = computed(
+			() => showNotesTab.value && mdAndUp.value && !store.state.fullscreen,
+		);
+		const showNotesTabButton = computed(() => showNotesTab.value && !mdAndUp.value);
 		const notesCount = computed(() => store.state.notes.notes.length);
 		const nowPlaying = computed(() => nowPlayingDetails(currentSource.value));
 		const episodeLabel = computed(() =>
@@ -1467,7 +1492,8 @@ export default defineComponent({
 
 			isMobile,
 			queueTab,
-			showNotesTab,
+			showNotesSidebar,
+			showNotesTabButton,
 			notesCount,
 			settings: roomSettingsForm,
 			addpreview,
@@ -1499,6 +1525,7 @@ export default defineComponent({
 			mdiNoteTextOutline,
 			mdiMicrophone,
 			mdiMicrophoneOff,
+			mdiPhoneHangup,
 		};
 	},
 });
@@ -1550,6 +1577,12 @@ $in-video-chat-width-small: 250px;
 		@media (max-width: variables.$md-max) {
 			width: 100%;
 		}
+	}
+
+	// Docking notes takes width from the column; keeping the 80% cap would shrink the video twice.
+	.video-container.with-notes .video-subcontainer {
+		width: 100%;
+		justify-self: stretch;
 	}
 }
 
@@ -1614,6 +1647,14 @@ $in-video-chat-width-small: 250px;
 	pointer-events: none;
 }
 
+.video-side {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	min-width: 0;
+	height: 100%;
+}
+
 .out-video-chat {
 	padding: 5px 10px;
 
@@ -1624,6 +1665,24 @@ $in-video-chat-width-small: 250px;
 		width: $in-video-chat-width-small;
 	}
 	pointer-events: none;
+}
+
+// Notes dock next to the video on desktop: same height as the player row, scrolled inside.
+.notes-sidebar {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	border: 1px solid var(--line-strong);
+	border-radius: 8px;
+	background: var(--card);
+}
+
+.video-container.with-notes .video-side {
+	width: 400px;
+}
+
+.video-container.with-notes .out-video-chat {
+	width: 100%;
 }
 
 .player-gesture-surface {

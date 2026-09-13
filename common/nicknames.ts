@@ -1,0 +1,98 @@
+/**
+ * Guest nicknames for Chinese clients. The combinations are meant to be amusing rather than
+ * descriptive: an adjective phrase plus a familiar noun ("摸鱼的水獭", "戴墨镜的企鹅").
+ */
+export const CHINESE_NICKNAME_PREFIXES = [
+	"开心的",
+	"迷糊的",
+	"暴躁的",
+	"优雅的",
+	"摸鱼的",
+	"爱笑的",
+	"打盹的",
+	"闪亮的",
+	"跑调的",
+	"滚烫的",
+	"冷静的",
+	"贪吃的",
+	"神秘的",
+	"会飞的",
+	"穿睡衣的",
+	"戴墨镜的",
+	"深夜的",
+	"周末的",
+	"嘴馋的",
+	"不困的",
+	"蹦跶的",
+	"慢半拍的",
+	"爱划水的",
+	"假装忙碌的",
+	"熬夜的",
+	"爱喝奶茶的",
+	"起太早的",
+	"迷路的",
+	"爱唱歌的",
+	"披着毯子的",
+	"头顶月亮的",
+	"躲雨的",
+	"会画画的",
+	"爱撸猫的",
+	"晒太阳的",
+	"抢沙发的",
+	"刚睡醒的",
+	"会打鼓的",
+	"偷吃零食的",
+	"想下班的",
+] as const;
+
+export const CHINESE_NICKNAME_NOUNS = [
+	"柠檬",
+	"布丁",
+	"麻薯",
+	"水獭",
+	"狐狸",
+	"熊猫",
+	"企鹅",
+	"北极熊",
+	"烤红薯",
+	"拿铁",
+	"月亮",
+	"路灯",
+	"仙人掌",
+	"鲸鱼",
+	"蓝莓",
+	"小笼包",
+	"章鱼",
+	"棉花糖",
+	"蒲公英",
+	"柴犬",
+	"海獭",
+	"树懒",
+	"浣熊",
+	"独角兽",
+	"抹茶蛋糕",
+	"鳗鱼饭",
+	"雪媚娘",
+	"冻梨",
+	"椰子",
+	"小行星",
+	"果冻",
+	"云朵",
+	"猫站长",
+	"潜水艇",
+	"热气球",
+	"收音机",
+	"电风扇",
+	"关东煮",
+	"小龙虾",
+	"汤圆",
+] as const;
+
+function pick<T>(items: readonly T[], random: () => number): T {
+	return items[Math.floor(random() * items.length) % items.length];
+}
+
+/** Random Chinese guest nickname; `random` is injectable for tests. */
+export function generateChineseNickname(random: () => number = Math.random): string {
+	return `${pick(CHINESE_NICKNAME_PREFIXES, random)}${pick(CHINESE_NICKNAME_NOUNS, random)}`;
+}

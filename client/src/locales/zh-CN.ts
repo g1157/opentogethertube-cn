@@ -253,6 +253,7 @@ export default {
 		"visibility-unknown": "未知可见性",
 		"voice-join": "加入语音",
 		"voice-mute": "静音",
+		"voice-leave": "退出语音",
 		"voice-participants": "{count} 人在语音",
 		"voice-direct-only": "仅直连",
 		"voice-error-mic-permission": "无法使用麦克风",

@@ -1,7 +1,7 @@
 import { getLogger } from "../logger.js";
 import express from "express";
 import tokens, { type SessionInfo } from "./tokens.js";
-import { uniqueNamesGenerator } from "unique-names-generator";
+import { generateGuestNickname } from "../nicknames.js";
 import passport from "passport";
 import type { AuthToken, MySession } from "ott-common/models/types.js";
 import nocache from "nocache";
@@ -15,10 +15,10 @@ const router = express.Router();
 router.use(nocache());
 const log = getLogger("api/auth");
 
-function createSession(): SessionInfo {
+function createSession(acceptLanguage?: string | null): SessionInfo {
 	return {
 		isLoggedIn: false,
-		username: uniqueNamesGenerator(),
+		username: generateGuestNickname(acceptLanguage),
 	};
 }
 
@@ -90,7 +90,7 @@ export async function authTokenMiddleware(
 			req.user = await usermanager.getUser({ id: req.ottsession.user_id });
 		} catch (err) {
 			log.warn(`Error getting user in auth middleware, logging out: ${err}`);
-			await tokens.setSessionInfo(req.token, createSession());
+			await tokens.setSessionInfo(req.token, createSession(req.get("accept-language")));
 		}
 	}
 	next();
@@ -120,7 +120,7 @@ router.get("/grant", async (req, res) => {
 	}
 	log.debug("minting new auth token...");
 	const token: AuthToken = await tokens.mint();
-	await tokens.setSessionInfo(token, createSession());
+	await tokens.setSessionInfo(token, createSession(req.get("accept-language")));
 	res.cookie(conf.get("auth_cookie_name"), token, {
 		httpOnly: true,
 		sameSite: "lax",

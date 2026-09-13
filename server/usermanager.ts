@@ -11,7 +11,7 @@ import { type RateLimiterAbstract, RateLimiterMemory } from "rate-limiter-flexib
 import { RateLimiterRedisv4, consumeRateLimitPoints, rateLimiter } from "./rate-limit.js";
 import tokens from "./auth/tokens.js";
 import nocache from "nocache";
-import { uniqueNamesGenerator } from "unique-names-generator";
+import { generateGuestNickname } from "./nicknames.js";
 import { USERNAME_LENGTH_MAX } from "ott-common/constants.js";
 import {
 	FeatureDisabledException,
@@ -199,7 +199,7 @@ router.post("/", nocache(), async (req, res) => {
 			log.warn("no user, but logged in. forcing session into logged out state");
 			req.ottsession = {
 				isLoggedIn: false,
-				username: uniqueNamesGenerator(),
+				username: generateGuestNickname(req.get("accept-language")),
 			};
 		}
 		oldUsername = req.ottsession.username;
@@ -305,7 +305,10 @@ router.post("/logout", async (req, res) => {
 				log.error(`Error logging out user ${err}`);
 				return;
 			}
-			req.ottsession = { isLoggedIn: false, username: uniqueNamesGenerator() };
+			req.ottsession = {
+				isLoggedIn: false,
+				username: generateGuestNickname(req.get("accept-language")),
+			};
 			await tokens.setSessionInfo(req.token!, req.ottsession);
 			onUserLogOut(user, req.token!);
 			res.json({
@@ -545,7 +548,7 @@ async function authCallbackDiscord(req, accessToken, refreshToken, profile, done
 			let username = buildUsernameFromDiscordProfile(profile);
 			if (await isUsernameTaken(username)) {
 				log.warn("username from discord profile is taken, generating a new one...");
-				username = uniqueNamesGenerator();
+				username = generateGuestNickname();
 			}
 			const user = await registerUserSocial({
 				username,
