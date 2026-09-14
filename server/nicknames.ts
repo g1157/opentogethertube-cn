@@ -8,5 +8,10 @@ import { generateChineseNickname } from "ott-common/nicknames.js";
  */
 export function generateGuestNickname(acceptLanguage?: string | null): string {
 	const language = (acceptLanguage ?? "").toLowerCase();
-	return language.startsWith("zh") ? generateChineseNickname() : uniqueNamesGenerator();
+	if (language.startsWith("zh")) {
+		return generateChineseNickname();
+	}
+	// The upstream adjective dictionary contains a few capitalized words ("Sound"), which
+	// would otherwise make an occasional name look like "Sound_orange_goat".
+	return uniqueNamesGenerator().toLowerCase();
 }
