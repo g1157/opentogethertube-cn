@@ -24,6 +24,14 @@
 			<div>
 				<div class="video-title" no-gutters>{{ item.title }}</div>
 				<div class="description" no-gutters>{{ localizedDescription }}</div>
+				<div v-if="renderedTarget" class="render-target" data-cy="preview-render-target">
+					{{
+						$t("add-preview.render-target", {
+							size: `${renderedTarget.width}×${renderedTarget.height}`,
+							scale: renderedTarget.scale.toFixed(1),
+						})
+					}}
+				</div>
 				<div v-if="item.service === 'googledrive'" class="experimental">
 					{{ $t("video-queue-item.experimental") }}
 				</div>
@@ -218,7 +226,7 @@ import {
 	mdiSortAscending,
 	mdiPencil,
 } from "@mdi/js";
-import { ref, toRefs, computed, watch, watchEffect } from "vue";
+import { ref, toRefs, computed, watch, watchEffect, onMounted, onBeforeUnmount } from "vue";
 import { API } from "@/common-http";
 import { secondsToTimestamp } from "@/util/timestamp";
 import { ToastStyle } from "@/models/toast";
@@ -234,6 +242,7 @@ import { useConnection } from "@/plugins/connection";
 import type { OttResponseBody } from "ott-common/models/rest-api";
 import { useGrants } from "./composables/grants";
 import { serverErrorMessage } from "@/util/server-error";
+import { computeRenderedTarget, measurePlayerBox } from "@/util/upscale/target-preview";
 
 interface VideoQueueItemProps {
 	item: QueueItem;
@@ -267,6 +276,34 @@ const voted = ref(false);
 const showEditDialog = ref(false);
 const editedSubtitleUrl = props.isPreview ? ref("") : ref(item.value.subtitleUrl);
 const videoLength = computed(() => secondsToTimestamp(item.value?.length ?? 0));
+/**
+ * The resolution the enhancement would render this source at, so a link can be judged
+ * before it is added. The player box is measured on mount and on resize; without a
+ * room on screen (or without source dimensions) the line stays hidden.
+ */
+const playerBox = ref<{ width: number; height: number } | null>(null);
+function updatePlayerBox() {
+	playerBox.value = measurePlayerBox();
+}
+onMounted(() => {
+	updatePlayerBox();
+	window.addEventListener("resize", updatePlayerBox);
+});
+onBeforeUnmount(() => window.removeEventListener("resize", updatePlayerBox));
+const renderedTarget = computed(() => {
+	if (!props.isPreview || store.state.settings.upscaleMode === "off" || !playerBox.value) {
+		return null;
+	}
+	const target = computeRenderedTarget({
+		nativeWidth: item.value.width,
+		nativeHeight: item.value.height,
+		boxWidth: playerBox.value.width,
+		boxHeight: playerBox.value.height,
+		dpr: Math.min(window.devicePixelRatio || 1, 2),
+		requestedScale: store.state.settings.upscaleScale,
+	});
+	return target && target.scale > 1.01 ? target : null;
+});
 /** Direct/HLS/DASH descriptions are server-written as "Full Link: <url>"; localize the label. */
 const FULL_LINK_PREFIX = "Full Link: ";
 const localizedDescription = computed(() => {
@@ -523,10 +560,16 @@ watchEffect(() => {
 			white-space: nowrap;
 			overflow: hidden;
 			text-overflow: ellipsis;
-
 			@media (max-width: variables.$sm-max) {
 				display: none;
 			}
+		}
+
+		.render-target {
+			flex-grow: 1;
+			font-size: 0.8rem;
+			color: rgb(var(--v-theme-primary));
+			opacity: 0.8;
 		}
 	}
 

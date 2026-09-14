@@ -187,15 +187,12 @@ $media-control-background: var(--v-theme-media-control-background, (0, 0, 0));
 
 	.controls-row2 {
 		display: flex;
-		flex-wrap: nowrap;
+		// Wrap instead of scrolling: a horizontally scrollable row let wheel and
+		// trackpad gestures drag the whole control strip sideways, and hid whatever
+		// did not fit. Wrapped rows just take a second line.
+		flex-wrap: wrap;
+		row-gap: 6px;
 		align-items: center;
-		overflow-x: auto;
-		overscroll-behavior-x: contain;
-		scrollbar-width: none;
-
-		&::-webkit-scrollbar {
-			display: none;
-		}
 
 		> * {
 			flex-shrink: 0;

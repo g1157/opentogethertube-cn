@@ -73,6 +73,29 @@ export default class DashVideoAdapter extends ServiceAdapter {
 
 		const title = this.extractTitle(manifest);
 
+		// The largest advertised video representation describes the source quality.
+		let width: number | undefined;
+		let height: number | undefined;
+		const periods = [manifest["MPD"]?.["Period"]].flat().filter(Boolean);
+		for (const period of periods as any[]) {
+			const adaptationSets = [period["AdaptationSet"]].flat().filter(Boolean);
+			for (const adaptationSet of adaptationSets as any[]) {
+				const representations = [adaptationSet["Representation"]].flat().filter(Boolean);
+				for (const representation of representations as any[]) {
+					const candidateWidth = Number(representation["@width"]);
+					const candidateHeight = Number(representation["@height"]);
+					if (
+						Number.isFinite(candidateWidth) &&
+						Number.isFinite(candidateHeight) &&
+						(!width || candidateWidth > width)
+					) {
+						width = candidateWidth;
+						height = candidateHeight;
+					}
+				}
+			}
+		}
+
 		return {
 			service: this.serviceId,
 			id: url.href,
@@ -80,6 +103,8 @@ export default class DashVideoAdapter extends ServiceAdapter {
 			description: `Full Link: ${url.href}`,
 			mime: "application/dash+xml",
 			length: duration,
+			width,
+			height,
 			dash_url: url.href,
 		};
 	}

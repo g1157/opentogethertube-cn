@@ -54,7 +54,12 @@
 					:style="{ '--player-controls-height': `${controlsHeight}px` }"
 					@pointermove.capture="controls.mouseMove"
 				>
-					<div class="player-container">
+					<div class="player-container" data-cy="player-container">
+						<PlayerStatsPanel
+							v-if="statsOpen"
+							:video-element="statsVideoElement"
+							@close="statsOpen = false"
+						/>
 						<BufferGateNotice v-if="hasRoomSync" />
 						<div
 							class="voice-bar"
@@ -210,7 +215,6 @@
 							@resize="controlsHeight = $event"
 						/>
 						<PlayerShortcutsDialog v-model="shortcutHelp" />
-						<PlayerStatsDialog v-model="statsOpen" :video-element="statsVideoElement" />
 					</v-defaults-provider>
 				</div>
 				<div class="video-side">
@@ -472,7 +476,7 @@ import type { MediaLoadingState } from "@/util/media-loading-state";
 import { useTemporaryPlaybackSpeed } from "@/util/temporary-playback-speed";
 import { TEMPORARY_PLAYBACK_SPEED } from "ott-common/constants";
 import PlayerShortcutsDialog from "@/components/PlayerShortcutsDialog.vue";
-import PlayerStatsDialog from "@/components/PlayerStatsDialog.vue";
+import PlayerStatsPanel from "@/components/PlayerStatsPanel.vue";
 import AppFooter from "@/components/AppFooter.vue";
 import { nowPlayingDetails } from "@/util/now-playing";
 import { useVoice } from "@/util/voice";
@@ -500,7 +504,7 @@ export default defineComponent({
 		RestoreQueue,
 		VoteSkip,
 		PlayerShortcutsDialog,
-		PlayerStatsDialog,
+		PlayerStatsPanel,
 		AppFooter,
 	},
 	setup() {

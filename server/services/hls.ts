@@ -57,11 +57,31 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 
 		let duration = 0;
 		let title: string | undefined;
+		let width: number | undefined;
+		let height: number | undefined;
 
 		// The m3u8 manifest can be a master playlist containing other playlists or a media playlist containing segments.
 		// If it has playlists, we find the lowest bitrate one and extract the duration from it.
 		// Otherwise, we assume it's a media playlist and calculate the duration from its segments.
 		if (manifest.playlists && manifest.playlists?.length > 0) {
+			// Advertised variant dimensions describe the source quality; keep the largest.
+			for (const playlist of manifest.playlists) {
+				// The parser types do not cover every attribute it forwards.
+				const resolution = (playlist.attributes as Record<string, unknown> | undefined)
+					?.RESOLUTION;
+				if (typeof resolution !== "string") {
+					continue;
+				}
+				const [candidateWidth, candidateHeight] = resolution.split("x").map(Number);
+				if (
+					Number.isFinite(candidateWidth) &&
+					Number.isFinite(candidateHeight) &&
+					(!width || candidateWidth > width)
+				) {
+					width = candidateWidth;
+					height = candidateHeight;
+				}
+			}
 			const lowestBitratePlaylist = manifest.playlists.reduce(
 				(acc, cur) => {
 					if ((cur.attributes?.BANDWIDTH ?? 0) < (acc.attributes?.BANDWIDTH ?? 0)) {
@@ -98,6 +118,8 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 			description: `Full Link: ${url.href}`,
 			mime: "application/x-mpegURL",
 			length: duration,
+			width,
+			height,
 			hls_url: url.href,
 		};
 	}

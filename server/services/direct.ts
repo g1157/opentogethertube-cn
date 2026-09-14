@@ -25,6 +25,8 @@ const DIRECT_MEDIA_URL_REGEX =
 interface ProbedStream {
 	codec_type?: string;
 	disposition?: { attached_pic?: number };
+	width?: number;
+	height?: number;
 }
 
 function isVideoStream(stream: ProbedStream): boolean {
@@ -208,6 +210,7 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 		const title =
 			fileInfo.format?.tags?.title ??
 			decodeURIComponent(fileName).slice(0, -extension.length - 1);
+		const videoStream = (fileInfo.streams as ProbedStream[] | undefined)?.find(isVideoStream);
 		const video: Video = {
 			service: this.serviceId,
 			id: link,
@@ -215,6 +218,8 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 			description: `Full Link: ${link}`,
 			mime,
 			length: duration,
+			width: videoStream?.width,
+			height: videoStream?.height,
 		};
 
 		return video;

@@ -59,6 +59,7 @@ function baseInput(overrides: Partial<PlayerStatsInput> = {}): PlayerStatsInput 
 			sourceService: "hls",
 		},
 		settings: { upscaleMode: "sharpen", upscaleScale: "auto", upscaleAutoDegrade: true },
+		enhancement: { target: null, error: null },
 		device: {
 			dpr: 1,
 			viewportWidth: 2560,

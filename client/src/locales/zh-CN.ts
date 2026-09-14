@@ -223,12 +223,13 @@ export default {
 			anime4k: "AI 超分（Anime4K）",
 			"anime4k-quality": "AI 超分（质量）",
 			"webgpu-fallback": "此设备不支持 WebGPU，已切换为「清晰化」。",
+			"anime4k-fallback": "AI 超分无法运行，已切换为「清晰化」。",
 			"anime4k-quality-fallback": "「质量」档无法启用，已切换为「AI 超分」。",
 			failed: "无法启用画质增强，已关闭。",
 			degraded: "设备性能不足，画质增强已降低。",
 			"intro-toggle": "画质增强说明",
 			"intro-sharpen":
-				"清晰化：GPU 边缘自适应放大（EASU）加锐化，所有设备都能用；倍率贴合显示尺寸且不低于原分辨率，最省电。",
+				"清晰化：GPU 边缘自适应放大（EASU）加锐化，所有设备都能用；倍率贴合显示尺寸且不低于原分辨率，最省电。效果偏轻微，低分辨率或发糊的片源更明显。",
 			"intro-anime4k":
 				"AI 超分（Anime4K）：用 WebGPU 神经网络重建线条，适合动漫；独立显卡余量充足，集显和手机可能吃力。",
 			"intro-anime4k-quality":
@@ -433,6 +434,9 @@ export default {
 			label: "强制使用适配器",
 			auto: "自动检测",
 		},
+		"same-series": "同剧集：还找到 {count} 集",
+		"same-series-add": "加入队列",
+		"render-target": "渲染后画质：{size}（{scale}×）",
 	},
 	"processed-text": {
 		"link-hint": "点击复制此链接到添加标签页。",
@@ -804,6 +808,8 @@ export default {
 			drift: "与房间偏差",
 			mode: "增强模式",
 			"render-target": "渲染目标",
+			"enhancement-target": "增强渲染中",
+			"enhancement-error": "增强错误",
 			"auto-degrade": "自动降档",
 			"max-scale": "增强倍率上限",
 			viewport: "视口 / DPR",

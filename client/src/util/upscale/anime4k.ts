@@ -5,6 +5,7 @@
 // Two presets are exposed: "fast" (Mode A: restore, then one x2 upscale) and "quality"
 // (Mode A+A: the same twice, the highest perceptual quality the port offers).
 import type { Anime4KPipeline } from "anime4k-webgpu";
+import { reportEnhancementError, reportEnhancementTarget } from "./status";
 
 export interface UpscaleRenderer {
 	stop(): void;
@@ -59,6 +60,8 @@ export async function startAnime4KRenderer(
 	video: HTMLVideoElement,
 	canvas: HTMLCanvasElement,
 	variant: Anime4KVariant = "fast",
+	/** Called when WebGPU stops the tier on its own: a lost device or a failed setup. */
+	onFatal?: (message: string) => void,
 ): Promise<UpscaleRenderer> {
 	if (video.readyState < video.HAVE_FUTURE_DATA) {
 		await new Promise<void>(resolve => {
@@ -68,11 +71,18 @@ export async function startAnime4KRenderer(
 	const width = video.videoWidth;
 	const height = video.videoHeight;
 
-	const adapter = await navigator.gpu.requestAdapter();
+	// Some implementations only hand out an adapter when performance is requested.
+	const adapter =
+		(await navigator.gpu.requestAdapter({ powerPreference: "high-performance" })) ??
+		(await navigator.gpu.requestAdapter());
 	if (!adapter) {
 		throw new Error("WebGPU adapter unavailable");
 	}
 	const device = await adapter.requestDevice();
+	// WebGPU reports most setup mistakes through error scopes instead of exceptions. A
+	// browser with a partial implementation would otherwise keep "rendering" with
+	// nothing on screen and never let the layer fall back to a tier that works.
+	device.pushErrorScope("validation");
 	// @webgpu/types supplies the WebGPU globals; the DOM lib has no overload for this context id.
 	const context = canvas.getContext("webgpu") as GPUCanvasContext | null;
 	if (!context) {
@@ -133,8 +143,36 @@ export async function startAnime4KRenderer(
 		],
 	});
 
+	const validationError = await device.popErrorScope();
+	if (validationError) {
+		device.destroy();
+		throw new Error(`WebGPU rejected the ${variant} pipeline: ${validationError.message}`);
+	}
+
 	let frameRequest = 0;
 	let stopped = false;
+	let frames = 0;
+
+	const fail = (message: string) => {
+		console.error(`[video-enhancement] ${message}`);
+		reportEnhancementError(message);
+		onFatal?.(message);
+	};
+
+	void device.lost.then(info => {
+		if (stopped) {
+			return;
+		}
+		stopped = true;
+		video.cancelVideoFrameCallback(frameRequest);
+		fail(`WebGPU device lost (${info.reason})${info.message ? `: ${info.message}` : ""}`);
+	});
+	device.onuncapturederror = event => {
+		// The tier may still be drawing, so this only records the cause; the playback
+		// details panel shows it, and the console keeps the full message.
+		console.error("[video-enhancement] uncaptured WebGPU error:", event.error.message);
+		reportEnhancementError(event.error.message);
+	};
 
 	const frame = () => {
 		if (stopped) {
@@ -164,6 +202,13 @@ export async function startAnime4KRenderer(
 		passEncoder.draw(6);
 		passEncoder.end();
 		device.queue.submit([commandEncoder.finish()]);
+		if (frames === 0) {
+			console.info(
+				`[video-enhancement] Anime4K ${variant} drawing ${canvas.width}×${canvas.height} from ${width}×${height}`,
+			);
+			reportEnhancementTarget(`Anime4K ${variant} · ${canvas.width}×${canvas.height}`);
+		}
+		frames++;
 		frameRequest = video.requestVideoFrameCallback(frame);
 	};
 	frameRequest = video.requestVideoFrameCallback(frame);

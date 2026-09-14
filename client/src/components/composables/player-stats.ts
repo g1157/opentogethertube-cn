@@ -3,6 +3,7 @@ import { calculateCurrentPosition } from "ott-common/timestamp";
 import { useStore } from "@/store";
 import type { UpscaleMode } from "@/stores/settings";
 import { MAX_SCALE, computeCanvasSize } from "@/util/upscale/scale";
+import { enhancementTarget, lastEnhancementError } from "@/util/upscale/status";
 
 export interface PlayerStatsRow {
 	labelKey: string;
@@ -35,6 +36,11 @@ export interface PlayerStatsInput {
 		upscaleMode: UpscaleMode;
 		upscaleScale: number | "auto";
 		upscaleAutoDegrade: boolean;
+	};
+	/** What the enhancement driver reports, for diagnosing a tier that cannot run. */
+	enhancement: {
+		target: string | null;
+		error: string | null;
 	};
 	device: {
 		dpr: number;
@@ -206,6 +212,18 @@ export function collectPlayerStats(input: PlayerStatsInput): PlayerStatsSection[
 			valueKey: input.settings.upscaleAutoDegrade ? "common.on" : "common.off",
 		},
 	];
+	if (input.enhancement.target) {
+		enhancementRows.push({
+			labelKey: "player.stats.enhancement-target",
+			value: input.enhancement.target,
+		});
+	}
+	if (input.enhancement.error) {
+		enhancementRows.push({
+			labelKey: "player.stats.enhancement-error",
+			value: input.enhancement.error,
+		});
+	}
 
 	const webgpuRow: PlayerStatsRow = input.device.gpuName
 		? { labelKey: "player.stats.webgpu", value: input.device.gpuName }
@@ -302,6 +320,10 @@ export function usePlayerStats(
 				upscaleMode: store.state.settings.upscaleMode,
 				upscaleScale: store.state.settings.upscaleScale,
 				upscaleAutoDegrade: store.state.settings.upscaleAutoDegrade,
+			},
+			enhancement: {
+				target: enhancementTarget.value,
+				error: lastEnhancementError.value,
 			},
 			device: {
 				dpr: typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,

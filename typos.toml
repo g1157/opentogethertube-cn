@@ -6,10 +6,14 @@ guage = "gauge"
 AVOD = "AVOD"
 ser = "ser"
 seeked = "seeked"
+# GLSL's storage qualifier, used by the EASU port in client/src/util/upscale/cas.ts
+inout = "inout"
 # google drive misspelled this in their API
 aknowledge = "aknowledge"
 # Odysee
 Ody = "Ody"
+# The Discord music bot the voice docs cite by name
+Rythm = "Rythm"
 
 [type.css]
 extend-glob = ["*.css"]

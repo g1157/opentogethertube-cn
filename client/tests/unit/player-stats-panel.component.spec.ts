@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import PlayerStatsDialog from "@/components/PlayerStatsDialog.vue";
+import { describe, expect, it, vi } from "vitest";
+import PlayerStatsPanel from "@/components/PlayerStatsPanel.vue";
 import { mountComponent } from "./component-test-utils";
 
 function fakeVideo(): HTMLVideoElement {
@@ -30,24 +30,38 @@ function fakeVideo(): HTMLVideoElement {
 
 describe("playback details panel", () => {
 	it("renders the live video data while it is open", async () => {
-		mountComponent(PlayerStatsDialog, {
-			props: { modelValue: true, videoElement: fakeVideo() },
+		const { wrapper } = mountComponent(PlayerStatsPanel, {
+			props: { videoElement: fakeVideo() },
 		});
 		await Promise.resolve();
 
-		const text = document.body.textContent ?? "";
+		const text = wrapper.text();
 		expect(text).toContain("视频详情");
 		expect(text).toContain("分辨率");
 		expect(text).toContain("1280×720");
 		expect(text).toContain("播放中");
-		expect(text).toContain("右键");
 	});
 
 	it("says so when the current player has no video element", async () => {
-		mountComponent(PlayerStatsDialog, { props: { modelValue: true } });
+		const { wrapper } = mountComponent(PlayerStatsPanel, { props: {} });
 		await Promise.resolve();
 
-		const text = document.body.textContent ?? "";
-		expect(text).toContain("嵌入播放器");
+		expect(wrapper.text()).toContain("嵌入播放器");
+	});
+
+	it("closes from its own button", async () => {
+		// The overlay itself is pointer-events: none (see the component styles) so the
+		// picture and the playback gestures underneath stay reachable; only this button
+		// takes clicks, and it opens no modal, so playback never pauses.
+		const onClose = vi.fn();
+		const { wrapper } = mountComponent(PlayerStatsPanel, {
+			props: { videoElement: fakeVideo() },
+			attrs: { onClose },
+		});
+		await Promise.resolve();
+
+		expect(wrapper.find(".player-stats-close").exists()).toBe(true);
+		await wrapper.find(".player-stats-close").trigger("click");
+		expect(onClose).toHaveBeenCalled();
 	});
 });

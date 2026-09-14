@@ -191,6 +191,32 @@ describe("enhancement layer lifecycle", () => {
 		expect(store.state.settings.upscaleMode).toBe("anime4k");
 	});
 
+	it("steps down when the driver gives up after starting", async () => {
+		// WebGPU can fail asynchronously (a lost device, a validation error caught by the
+		// error scope). Without this the tier would leave a dead canvas on screen.
+		let fatal: ((message: string) => void) | undefined;
+		drivers.anime4k.mockImplementationOnce(
+			(
+				_video: unknown,
+				_canvas: unknown,
+				_variant: unknown,
+				onFatal: (m: string) => void,
+			) => {
+				fatal = onFatal;
+				return Promise.resolve(renderer());
+			},
+		);
+		const { video } = fakeVideo();
+		const { store } = mountComponent(UpscaleLayer, { props: { video, mode: "anime4k" } });
+		await settle();
+
+		expect(fatal).toBeTypeOf("function");
+		fatal?.("WebGPU device lost (destroyed)");
+		await settle();
+
+		expect(store.state.settings.upscaleMode).toBe("sharpen");
+	});
+
 	it("still steps down when playback is genuinely slow", async () => {
 		const { video, fire } = fakeVideo();
 		const { store } = mountComponent(UpscaleLayer, {

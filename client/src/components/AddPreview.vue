@@ -163,6 +163,21 @@
 			:item="itemdata"
 			is-preview
 		/>
+		<div v-if="seriesEpisodes.length > 0" class="same-series" data-cy="same-series">
+			<div class="same-series-label">
+				{{ $t("add-preview.same-series", { count: seriesEpisodes.length }) }}
+			</div>
+			<div class="same-series-list">{{ seriesTitles }}</div>
+			<v-btn
+				size="small"
+				variant="tonal"
+				:loading="isLoadingAddAll"
+				data-cy="same-series-add"
+				@click="addAllToQueue(seriesEpisodes)"
+			>
+				{{ $t("add-preview.same-series-add") }}
+			</v-btn>
+		</div>
 	</div>
 </template>
 
@@ -185,6 +200,7 @@ import { ALL_VIDEO_SERVICES } from "ott-common/constants";
 import { isEdgePreview } from "@/edge-preview";
 import { getSearchEnabled } from "@/util/backend-status";
 import { serverErrorMessage } from "@/util/server-error";
+import { episodeTokenChoices, seriesKey, shiftToken } from "@/util/episode-series";
 
 const store = useStore();
 const { t } = useI18n();
@@ -193,6 +209,14 @@ const route = useRoute();
 const videos: Ref<Video[]> = ref([]);
 const isLoadingAddPreview = ref(false);
 const isAddPreviewSlow = ref(false);
+
+/** Episodes of the same series, found by probing the neighbouring numbers of the link. */
+const seriesEpisodes: Ref<Video[]> = ref([]);
+// biome-ignore lint/nursery/noVueRefAsOperand: the callback param shadows nothing; the ref is read through `.value`.
+const seriesTitles = computed(() => seriesEpisodes.value.map(v => v.title).join(" · "));
+const SERIES_PROBE_LIMIT = 4;
+const seriesCache = new Map<string, Video[]>();
+let seriesProbeGeneration = 0;
 const hasAddPreviewFailed = ref(false);
 const inputAddPreview = ref("");
 const searchEnabled = ref(true);
@@ -401,6 +425,7 @@ async function requestAddPreview() {
 			videos.value = res.data.result;
 			highlightedAddPreviewItem.value = res.data.highlighted;
 			console.log(`Got add preview with ${videos.value.length}`);
+			void probeSameSeries();
 		} else {
 			throw new Error(res.data.error.message);
 		}
@@ -465,10 +490,68 @@ async function requestAddPreviewExplicit() {
 	highlightedAddPreviewItem.value = undefined;
 	await requestAddPreview();
 }
-async function addAllToQueue() {
+async function fetchPreviewQuiet(input: string): Promise<Video[] | null> {
+	try {
+		const res = await API.get<OttResponseBody<OttApiResponseAddPreview>>(
+			`/data/previewAdd?input=${encodeURIComponent(input)}`,
+			{ timeout: 20_000 },
+		);
+		return res.data.success ? res.data.result : null;
+	} catch {
+		// Probing is a suggestion; a miss must not surface anywhere.
+		return null;
+	}
+}
+
+/**
+ * Quietly probe the neighbouring numbers of the link that just resolved, so the next
+ * episodes of the same series show up without anyone asking for them. The last
+ * episode-like number is tried first, then the one before it (folder layouts such as
+ * ".../2026/07/show/1/playlist.m3u8" put the episode after the date).
+ */
+async function probeSameSeries(): Promise<void> {
+	const generation = ++seriesProbeGeneration;
+	seriesEpisodes.value = [];
+	const input = inputAddPreview.value.trim();
+	// Playlists and searches already carry their own episode list.
+	if (isEdgePreview || !isAddPreviewInputUrl.value || videos.value.length !== 1) {
+		return;
+	}
+	const cached = seriesCache.get(seriesKey(input));
+	if (cached) {
+		seriesEpisodes.value = cached;
+		return;
+	}
+	for (const token of episodeTokenChoices(input)) {
+		const found: Video[] = [];
+		let misses = 0;
+		for (let step = 1; step <= SERIES_PROBE_LIMIT && misses < 2; step++) {
+			const candidate = shiftToken(input, token, step);
+			if (!candidate || candidate === input) {
+				break;
+			}
+			const preview = await fetchPreviewQuiet(candidate);
+			if (generation !== seriesProbeGeneration) {
+				return;
+			}
+			if (preview && preview.length > 0) {
+				found.push(preview[0]);
+			} else {
+				misses++;
+			}
+		}
+		if (found.length > 0) {
+			seriesCache.set(seriesKey(input), found);
+			seriesEpisodes.value = found;
+			return;
+		}
+	}
+}
+
+async function addAllToQueue(list: Video[] = videos.value) {
 	isLoadingAddAll.value = true;
 	try {
-		await API.post(`/room/${route.params.roomId}/queue`, { videos: videos.value });
+		await API.post(`/room/${route.params.roomId}/queue`, { videos: list });
 	} catch (err) {
 		console.error("Failed to add all videos to the queue", err);
 		const message =
@@ -488,6 +571,9 @@ async function addAllToQueue() {
 function onInputAddPreviewChange() {
 	cancelAddPreview();
 	hasAddPreviewFailed.value = false;
+	// A new link invalidates the episodes probed for the previous one.
+	seriesProbeGeneration++;
+	seriesEpisodes.value = [];
 	if (!inputAddPreview.value || _.trim(inputAddPreview.value).length === 0) {
 		videos.value = [];
 		highlightedAddPreviewItem.value = undefined;
@@ -565,5 +651,29 @@ function setAddPreviewText(text: string) {
 .adapter-select {
 	max-width: 200px;
 	margin-top: 8px;
+}
+
+/* A quiet suggestion of the neighbouring episodes of the link that was just resolved. */
+.same-series {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 6px;
+	margin-top: 12px;
+	padding: 10px 12px;
+	border: 1px solid var(--line-strong);
+	border-radius: 8px;
+	background: var(--card);
+}
+
+.same-series-label {
+	font-size: 0.8125rem;
+	font-weight: 600;
+}
+
+.same-series-list {
+	font-size: 0.75rem;
+	line-height: 1.5;
+	opacity: 0.7;
 }
 </style>

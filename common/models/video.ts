@@ -13,6 +13,9 @@ export interface VideoMetadata {
 	length: number;
 	thumbnail: string;
 	mime: string;
+	/** Source resolution in pixels, when the adapter could read it. */
+	width?: number;
+	height?: number;
 	highlight?: true;
 	hls_url?: string;
 	dash_url?: string;

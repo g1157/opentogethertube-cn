@@ -227,13 +227,14 @@ export default {
 			anime4k: "AI upscale (Anime4K)",
 			"anime4k-quality": "AI upscale (quality)",
 			"webgpu-fallback": "WebGPU is unavailable here; switched to Sharpen.",
+			"anime4k-fallback": "AI upscale could not run; switched to Sharpen.",
 			"anime4k-quality-fallback":
 				"The quality tier could not start; switched to the fast AI upscale.",
 			failed: "Could not enable video enhancement; it was turned off.",
 			degraded: "Performance is too low; video enhancement was reduced.",
 			"intro-toggle": "What these tiers do",
 			"intro-sharpen":
-				"Sharpen: GPU edge-adaptive upscaling (EASU) plus sharpening, available everywhere. It follows the displayed size, never renders below the source, and costs the least power.",
+				"Sharpen: GPU edge-adaptive upscaling (EASU) plus sharpening, available everywhere. It follows the displayed size, never renders below the source, and costs the least power. The effect is subtle — most visible on low-resolution or soft sources.",
 			"intro-anime4k":
 				"AI upscale (Anime4K): a WebGPU neural network rebuilds lines, best on anime. A discrete GPU has plenty of headroom; integrated graphics and phones may struggle.",
 			"intro-anime4k-quality":
@@ -443,6 +444,9 @@ export default {
 			label: "Force adapter",
 			auto: "Auto-detect",
 		},
+		"same-series": "Same series: {count} more found",
+		"same-series-add": "Add to queue",
+		"render-target": "Renders at: {size} ({scale}×)",
 	},
 	"processed-text": {
 		"link-hint": "Click to copy this link to the add tab.",
@@ -835,6 +839,8 @@ export default {
 			drift: "Room drift",
 			mode: "Enhancement mode",
 			"render-target": "Render target",
+			"enhancement-target": "Enhancement output",
+			"enhancement-error": "Enhancement error",
 			"auto-degrade": "Auto-degrade",
 			"max-scale": "Max render scale",
 			viewport: "Viewport / DPR",

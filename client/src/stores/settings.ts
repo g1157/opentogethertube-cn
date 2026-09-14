@@ -26,7 +26,11 @@ export function enhancementLayerMode(mode: UpscaleMode): Exclude<UpscaleMode, "o
 export const UPSCALE_SCALES = ["auto", 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3] as const;
 export const MIN_UPSCALE_STRENGTH = 0.4;
 export const MAX_UPSCALE_STRENGTH = 1.2;
-export const DEFAULT_UPSCALE_STRENGTH = 0.75;
+/**
+ * The shader clamps every sharpened pixel to its neighbourhood, so the top of the range
+ * cannot halo; the default sits high enough that the tier is actually visible.
+ */
+export const DEFAULT_UPSCALE_STRENGTH = 0.9;
 /** What phones start on, so the first run is not a stutter the guard has to undo. */
 export const PHONE_UPSCALE_STRENGTH = 0.4;
 

@@ -13,6 +13,7 @@ import { useStore } from "@/store";
 import type { SettingsState } from "@/stores/settings";
 import { computeCanvasSize } from "@/util/upscale/scale";
 import type { UpscaleRenderer } from "@/util/upscale/upscale-renderer";
+import { reportEnhancementError, reportEnhancementTarget } from "@/util/upscale/status";
 import toast from "@/util/toast";
 
 const props = defineProps<{
@@ -222,6 +223,41 @@ function stopRenderers() {
 	}
 }
 
+/**
+ * Where to go when the current tier cannot run, and what to tell the viewer. Each
+ * WebGPU tier falls back to the next lighter one before giving up the enhancement.
+ */
+function failureFallback(): { settings: Partial<SettingsState>; message: string } {
+	if (props.mode === "anime4k-quality") {
+		return {
+			settings: { upscaleMode: "anime4k" },
+			message: "room.upscale.anime4k-quality-fallback",
+		};
+	}
+	if (props.mode === "anime4k") {
+		return {
+			settings: { upscaleMode: "sharpen" },
+			// Only claim a missing WebGPU when it is really missing; anything else is the
+			// tier failing, and the reason is kept for the playback details panel.
+			message:
+				"gpu" in navigator
+					? "room.upscale.anime4k-fallback"
+					: "room.upscale.webgpu-fallback",
+		};
+	}
+	return { settings: { upscaleMode: "off" }, message: "room.upscale.failed" };
+}
+
+function fallBackFromFailure(): void {
+	const { settings, message } = failureFallback();
+	toast.add({
+		style: ToastStyle.Error,
+		content: i18n.global.t(message),
+		duration: 6000,
+	});
+	store.commit("settings/UPDATE", settings);
+}
+
 async function start() {
 	stopRenderers();
 	const video = props.video;
@@ -249,6 +285,15 @@ async function start() {
 				video,
 				element,
 				props.mode === "anime4k-quality" ? "quality" : "fast",
+				message => {
+					// WebGPU gave up on its own: a lost device, or a validation failure the
+					// error scope caught. Step down instead of leaving a dead canvas.
+					if (current !== generation) {
+						return;
+					}
+					reportEnhancementError(message);
+					fallBackFromFailure();
+				},
 			);
 		} else {
 			const { startSharpenRenderer } = await import("@/util/upscale/cas");
@@ -263,26 +308,8 @@ async function start() {
 		if (current !== generation) {
 			return;
 		}
-		// Each WebGPU tier falls back to the next lighter one before giving up the
-		// enhancement: the heavy chain to the fast preset, the fast preset to sharpen.
-		let fallback: Partial<SettingsState>;
-		let message: string;
-		if (props.mode === "anime4k-quality") {
-			fallback = { upscaleMode: "anime4k" };
-			message = "room.upscale.anime4k-quality-fallback";
-		} else if (props.mode === "anime4k") {
-			fallback = { upscaleMode: "sharpen" };
-			message = "room.upscale.webgpu-fallback";
-		} else {
-			fallback = { upscaleMode: "off" };
-			message = "room.upscale.failed";
-		}
-		toast.add({
-			style: ToastStyle.Error,
-			content: i18n.global.t(message),
-			duration: 6000,
-		});
-		store.commit("settings/UPDATE", fallback);
+		reportEnhancementError(err instanceof Error ? err.message : String(err));
+		fallBackFromFailure();
 		return;
 	}
 	if (current !== generation) {
@@ -291,6 +318,10 @@ async function start() {
 	}
 	renderer = created;
 	canvas = element;
+	// A tier that started cleanly clears the last failure; the panel shows whichever
+	// cause is still current.
+	reportEnhancementError(null);
+	reportEnhancementTarget(null);
 	updateCaptions();
 	captionTimer = setInterval(updateCaptions, 250);
 	monitorWindowStart = 0;
