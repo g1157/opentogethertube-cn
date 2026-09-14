@@ -77,11 +77,11 @@ export default class DashVideoAdapter extends ServiceAdapter {
 		let width: number | undefined;
 		let height: number | undefined;
 		const periods = [manifest["MPD"]?.["Period"]].flat().filter(Boolean);
-		for (const period of periods as any[]) {
+		for (const period of periods ) {
 			const adaptationSets = [period["AdaptationSet"]].flat().filter(Boolean);
-			for (const adaptationSet of adaptationSets as any[]) {
+			for (const adaptationSet of adaptationSets ) {
 				const representations = [adaptationSet["Representation"]].flat().filter(Boolean);
-				for (const representation of representations as any[]) {
+				for (const representation of representations ) {
 					const candidateWidth = Number(representation["@width"]);
 					const candidateHeight = Number(representation["@height"]);
 					if (
