@@ -24,7 +24,7 @@
 		<UpscaleLayer
 			v-if="upscaleMode !== 'off'"
 			:video="videoElem"
-			:mode="upscaleMode === 'anime4k' ? 'anime4k' : 'sharpen'"
+			:mode="enhancementLayerMode(upscaleMode)"
 		/>
 	</div>
 	<div id="dashplayer-ttml-rendering" ref="ttlmCaption"></div>
@@ -47,6 +47,7 @@ import type {
 import { useCaptions, useMediaAudioBoost, useQualities } from "../composables";
 import UpscaleLayer from "./UpscaleLayer.vue";
 import { useStore } from "@/store";
+import { enhancementLayerMode } from "@/stores/settings";
 
 interface Props {
 	videoUrl: string;
@@ -529,6 +530,7 @@ watch(videoUrl, () => {
 
 defineExpose({
 	supportsRateBend: true,
+	getVideoElement: () => videoElem.value,
 	retry,
 	play,
 	pause,

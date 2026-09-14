@@ -68,6 +68,11 @@ export interface MediaPlayer {
 	retry?(): void | Promise<void>;
 	isSeeking?(): boolean;
 	isRecovering?(): boolean;
+	/**
+	 * The underlying video element, when the player owns one. The playback details
+	 * panel reads live statistics from it; iframe players (YouTube, Vimeo) have none.
+	 */
+	getVideoElement?(): HTMLVideoElement | undefined;
 
 	isCaptionsSupported(): boolean;
 	isQualitySupported(): boolean;

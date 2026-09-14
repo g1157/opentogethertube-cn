@@ -17,7 +17,7 @@ import toast from "@/util/toast";
 
 const props = defineProps<{
 	video?: HTMLVideoElement;
-	mode: "sharpen" | "anime4k";
+	mode: "sharpen" | "anime4k" | "anime4k-quality";
 }>();
 
 const store = useStore();
@@ -25,7 +25,7 @@ const canvasHost = ref<HTMLElement | null>(null);
 const captionElem = ref<HTMLElement | null>(null);
 
 // Degrade ladder, walked one rung per monitoring window.
-const SCALE_STEPS = [2, 1.5, 1, 0.75, 0.5, 0.25] as const;
+const SCALE_STEPS = [3, 2.5, 2, 1.5, 1, 0.75, 0.5, 0.25] as const;
 // A gap this long between presented frames means nothing was being drawn — a pause, a
 // seek, a rebuffer or a backgrounded tab. That time says nothing about the device, so
 // the measurement restarts instead of scoring it as an abysmal frame rate. Judging needs
@@ -161,6 +161,11 @@ function pickDegradeStep(
 	video: HTMLVideoElement,
 	target: HTMLCanvasElement,
 ): Partial<SettingsState> {
+	if (props.mode === "anime4k-quality") {
+		// The heavy A+A chain gives way first: the fast preset keeps the same upscale
+		// for about half the GPU cost.
+		return { upscaleMode: "anime4k" };
+	}
 	if (props.mode === "anime4k") {
 		// The CNN runs at the source resolution, so shrinking the render target buys
 		// almost nothing; switching to the cheap pass is the step that actually helps.
@@ -231,7 +236,7 @@ async function start() {
 	// nothing holds a reference to stop it and its frame loop and device leak.
 	let created: UpscaleRenderer | null = null;
 	try {
-		if (props.mode === "anime4k") {
+		if (props.mode === "anime4k" || props.mode === "anime4k-quality") {
 			if (!("gpu" in navigator)) {
 				throw new Error("WebGPU unavailable");
 			}
@@ -240,7 +245,11 @@ async function start() {
 				// Skip building a GPU device only to throw it away.
 				return;
 			}
-			created = await startAnime4KRenderer(video, element);
+			created = await startAnime4KRenderer(
+				video,
+				element,
+				props.mode === "anime4k-quality" ? "quality" : "fast",
+			);
 		} else {
 			const { startSharpenRenderer } = await import("@/util/upscale/cas");
 			created = startSharpenRenderer(
@@ -254,13 +263,26 @@ async function start() {
 		if (current !== generation) {
 			return;
 		}
-		const webgpu = props.mode === "anime4k";
+		// Each WebGPU tier falls back to the next lighter one before giving up the
+		// enhancement: the heavy chain to the fast preset, the fast preset to sharpen.
+		let fallback: Partial<SettingsState>;
+		let message: string;
+		if (props.mode === "anime4k-quality") {
+			fallback = { upscaleMode: "anime4k" };
+			message = "room.upscale.anime4k-quality-fallback";
+		} else if (props.mode === "anime4k") {
+			fallback = { upscaleMode: "sharpen" };
+			message = "room.upscale.webgpu-fallback";
+		} else {
+			fallback = { upscaleMode: "off" };
+			message = "room.upscale.failed";
+		}
 		toast.add({
 			style: ToastStyle.Error,
-			content: i18n.global.t(webgpu ? "room.upscale.webgpu-fallback" : "room.upscale.failed"),
+			content: i18n.global.t(message),
 			duration: 6000,
 		});
-		store.commit("settings/UPDATE", { upscaleMode: webgpu ? "sharpen" : "off" });
+		store.commit("settings/UPDATE", fallback);
 		return;
 	}
 	if (current !== generation) {

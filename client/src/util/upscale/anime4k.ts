@@ -2,11 +2,15 @@
 /* global GPUCanvasContext, GPUDevice, GPUShaderStage, GPUTextureUsage */
 // Stoppable Anime4K WebGPU driver, adapted from Anime4K-WebGPU (MIT, Anime4KWebBoost)
 // so that tier switches and unmounts can cancel the render loop and free the device.
+// Two presets are exposed: "fast" (Mode A: restore, then one x2 upscale) and "quality"
+// (Mode A+A: the same twice, the highest perceptual quality the port offers).
 import type { Anime4KPipeline } from "anime4k-webgpu";
 
 export interface UpscaleRenderer {
 	stop(): void;
 }
+
+export type Anime4KVariant = "fast" | "quality";
 
 const fullscreenTexturedQuadWGSL = `
 struct VertexOutput {
@@ -54,6 +58,7 @@ fn main(@location(0) fragUV : vec2f) -> @location(0) vec4f {
 export async function startAnime4KRenderer(
 	video: HTMLVideoElement,
 	canvas: HTMLCanvasElement,
+	variant: Anime4KVariant = "fast",
 ): Promise<UpscaleRenderer> {
 	if (video.readyState < video.HAVE_FUTURE_DATA) {
 		await new Promise<void>(resolve => {
@@ -77,7 +82,7 @@ export async function startAnime4KRenderer(
 	const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
 	context.configure({ device, format: presentationFormat, alphaMode: "premultiplied" });
 
-	const { ModeA } = await import("anime4k-webgpu");
+	const { ModeA, ModeAA } = await import("anime4k-webgpu");
 
 	const videoFrameTexture = device.createTexture({
 		size: [width, height, 1],
@@ -88,7 +93,9 @@ export async function startAnime4KRenderer(
 			GPUTextureUsage.RENDER_ATTACHMENT,
 	});
 
-	const preset = new ModeA({
+	// A+A chains a second restore and upscale pass, which is what the "quality" tier sells.
+	const Preset = variant === "quality" ? ModeAA : ModeA;
+	const preset = new Preset({
 		device,
 		inputTexture: videoFrameTexture,
 		nativeDimensions: { width, height },

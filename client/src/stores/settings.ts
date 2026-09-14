@@ -7,9 +7,23 @@ export const CHAT_OVERLAY_SECONDS_OPTIONS = [0, 3, 5, 10, 20] as const;
 export const ROOM_NOTICE_SECONDS_OPTIONS = [0, 1, 2, 3, 5, 10, 20] as const;
 export const CONTROLS_HIDE_SECONDS_OPTIONS = [2, 3, 5, 10] as const;
 export const HLS_BUFFER_SECONDS_OPTIONS = [30, 60, 120] as const;
-export const UPSCALE_MODES = ["off", "sharpen", "anime4k"] as const;
+export const UPSCALE_MODES = ["off", "sharpen", "anime4k", "anime4k-quality"] as const;
+/**
+ * "anime4k-quality" runs the heavier A+A preset (Restore -> Upscale -> Restore -> Upscale)
+ * instead of the fast one. Same upscale, roughly double the GPU cost, WebGPU only.
+ */
+export type UpscaleMode = (typeof UPSCALE_MODES)[number];
+
+/**
+ * What the enhancement layer renders. "off" never mounts the layer, so the layer only
+ * ever sees the three rendering tiers.
+ */
+export function enhancementLayerMode(mode: UpscaleMode): Exclude<UpscaleMode, "off"> {
+	return mode === "anime4k" || mode === "anime4k-quality" ? mode : "sharpen";
+}
+
 /** Render multipliers for the enhancement canvas; "auto" follows the displayed box. */
-export const UPSCALE_SCALES = ["auto", 0.25, 0.5, 0.75, 1, 1.5, 2] as const;
+export const UPSCALE_SCALES = ["auto", 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3] as const;
 export const MIN_UPSCALE_STRENGTH = 0.4;
 export const MAX_UPSCALE_STRENGTH = 1.2;
 export const DEFAULT_UPSCALE_STRENGTH = 0.75;
@@ -33,7 +47,7 @@ export interface SettingsState {
 	seekNoticeSeconds: (typeof ROOM_NOTICE_SECONDS_OPTIONS)[number];
 	controlsHideSeconds: (typeof CONTROLS_HIDE_SECONDS_OPTIONS)[number];
 	hlsBufferSeconds: (typeof HLS_BUFFER_SECONDS_OPTIONS)[number];
-	upscaleMode: (typeof UPSCALE_MODES)[number];
+	upscaleMode: UpscaleMode;
 	upscaleStrength: number;
 	upscaleScale: (typeof UPSCALE_SCALES)[number];
 	upscaleAutoDegrade: boolean;

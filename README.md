@@ -46,6 +46,8 @@ Cloudflare，使用免费的 `workers.dev` 地址；适合以视频直链观看�
 | 播放器操作与「一直缓冲」排查 | [docs/player-interactions.zh-CN.md](docs/player-interactions.zh-CN.md) |
 | 同步与速率微调 | [docs/playback-sync.zh-CN.md](docs/playback-sync.zh-CN.md) |
 | 缓冲联动（一起等待） | [docs/buffer-gate.zh-CN.md](docs/buffer-gate.zh-CN.md) |
+| 画质增强与渲染倍率 | [docs/video-enhancement.zh-CN.md](docs/video-enhancement.zh-CN.md) |
+| 播放详情（视频数据面板） | [docs/player-stats.zh-CN.md](docs/player-stats.zh-CN.md) |
 | 大 MP4 解析与探测策略 | [docs/media-parsing.zh-CN.md](docs/media-parsing.zh-CN.md) |
 | 安全响应头与 CSP | [docs/security-headers.zh-CN.md](docs/security-headers.zh-CN.md) |
 | Cloudflare 额度与费用 | [docs/cloudflare-quotas.zh-CN.md](docs/cloudflare-quotas.zh-CN.md) |

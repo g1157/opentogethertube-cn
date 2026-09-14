@@ -163,6 +163,34 @@ describe("enhancement layer lifecycle", () => {
 		expect(store.state.settings.upscaleScale).toBe("auto");
 	});
 
+	it("runs the heavy preset for the quality tier and the fast one otherwise", async () => {
+		const quality = fakeVideo();
+		mountComponent(UpscaleLayer, { props: { video: quality.video, mode: "anime4k-quality" } });
+		await settle();
+		expect(drivers.anime4k).toHaveBeenCalledTimes(1);
+		expect(drivers.anime4k.mock.calls[0][2]).toBe("quality");
+
+		const fast = fakeVideo();
+		mountComponent(UpscaleLayer, { props: { video: fast.video, mode: "anime4k" } });
+		await settle();
+		expect(drivers.anime4k.mock.calls[1][2]).toBe("fast");
+	});
+
+	it("drops the quality tier to the fast preset before touching the scale", async () => {
+		// The heavy chain is the first thing to give up: same upscale, about half the cost.
+		const { video, fire } = fakeVideo();
+		const { store } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "anime4k-quality" },
+		});
+		await settle();
+
+		for (let i = 0; i < 80; i++) {
+			fire(100);
+		}
+
+		expect(store.state.settings.upscaleMode).toBe("anime4k");
+	});
+
 	it("still steps down when playback is genuinely slow", async () => {
 		const { video, fire } = fakeVideo();
 		const { store } = mountComponent(UpscaleLayer, {
@@ -175,9 +203,9 @@ describe("enhancement layer lifecycle", () => {
 			fire(100);
 		}
 
-		// The canvas was sized to 1280x720 for a 1920x1080 source, i.e. 0.67x, so the next
-		// rung under it is 0.5.
-		expect(store.state.settings.upscaleScale).toBe(0.5);
+		// The canvas is sized to the source resolution (auto no longer undersamples),
+		// so the next rung under 1x is 0.75.
+		expect(store.state.settings.upscaleScale).toBe(0.75);
 	});
 
 	it("leaves the tier alone when the viewer turned auto-degrade off", async () => {

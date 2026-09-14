@@ -46,6 +46,7 @@ const shortcuts = [
 	["Home", "start"],
 	["End", "skip"],
 	["?", "help"],
+	["右键 / Right-click", "stats"],
 ];
 </script>
 

@@ -3,7 +3,7 @@ https://github.com/dyc3/opentogethertube/releases/tag/v0.15.0
 
 The upstream release tag still contains `0.14.1` in its workspace package.json files.
 The release tag, local Git history, and container image label identify this deployment.
-The current local branch/image version is `v0.15.0-cn10`; per-version notes live in
+The current local branch/image version is `v1.0.0`; per-version notes live in
 `docs/version-notes.zh-CN.md`.
 
 cn4 selectively ports the official visual overhaul (#2031) from master commit

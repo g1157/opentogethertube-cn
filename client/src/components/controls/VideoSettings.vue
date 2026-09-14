@@ -120,6 +120,9 @@
 						<v-list-item link :prepend-icon="mdiKeyboardOutline" @click="showShortcuts">
 							{{ $t("player.shortcuts.title") }}
 						</v-list-item>
+						<v-list-item link :prepend-icon="mdiInformationOutline" @click="showStats">
+							{{ $t("player.stats.title") }}
+						</v-list-item>
 					</v-list>
 
 					<v-list
@@ -293,6 +296,32 @@
 							{{ option.text }}
 						</v-list-item>
 
+						<v-list-item
+							link
+							data-cy="upscale-intro-toggle"
+							@click="showUpscaleIntro = !showUpscaleIntro"
+						>
+							<v-list-item-title>{{
+								$t("room.upscale.intro-toggle")
+							}}</v-list-item-title>
+							<template #append>
+								<v-icon :icon="showUpscaleIntro ? mdiChevronUp : mdiChevronDown" />
+							</template>
+						</v-list-item>
+
+						<v-list-item v-if="showUpscaleIntro">
+							<div class="upscale-intro">
+								<p>{{ $t("room.upscale.intro-sharpen") }}</p>
+								<p v-if="webgpuAvailable">{{ $t("room.upscale.intro-anime4k") }}</p>
+								<p v-if="webgpuAvailable">
+									{{ $t("room.upscale.intro-anime4k-quality") }}
+								</p>
+								<p class="upscale-intro-note">
+									{{ $t("room.upscale.intro-note") }}
+								</p>
+							</div>
+						</v-list-item>
+
 						<v-divider class="my-1" />
 
 						<v-list-item
@@ -369,6 +398,7 @@ import {
 	mdiChevronUp,
 	mdiChevronDown,
 	mdiKeyboardOutline,
+	mdiInformationOutline,
 } from "@mdi/js";
 import { getFriendlyResolutionLabel } from "@/util/misc";
 import type { VideoTrack, CaptionTrack } from "@/models/media-tracks";
@@ -388,7 +418,7 @@ import VolumeControl from "./VolumeControl.vue";
 import PlaybackRateSwitcher from "./PlaybackRateSwitcher.vue";
 
 defineProps<{ compact?: boolean }>();
-const emit = defineEmits(["show-shortcuts"]);
+const emit = defineEmits(["show-shortcuts", "show-stats"]);
 const store = useStore();
 const { t } = useI18n();
 
@@ -402,6 +432,7 @@ const upscaleOptions = computed(() => {
 	];
 	if (webgpuAvailable) {
 		options.push({ value: "anime4k", text: t("room.upscale.anime4k") });
+		options.push({ value: "anime4k-quality", text: t("room.upscale.anime4k-quality") });
 	}
 	return options;
 });
@@ -409,6 +440,7 @@ function selectUpscale(mode: UpscaleMode): void {
 	store.commit("settings/UPDATE", { upscaleMode: mode });
 }
 const showAdvancedUpscale = ref(false);
+const showUpscaleIntro = ref(false);
 const upscaleStrength = computed({
 	get: () => store.state.settings.upscaleStrength,
 	set: value => store.commit("settings/UPDATE", { upscaleStrength: value }),
@@ -507,6 +539,11 @@ watch(() => [store.state.fullscreen, store.state.settings.roomLayout], closeMenu
 function showShortcuts() {
 	closeMenu();
 	emit("show-shortcuts");
+}
+
+function showStats() {
+	closeMenu();
+	emit("show-stats");
 }
 
 const qualities = useQualities();
@@ -665,5 +702,19 @@ function selectSubtitleTrack(track: number): void {
 
 .menu-header {
 	font-weight: 500;
+}
+
+.upscale-intro {
+	p {
+		margin: 0 0 8px;
+		font-size: 0.8rem;
+		line-height: 1.6;
+		opacity: 0.85;
+	}
+
+	.upscale-intro-note {
+		margin-bottom: 0;
+		opacity: 0.6;
+	}
 }
 </style>

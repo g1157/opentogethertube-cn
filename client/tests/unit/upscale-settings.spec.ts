@@ -125,7 +125,7 @@ describe("video enhancement settings", () => {
 	});
 
 	it.each([
-		3,
+		2.2,
 		"3",
 		null,
 		"huge",
@@ -150,11 +150,32 @@ describe("video enhancement settings", () => {
 	it("accepts every scale the degrade ladder can store", async () => {
 		// The ladder writes these directly; a value it cannot read back would be reset
 		// to "auto" and the step would silently do nothing.
-		for (const scale of [0.25, 0.5, 0.75, 1, 1.5, 2, "auto"] as const) {
+		for (const scale of [0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, "auto"] as const) {
 			const store = newStore();
 			await store.dispatch("settings/load");
 			store.commit("settings/UPDATE", { upscaleScale: scale });
 			expect(store.state.settings.upscaleScale).toBe(scale);
 		}
+	});
+
+	it("persists every enhancement mode, including the heavy AI tier", async () => {
+		// The degrade ladder also writes anime4k when the quality tier gives way, so
+		// every value it can produce has to survive a reload.
+		for (const mode of ["sharpen", "anime4k", "anime4k-quality"] as const) {
+			saved.clear();
+			const first = newStore();
+			await first.dispatch("settings/load");
+			first.commit("settings/UPDATE", { upscaleMode: mode });
+			const next = newStore();
+			await next.dispatch("settings/load");
+			expect(next.state.settings.upscaleMode).toBe(mode);
+		}
+	});
+
+	it.each(["anime4k-ultra", 3, null])("rejects a damaged saved mode: %s", async upscaleMode => {
+		saved.set("settings", JSON.stringify({ upscaleMode }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.upscaleMode).toBe("off");
 	});
 });

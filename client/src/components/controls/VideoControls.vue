@@ -26,7 +26,11 @@
 				<div class="grow"><!-- Spacer --></div>
 				<ClosedCaptionsSwitcher v-if="!compact" />
 				<PlaybackRateSwitcher v-if="!compact" />
-				<VideoSettings :compact="compact" @show-shortcuts="emit('show-shortcuts')" />
+				<VideoSettings
+					:compact="compact"
+					@show-shortcuts="emit('show-shortcuts')"
+					@show-stats="emit('show-stats')"
+				/>
 				<PictureInPictureButton v-if="!compact" />
 				<LayoutSwitcher />
 			</div>
@@ -50,7 +54,7 @@ import { PlayerControlsActivityKey } from "@/util/player-controls";
 import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 import { useStore } from "@/store";
 
-const emit = defineEmits(["show-shortcuts", "resize"]);
+const emit = defineEmits(["show-shortcuts", "show-stats", "resize"]);
 const controlsBar = ref<HTMLElement | null>(null);
 useResizeObserver(controlsBar, entries => {
 	const height = entries[0]?.target.getBoundingClientRect().height;

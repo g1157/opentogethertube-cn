@@ -23,7 +23,7 @@
 		<UpscaleLayer
 			v-if="upscaleMode !== 'off'"
 			:video="videoElem"
-			:mode="upscaleMode === 'anime4k' ? 'anime4k' : 'sharpen'"
+			:mode="enhancementLayerMode(upscaleMode)"
 		/>
 	</div>
 </template>
@@ -33,6 +33,7 @@ import Hls from "hls.js";
 import { computed, onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
 import { useStore } from "@/store";
+import { enhancementLayerMode } from "@/stores/settings";
 import UpscaleLayer from "./UpscaleLayer.vue";
 import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
@@ -457,6 +458,7 @@ watch(
 
 defineExpose({
 	supportsRateBend: true,
+	getVideoElement: () => videoElem.value,
 	play,
 	pause,
 	setVolume,

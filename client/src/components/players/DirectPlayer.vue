@@ -38,7 +38,7 @@
 		<UpscaleLayer
 			v-if="upscaleMode !== 'off'"
 			:video="videoElem"
-			:mode="upscaleMode === 'anime4k' ? 'anime4k' : 'sharpen'"
+			:mode="enhancementLayerMode(upscaleMode)"
 		/>
 	</div>
 </template>
@@ -69,6 +69,7 @@ import type {
 import { useCaptions, useMediaAudioBoost, useQualities } from "../composables";
 import UpscaleLayer from "./UpscaleLayer.vue";
 import { useStore } from "@/store";
+import { enhancementLayerMode } from "@/stores/settings";
 
 interface Props {
 	service: string;
@@ -532,6 +533,7 @@ onBeforeUnmount(() => {
 
 defineExpose({
 	supportsRateBend: true,
+	getVideoElement: () => videoElem.value,
 	play,
 	pause,
 	setVolume,

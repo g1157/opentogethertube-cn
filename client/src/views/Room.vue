@@ -171,7 +171,7 @@
 							@pointercancel="gestures.pointerCancel"
 							@lostpointercapture="gestures.pointerCancel"
 							@pointerleave="gestures.pointerCancel"
-							@contextmenu.prevent
+							@contextmenu.prevent="statsOpen = true"
 							@click.prevent
 							@dblclick.stop.prevent
 						></div>
@@ -206,9 +206,11 @@
 							:key="currentSource?.id"
 							:mode="controlsMode"
 							@show-shortcuts="shortcutHelp = true"
+							@show-stats="statsOpen = true"
 							@resize="controlsHeight = $event"
 						/>
 						<PlayerShortcutsDialog v-model="shortcutHelp" />
+						<PlayerStatsDialog v-model="statsOpen" :video-element="statsVideoElement" />
 					</v-defaults-provider>
 				</div>
 				<div class="video-side">
@@ -470,6 +472,7 @@ import type { MediaLoadingState } from "@/util/media-loading-state";
 import { useTemporaryPlaybackSpeed } from "@/util/temporary-playback-speed";
 import { TEMPORARY_PLAYBACK_SPEED } from "ott-common/constants";
 import PlayerShortcutsDialog from "@/components/PlayerShortcutsDialog.vue";
+import PlayerStatsDialog from "@/components/PlayerStatsDialog.vue";
 import AppFooter from "@/components/AppFooter.vue";
 import { nowPlayingDetails } from "@/util/now-playing";
 import { useVoice } from "@/util/voice";
@@ -497,6 +500,7 @@ export default defineComponent({
 		RestoreQueue,
 		VoteSkip,
 		PlayerShortcutsDialog,
+		PlayerStatsDialog,
 		AppFooter,
 	},
 	setup() {
@@ -569,6 +573,8 @@ export default defineComponent({
 		const chatOpen = ref(false);
 		const chatDraft = ref("");
 		const shortcutHelp = ref(false);
+		const statsOpen = ref(false);
+		const statsVideoElement = computed(() => player.player.value?.getVideoElement?.());
 		const controlsHeight = ref(90);
 
 		// video control visibility
@@ -579,6 +585,7 @@ export default defineComponent({
 				mediaPlaybackBlocked.value ||
 				store.state.playerStatus === PlayerStatus.error ||
 				chatOpen.value ||
+				statsOpen.value ||
 				shortcutHelp.value,
 			() => store.state.settings.controlsHideSeconds,
 		);
@@ -1501,6 +1508,8 @@ export default defineComponent({
 			chatInside,
 			chatTarget,
 			shortcutHelp,
+			statsOpen,
+			statsVideoElement,
 			fullscreenOverlayDefaults,
 			videoControlsHideTimeout,
 			controlsMode,
