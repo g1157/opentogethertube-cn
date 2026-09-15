@@ -10,6 +10,7 @@ import { getLogger } from "../logger.js";
 import type { Video } from "ott-common/models/video.js";
 import { DashMPD } from "@liveinstantly/dash-mpd-parser";
 import axios from "axios";
+import { corsFromHeaders } from "./cors-probe.js";
 import { parseIso8601Duration } from "./parsing/iso8601.js";
 
 const log = getLogger("dash");
@@ -57,10 +58,14 @@ export default class DashVideoAdapter extends ServiceAdapter {
 		mpd.parse(resp.data);
 		const manifest = mpd.getJSON();
 
-		return this.parseMpdManifest(url, manifest);
+		return this.parseMpdManifest(
+			url,
+			manifest,
+			corsFromHeaders(resp.headers as Record<string, unknown>),
+		);
 	}
 
-	parseMpdManifest(url: URL.UrlWithStringQuery, manifest: any): Video {
+	parseMpdManifest(url: URL.UrlWithStringQuery, manifest: any, cors?: boolean): Video {
 		// docs for how the parser works: https://github.com/liveinstantly/dash-mpd-parser
 
 		log.debug(JSON.stringify(manifest));
@@ -105,6 +110,7 @@ export default class DashVideoAdapter extends ServiceAdapter {
 			length: duration,
 			width,
 			height,
+			cors,
 			dash_url: url.href,
 		};
 	}

@@ -3,6 +3,19 @@ import { createMediaSeek } from "./media-seek";
 
 const NETWORK_RETRY_DELAYS_MS = [1000, 3000, 6000];
 const RECOVERY_TIMEOUT_MS = 30000;
+/**
+ * A stall is playback that stops advancing: the element is neither paused nor seeking, but
+ * has too little buffered to continue. Bad ranges survive seeks — a browser will not
+ * re-fetch what it already buffered — so recovery has to fetch the same spot again.
+ */
+const STALL_TRIGGER_MS = 8000;
+const STALL_CHECK_INTERVAL_MS = 1000;
+/** Inside the room sync's 0.3s dead band, so a nudge is invisible and never fought over. */
+const STALL_NUDGE_SECONDS = 0.3;
+/** Last resort for a source genuinely missing this region; the viewer is told about it. */
+const STALL_SKIP_SECONDS = 3;
+/** Wider than a nudge, so a nudged playhead still counts as "the same spot". */
+const STALL_POSITION_EPSILON = 0.5;
 
 interface PlaybackSnapshot {
 	position: number;
@@ -14,6 +27,10 @@ interface MediaRecoveryOptions {
 	restart: (error: MediaPlayerError, manual: boolean) => void | Promise<void>;
 	onRecovering: () => void;
 	onError: (error: MediaPlayerError) => void;
+	/** Re-fetch the current position when the player can do better than a full reload. */
+	onStallRefetch?: () => boolean | void;
+	/** Called after the ladder had to move the playhead; the UI reports the jump. */
+	onStallSkip?: (skippedSeconds: number) => void;
 }
 
 /** A failed request must not turn into an endless reload loop for an expired or broken source. */
@@ -27,6 +44,11 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 	let generation = 0;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let lastError: MediaPlayerError = { type: "network" };
+	let stallWatch: ReturnType<typeof setInterval> | undefined;
+	let lastStallPosition = -1;
+	let lastStallProgressAt = 0;
+	let stallAnchor: number | null = null;
+	let stallAttemptsAtAnchor = 0;
 
 	function clearTimer() {
 		if (timer !== undefined) {
@@ -50,6 +72,9 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 		generation++;
 		seek.reset();
 		clearTimer();
+		stopStallWatch();
+		stallAnchor = null;
+		stallAttemptsAtAnchor = 0;
 		networkAttempts = 0;
 		decodeAttempts = 0;
 		lastError = { type: "network" };
@@ -59,6 +84,7 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 
 	function fail(error: MediaPlayerError) {
 		clearTimer();
+		stopStallWatch();
 		phase = "failed";
 		options.onError(error);
 	}
@@ -127,6 +153,82 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 		runRecovery(true);
 	}
 
+	function stopStallWatch() {
+		if (stallWatch !== undefined) {
+			clearInterval(stallWatch);
+			stallWatch = undefined;
+		}
+	}
+
+	function noteStallProgress(media: HTMLVideoElement) {
+		lastStallPosition = media.currentTime;
+		lastStallProgressAt = Date.now();
+	}
+
+	/**
+	 * Playback that stops advancing is the one failure an error handler never sees: the
+	 * element keeps "playing" a buffered range it cannot decode, or one with a hole.
+	 */
+	function startStallWatch() {
+		if (stallWatch !== undefined) {
+			return;
+		}
+		const media = options.media();
+		if (media) {
+			noteStallProgress(media);
+		}
+		stallWatch = setInterval(() => {
+			const current = options.media();
+			if (!current || phase !== "ready") {
+				return;
+			}
+			// Background tabs buffer slowly; that is not a stall the viewer can see.
+			if (typeof document !== "undefined" && document.hidden) {
+				noteStallProgress(current);
+				return;
+			}
+			if (current.paused || current.seeking || current.readyState >= 3) {
+				noteStallProgress(current);
+				return;
+			}
+			if (Math.abs(current.currentTime - lastStallPosition) > 0.05) {
+				noteStallProgress(current);
+				return;
+			}
+			if (Date.now() - lastStallProgressAt < STALL_TRIGGER_MS) {
+				return;
+			}
+			recoverFromStall(current);
+		}, STALL_CHECK_INTERVAL_MS);
+	}
+
+	/**
+	 * One rung per attempt: fetch the same region again, then nudge past the bad spot, and
+	 * only skip once the source itself is missing the region (which the viewer is told).
+	 */
+	function recoverFromStall(media: HTMLVideoElement) {
+		const position = media.currentTime;
+		const sameSpot =
+			stallAnchor !== null && Math.abs(position - stallAnchor) <= STALL_POSITION_EPSILON;
+		stallAttemptsAtAnchor = sameSpot ? stallAttemptsAtAnchor + 1 : 1;
+		stallAnchor = position;
+		noteStallProgress(media);
+		if (stallAttemptsAtAnchor === 1) {
+			// Nothing is skipped: the player either re-fetches this region itself or reloads.
+			capture();
+			if (options.onStallRefetch?.() !== true) {
+				runRecovery(false);
+			}
+			return;
+		}
+		const skipped = stallAttemptsAtAnchor === 2 ? STALL_NUDGE_SECONDS : STALL_SKIP_SECONDS;
+		seek.seek(position + skipped);
+		Promise.resolve(media.play()).catch(() => undefined);
+		if (stallAttemptsAtAnchor >= 3) {
+			options.onStallSkip?.(STALL_SKIP_SECONDS);
+		}
+	}
+
 	function restoreMetadata(): boolean {
 		const media = options.media();
 		if (!media || media.readyState < 1 || ["scheduled", "failed", "disposed"].includes(phase)) {
@@ -165,6 +267,7 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 		snapshot = undefined;
 		clearTimer();
 		phase = "ready";
+		startStallWatch();
 		// Read the latest requested state, including pauses received during the retry delay.
 		// The room's ready handler applies playback and handles browser autoplay restrictions.
 		if (!desiredPlaying) {
@@ -224,6 +327,7 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 		generation++;
 		phase = "disposed";
 		clearTimer();
+		stopStallWatch();
 	}
 
 	return {

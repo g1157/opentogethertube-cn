@@ -869,6 +869,10 @@ export default {
 		},
 		"cors-fallback":
 			"Video enhancement was disabled so this source can play (it may not allow cross-origin access).",
+		recovery: {
+			skipped:
+				"This part of the source could not be loaded; skipped {seconds}s to keep playing.",
+		},
 		"retry-local": "Retry my video",
 		"notes-collapse": "Collapse notes",
 		"notes-expand": "Expand notes",

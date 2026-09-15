@@ -16,6 +16,11 @@ export interface VideoMetadata {
 	/** Source resolution in pixels, when the adapter could read it. */
 	width?: number;
 	height?: number;
+	/**
+	 * Whether the source answered with an Access-Control-Allow-Origin header. False means
+	 * the browser must load it without crossOrigin; undefined means we could not tell.
+	 */
+	cors?: boolean;
 	highlight?: true;
 	hls_url?: string;
 	dash_url?: string;

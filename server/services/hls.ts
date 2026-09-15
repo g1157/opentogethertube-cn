@@ -1,5 +1,6 @@
 import URL from "node:url";
 import axios from "axios";
+import { corsFromHeaders } from "./cors-probe.js";
 import { Parser as M3u8Parser, type PlaylistItem } from "m3u8-parser";
 import { OttException } from "ott-common/exceptions.js";
 import type { Video } from "ott-common/models/video.js";
@@ -50,6 +51,7 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 	async handleM3u8(url: URL.UrlWithStringQuery): Promise<Video> {
 		const parser = new M3u8Parser();
 		const resp = await axios.get(url.href);
+		const cors = corsFromHeaders(resp.headers as Record<string, unknown>);
 		parser.push(resp.data);
 		parser.end();
 		const manifest = parser.manifest;
@@ -120,6 +122,7 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 			length: duration,
 			width,
 			height,
+			cors,
 			hls_url: url.href,
 		};
 	}

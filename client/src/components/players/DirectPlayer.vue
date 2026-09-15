@@ -59,6 +59,7 @@ import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-lo
 import { ToastStyle } from "@/models/toast";
 import toast from "@/util/toast";
 import { i18n } from "@/i18n";
+import { rememberCors, rememberedCors } from "@/util/cors-memory";
 import type {
 	MediaPlayerError,
 	MediaPlayerWithAudioBoost,
@@ -89,6 +90,17 @@ const store = useStore();
 // Sources without CORS headers can only play without crossorigin, which also disables
 // canvas/WebGL enhancement because the texture would taint the canvas.
 const crossoriginEnabled = ref(true);
+/**
+ * A source that cannot be read cross-origin must never be tried that way twice: the server
+ * records the verdict when a link is added, and a live fallback records it for the session.
+ */
+const sourceAllowsCors = computed(() => {
+	const remembered = rememberedCors(videoUrl.value);
+	if (remembered !== undefined) {
+		return remembered;
+	}
+	return store.state.room.currentSource?.cors !== false;
+});
 const upscaleMode = computed(() =>
 	crossoriginEnabled.value ? store.state.settings.upscaleMode : "off",
 );
@@ -137,6 +149,13 @@ const recovery = createMediaRecovery({
 	onRecovering: () => {
 		loadingState.reset();
 		emit("buffering");
+	},
+	onStallSkip: seconds => {
+		toast.add({
+			style: ToastStyle.Neutral,
+			content: i18n.global.t("player.recovery.skipped", { seconds }),
+			duration: 6000,
+		});
 	},
 	onError: error => {
 		loadingState.stop();
@@ -308,7 +327,7 @@ async function loadVideoSource() {
 	loadingState.reset();
 	manifestRequest?.abort();
 	recovery.reset();
-	crossoriginEnabled.value = true;
+	crossoriginEnabled.value = sourceAllowsCors.value;
 	corsFallbackPending = false;
 	sourceProbe = undefined;
 	activeMediaUrl = "";
@@ -426,6 +445,9 @@ function onCanPlay() {
 				content: i18n.global.t("player.cors-fallback"),
 				duration: 8000,
 			});
+		} else if (crossoriginEnabled.value && activeMediaUrl) {
+			// It played with crossOrigin, so this host allows it.
+			rememberCors(activeMediaUrl, true);
 		}
 		emit("ready");
 	}
@@ -494,6 +516,9 @@ function onError() {
 		// Change the attribute before load(), not after the next Vue patch.
 		videoElem.value?.removeAttribute("crossorigin");
 		corsFallbackPending = true;
+		if (activeMediaUrl) {
+			rememberCors(activeMediaUrl, false);
+		}
 		sourceProbe ??= probeSourceReachability(activeMediaUrl);
 		recovery.retry();
 		return;

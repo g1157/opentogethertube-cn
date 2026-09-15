@@ -36,6 +36,10 @@ import { useStore } from "@/store";
 import { enhancementLayerMode } from "@/stores/settings";
 import UpscaleLayer from "./UpscaleLayer.vue";
 import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
+import { ToastStyle } from "@/models/toast";
+import toast from "@/util/toast";
+import { i18n } from "@/i18n";
+import { calculateCurrentPosition } from "ott-common/timestamp";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
 import type {
 	MediaPlayerWithAudioBoost,
@@ -104,6 +108,22 @@ const recovery = createMediaRecovery({
 	onRecovering: () => {
 		loadingState.reset();
 		emit("buffering");
+	},
+	onStallRefetch: () => {
+		// hls.js flushes the media source and reloads the same region, which is what a hole
+		// in the buffer needs; startLoad alone would keep the bad range in place.
+		if (!hls) {
+			return false;
+		}
+		hls.recoverMediaError();
+		return true;
+	},
+	onStallSkip: seconds => {
+		toast.add({
+			style: ToastStyle.Neutral,
+			content: i18n.global.t("player.recovery.skipped", { seconds }),
+			duration: 6000,
+		});
 	},
 	onError: error => {
 		loadingState.stop();
@@ -302,6 +322,10 @@ function attachSource() {
 		maxBufferLength: bufferSeconds,
 		maxMaxBufferLength: bufferSeconds,
 		backBufferLength: 30,
+		// Loading where playback will begin is what the room position calls for; hls.js would
+		// otherwise fetch from zero and we would seek afterwards, costing an extra round trip
+		// every time someone enters the room.
+		autoStartLoad: false,
 	});
 	hls = engine;
 
@@ -367,7 +391,28 @@ function attachSource() {
 
 	engine.loadSource(videoUrl.value);
 	engine.attachMedia(videoElem.value);
+	engine.startLoad(hlsStartPosition());
 	emit("apiready");
+}
+
+/**
+ * Where this client should begin loading: the room's current position when it is playing,
+ * the saved position when it is paused, and the recovery snapshot as a last resort.
+ */
+function hlsStartPosition(): number {
+	const room = store.state.room;
+	if (room.isPlaying && room.playbackStartTime) {
+		return Math.max(
+			0,
+			calculateCurrentPosition(
+				room.playbackStartTime,
+				Date.now(),
+				room.playbackPosition,
+				room.playbackSpeed,
+			),
+		);
+	}
+	return Math.max(0, room.playbackPosition || recovery.getPosition());
 }
 
 onMounted(() => {

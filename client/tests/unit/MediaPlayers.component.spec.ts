@@ -271,6 +271,8 @@ describe("native and HLS player reliability", () => {
 			maxBufferLength: 60,
 			maxMaxBufferLength: 60,
 			backBufferLength: 30,
+			// Loading starts where playback begins, not at zero.
+			autoStartLoad: false,
 		});
 		engine.listeners.get(Hls.Events.MANIFEST_PARSED)?.(Hls.Events.MANIFEST_PARSED, {});
 		expect(wrapper.emitted("ready")).toBeUndefined();
@@ -310,13 +312,16 @@ describe("native and HLS player reliability", () => {
 		}));
 		const engine = hlsMock.instances[0];
 		engine.levels = [];
+		// The engine is started once at load time (at the playback position), so the retry
+		// after the reload is the second call.
+		const startLoadCalls = engine.startLoad.mock.calls.length;
 		hlsError(engine, Hls.ErrorTypes.NETWORK_ERROR);
 		await vi.advanceTimersByTimeAsync(1000);
 		expect(engine.loadSource).toHaveBeenCalledTimes(2);
 		hlsError(engine, Hls.ErrorTypes.NETWORK_ERROR, { code: 403 });
 		expect(wrapper.emitted("error")?.[0]).toEqual([{ type: "network", retryable: false }]);
 		await vi.advanceTimersByTimeAsync(120000);
-		expect(engine.startLoad).toHaveBeenCalledTimes(1);
+		expect(engine.startLoad.mock.calls.length).toBe(startLoadCalls + 1);
 	});
 
 	it("recovers a native HLS decoder failure even without a matching hls.js error", async () => {
@@ -336,12 +341,15 @@ describe("native and HLS player reliability", () => {
 			props: { videoUrl: "https://media.example/episode.m3u8" },
 		}));
 		const engine = hlsMock.instances[0];
+		// The initial load starts the engine once; a late error on the replaced engine must
+		// not add to that.
+		const startLoadCalls = engine.startLoad.mock.calls.length;
 		hlsError(engine, Hls.ErrorTypes.NETWORK_ERROR);
 		await wrapper.setProps({ videoUrl: "https://media.example/next.m3u8" });
 		expect(engine.destroy).toHaveBeenCalledOnce();
 		hlsError(engine, Hls.ErrorTypes.MEDIA_ERROR);
 		await vi.advanceTimersByTimeAsync(6000);
-		expect(engine.startLoad).not.toHaveBeenCalled();
+		expect(engine.startLoad.mock.calls.length).toBe(startLoadCalls);
 		expect(engine.recoverMediaError).not.toHaveBeenCalled();
 		expect(wrapper.emitted("error")).toBeUndefined();
 		wrapper.unmount();

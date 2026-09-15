@@ -17,6 +17,7 @@ import { getLogger } from "../logger.js";
 import type { Video } from "ott-common/models/video.js";
 import { conf } from "../ott-config.js";
 import { CustomMediaManifestSchema } from "ott-common/models/zod-schemas.js";
+import { probeCors } from "./cors-probe.js";
 
 const log = getLogger("direct");
 const DIRECT_MEDIA_URL_REGEX =
@@ -164,8 +165,13 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 
 		let mime = getMimeType(extension);
 
-		// If we can't determine a supported MIME type from extension, use ffprobe to detect it
-		const fileInfo = await this.ffprobe.getFileInfo(link);
+		// If we can't determine a supported MIME type from extension, use ffprobe to detect it.
+		// The CORS verdict rides along with the probe: it only spares the client a doomed
+		// first attempt, so it must not add a second wait.
+		const [fileInfo, cors] = await Promise.all([
+			this.ffprobe.getFileInfo(link),
+			probeCors(link),
+		]);
 		const hasVideo = fileInfo.streams?.some(isVideoStream);
 		const hasAudio = fileInfo.streams?.some(
 			(stream: ProbedStream) => stream.codec_type === "audio",
@@ -220,6 +226,7 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 			length: duration,
 			width: videoStream?.width,
 			height: videoStream?.height,
+			cors,
 		};
 
 		return video;

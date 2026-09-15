@@ -35,6 +35,70 @@ describe("media error recovery", () => {
 		vi.useRealTimers();
 	});
 
+	it("re-fetches the same position when playback stops advancing", async () => {
+		// A buffered range that cannot decode never raises an error, it just stops moving.
+		Object.defineProperty(media, "paused", { configurable: true, value: false });
+		Object.defineProperty(media, "readyState", { configurable: true, value: 2 });
+		media.currentTime = 100;
+		await vi.advanceTimersByTimeAsync(9000);
+
+		// The default refetch keeps the position and reloads through the recovery path.
+		expect(restart).toHaveBeenCalledOnce();
+		expect(media.currentTime).toBe(100);
+		expect(onError).not.toHaveBeenCalled();
+	});
+
+	it("nudges inside the sync dead band, then skips and reports it", async () => {
+		const onStallRefetch = vi.fn(() => true);
+		const onStallSkip = vi.fn();
+		recovery.dispose();
+		recovery = createMediaRecovery({
+			media: () => media,
+			restart,
+			onError,
+			onRecovering,
+			onStallRefetch,
+			onStallSkip,
+		});
+		recovery.canPlay();
+
+		Object.defineProperty(media, "paused", { configurable: true, value: false });
+		Object.defineProperty(media, "readyState", { configurable: true, value: 2 });
+		media.currentTime = 100;
+
+		// First stall: the player's own refetch handles it and nothing moves.
+		await vi.advanceTimersByTimeAsync(12000);
+		expect(onStallRefetch).toHaveBeenCalledOnce();
+		expect(media.currentTime).toBe(100);
+		expect(onStallSkip).not.toHaveBeenCalled();
+
+		// The same spot stalls again: a 0.3s nudge, which the room sync never fights over.
+		Object.defineProperty(media, "paused", { configurable: true, value: false });
+		await vi.advanceTimersByTimeAsync(12000);
+		expect(media.currentTime).toBeCloseTo(100.3, 5);
+		expect(onStallSkip).not.toHaveBeenCalled();
+
+		// Still stuck: the source is missing this region, so skip and tell the viewer.
+		Object.defineProperty(media, "paused", { configurable: true, value: false });
+		await vi.advanceTimersByTimeAsync(12000);
+		expect(media.currentTime).toBeCloseTo(103.3, 5);
+		expect(onStallSkip).toHaveBeenCalledWith(3);
+	});
+
+	it("leaves a paused or still-loading video alone", async () => {
+		Object.defineProperty(media, "paused", { configurable: true, value: true });
+		Object.defineProperty(media, "readyState", { configurable: true, value: 2 });
+		media.currentTime = 42;
+		await vi.advanceTimersByTimeAsync(20000);
+		expect(restart).not.toHaveBeenCalled();
+
+		// Buffered enough: slow downloading is not a stall.
+		Object.defineProperty(media, "paused", { configurable: true, value: false });
+		Object.defineProperty(media, "readyState", { configurable: true, value: 4 });
+		await vi.advanceTimersByTimeAsync(20000);
+		expect(restart).not.toHaveBeenCalled();
+	});
+
 	it("accepts current data and cancels recovery timeout without waiting for future frames", async () => {
 		recovery.handleError({ type: "network" });
 		await vi.advanceTimersByTimeAsync(1000);
