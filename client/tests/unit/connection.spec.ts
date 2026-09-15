@@ -117,7 +117,12 @@ describe("room WebSocket recovery", () => {
 		expect(connection.active.value).toBe(true);
 		expect(connection.connected.value).toBe(true);
 		expect(connection.kickReason.value).toBeNull();
-		expect(second.send).toHaveBeenCalledTimes(1);
+		// The auth message, then a latency probe which pings again on its interval.
+		expect(second.send).toHaveBeenCalledTimes(2);
+		expect(second.send.mock.calls[0][0]).toBe('{"action":"auth","token":"test-session"}');
+		const probe = JSON.parse(second.send.mock.calls[1][0]);
+		expect(probe.action).toBe("ping");
+		expect(typeof probe.t0).toBe("number");
 		expect(second.close).not.toHaveBeenCalled();
 	});
 

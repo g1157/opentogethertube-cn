@@ -30,13 +30,45 @@ interface SeekRequestOptions {
 	tolerateSmallDrift?: boolean;
 }
 
-// Engineering starting points, not an industry standard. See docs/playback-sync.zh-CN.md.
+// Engineering starting points aligned with what Syncplay and Jellyfin ship, not an
+// industry standard. See docs/playback-sync.zh-CN.md.
 const BEND_START = 0.3;
 const BEND_STOP = 0.15;
 const BEND_FULL = 0.5;
+/** Ceiling inside the gentle zone; an 8% rate change is not noticeable on speech or video. */
 const MAX_BEND = 0.08;
+/** Only a seek can close more than this; below it a rate change recovers the drift. */
+const HARD_SEEK_DRIFT = 3;
+/** Drift that turns the gentle bend into a deliberate catch-up. */
+const CATCHUP_FULL = 1;
+/**
+ * Catch-up ceiling. Jellyfin runs `1 + drift/1000` (up to 4x) for the same window and
+ * Syncplay slows a fixed 5%; 15% stays under the point where speech or music tempo is
+ * distracting while still recovering seconds of drift in tens of seconds.
+ */
+const CATCHUP_MAX_BEND = 0.15;
 const BEND_DEADLINE_MS = 8000;
+/** A catch-up that cannot converge inside this long is worth one visible seek after all. */
+const MAX_BEND_DEADLINE_MS = 30000;
 const RATE_WRITE_THRESHOLD = 0.002;
+
+/**
+ * The rate ceiling for a drift: 8% inside the gentle zone, growing linearly once a full
+ * second has to be recovered. Only drifts past HARD_SEEK_DRIFT are seeked instead.
+ */
+function bendCeiling(magnitude: number): number {
+	if (magnitude <= CATCHUP_FULL) {
+		return MAX_BEND;
+	}
+	const progress = Math.min(magnitude, HARD_SEEK_DRIFT) - CATCHUP_FULL;
+	return MAX_BEND + (progress / (HARD_SEEK_DRIFT - CATCHUP_FULL)) * (CATCHUP_MAX_BEND - MAX_BEND);
+}
+
+/** How long the ceiling may take to converge, with slack before falling back to a seek. */
+function bendDeadlineMs(magnitude: number, ceiling: number): number {
+	const needed = (magnitude / ceiling) * 1000 * 1.25;
+	return Math.min(MAX_BEND_DEADLINE_MS, Math.max(BEND_DEADLINE_MS, needed));
+}
 
 /** Give each range request time to finish; room seeks always take priority over drift correction. */
 export function createPlaybackSync(options: PlaybackSyncOptions) {
@@ -53,6 +85,9 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 	let bendStartedAt: number | null = null;
 	let bendBase: number | null = null;
 	let appliedRate: number | null = null;
+	/** Largest drift seen during the current bend; the deadline follows the catch-up size. */
+	let bendPeak = 0;
+	let bendDeadlineAt = 0;
 
 	function getBendBase() {
 		const base = options.getBendBase?.();
@@ -93,6 +128,8 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		}
 		bendStartedAt = null;
 		bendBase = null;
+		bendPeak = 0;
+		bendDeadlineAt = 0;
 		appliedRate = null;
 	}
 
@@ -162,7 +199,11 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			return;
 		}
 		const drift = Math.abs(latest.position - position);
-		if (!Number.isFinite(position) || getBendBase() === null || drift > BEND_START) {
+		const canBend = latest.playing && !latest.temporarySpeed && getBendBase() !== null;
+		// A room sync must not freeze playback for a drift the rate bend can absorb; without
+		// a rate setter (or while paused) only the 300 ms dead band is forgiven.
+		const limit = canBend ? HARD_SEEK_DRIFT : BEND_START;
+		if (!Number.isFinite(position) || drift > limit) {
 			await seek(latest, reason);
 		}
 	}
@@ -219,12 +260,16 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			}
 			const drift = latest.position - position;
 			const magnitude = Math.abs(drift);
-			if (magnitude > 1 && canSeekNow(latest)) {
+			const base = getBendBase();
+			const canBend = latest.playing && !latest.temporarySpeed && base !== null;
+			// While playing, a rate change absorbs up to HARD_SEEK_DRIFT; a paused room or a
+			// player without a rate setter still seeks as soon as the drift is visible.
+			const seekLimit = canBend ? HARD_SEEK_DRIFT : 1;
+			if (magnitude > seekLimit && canSeekNow(latest)) {
 				await seek(latest, "drift-large");
 				return;
 			}
-			const base = getBendBase();
-			if (!latest.playing || latest.temporarySpeed || base === null) {
+			if (!canBend) {
 				cancelBend();
 				return;
 			}
@@ -236,18 +281,24 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 				cancelBend();
 				return;
 			}
-			if (bendStartedAt !== null && Date.now() - bendStartedAt >= BEND_DEADLINE_MS) {
+			const ceiling = bendCeiling(magnitude);
+			if (bendStartedAt !== null && Date.now() >= bendDeadlineAt) {
 				cancelBend();
 				if (canSeekNow(latest)) {
 					await seek(latest, "bend-deadline");
 				}
 				return;
 			}
-			// During seek cooldown even a >1 s drift can improve without another range request.
-			// Keep the original deadline while bending; restarting it each tick would never expire.
+			// During seek cooldown even a large drift can improve without another range
+			// request. Keep the original deadline while bending; restarting it each tick
+			// would never expire. A growing drift extends it to the new catch-up size.
 			bendStartedAt ??= Date.now();
+			if (magnitude > bendPeak) {
+				bendPeak = magnitude;
+				bendDeadlineAt = bendStartedAt + bendDeadlineMs(magnitude, ceiling);
+			}
 			bendBase = base;
-			const bend = Math.max(-1, Math.min(1, drift / BEND_FULL)) * MAX_BEND;
+			const bend = Math.max(-1, Math.min(1, drift / BEND_FULL)) * ceiling;
 			// Leave preservesPitch at the browser default (true).
 			await writeRate(base * (1 + bend));
 		} catch (error) {

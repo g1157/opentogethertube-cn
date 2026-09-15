@@ -365,6 +365,15 @@ function loadVideoSource(resumePosition: number | null = null) {
 			buffer: {
 				fastSwitchEnabled: true,
 			},
+			abr: {
+				// A device that cannot decode the current rendition cleanly keeps dropping
+				// frames; a lower one is better for everyone than a stuttering picture.
+				rules: {
+					droppedFramesRule: {
+						active: true,
+					},
+				},
+			},
 		},
 	});
 

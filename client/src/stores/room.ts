@@ -11,6 +11,7 @@ import type {
 } from "ott-common/models/messages";
 import { deserializeMap, deserializeSet } from "ott-common/serialize";
 import type { FullOTTStoreState } from "@/store";
+import { getOneWayDelayMs } from "@/util/connection-latency";
 
 export interface RoomState {
 	name: string;
@@ -40,6 +41,15 @@ export interface RoomState {
 	enableVoteSkip: boolean;
 	bufferGateMode: BufferGateMode;
 	votesToSkip: Set<string>;
+}
+
+/**
+ * A sync message describes the room clock at the moment it left the server. Anchoring it
+ * at the moment we read it would leave this viewer a fixed one-way delay behind; the
+ * measured round trip is the only way to know how much time it spent in flight.
+ */
+function syncAnchorNow(): Dayjs {
+	return dayjs().subtract(getOneWayDelayMs(), "ms");
 }
 
 export const roomModule: Module<RoomState, FullOTTStoreState> = {
@@ -89,14 +99,14 @@ export const roomModule: Module<RoomState, FullOTTStoreState> = {
 				this.state.room.isPlaying !== message.isPlaying
 			) {
 				if (message.isPlaying) {
-					this.state.room.playbackStartTime = dayjs();
+					this.state.room.playbackStartTime = syncAnchorNow();
 				}
 			}
 			if (
 				(message.currentSource || message.playbackPosition !== undefined) &&
 				this.state.room.isPlaying
 			) {
-				this.state.room.playbackStartTime = dayjs();
+				this.state.room.playbackStartTime = syncAnchorNow();
 			}
 			if ("currentSource" in message) {
 				this.commit("PLAYBACK_BUFFER_RESET");

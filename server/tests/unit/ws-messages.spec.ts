@@ -14,6 +14,7 @@ describe("inbound websocket messages", () => {
 			{ action: "kickme", reason: 1000 },
 			{ action: "notify", message: "usernameChanged" },
 			{ action: "status", status: PlayerStatus.ready },
+			{ action: "ping", t0: 1757900000000 },
 			{
 				action: "status",
 				status: PlayerStatus.ready,
@@ -42,6 +43,9 @@ describe("inbound websocket messages", () => {
 			{ action: "notify", message: "somethingElse" },
 			{ action: "req" },
 			{ action: "req", request: { type: "play" } },
+			{ action: "ping" },
+			{ action: "ping", t0: "now" },
+			{ action: "ping", t0: Number.POSITIVE_INFINITY },
 			{ action: "unknown" },
 			{},
 		];

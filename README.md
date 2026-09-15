@@ -55,6 +55,7 @@ Cloudflare，使用免费的 `workers.dev` 地址；适合以视频直链观看�
 | 开发与贡献 | [CONTRIBUTING.md](CONTRIBUTING.md) · [AGENTS.md](AGENTS.md) |
 | 上游来源与移植范围 | [UPSTREAM.md](UPSTREAM.md) |
 | 用户体验与产品审查（2026-09-13） | [docs/ux-review-2026-09-13.zh-CN.md](docs/ux-review-2026-09-13.zh-CN.md) |
+| 播放链路与 UI 走查（2026-09-15） | [docs/ux-review-2026-09-15.zh-CN.md](docs/ux-review-2026-09-15.zh-CN.md) |
 
 ## 许可证与致谢
 

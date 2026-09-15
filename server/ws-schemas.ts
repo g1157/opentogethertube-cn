@@ -51,6 +51,11 @@ export const clientMessageSchema = z.discriminatedUnion("action", [
 		action: z.literal("voice"),
 		joined: z.boolean(),
 	}),
+	// Latency probe; the server echoes t0 back so the client can estimate the round trip.
+	z.object({
+		action: z.literal("ping"),
+		t0: z.number().finite(),
+	}),
 	// Room requests are validated per command inside the room; the envelope guards size and shape.
 	// RoomRequestType values are numeric enum members on the wire (e.g. PlaybackRequest = 2).
 	z.object({

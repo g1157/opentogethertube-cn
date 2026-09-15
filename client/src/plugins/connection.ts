@@ -6,9 +6,12 @@ import type {
 	ServerMessageActionType,
 } from "ott-common/models/messages";
 import { OttWebsocketError, type AuthToken } from "ott-common/models/types";
+import { noteLatencySample, resetLatencySamples } from "@/util/connection-latency";
 
 /** A generic close may be transient; retry a couple of times before giving up. */
 const MAX_UNKNOWN_RECONNECTS = 2;
+/** Latency probes are client-driven; this is long enough to be free and short enough to stay current. */
+const LATENCY_PROBE_INTERVAL_MS = 15_000;
 
 export interface OttRoomConnection {
 	active: Ref<boolean>;
@@ -86,6 +89,7 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 	private socket: WebSocket | null = null;
 	private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 	private connectTimeout: ReturnType<typeof setTimeout> | null = null;
+	private latencyTimer: ReturnType<typeof setInterval> | null = null;
 	private readonly onOnline = () => {
 		if (this.active.value && !this.connected.value) {
 			this.reconnect();
@@ -112,6 +116,8 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 			console.log("connect(): connection is already active, ignoring");
 			return;
 		}
+		// A new room means a new path to the server; old round trips describe the old one.
+		resetLatencySamples();
 		this.roomName.value = roomName;
 		this.active.value = true;
 		this.kickReason.value = null;
@@ -250,6 +256,7 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 	}
 
 	private closeSocket() {
+		this.stopLatencyProbes();
 		const socket = this.socket;
 		this.socket = null;
 		try {
@@ -289,6 +296,11 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 		if (typeof e.data === "string") {
 			try {
 				const msg = JSON.parse(e.data) as ServerMessage;
+				if (msg.action === "pong") {
+					// Echoed send timestamp; no handler is registered for the reply itself.
+					noteLatencySample(Date.now() - msg.t0);
+					return;
+				}
 				if (
 					msg.action === "sync" &&
 					typeof msg.name === "string" &&
@@ -300,11 +312,46 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 					this.reconnectAttempts.value = 0;
 					this.issue.value = null;
 					this.dispatchEvent({ kind: "connected" });
+					// Probes need a joined client; the server rejects any message sent earlier.
+					this.startLatencyProbes();
 				}
 				this.handleMessage(msg);
 			} catch {
 				console.error("unable to process room message");
 			}
+		}
+	}
+
+	/**
+	 * Keep a recent round-trip estimate while the room is joined. Sync anchors subtract
+	 * half of it so a message that spent time in flight does not leave this viewer that
+	 * far behind the room clock.
+	 */
+	private startLatencyProbes() {
+		this.stopLatencyProbes();
+		this.sendLatencyProbe();
+		this.latencyTimer = setInterval(() => this.sendLatencyProbe(), LATENCY_PROBE_INTERVAL_MS);
+	}
+
+	private stopLatencyProbes() {
+		if (this.latencyTimer !== null) {
+			clearInterval(this.latencyTimer);
+			this.latencyTimer = null;
+		}
+	}
+
+	private sendLatencyProbe() {
+		if (
+			!this.active.value ||
+			!this.connected.value ||
+			this.socket?.readyState !== WebSocket.OPEN
+		) {
+			return;
+		}
+		try {
+			this.socket.send(JSON.stringify({ action: "ping", t0: Date.now() }));
+		} catch {
+			// A probe must never surface as an error; the next tick retries.
 		}
 	}
 

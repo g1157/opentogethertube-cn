@@ -18,6 +18,9 @@ import { Counter } from "prom-client";
 
 const log = getLogger("client");
 
+/** Floor between two latency-probe replies for one client; probes are client-driven. */
+const LATENCY_PROBE_INTERVAL_MS = 1000;
+
 export type ClientEvents = "auth" | "message" | "disconnect";
 export type ClientEventHandlers<E> = E extends "auth"
 	? (client: Client, token: AuthToken, session: SessionInfo) => void
@@ -122,6 +125,7 @@ export abstract class Client {
 export class DirectClient extends Client {
 	socket: WebSocket;
 	private authTimeout: ReturnType<typeof setTimeout>;
+	private lastLatencyReplyAt = 0;
 
 	constructor(room: string, socket: WebSocket) {
 		super(room);
@@ -161,6 +165,10 @@ export class DirectClient extends Client {
 				this.kick(OttWebsocketError.MISSING_TOKEN);
 				return;
 			}
+			if (msg.action === "ping") {
+				this.replyToLatencyProbe(msg.t0);
+				return;
+			}
 			this.emit("message", this, msg);
 		} catch {
 			this.kick(OttWebsocketError.UNKNOWN);
@@ -169,6 +177,19 @@ export class DirectClient extends Client {
 
 	onPing() {
 		this.socket.pong();
+	}
+
+	/**
+	 * Answer a latency probe. Clients use the echo to estimate how long a room sync spends
+	 * in flight; the reply is tiny, but one per probe per second is plenty for that.
+	 */
+	private replyToLatencyProbe(t0: number) {
+		const now = Date.now();
+		if (now - this.lastLatencyReplyAt < LATENCY_PROBE_INTERVAL_MS) {
+			return;
+		}
+		this.lastLatencyReplyAt = now;
+		this.send({ action: "pong", t0 });
 	}
 
 	onClose() {

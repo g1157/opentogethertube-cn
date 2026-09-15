@@ -27,7 +27,8 @@ export type ServerMessage =
 	| ServerMessageError
 	| ServerMessageNotes
 	| ServerMessageVoice
-	| ServerMessageSignal;
+	| ServerMessageSignal
+	| ServerMessagePong;
 
 export type ServerMessageActionType = ServerMessage["action"];
 
@@ -185,6 +186,15 @@ export interface ServerMessageSignal extends ServerMessageBase {
 	signal: VoiceSignalPayload;
 }
 
+/**
+ * Reply to a latency probe. The server echoes the client's own send timestamp, so the
+ * client can estimate the round trip without either side sharing a clock.
+ */
+export interface ServerMessagePong extends ServerMessageBase {
+	action: "pong";
+	t0: number;
+}
+
 export type UserUpdate =
 	| {
 			kind: "init";
@@ -215,7 +225,8 @@ export type ClientMessage =
 	| ClientMessageNotify
 	| ClientMessageRoomRequest
 	| ClientMessageVoice
-	| ClientMessageSignal;
+	| ClientMessageSignal
+	| ClientMessagePing;
 
 interface ClientMessageBase {
 	action: string;
@@ -279,6 +290,16 @@ export interface ClientMessageSignal extends ClientMessageBase {
 	action: "signal";
 	to: ClientId;
 	signal: VoiceSignalPayload;
+}
+
+/**
+ * Latency probe. `t0` is the sending client's clock; the server echoes it back in a
+ * `pong`, and the sending client turns the difference into a round-trip estimate. The
+ * estimate lets room sync account for the time a sync message spends in flight.
+ */
+export interface ClientMessagePing extends ClientMessageBase {
+	action: "ping";
+	t0: number;
 }
 
 /**

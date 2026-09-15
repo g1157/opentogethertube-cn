@@ -36,6 +36,10 @@ import { useStore } from "@/store";
 import { enhancementLayerMode } from "@/stores/settings";
 import UpscaleLayer from "./UpscaleLayer.vue";
 import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
+import {
+	recallHlsBandwidthEstimate,
+	rememberHlsBandwidthEstimate,
+} from "@/util/hls-bandwidth-memory";
 import { ToastStyle } from "@/models/toast";
 import toast from "@/util/toast";
 import { i18n } from "@/i18n";
@@ -54,6 +58,9 @@ interface Props {
 	videoUrl: string;
 	thumbnail?: string;
 }
+
+/** Forward buffer while the tab is hidden; the picture nobody is watching needs less. */
+const HIDDEN_TAB_BUFFER_SECONDS = 30;
 
 const props = defineProps<Props>();
 const { videoUrl, thumbnail } = toRefs(props);
@@ -302,6 +309,10 @@ function attachSource() {
 
 	const previous = hls;
 	hls = undefined;
+	if (previous) {
+		// Keep what this session measured for the next one, before the engine is gone.
+		rememberHlsBandwidthEstimate(previous.bandwidthEstimate);
+	}
 	previous?.destroy();
 	videoElem.value.pause();
 	videoElem.value.removeAttribute("src");
@@ -318,16 +329,30 @@ function attachSource() {
 	}
 
 	const bufferSeconds = store.state.settings.hlsBufferSeconds;
+	const rememberedBandwidth = recallHlsBandwidthEstimate();
 	const engine = new Hls({
 		maxBufferLength: bufferSeconds,
 		maxMaxBufferLength: bufferSeconds,
 		backBufferLength: 30,
+		// The room player is usually smaller than the source's top rendition; there is no
+		// point fetching 4K into a small box. A manual quality pick can still exceed it.
+		capLevelToPlayerSize: true,
 		// Loading where playback will begin is what the room position calls for; hls.js would
 		// otherwise fetch from zero and we would seek afterwards, costing an extra round trip
 		// every time someone enters the room.
 		autoStartLoad: false,
+		// Start at the level the remembered estimate supports instead of the manifest's
+		// first variant, and let ABR take over from the first fragment.
+		...(rememberedBandwidth !== null
+			? {
+					abrEwmaDefaultEstimate: rememberedBandwidth,
+					startLevel: -1,
+					testBandwidth: false,
+			  }
+			: {}),
 	});
 	hls = engine;
+	applyVisibleBufferTarget();
 
 	engine.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
 		if (hls !== engine) {
@@ -386,6 +411,7 @@ function attachSource() {
 	engine.on(Hls.Events.LEVEL_SWITCHED, () => {
 		if (hls === engine) {
 			qualities.currentActiveQuality.value = getCurrentActiveQuality();
+			rememberHlsBandwidthEstimate(engine.bandwidthEstimate);
 		}
 	});
 
@@ -416,6 +442,7 @@ function hlsStartPosition(): number {
 }
 
 onMounted(() => {
+	document.addEventListener("visibilitychange", onVisibilityChange);
 	loadingState.attach();
 	loadVideoSource();
 });
@@ -476,11 +503,35 @@ function onEnd() {
 	emit("end");
 }
 
+/**
+ * A hidden tab usually still plays audio, but nobody sees the picture; buffering the full
+ * window there spends bandwidth and memory on frames that were never shown.
+ */
+function applyVisibleBufferTarget() {
+	if (!hls) {
+		return;
+	}
+	const target = Math.min(
+		store.state.settings.hlsBufferSeconds,
+		document.hidden ? HIDDEN_TAB_BUFFER_SECONDS : store.state.settings.hlsBufferSeconds,
+	);
+	hls.config.maxBufferLength = target;
+	hls.config.maxMaxBufferLength = target;
+}
+
+function onVisibilityChange() {
+	applyVisibleBufferTarget();
+}
+
 onBeforeUnmount(() => {
+	document.removeEventListener("visibilitychange", onVisibilityChange);
 	loadingState.dispose();
 	recovery.dispose();
 	const previous = hls;
 	hls = undefined;
+	if (previous) {
+		rememberHlsBandwidthEstimate(previous.bandwidthEstimate);
+	}
 	previous?.destroy();
 	videoElem.value?.pause();
 	videoElem.value?.removeAttribute("src");
@@ -493,12 +544,7 @@ watch(videoUrl, () => {
 
 watch(
 	() => store.state.settings.hlsBufferSeconds,
-	seconds => {
-		if (hls) {
-			hls.config.maxBufferLength = seconds;
-			hls.config.maxMaxBufferLength = seconds;
-		}
-	},
+	() => applyVisibleBufferTarget(),
 );
 
 defineExpose({

@@ -257,6 +257,21 @@ describe("native playback rate correction", () => {
 		expect(setLocalRate).toHaveBeenLastCalledWith(expect.closeTo(rate, 6));
 	});
 
+	it.each([
+		[1.5, 1.0975],
+		[2, 1.115],
+		[3, 1.15],
+	])("catches up a %s second drift instead of seeking", async (drift, rate) => {
+		getPosition.mockReturnValue(100 - drift);
+		await sync.tick();
+		expect(setLocalRate).toHaveBeenLastCalledWith(expect.closeTo(rate, 6));
+		expect(setPosition).not.toHaveBeenCalled();
+		// Still catching up after the gentle deadline would have expired.
+		vi.advanceTimersByTime(10000);
+		await sync.tick();
+		expect(setPosition).not.toHaveBeenCalled();
+	});
+
 	it.each([0.25, 1.5, 4])("multiplies the room's %sx speed", async rate => {
 		base = rate;
 		await sync.tick();
@@ -283,9 +298,9 @@ describe("native playback rate correction", () => {
 		expect(setLocalRate).toHaveBeenCalledOnce();
 	});
 
-	it("cancels the bend before a drift larger than one second triggers a seek", async () => {
+	it("cancels the bend before a drift larger than three seconds triggers a seek", async () => {
 		await sync.tick();
-		getPosition.mockReturnValue(98);
+		getPosition.mockReturnValue(96);
 		vi.advanceTimersByTime(2000);
 		await sync.tick();
 		expect(setLocalRate).toHaveBeenLastCalledWith(1);
@@ -296,16 +311,38 @@ describe("native playback rate correction", () => {
 		);
 	});
 
-	it("bends a large drift while a buffering seek is still cooling down", async () => {
+	it("still seeks a paused room's drift beyond one second", async () => {
+		await sync.tick();
+		state.playing = false;
+		getPosition.mockReturnValue(98);
+		vi.advanceTimersByTime(2000);
+		await sync.tick();
+		expect(setPosition).toHaveBeenCalledOnce();
+		expect(setPosition).toHaveBeenCalledWith(100);
+	});
+
+	it("absorbs a room sync drift up to three seconds instead of seeking", async () => {
+		await sync.tick();
+		setPosition.mockClear();
+		getPosition.mockReturnValue(97.5);
+		await sync.requestSeek("room-sync", { tolerateSmallDrift: true });
+		expect(setPosition).not.toHaveBeenCalled();
+		getPosition.mockReturnValue(96);
+		await sync.requestSeek("room-sync", { tolerateSmallDrift: true });
+		expect(setPosition).toHaveBeenCalledOnce();
+	});
+
+	it("catches up a large drift while a buffering seek is still cooling down", async () => {
 		state.buffering = true;
 		getPosition.mockReturnValue(98);
 		vi.advanceTimersByTime(250);
 		await sync.tick();
-		expect(setLocalRate).toHaveBeenLastCalledWith(1.08);
-		vi.advanceTimersByTime(7500);
+		expect(setLocalRate).toHaveBeenLastCalledWith(1.115);
+		vi.advanceTimersByTime(8000);
 		await sync.tick();
 		expect(setPosition).not.toHaveBeenCalled();
-		vi.advanceTimersByTime(250);
+		// The catch-up deadline is longer than the gentle one; only then does it give up.
+		vi.advanceTimersByTime(14000);
 		await sync.tick();
 		expect(setLocalRate).toHaveBeenLastCalledWith(1);
 		expect(setPosition).toHaveBeenCalledOnce();
@@ -364,7 +401,7 @@ describe("native playback rate correction", () => {
 		expect(setLocalRate.mock.invocationCallOrder[1]).toBeLessThan(
 			setPosition.mock.invocationCallOrder[0],
 		);
-		getPosition.mockReturnValue(98);
+		getPosition.mockReturnValue(96);
 		vi.advanceTimersByTime(1999);
 		await sync.tick();
 		expect(setPosition).toHaveBeenCalledTimes(1);

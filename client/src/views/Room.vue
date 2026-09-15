@@ -480,6 +480,9 @@ import PlayerStatsPanel from "@/components/PlayerStatsPanel.vue";
 import AppFooter from "@/components/AppFooter.vue";
 import { nowPlayingDetails } from "@/util/now-playing";
 import { useVoice } from "@/util/voice";
+import { createPlaybackQuality, sendPlaybackQualityReport } from "@/util/playback-quality";
+import { installMediaSession } from "@/util/media-session";
+import { createNextMediaPrefetch } from "@/util/next-media-prefetch";
 
 // biome-ignore lint/nursery/noVueOptionsApi: TODO: convert to setup
 export default defineComponent({
@@ -573,6 +576,13 @@ export default defineComponent({
 		const mediaPlaybackBlocked = ref(false);
 		const pendingLocalSeek = ref(false);
 		let localSeekTimer: ReturnType<typeof setTimeout> | undefined;
+		let playbackStatusUnsub: (() => void) | null = null;
+		const flushPlaybackQuality = () => playbackQuality.flush();
+		const onVisibilityFlush = () => {
+			if (document.hidden) {
+				flushPlaybackQuality();
+			}
+		};
 		const chat = ref<InstanceType<typeof Chat> | null>(null);
 		const chatOpen = ref(false);
 		const chatDraft = ref("");
@@ -765,7 +775,10 @@ export default defineComponent({
 				position: roomPosition(),
 			}),
 			getPosition: () => player.getPosition(),
-			setPosition: position => player.setPosition(position),
+			setPosition: position => {
+				playbackQuality.noteSeek();
+				return player.setPosition(position);
+			},
 			getBendBase: () => (player.supportsRateBend() ? store.state.room.playbackSpeed : null),
 			setLocalRate: rate => {
 				const instance = player.player.value;
@@ -799,6 +812,63 @@ export default defineComponent({
 			{ flush: "sync" },
 		);
 
+		const playbackQuality = createPlaybackQuality({
+			service: () => currentSource.value?.service ?? null,
+			send: sendPlaybackQualityReport,
+		});
+
+		// Quality is reported per source; a repeated sync of the same video is not a restart.
+		let reportedSourceKey: string | null = null;
+		watch(
+			currentSource,
+			source => {
+				const key = source?.id ? `${source.service}:${source.id}` : null;
+				if (key === reportedSourceKey) {
+					return;
+				}
+				reportedSourceKey = key;
+				playbackQuality.noteSourceChanged(source?.service ?? null);
+			},
+			{ flush: "sync" },
+		);
+
+		const mediaSession = installMediaSession({
+			getMetadata: () => {
+				const source = currentSource.value;
+				if (!source?.id || !source.title) {
+					return null;
+				}
+				return {
+					title: source.title,
+					artist: store.state.room.name,
+					album: "OpenTogetherTube",
+					artwork: source.thumbnail || undefined,
+				};
+			},
+			getPositionState: () => ({
+				duration: currentSource.value?.length ?? 0,
+				position: truePosition.value,
+				playbackRate: store.state.room.playbackSpeed,
+			}),
+			getPlaybackState: () => {
+				if (!currentSource.value?.id) {
+					return "none";
+				}
+				return localPlaying.value ? "playing" : "paused";
+			},
+			onPlay: () => setRoomPlayback(true),
+			onPause: () => setRoomPlayback(false),
+			onSeekTo: position => requestRoomSeek(position),
+		});
+
+		const nextPrefetch = createNextMediaPrefetch({
+			getRemainingSeconds: () => {
+				const length = currentSource.value?.length ?? 0;
+				return length > 0 ? length - truePosition.value : null;
+			},
+			getNext: () => store.state.room.queue[0],
+		});
+
 		function timestampUpdate() {
 			truePosition.value = roomPosition();
 			sliderPosition.value = _.clamp(
@@ -806,12 +876,27 @@ export default defineComponent({
 				0,
 				store.state.room.currentSource?.length ?? 0,
 			);
+			mediaSession.update();
+			nextPrefetch.tick();
 			void playbackPreparation.tick();
 			void playbackSync.tick();
 		}
 
 		onMounted(() => {
 			iTimestampUpdater.value = setInterval(timestampUpdate, 250);
+			playbackStatusUnsub = store.subscribe(mutation => {
+				if (mutation.type !== "PLAYBACK_STATUS") {
+					return;
+				}
+				const status = mutation.payload as PlayerStatus;
+				playbackQuality.noteBuffering(status === PlayerStatus.buffering);
+				if (status === PlayerStatus.error) {
+					playbackQuality.noteError();
+				}
+			});
+			// A closed tab must not take its measurements with it.
+			window.addEventListener("pagehide", flushPlaybackQuality);
+			document.addEventListener("visibilitychange", onVisibilityFlush);
 		});
 
 		onUnmounted(() => {
@@ -820,6 +905,12 @@ export default defineComponent({
 			clearPendingLocalSeek();
 			playbackPreparation.dispose();
 			playbackSync.dispose();
+			playbackStatusUnsub?.();
+			playbackStatusUnsub = null;
+			window.removeEventListener("pagehide", flushPlaybackQuality);
+			document.removeEventListener("visibilitychange", onVisibilityFlush);
+			playbackQuality.flush();
+			mediaSession.dispose();
 			if (iTimestampUpdater.value) {
 				clearInterval(iTimestampUpdater.value);
 			}
@@ -983,6 +1074,33 @@ export default defineComponent({
 			}
 		}
 
+		/**
+		 * An explicit direction from outside the UI (lock screen, headset button, media
+		 * keys), where a toggle would be the wrong answer when it arrives out of order.
+		 */
+		function setRoomPlayback(play: boolean) {
+			if (!connection.connected.value) {
+				return;
+			}
+			if (
+				play &&
+				(mediaPlaybackBlocked.value || shouldJoinPlayback.value) &&
+				wantsPlayback()
+			) {
+				onClickUnblockPlayback();
+				return;
+			}
+			if (!granted("playback.play-pause")) {
+				return;
+			}
+			playbackPreparation.cancel();
+			if (play) {
+				roomapi.play();
+			} else {
+				roomapi.pause();
+			}
+		}
+
 		function seekDelta(delta: number) {
 			const bounds = seekBounds();
 			if (bounds && connection.connected.value) {
@@ -1006,6 +1124,7 @@ export default defineComponent({
 			) {
 				return;
 			}
+			playbackQuality.noteSeek();
 			playbackPreparation.cancel();
 			clearPendingLocalSeek();
 			pendingLocalSeek.value = true;
@@ -1117,6 +1236,8 @@ export default defineComponent({
 		async function onPlaybackChange(changeTo: boolean) {
 			console.debug(`onPlaybackChange: ${changeTo}`);
 			localPlaying.value = changeTo;
+			playbackQuality.notePlaying(changeTo);
+			mediaSession.update(true);
 			if (changeTo) {
 				// Actual playback supersedes a rejected or superseded autoplay request.
 				mediaPlaybackBlocked.value = false;
