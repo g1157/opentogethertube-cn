@@ -233,8 +233,8 @@ describe("room first viewer preparation integration", () => {
 		expect(acknowledgements()).toEqual([]);
 		playerEvent("playing");
 		await flushPromises();
-		expect(acknowledgements()).toEqual([]);
-		await frame();
+		// The loading state already reported current data, so readiness is acknowledged
+		// without waiting for another compositor frame.
 		expect(acknowledgements()).toHaveLength(1);
 		expect(page.connection.sent.every(message => message.action === "status")).toBe(true);
 	});

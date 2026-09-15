@@ -170,7 +170,7 @@ describe("first viewer playback preparation", () => {
 		expect(sendReady).toHaveBeenCalledTimes(1);
 	});
 
-	it("rewinds an overdue first frame and waits for a new frame from the saved position", async () => {
+	it("rewinds an overdue first frame and reports ready once the saved position has data", async () => {
 		await preparation.tick();
 		frame(128);
 		await preparation.tick();
@@ -178,6 +178,9 @@ describe("first viewer playback preparation", () => {
 		expect(position).toBe(125);
 		expect(sendReady).not.toHaveBeenCalled();
 		input.playing = true;
+		// Readiness follows the loading state, not another compositor callback: the seek
+		// back to the saved position publishes a phase again, and clearing it is the signal.
+		input.loading = { phase: "seeking", currentTime: 128, bufferAhead: 8 };
 		await preparation.tick();
 		expect(sendReady).not.toHaveBeenCalled();
 		frame();

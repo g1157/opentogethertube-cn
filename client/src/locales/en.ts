@@ -233,7 +233,7 @@ export default {
 				"The quality tier could not start; switched to the fast AI upscale.",
 			failed: "Could not enable video enhancement; it was turned off.",
 			degraded: "Performance is too low; video enhancement was reduced.",
-			"intro-toggle": "What these tiers do",
+			help: "What these tiers do",
 			"intro-sharpen":
 				"Sharpen: GPU edge-adaptive upscaling (EASU) plus sharpening, available everywhere. It follows the displayed size, never renders below the source, and costs the least power. The effect is subtle — most visible on low-resolution or soft sources.",
 			"intro-anime4k":

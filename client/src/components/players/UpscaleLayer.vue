@@ -200,16 +200,39 @@ function degradeOneStep(video: HTMLVideoElement | undefined, target: HTMLCanvasE
 	monitorFrames = 0;
 }
 
+// A rebuild costs a GPU device and a pipeline, so the viewport has to settle first;
+// otherwise dragging a window edge would rebuild it dozens of times.
+const VIEWPORT_SETTLE_MS = 250;
+let viewportTimer: ReturnType<typeof setTimeout> | undefined;
+
 function handleViewportChange() {
 	const video = props.video;
-	if (props.mode === "sharpen" && renderer && video && canvas) {
+	if (!renderer || !video || !canvas) {
+		return;
+	}
+	if (props.mode === "sharpen") {
 		// The sharpen pass reads the canvas size every frame, so a resize is enough.
 		sizeCanvas(video, canvas);
+		return;
 	}
+	// Anime4K captures its target size when the pipeline is built, so entering fullscreen
+	// (or resizing the window) has to rebuild it — otherwise the canvas keeps the old
+	// resolution and the browser stretches it, which loses exactly what the tier bought.
+	if (viewportTimer !== undefined) {
+		clearTimeout(viewportTimer);
+	}
+	viewportTimer = setTimeout(() => {
+		viewportTimer = undefined;
+		void start();
+	}, VIEWPORT_SETTLE_MS);
 }
 
 function stopRenderers() {
 	generation++;
+	if (viewportTimer !== undefined) {
+		clearTimeout(viewportTimer);
+		viewportTimer = undefined;
+	}
 	renderer?.stop();
 	renderer = null;
 	if (captionTimer !== undefined) {

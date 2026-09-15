@@ -47,7 +47,6 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 	let inFlight: symbol | null = null;
 	let positioned = false;
 	let realignments = 0;
-	let minimumFrameVersion = 0;
 	let cancelledId: string | null = null;
 	let disposed = false;
 
@@ -102,19 +101,23 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 		inFlight = null;
 		positioned = false;
 		realignments = 0;
-		minimumFrameVersion = 0;
 		context = isOwner(state)
 			? { ...state.preparation!, source: state.source!, player: state.player }
 			: null;
 		publish(context ? "aligning" : "idle");
 	}
 
+	/**
+	 * "On screen" is the loading state's business: it only clears its phase once the target
+	 * position has current data with real dimensions. Waiting for a fresh compositor callback
+	 * on top of that kept every viewer waiting for a frame the browser may only deliver once
+	 * playback resumes — the picture was already there.
+	 */
 	function hasFrame(state: PreparationInput) {
 		return (
 			state.loading?.phase === null &&
 			state.loading.currentTime !== null &&
-			Number.isFinite(state.loading.currentTime) &&
-			state.frameVersion >= minimumFrameVersion
+			Number.isFinite(state.loading.currentTime)
 		);
 	}
 
@@ -181,8 +184,6 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 				if (!current() || !canContinue()) {
 					return;
 				}
-				// A pause can publish the existing frame. Require a later frame from this seek.
-				minimumFrameVersion = options.getState().frameVersion + 1;
 				await options.setPosition(preparation.position);
 				if (!current()) {
 					return;
@@ -244,7 +245,6 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 		inFlight = null;
 		positioned = false;
 		realignments = 0;
-		minimumFrameVersion = options.getState().frameVersion + 1;
 		publish("aligning");
 	}
 

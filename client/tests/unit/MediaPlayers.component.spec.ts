@@ -271,6 +271,8 @@ describe("native and HLS player reliability", () => {
 			maxBufferLength: 60,
 			maxMaxBufferLength: 60,
 			backBufferLength: 30,
+			// Level selection follows the size the picture is drawn at, not the source ladder.
+			capLevelToPlayerSize: true,
 			// Loading starts where playback begins, not at zero.
 			autoStartLoad: false,
 		});

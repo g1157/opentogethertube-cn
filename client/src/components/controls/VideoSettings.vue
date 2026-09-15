@@ -284,97 +284,112 @@
 							@click="navigateToMenu('main')"
 						>
 							{{ $t("room.upscale.title") }}
-						</v-list-item>
-
-						<v-list-item
-							v-for="option in upscaleOptions"
-							:key="option.value"
-							link
-							:active="store.state.settings.upscaleMode === option.value"
-							@click="selectUpscale(option.value)"
-						>
-							{{ option.text }}
-						</v-list-item>
-
-						<v-list-item
-							link
-							data-cy="upscale-intro-toggle"
-							@click="showUpscaleIntro = !showUpscaleIntro"
-						>
-							<v-list-item-title>{{
-								$t("room.upscale.intro-toggle")
-							}}</v-list-item-title>
 							<template #append>
-								<v-icon :icon="showUpscaleIntro ? mdiChevronUp : mdiChevronDown" />
+								<!-- The tiers explain themselves on hover; a tap opens the same
+								     popover on devices that never hover. -->
+								<v-menu
+									:attach="preferenceMenuProps.attach"
+									open-on-hover
+									:open-delay="120"
+									:close-delay="150"
+									:close-on-content-click="false"
+									location="bottom end"
+									:offset="6"
+									:max-width="300"
+									content-class="upscale-help-popover"
+								>
+									<template #activator="{ props: helpProps }">
+										<v-btn
+											v-bind="helpProps"
+											icon
+											size="x-small"
+											variant="text"
+											data-cy="upscale-help"
+											:aria-label="$t('room.upscale.help')"
+											@click.stop
+										>
+											<v-icon :icon="mdiInformationOutline" size="small" />
+										</v-btn>
+									</template>
+									<div class="upscale-help">
+										<p>{{ $t("room.upscale.intro-sharpen") }}</p>
+										<p v-if="webgpuAvailable">
+											{{ $t("room.upscale.intro-anime4k") }}
+										</p>
+										<p v-if="webgpuAvailable">
+											{{ $t("room.upscale.intro-anime4k-quality") }}
+										</p>
+										<p class="upscale-help-note">
+											{{ $t("room.upscale.intro-note") }}
+										</p>
+									</div>
+								</v-menu>
 							</template>
 						</v-list-item>
 
-						<v-list-item v-if="showUpscaleIntro">
-							<div class="upscale-intro">
-								<p>{{ $t("room.upscale.intro-sharpen") }}</p>
-								<p v-if="webgpuAvailable">{{ $t("room.upscale.intro-anime4k") }}</p>
-								<p v-if="webgpuAvailable">
-									{{ $t("room.upscale.intro-anime4k-quality") }}
-								</p>
-								<p class="upscale-intro-note">
-									{{ $t("room.upscale.intro-note") }}
-								</p>
-							</div>
+						<v-list-item class="upscale-tiers-item">
+							<v-btn-toggle
+								v-model="upscaleMode"
+								mandatory
+								density="compact"
+								color="primary"
+								class="upscale-tiers"
+								data-cy="upscale-tiers"
+							>
+								<v-btn
+									v-for="option in upscaleOptions"
+									:key="option.value"
+									:value="option.value"
+									size="small"
+									:data-cy="`upscale-tier-${option.value}`"
+								>
+									{{ option.text }}
+								</v-btn>
+							</v-btn-toggle>
 						</v-list-item>
 
-						<v-divider class="my-1" />
-
-						<v-list-item
-							link
-							data-cy="upscale-advanced-toggle"
-							@click="showAdvancedUpscale = !showAdvancedUpscale"
-						>
-							<v-list-item-title>{{ $t("room.upscale.advanced") }}</v-list-item-title>
-							<template #append>
-								<v-icon
-									:icon="showAdvancedUpscale ? mdiChevronUp : mdiChevronDown"
-								/>
-							</template>
+						<v-list-item class="upscale-advanced-label">
+							<v-list-item-title class="upscale-section-title">
+								{{ $t("room.upscale.advanced") }}
+							</v-list-item-title>
 						</v-list-item>
 
-						<template v-if="showAdvancedUpscale">
-							<v-list-item>
-								<v-slider
-									v-model="upscaleStrength"
-									:label="$t('room.upscale.strength')"
-									:min="MIN_UPSCALE_STRENGTH"
-									:max="MAX_UPSCALE_STRENGTH"
-									:step="0.05"
-									:disabled="store.state.settings.upscaleMode !== 'sharpen'"
-									density="compact"
-									thumb-label
-									data-cy="upscale-strength"
-								/>
-							</v-list-item>
-							<v-list-item>
-								<v-select
-									v-model="upscaleScale"
-									:label="$t('room.upscale.scale')"
-									:hint="$t('room.upscale.scale-hint')"
-									:items="upscaleScaleOptions"
-									:menu-props="preferenceMenuProps"
-									persistent-hint
-									density="compact"
-									class="my-2"
-									data-cy="upscale-scale"
-								/>
-							</v-list-item>
-							<v-list-item>
-								<v-checkbox
-									v-model="upscaleAutoDegrade"
-									:label="$t('room.upscale.auto-degrade')"
-									:hint="$t('room.upscale.auto-degrade-hint')"
-									persistent-hint
-									density="compact"
-									data-cy="upscale-auto-degrade"
-								/>
-							</v-list-item>
-						</template>
+						<v-list-item>
+							<v-slider
+								v-model="upscaleStrength"
+								:label="$t('room.upscale.strength')"
+								:min="MIN_UPSCALE_STRENGTH"
+								:max="MAX_UPSCALE_STRENGTH"
+								:step="0.05"
+								:disabled="store.state.settings.upscaleMode !== 'sharpen'"
+								density="compact"
+								thumb-label
+								data-cy="upscale-strength"
+							/>
+						</v-list-item>
+						<v-list-item>
+							<v-select
+								v-model="upscaleScale"
+								:label="$t('room.upscale.scale')"
+								:hint="$t('room.upscale.scale-hint')"
+								:items="upscaleScaleOptions"
+								:menu-props="preferenceMenuProps"
+								persistent-hint
+								density="compact"
+								class="my-2"
+								data-cy="upscale-scale"
+							/>
+						</v-list-item>
+						<v-list-item>
+							<v-checkbox
+								v-model="upscaleAutoDegrade"
+								:label="$t('room.upscale.auto-degrade')"
+								:hint="$t('room.upscale.auto-degrade-hint')"
+								persistent-hint
+								density="compact"
+								data-cy="upscale-auto-degrade"
+							/>
+						</v-list-item>
 					</v-list>
 				</div>
 			</div>
@@ -395,8 +410,6 @@ import {
 	mdiTune,
 	mdiChevronLeft,
 	mdiChevronRight,
-	mdiChevronUp,
-	mdiChevronDown,
 	mdiKeyboardOutline,
 	mdiInformationOutline,
 } from "@mdi/js";
@@ -436,11 +449,10 @@ const upscaleOptions = computed(() => {
 	}
 	return options;
 });
-function selectUpscale(mode: UpscaleMode): void {
-	store.commit("settings/UPDATE", { upscaleMode: mode });
-}
-const showAdvancedUpscale = ref(false);
-const showUpscaleIntro = ref(false);
+const upscaleMode = computed({
+	get: () => store.state.settings.upscaleMode as UpscaleMode,
+	set: value => store.commit("settings/UPDATE", { upscaleMode: value }),
+});
 const upscaleStrength = computed({
 	get: () => store.state.settings.upscaleStrength,
 	set: value => store.commit("settings/UPDATE", { upscaleStrength: value }),
@@ -706,7 +718,61 @@ function selectSubtitleTrack(track: number): void {
 	font-weight: 500;
 }
 
-.upscale-intro {
+/*
+ * The tiers share one row: each button takes an equal share and wraps its own
+ * label ("AI 超分（质量）" breaks after the tier name) rather than truncating it,
+ * which is why the row stays legible at the menu's 320px width.
+ */
+.upscale-tiers {
+	display: flex;
+	width: 100%;
+
+	.v-btn {
+		flex: 1 1 0;
+		min-width: 0;
+		height: auto;
+		min-height: 40px;
+		padding: 4px 6px;
+		text-transform: none;
+	}
+
+	/* Vuetify keeps the label on one line inside the content wrapper; letting it
+	   wrap there is what keeps the four tiers inside the 320px menu. */
+	.v-btn__content {
+		white-space: normal;
+		text-align: center;
+		font-size: 0.72rem;
+		line-height: 1.25;
+	}
+}
+
+.upscale-tiers-item,
+.upscale-advanced-label {
+	min-height: 0;
+	padding-top: 4px;
+	padding-bottom: 0;
+}
+
+.upscale-section-title {
+	font-size: 0.75rem;
+	font-weight: 500;
+	letter-spacing: 0.04em;
+	opacity: 0.6;
+}
+
+/* Menus in this app draw their own surface (the default overlay content is
+   transparent), and this popover sits on top of the settings menu, so it needs an
+   opaque one plus a border to stay readable. */
+.upscale-help-popover {
+	background: rgb(var(--v-theme-surface));
+	border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+	border-radius: media-controls.$menu-radius;
+	box-shadow: 0 6px 20px rgb(0 0 0 / 35%);
+}
+
+.upscale-help {
+	padding: 12px 14px;
+
 	p {
 		margin: 0 0 8px;
 		font-size: 0.8rem;
@@ -714,7 +780,7 @@ function selectSubtitleTrack(track: number): void {
 		opacity: 0.85;
 	}
 
-	.upscale-intro-note {
+	.upscale-help-note {
 		margin-bottom: 0;
 		opacity: 0.6;
 	}

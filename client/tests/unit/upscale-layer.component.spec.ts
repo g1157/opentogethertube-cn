@@ -248,4 +248,61 @@ describe("enhancement layer lifecycle", () => {
 
 		expect(store.state.settings.upscaleScale).toBe("auto");
 	});
+
+	function resizeVideo(video: HTMLVideoElement, width: number, height: number) {
+		video.getBoundingClientRect = () =>
+			({
+				width,
+				height,
+				top: 0,
+				left: 0,
+				right: width,
+				bottom: height,
+				x: 0,
+				y: 0,
+				toJSON: () => ({}),
+			}) as DOMRect;
+	}
+
+	it("rebuilds the AI tier at the displayed size when the viewport changes", async () => {
+		const { video } = fakeVideo();
+		mountComponent(UpscaleLayer, { props: { video, mode: "anime4k" } });
+		await settle();
+		expect(drivers.anime4k).toHaveBeenCalledTimes(1);
+		const firstCanvas = drivers.anime4k.mock.calls[0][1] as HTMLCanvasElement;
+
+		// Entering fullscreen (or a wider window) draws the same source much larger, and the
+		// Anime4K pipeline captures its target size when it is built: without a rebuild the
+		// canvas keeps the windowed resolution and the browser stretches it.
+		resizeVideo(video, 2560, 1440);
+		window.dispatchEvent(new Event("resize"));
+		await settle();
+		// A rebuild costs a device and a pipeline, so it waits for the viewport to settle.
+		expect(drivers.anime4k).toHaveBeenCalledTimes(1);
+
+		await new Promise(resolve => setTimeout(resolve, 300));
+		await settle();
+		expect(drivers.anime4k).toHaveBeenCalledTimes(2);
+		const secondCanvas = drivers.anime4k.mock.calls[1][1] as HTMLCanvasElement;
+		expect(secondCanvas.width).toBeGreaterThan(firstCanvas.width);
+		expect(secondCanvas.height).toBeGreaterThan(firstCanvas.height);
+	});
+
+	it("resizes the sharpen canvas in place instead of restarting the pass", async () => {
+		const { video } = fakeVideo();
+		const { wrapper } = mountComponent(UpscaleLayer, { props: { video, mode: "sharpen" } });
+		await settle();
+		const canvas = wrapper.find("canvas").element as HTMLCanvasElement;
+		const before = [canvas.width, canvas.height];
+
+		resizeVideo(video, 2560, 1440);
+		window.dispatchEvent(new Event("resize"));
+		await settle();
+		await new Promise(resolve => setTimeout(resolve, 300));
+		await settle();
+
+		// The shader reads the canvas size every frame, so the same pass just gets more pixels.
+		expect(drivers.sharpen).toHaveBeenCalledTimes(1);
+		expect(canvas.width).toBeGreaterThan(before[0]);
+	});
 });

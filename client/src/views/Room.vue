@@ -58,7 +58,8 @@
 						<PlayerStatsPanel
 							v-if="statsOpen"
 							:video-element="statsVideoElement"
-							@close="statsOpen = false"
+							:expanded="statsExpanded"
+							@close="closeStats"
 						/>
 						<BufferGateNotice v-if="hasRoomSync" />
 						<div
@@ -176,7 +177,7 @@
 							@pointercancel="gestures.pointerCancel"
 							@lostpointercapture="gestures.pointerCancel"
 							@pointerleave="gestures.pointerCancel"
-							@contextmenu.prevent="statsOpen = true"
+							@contextmenu.prevent="toggleStats"
 							@click.prevent
 							@dblclick.stop.prevent
 						></div>
@@ -220,7 +221,7 @@
 							:key="currentSource?.id"
 							:mode="controlsMode"
 							@show-shortcuts="shortcutHelp = true"
-							@show-stats="statsOpen = true"
+							@show-stats="openStats"
 							@resize="controlsHeight = $event"
 						/>
 						<PlayerShortcutsDialog v-model="shortcutHelp" />
@@ -473,7 +474,7 @@ import type { MediaPlayerWithPlaybackRate } from "@/components/composables/media
 import { useGrants } from "@/components/composables/grants";
 import { PlayerStatus, Visibility } from "ott-common/models/types";
 import { createPlayerFullscreen, PlayerFullscreenKey } from "@/util/player-fullscreen";
-import toast from "@/util/toast";
+import toast, { fullscreenNoticeHost } from "@/util/toast";
 import { ToastStyle } from "@/models/toast";
 import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 import { PlayerControlsActivityKey, usePlayerControls } from "@/util/player-controls";
@@ -600,7 +601,27 @@ export default defineComponent({
 		const chatDraft = ref("");
 		const shortcutHelp = ref(false);
 		const statsOpen = ref(false);
+		// Right-click opens the panel in its enlarged form and right-clicking again puts it
+		// away; the settings menu entry is the quiet look at the same numbers.
+		const statsExpanded = ref(false);
 		const statsVideoElement = computed(() => player.player.value?.getVideoElement?.());
+		function toggleStats() {
+			if (statsOpen.value) {
+				statsOpen.value = false;
+				statsExpanded.value = false;
+				return;
+			}
+			statsExpanded.value = true;
+			statsOpen.value = true;
+		}
+		function closeStats() {
+			statsOpen.value = false;
+			statsExpanded.value = false;
+		}
+		function openStats() {
+			statsExpanded.value = false;
+			statsOpen.value = true;
+		}
 		const controlsHeight = ref(90);
 
 		// video control visibility
@@ -898,7 +919,7 @@ export default defineComponent({
 		// connection bar have to live inside the player while it is fullscreen, or they are
 		// silently lost (toasts already teleport there through this ref).
 		function syncFullscreenNoticeHost() {
-			toast.fullscreenNoticeHost.value =
+			fullscreenNoticeHost.value =
 				store.state.fullscreen && fullscreenContainer.value
 					? fullscreenContainer.value
 					: null;
@@ -1659,7 +1680,11 @@ export default defineComponent({
 			chatTarget,
 			shortcutHelp,
 			statsOpen,
+			statsExpanded,
 			statsVideoElement,
+			toggleStats,
+			closeStats,
+			openStats,
 			fullscreenOverlayDefaults,
 			videoControlsHideTimeout,
 			controlsMode,

@@ -1,5 +1,9 @@
 <template>
-	<div class="player-stats" data-cy="player-stats-panel">
+	<div
+		class="player-stats"
+		:class="{ 'player-stats--expanded': expanded }"
+		data-cy="player-stats-panel"
+	>
 		<div class="player-stats-header">
 			<span>{{ $t("player.stats.title") }}</span>
 			<button
@@ -29,6 +33,8 @@ import { usePlayerStats } from "./composables/player-stats";
 const props = defineProps<{
 	/** The live media element, when the current player owns one. */
 	videoElement?: HTMLVideoElement;
+	/** The enlarged view right-click opens, as opposed to the menu's compact one. */
+	expanded?: boolean;
 }>();
 const emit = defineEmits(["close"]);
 
@@ -62,6 +68,19 @@ const { sections } = usePlayerStats(
 	line-height: 1.45;
 	font-variant-numeric: tabular-nums;
 	pointer-events: none;
+}
+
+/*
+ * Right-click opens the enlarged view: a fixed-width box with larger type, for reading
+ * the numbers from a couch while the picture stays visible. It stays inside
+ * .player-container, so the "now playing" bar above and the controls below are never
+ * covered.
+ */
+.player-stats--expanded {
+	width: min(30rem, calc(100% - 1rem));
+	/* The compact box's 22rem cap would otherwise keep this at its natural width. */
+	max-width: calc(100% - 1rem);
+	font-size: 0.84rem;
 }
 
 .player-stats-header {
@@ -124,6 +143,12 @@ const { sections } = usePlayerStats(
 		top: auto;
 		bottom: calc(var(--player-controls-height, 90px) + 0.5rem);
 		max-height: calc(100% - var(--player-controls-height, 90px) - 4.5rem);
+	}
+
+	/* The enlarged view is read on purpose, so it takes the room the compact one
+	   reserves for the subtitle line — otherwise only the first rows survive. */
+	.player-stats--expanded {
+		max-height: calc(100% - var(--player-controls-height, 90px) - 0.5rem);
 	}
 }
 </style>

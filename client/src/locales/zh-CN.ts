@@ -228,7 +228,7 @@ export default {
 			"anime4k-quality-fallback": "「质量」档无法启用，已切换为「AI 超分」。",
 			failed: "无法启用画质增强，已关闭。",
 			degraded: "设备性能不足，画质增强已降低。",
-			"intro-toggle": "画质增强说明",
+			help: "画质增强说明",
 			"intro-sharpen":
 				"清晰化：GPU 边缘自适应放大（EASU）加锐化，所有设备都能用；倍率贴合显示尺寸且不低于原分辨率，最省电。效果偏轻微，低分辨率或发糊的片源更明显。",
 			"intro-anime4k":
