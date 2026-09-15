@@ -23,28 +23,18 @@
 			top: seekPreviewY + 'px',
 		}"
 	>
-		<div v-if="thumbnailSource" class="seek-preview-thumb">
-			<img
-				v-if="thumbnailUrl && !thumbnailBroken"
-				:src="thumbnailUrl"
-				alt=""
-				@error="thumbnailBroken = true"
-				@load="thumbnailBroken = false"
-			/>
-		</div>
 		<span>{{ seekPreviewTimestamp }}</span>
 	</div>
 </template>
 
 <script lang="ts" setup>
-import { ref, type Ref, onMounted, onUpdated, computed, inject, watch } from "vue";
+import { ref, type Ref, onMounted, onUpdated, computed, inject } from "vue";
 import VueSlider from "vue-slider-component";
 import { useStore } from "@/store";
 import { secondsToTimestamp } from "@/util/timestamp";
 import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
 import { PlayerActionsKey } from "@/util/player-actions";
-import { resolveMediaCandidate } from "@/util/next-media-prefetch";
 import "vue-slider-component/theme/default.css";
 import "./slider-tweaks.scss";
 import { useGrants } from "../composables/grants";
@@ -157,36 +147,6 @@ const seekPreviewVisible = computed(() => {
 	return railHovered.value;
 });
 
-/**
- * Previews come from the server, which extracts one frame from the same public URL the
- * player uses. Embedded players (YouTube, Vimeo, PeerTube) have no such URL.
- */
-const thumbnailSource = computed(
-	() => resolveMediaCandidate(store.state.room.currentSource)?.url ?? null,
-);
-/** Asking for the same five seconds repeatedly would waste a request per mouse move. */
-const THUMBNAIL_BUCKET_SECONDS = 5;
-const thumbnailTime = ref<number | null>(null);
-const thumbnailBroken = ref(false);
-const thumbnailUrl = computed(() => {
-	if (!thumbnailSource.value || thumbnailTime.value === null) {
-		return null;
-	}
-	const base = (import.meta.env.OTT_BASE_URL as string | undefined) ?? "";
-	const query = new URLSearchParams({
-		url: thumbnailSource.value,
-		time: String(thumbnailTime.value),
-	});
-	return `${base}/api/thumbnails/frame?${query}`;
-});
-watch(thumbnailUrl, () => {
-	// A new time bucket deserves its own chance, even after a failed extraction.
-	thumbnailBroken.value = false;
-});
-watch(thumbnailSource, () => {
-	thumbnailTime.value = null;
-});
-
 function updateSeekPreview(e) {
 	const slider = document.getElementById("videoSlider");
 	if (!slider) {
@@ -197,11 +157,9 @@ function updateSeekPreview(e) {
 	const sliderPos = e.clientX - sliderRect.left;
 	const sliderY = sliderRect.top;
 	seekPreviewPercent.value = sliderPos / sliderRect.width;
-	const length = store.state.room.currentSource?.length ?? 0;
-	const previewTime = seekPreviewPercent.value * length;
-	thumbnailTime.value =
-		Math.floor(previewTime / THUMBNAIL_BUCKET_SECONDS) * THUMBNAIL_BUCKET_SECONDS;
-	seekPreviewTimestamp.value = secondsToTimestamp(previewTime);
+	seekPreviewTimestamp.value = secondsToTimestamp(
+		seekPreviewPercent.value * (store.state.room.currentSource?.length ?? 0),
+	);
 	const seekPreview = document.getElementById("seek-preview");
 	if (!seekPreview) {
 		return;
@@ -244,30 +202,11 @@ onUpdated(() => {
 	background-color: rgba(0, 0, 0, 0.6);
 	color: white;
 	display: flex;
-	flex-direction: column;
 	align-items: center;
 	justify-content: center;
 	padding: 2px 6px;
 	text-align: center;
 	pointer-events: none;
-}
-
-.seek-preview-thumb {
-	width: 160px;
-	height: 90px;
-	margin-bottom: 2px;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	overflow: hidden;
-	background-color: rgba(0, 0, 0, 0.5);
-}
-
-.seek-preview-thumb img {
-	display: block;
-	width: 100%;
-	height: 100%;
-	object-fit: contain;
 }
 
 .hide {

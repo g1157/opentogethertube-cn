@@ -7,7 +7,6 @@ import usermanager from "./usermanager.js";
 import passport from "passport";
 import statusapi from "./api/status.js";
 import playbackapi from "./api/playback.js";
-import thumbnailsapi from "./api/thumbnails.js";
 import { conf } from "./ott-config.js";
 import announceapi from "./api/announce.js";
 import dataapi from "./api/data.js";
@@ -20,8 +19,6 @@ export function buildApiRouter(): express.Router {
 	router.use("/status", statusapi);
 	// Anonymous quality counters; guests watch too, so this stays outside auth.
 	router.use("/playback", playbackapi);
-	// Progress-bar previews read the same public source the viewer's player uses.
-	router.use("/thumbnails", thumbnailsapi);
 	router.use("/auth", auth.router);
 	router.use("/data", dataapi);
 
