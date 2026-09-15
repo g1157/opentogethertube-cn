@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Notifier from "@/components/Notifier.vue";
 import { ToastStyle } from "@/models/toast";
 import { RoomRequestType } from "ott-common/models/messages";
+import { fullscreenNoticeHost } from "@/util/toast";
 import { mountComponent } from "./component-test-utils";
 
 describe("Notifier component", () => {
@@ -116,5 +117,76 @@ describe("Notifier component", () => {
 		await wrapper.get('[data-cy="toast-close-all"]').trigger("click");
 
 		expect(store.state.toast.notifications).toHaveLength(0);
+	});
+
+	describe("fullscreen notices", () => {
+		function withHost(store: ReturnType<typeof mountComponent>["store"]) {
+			const host = document.createElement("div");
+			document.body.append(host);
+			fullscreenNoticeHost.value = host;
+			store.commit("SET_FULLSCREEN", true);
+			return host;
+		}
+
+		function teleportedText() {
+			return [...document.querySelectorAll(".toast-list--fullscreen .toast")]
+				.map(node => node.textContent ?? "")
+				.join(" ");
+		}
+
+		beforeEach(() => {
+			document.body.innerHTML = "";
+			fullscreenNoticeHost.value = null;
+		});
+
+		afterEach(() => {
+			fullscreenNoticeHost.value = null;
+			document.body.innerHTML = "";
+		});
+
+		it("teleports notices into the player and keeps critical and content levels", async () => {
+			const { wrapper, store } = mountComponent(Notifier);
+			store.commit("toast/CLEAR_ALL_TOASTS");
+			withHost(store);
+			store.commit("toast/ADD_TOAST", { content: "error", level: "critical" });
+			store.commit("toast/ADD_TOAST", { content: "played", level: "content" });
+			store.commit("toast/ADD_TOAST", { content: "joined" });
+			await wrapper.vm.$nextTick();
+
+			const text = teleportedText();
+			expect(text).toContain("error");
+			expect(text).toContain("played");
+			expect(text).not.toContain("joined");
+		});
+
+		it("caps the stack and counts what it hid", async () => {
+			const { wrapper, store } = mountComponent(Notifier);
+			store.commit("toast/CLEAR_ALL_TOASTS");
+			withHost(store);
+			store.commit("toast/ADD_TOAST", { content: "one", level: "content" });
+			store.commit("toast/ADD_TOAST", { content: "two", level: "content" });
+			store.commit("toast/ADD_TOAST", { content: "three", level: "content" });
+			store.commit("toast/ADD_TOAST", { content: "four", level: "content" });
+			await wrapper.vm.$nextTick();
+
+			// Newest first, and the older notices collapse into the counter.
+			const text = teleportedText();
+			expect(text).toContain("three");
+			expect(text).toContain("four");
+			expect(text).not.toContain("one");
+			expect(document.querySelector(".toast-more")?.textContent).toContain("2");
+		});
+
+		it("keeps every notice in the windowed layout", async () => {
+			const { wrapper, store } = mountComponent(Notifier);
+			store.commit("toast/CLEAR_ALL_TOASTS");
+			store.commit("toast/ADD_TOAST", { content: "joined" });
+			store.commit("toast/ADD_TOAST", { content: "error", level: "critical" });
+			await wrapper.vm.$nextTick();
+
+			expect(wrapper.find(".toast-list--fullscreen").exists()).toBe(false);
+			expect(wrapper.html()).toContain("joined");
+			expect(wrapper.html()).toContain("error");
+		});
 	});
 });

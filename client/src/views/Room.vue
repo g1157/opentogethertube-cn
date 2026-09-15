@@ -180,6 +180,15 @@
 							@click.prevent
 							@dblclick.stop.prevent
 						></div>
+						<!-- The windowed layout keeps these outside the player; a native
+						     fullscreen element only renders its own subtree. -->
+						<div v-if="store.state.fullscreen" class="fullscreen-notices">
+							<RoomConnectionNotice />
+							<div class="banners">
+								<RestoreQueue />
+								<VoteSkip />
+							</div>
+						</div>
 						<div
 							class="player-gesture-hint"
 							v-if="gestureHint"
@@ -882,8 +891,21 @@ export default defineComponent({
 			void playbackSync.tick();
 		}
 
+		// A native fullscreen element only renders its own subtree: notices and the
+		// connection bar have to live inside the player while it is fullscreen, or they are
+		// silently lost (toasts already teleport there through this ref).
+		function syncFullscreenNoticeHost() {
+			toast.fullscreenNoticeHost.value =
+				store.state.fullscreen && fullscreenContainer.value
+					? fullscreenContainer.value
+					: null;
+		}
+		watch([() => store.state.fullscreen, fullscreenContainer], syncFullscreenNoticeHost, {
+			flush: "post",
+		});
 		onMounted(() => {
 			iTimestampUpdater.value = setInterval(timestampUpdate, 250);
+			syncFullscreenNoticeHost();
 			playbackStatusUnsub = store.subscribe(mutation => {
 				if (mutation.type !== "PLAYBACK_STATUS") {
 					return;
@@ -2198,6 +2220,25 @@ $in-video-chat-width-small: 250px;
 
 .banners {
 	margin: 10px 0;
+}
+
+/* In fullscreen the same notices render inside the player, clear of the title bar. */
+.fullscreen-notices {
+	position: absolute;
+	top: calc(max(12px, env(safe-area-inset-top)) + 44px);
+	left: 0.5rem;
+	right: 0.5rem;
+	z-index: 5;
+	max-width: 420px;
+	pointer-events: none;
+
+	> * {
+		pointer-events: auto;
+	}
+
+	.banners {
+		margin: 0;
+	}
 }
 
 .grow {

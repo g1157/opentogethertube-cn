@@ -72,7 +72,8 @@ export async function getManyVideoInfo(videos) {
 	}
 }
 
-function filterVideoInfo(cachedVideo: CachedVideo): Video {
+/** Exported for the cache freshness test; the rule itself is a few lines below. */
+export function filterVideoInfo(cachedVideo: CachedVideo): Video {
 	const origCreatedAt = dayjs(cachedVideo.createdAt);
 	const lastUpdatedAt = dayjs(cachedVideo.updatedAt);
 	const today = dayjs();
@@ -81,8 +82,9 @@ function filterVideoInfo(cachedVideo: CachedVideo): Video {
 	// is unlikely to change the video info after a week of the original upload. Since we don't store
 	// the upload date, we pretend the original cache date is the upload date. This is potentially an
 	// over optimization.
-	const isCachedInfoValid =
-		lastUpdatedAt.diff(today, "days") <= (origCreatedAt.diff(today, "days") <= 7 ? 7 : 30);
+	const ageDays = today.diff(lastUpdatedAt, "days");
+	const intervalDays = today.diff(origCreatedAt, "days") <= 7 ? 7 : 30;
+	const isCachedInfoValid = ageDays <= intervalDays;
 	const video: Video = {
 		service: cachedVideo.service,
 		id: cachedVideo.serviceId,

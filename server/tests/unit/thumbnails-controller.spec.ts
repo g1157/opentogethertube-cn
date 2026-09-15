@@ -21,6 +21,8 @@ interface FakeChild extends EventEmitter {
 function fakeChild(): FakeChild {
 	const child = new EventEmitter() as FakeChild;
 	child.stdout = new EventEmitter();
+	// A hand-built fake, not a real child: there is no method to spy on.
+	// eslint-disable-next-line vitest/prefer-spy-on
 	child.kill = vi.fn();
 	return child;
 }

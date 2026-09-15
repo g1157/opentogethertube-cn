@@ -1,5 +1,5 @@
 import type { Module } from "vuex";
-import { ToastStyle } from "@/models/toast";
+import { ToastStyle, type ToastLevel } from "@/models/toast";
 import {
 	RoomRequestType,
 	type ServerMessageEvent,
@@ -16,8 +16,12 @@ export const eventsModule: Module<unknown, FullOTTStoreState> = {
 			const user = message.user.name;
 			let text = t("room-event.unknown");
 			let duration = 5000;
+			// Fullscreen keeps only what explains the picture (critical) or its playback
+			// (content); everything social is left to the windowed layout.
+			let level: ToastLevel = "social";
 			if (message.request.type === RoomRequestType.PlaybackRequest) {
 				duration = 3000;
+				level = "content";
 				text = t(message.request.state ? "room-event.played" : "room-event.paused", {
 					user,
 				});
@@ -30,12 +34,14 @@ export const eventsModule: Module<unknown, FullOTTStoreState> = {
 					video: message.additional.video.title,
 				});
 				duration = 20000;
+				level = "critical";
 			} else if (message.request.type === RoomRequestType.SeekRequest) {
 				text = t("room-event.seeked", {
 					user,
 					time: secondsToTimestamp(message.request.value),
 				});
 				duration = context.rootState.settings.seekNoticeSeconds * 1000;
+				level = "critical";
 			} else if (message.request.type === RoomRequestType.JoinRequest) {
 				text = t("room-event.joined", { user });
 				duration = context.rootState.settings.presenceNoticeSeconds * 1000;
@@ -92,6 +98,7 @@ export const eventsModule: Module<unknown, FullOTTStoreState> = {
 				content: text,
 				duration,
 				event: message,
+				level,
 			});
 		},
 		eventcustom(_context, message: ServerMessageEventCustom) {
@@ -99,6 +106,8 @@ export const eventsModule: Module<unknown, FullOTTStoreState> = {
 				style: ToastStyle.Neutral,
 				content: message.text,
 				duration: message.duration ?? 3000,
+				// A room-wide announcement is worth keeping in fullscreen.
+				level: "content",
 			});
 		},
 	},

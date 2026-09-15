@@ -10,6 +10,10 @@
 	--line: var(--border);
 	--line-strong: color-mix(in srgb, var(--foreground) 22%, transparent);
 	--text-dim: var(--muted-foreground);
+	/* Aliases the components already reference; without them those rules silently drop. */
+	--surface: var(--card);
+	--text-secondary: var(--muted-foreground);
+	--radius-md: calc(var(--radius) + 1px);
 	--radius-lg: calc(var(--radius) + 2px);
 }
 

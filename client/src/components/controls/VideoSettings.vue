@@ -563,7 +563,7 @@ const currentSubtitleDisplay = computed(() => {
 		captions.isCaptionsEnabled.value &&
 		captions.currentTrack.value !== null;
 	const track = captions.captionsTracks.value[captions.currentTrack.value || 0];
-	return isEnabled ? formatCaption(track) : "disabled";
+	return isEnabled ? formatCaption(track) : t("player.settings.disabled");
 });
 
 function formatCaption(track: CaptionTrack): string {
@@ -572,7 +572,7 @@ function formatCaption(track: CaptionTrack): string {
 		new Intl.DisplayNames([track.srclang], { type: "language", fallback: "none" }).of(
 			track.srclang,
 		);
-	const label = track.label ?? localiedLabel ?? track.srclang ?? "unknown";
+	const label = track.label ?? localiedLabel ?? track.srclang ?? t("player.settings.unknown");
 	return label;
 }
 
@@ -588,12 +588,14 @@ const autoQualityDisplay = computed(() => {
 		qualities.currentActiveQuality.value !== null;
 
 	const currentQuality = qualities.videoTracks.value[qualities.currentActiveQuality.value!];
-	return hasActiveQuality ? `Auto (${formatQuality(currentQuality)})` : "Auto";
+	return hasActiveQuality
+		? t("player.settings.auto-with-value", { value: formatQuality(currentQuality) })
+		: t("player.settings.auto");
 });
 
 const currentQualityDisplay = computed(() => {
 	if (!isQualitySupported.value) {
-		return "disabled";
+		return t("player.settings.disabled");
 	}
 
 	const isAutoQualitySupported = qualities.isAutoQualitySupported.value;

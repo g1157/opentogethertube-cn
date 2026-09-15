@@ -47,7 +47,8 @@ const { sections } = usePlayerStats(
  */
 .player-stats {
 	position: absolute;
-	top: 0.5rem;
+	/* Clear the "now playing" bar so the two translucent panels never overlap. */
+	top: calc(max(12px, env(safe-area-inset-top)) + 44px);
 	left: 0.5rem;
 	z-index: 4;
 	max-width: min(22rem, calc(100% - 1rem));
@@ -114,5 +115,15 @@ const { sections } = usePlayerStats(
 .player-stats-value {
 	flex: 1 1 auto;
 	overflow-wrap: anywhere;
+}
+
+/* On phones the title bar, subtitles and controls crowd the same corner; sit above the
+   controls instead, where nothing else is drawn. */
+@media (max-width: 760px) {
+	.player-stats {
+		top: auto;
+		bottom: calc(var(--player-controls-height, 90px) + 0.5rem);
+		max-height: calc(100% - var(--player-controls-height, 90px) - 4.5rem);
+	}
 }
 </style>

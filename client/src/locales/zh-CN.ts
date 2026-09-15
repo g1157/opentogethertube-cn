@@ -26,6 +26,7 @@ export default {
 		cancel: "取消",
 		close: "关闭",
 		"close-all": "全部关闭",
+		"more-notices": "另有 {count} 条新提示",
 		add: "添加",
 		remove: "移除",
 		delete: "删除",
@@ -742,6 +743,12 @@ export default {
 	},
 	player: {
 		"now-playing": "正在播放",
+		settings: {
+			disabled: "不可用",
+			unknown: "未知",
+			auto: "自动",
+			"auto-with-value": "自动（{value}）",
+		},
 		"join-playback": {
 			title: "房间正在播放",
 			action: "点击加入播放",

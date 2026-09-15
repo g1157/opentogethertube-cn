@@ -27,6 +27,7 @@ export default {
 		cancel: "Cancel",
 		close: "Close",
 		"close-all": "Close All",
+		"more-notices": "{count} more notices",
 		add: "Add",
 		remove: "Remove",
 		delete: "Delete",
@@ -773,6 +774,12 @@ export default {
 	},
 	player: {
 		"now-playing": "Now playing",
+		settings: {
+			disabled: "Unavailable",
+			unknown: "Unknown",
+			auto: "Auto",
+			"auto-with-value": "Auto ({value})",
+		},
 		"join-playback": {
 			title: "The room is playing",
 			action: "Click to join playback",
