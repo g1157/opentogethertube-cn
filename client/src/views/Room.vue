@@ -286,9 +286,12 @@
 							<span class="tab-text">{{ $t("room.tabs.queue") }}</span>
 							<v-chip size="x-small" class="room-tab-count">
 								{{
-									store.state.room.queue.length <= 99
-										? $n(store.state.room.queue.length)
-										: "99+"
+									$t("room.tabs.queue-pending", {
+										count:
+											store.state.room.queue.length <= 99
+												? $n(store.state.room.queue.length)
+												: "99+",
+									})
 								}}
 							</v-chip>
 						</v-tab>

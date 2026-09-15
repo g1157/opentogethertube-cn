@@ -443,7 +443,7 @@ export default {
 		"link-hint": "点击复制此链接到添加标签页。",
 	},
 	"video-queue": {
-		"no-videos": "队列里还没有任何视频。",
+		"no-videos": "还没有待播视频。正在播放的视频显示在播放器上方。",
 		"add-video": "添加视频",
 		shuffle: "随机排序队列",
 		"item-actions": "视频操作菜单",

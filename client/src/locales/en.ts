@@ -282,6 +282,7 @@ export default {
 		"voice-error-budget": "This month's relay budget is used up",
 		tabs: {
 			queue: "Queue",
+			"queue-pending": "Up next {count}",
 			notes: "Notes",
 			settings: "Settings",
 		},
@@ -453,7 +454,7 @@ export default {
 		"link-hint": "Click to copy this link to the add tab.",
 	},
 	"video-queue": {
-		"no-videos": "There aren't any videos queued up.",
+		"no-videos": "Nothing is up next. The video playing now is shown above the player.",
 		"add-video": "Add a video",
 		shuffle: "Shuffle the queue",
 		"item-actions": "Video actions menu",
