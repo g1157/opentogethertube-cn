@@ -150,9 +150,7 @@ fn send_messages(c: &mut Criterion) {
         "mass join 20 rooms, on 5 monoliths, with regions set",
         |b| {
             b.to_async(&rt).iter_custom(|iters| async move {
-                unsafe {
-                    BalancerConfig::get_mut().region = "foo".into();
-                }
+                BalancerConfig::get_mut().region = "foo".into();
 
                 let rooms: Vec<RoomName> = (0..20)
                     .map(|i| format!("foo{}", i))

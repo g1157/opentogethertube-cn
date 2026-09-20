@@ -112,7 +112,7 @@ export const RoomSettingsSchema = z
 				message: "title must not contain newlines",
 			})
 			.optional(),
-		description: z.string().optional(),
+		description: z.string().max(5000).optional(),
 		visibility: z.nativeEnum(Visibility).optional(),
 		queueMode: z.nativeEnum(QueueMode).optional(),
 		grants: z.array(GrantSchema).optional(),

@@ -83,9 +83,9 @@ describe("server message handler ownership", () => {
 		const externalChat = vi.fn();
 		connection.addMessageHandler("sync", externalSync);
 		connection.addMessageHandler("chat", externalChat);
+		// Chat is intentionally absent: Chat.vue owns that connection handler itself.
 		const actions = [
 			"sync",
-			"chat",
 			"announcement",
 			"user",
 			"you",
@@ -102,7 +102,7 @@ describe("server message handler ownership", () => {
 		dispatch.mockClear();
 		externalSync.mockClear();
 		externalChat.mockClear();
-		for (const action of actions) {
+		for (const action of [...actions, "chat" as const]) {
 			connection.mockReceive({ action } as ServerMessage);
 		}
 		expect(dispatch).not.toHaveBeenCalled();

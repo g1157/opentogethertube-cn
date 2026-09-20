@@ -25,7 +25,7 @@ x-ott-env: &ott-env
   POSTGRES_USER: ott
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
   DATABASE_URL: postgres://ott:${POSTGRES_PASSWORD}@postgres:5432/ott
-  REDIS_URL: redis://redis:6379
+  REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
   NODE_OPTIONS: --max-old-space-size=384
   FFPROBE_STRATEGY: ${FFPROBE_STRATEGY:-run}
 
@@ -50,7 +50,9 @@ services:
     image: ${OTT_IMAGE:-ghcr.io/g1157/opentogethertube-cn:latest}
     restart: unless-stopped
     ports:
-      - "${OTT_PUBLIC_PORT:-8080}:8080"
+      # Loopback only: an HTTPS entry (Caddy/cloudflared) sources from the same host,
+      # and an exposed plaintext port would bypass it entirely.
+      - "127.0.0.1:${OTT_PUBLIC_PORT:-8080}:8080"
     environment: *ott-env
     depends_on:
       migrate:
@@ -86,20 +88,39 @@ services:
       timeout: 3s
       retries: 12
     mem_limit: 384m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     logging: *logging
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory, 128mb, --maxmemory-policy, noeviction]
+    command:
+      [
+        redis-server,
+        --appendonly,
+        "yes",
+        --appendfsync,
+        everysec,
+        --maxmemory,
+        128mb,
+        --maxmemory-policy,
+        noeviction,
+        --requirepass,
+        "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
+      ]
     volumes:
       - redis-data:/data
     healthcheck:
-      test: [CMD, redis-cli, ping]
+      test: [CMD-SHELL, "redis-cli -a \"$REDIS_PASSWORD\" ping | grep PONG"]
       interval: 5s
       timeout: 3s
       retries: 12
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     mem_limit: 192m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     logging: *logging
 
 volumes:

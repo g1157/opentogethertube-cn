@@ -358,6 +358,8 @@ describe("Room", () => {
 
 		describe("VoteRequest", () => {
 			it("should only cast one vote when a video is voted for the first time", async () => {
+				// Votes are only valid for queued videos; voting for anything else rejects.
+				room.queue = new VideoQueue([{ service: "direct", id: "abc123" }]);
 				await room.processRequest(
 					{
 						type: RoomRequestType.VoteRequest,
@@ -367,6 +369,20 @@ describe("Room", () => {
 					{ username: "test", role: Role.Owner, clientId: "1234" },
 				);
 				expect(Array.from(room.votes.get("directabc123")!)).toEqual(["1234"]);
+			});
+
+			it("should reject votes for videos that are not in the queue", async () => {
+				await expect(
+					room.processRequest(
+						{
+							type: RoomRequestType.VoteRequest,
+							video: { service: "direct", id: "not-queued" },
+							add: true,
+						},
+						{ username: "test", role: Role.Owner, clientId: "1234" },
+					),
+				).rejects.toThrow();
+				expect(room.votes.has("directnot-queued")).toBe(false);
 			});
 		});
 

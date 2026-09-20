@@ -22,6 +22,10 @@ export default defineConfig({
 	define: {
 		__COMMIT_HASH__: JSON.stringify(gitCommit()),
 	},
+	// Strip debug logging from production bundles; dev keeps it and console.debug/warn/error stay.
+	esbuild: {
+		pure: ["console.log", "console.info"],
+	},
 	base: process.env.OTT_BASE_URL || "/",
 	plugins: [
 		vue(),

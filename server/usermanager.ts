@@ -272,18 +272,32 @@ router.post("/login", async (req, res, next) => {
 					});
 					return;
 				}
+				// Rotate the token on privilege change: reusing the pre-login guest token
+				// would let anyone who planted it (shared computer, subdomain cookie)
+				// take over the account after login (session fixation).
+				const newToken: AuthToken = await tokens.mint();
 				req.ottsession = { isLoggedIn: true, user_id: user.id };
-				await tokens.setSessionInfo(req.token!, req.ottsession);
+				await tokens.setSessionInfo(newToken, req.ottsession);
 				try {
-					onUserLogIn(user, req.token!);
+					onUserLogIn(user, newToken);
 				} catch (err) {
 					log.error(
 						`An unknown error occurred when running onUserLogIn: ${err} ${err.message}`,
 					);
 				}
+				if (req.token) {
+					await tokens.revoke(req.token);
+				}
+				req.token = newToken;
+				res.cookie(conf.get("auth_cookie_name"), newToken, {
+					httpOnly: true,
+					sameSite: "lax",
+					secure: !conf.get("force_insecure_cookies"),
+				});
 				res.json({
 					success: true,
 					user: _.pick(user, ["email", "username"]),
+					token: newToken,
 				});
 			});
 		} else {
@@ -333,18 +347,30 @@ router.post("/register", async (req, res) => {
 		const result = await registerUser(req.body);
 		log.info(`User registered: ${result.id}`);
 		req.login(result, async () => {
+			// Rotate the token here as well: registration is a privilege change too.
+			const newToken: AuthToken = await tokens.mint();
 			req.ottsession = { isLoggedIn: true, user_id: result.id };
-			await tokens.setSessionInfo(req.token!, req.ottsession);
+			await tokens.setSessionInfo(newToken, req.ottsession);
 			try {
-				onUserLogIn(result, req.token!);
+				onUserLogIn(result, newToken);
 			} catch (err) {
 				log.error(
 					`An unknown error occurred when running onUserLogIn: ${err} ${err.message}`,
 				);
 			}
+			if (req.token) {
+				await tokens.revoke(req.token);
+			}
+			req.token = newToken;
+			res.cookie(conf.get("auth_cookie_name"), newToken, {
+				httpOnly: true,
+				sameSite: "lax",
+				secure: !conf.get("force_insecure_cookies"),
+			});
 			res.status(201).json({
 				success: true,
 				user: _.pick(result, ["email", "username"]),
+				token: newToken,
 			});
 		});
 	} catch (err) {
@@ -742,6 +768,22 @@ async function getUser(options: { user?: string; id?: number; discordId?: string
 	return user;
 }
 
+// Every status heartbeat carries user_id, and the old path hit the database for each
+// one — N viewers reporting status is O(N²) queries. A short TTL cache flattens that;
+// profile edits clear it via onUserModified so staleness stays bounded to seconds.
+const userByIdCache = new Map<number, { user: User; at: number }>();
+const USER_CACHE_TTL_MS = 60_000;
+
+export async function getUserCachedById(id: number): Promise<User> {
+	const cached = userByIdCache.get(id);
+	if (cached && Date.now() - cached.at < USER_CACHE_TTL_MS) {
+		return cached.user;
+	}
+	const user = await getUser({ id });
+	userByIdCache.set(id, { user, at: Date.now() });
+	return user;
+}
+
 function onUserLogIn(user: User, token: AuthToken) {
 	log.info(`${user.username} (id: ${user.id}) has logged in.`);
 	onUserModified(token);
@@ -755,6 +797,7 @@ function onUserLogOut(user: User, token: AuthToken) {
 }
 
 function onUserModified(token: AuthToken) {
+	userByIdCache.clear();
 	bus.emit("userModified", token);
 }
 
@@ -981,6 +1024,7 @@ export default {
 	changeUserPassword,
 	verifyUserPassword,
 	getUser,
+	getUserCachedById,
 	isUsernameTaken,
 	isEmailTaken,
 	clearAllRateLimiting,

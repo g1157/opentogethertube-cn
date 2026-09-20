@@ -877,10 +877,13 @@ pub async fn dispatch_monolith_message(
                 MsgM2B::Gossip(msg) => {
                     let to_remove = {
                         let ctx_read = ctx.read().await;
-                        ctx_read
-                            .monoliths
-                            .get(monolith_id)
-                            .unwrap()
+                        let Some(monolith) = ctx_read.monoliths.get(monolith_id) else {
+                            // The monolith can be removed while this message sat in the
+                            // dispatch queue; treat a stale gossip as a no-op.
+                            warn!(%monolith_id, "gossip from unknown monolith, ignoring");
+                            return Ok(());
+                        };
+                        monolith
                             .rooms()
                             .keys()
                             .filter(|room| !msg.rooms.iter().any(|r| r.room.name == **room))
@@ -932,9 +935,7 @@ pub async fn dispatch_monolith_message(
                             let Some(room) = ctx_read
                                 .monoliths
                                 .get(monolith_id)
-                                .unwrap()
-                                .rooms()
-                                .get(&msg.room)
+                                .and_then(|monolith| monolith.rooms().get(&msg.room))
                             else {
                                 anyhow::bail!("room not found on monolith");
                             };

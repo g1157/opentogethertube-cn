@@ -30,7 +30,7 @@ import type {
 	OttClaimRequest,
 	RoomListItem,
 } from "ott-common/models/rest-api.js";
-import { getApiKey } from "../admin.js";
+import { safeCompareApiKey } from "../admin.js";
 import { v4 as uuidv4 } from "uuid";
 import { counterHttpErrors } from "../metrics.js";
 import { conf } from "../ott-config.js";
@@ -51,7 +51,7 @@ const router = express.Router();
 const log = getLogger("api/room");
 
 router.get("/list", async (req, res, next) => {
-	const isAuthorized = !!getApiKey() && req.get("apikey") === getApiKey();
+	const isAuthorized = safeCompareApiKey(req.get("apikey"));
 	if (req.get("apikey") && !isAuthorized) {
 		log.warn(
 			`Unauthorized request to room list endpoint: ip=${req.ip} forward-ip=${(
@@ -342,8 +342,10 @@ const deleteRoom: RequestHandler<
 		return;
 	}
 
-	// If not permanent deletion, require admin apikey to unload a room
-	const isAuthorized = req.get("apikey") === getApiKey();
+	// If not permanent deletion, require admin apikey to unload a room.
+	// safeCompareApiKey returns false when no key is configured, so an empty
+	// apikey header can no longer pass on an instance that has none set.
+	const isAuthorized = safeCompareApiKey(req.get("apikey"));
 	if (!isAuthorized) {
 		res.status(400).json({
 			success: false,

@@ -37,9 +37,14 @@ export async function setSessionInfo(token: AuthToken, session: SessionInfo): Pr
 	await redisClient.setEx(`${PREFIX}:${token}`, expiration, JSON.stringify(session));
 }
 
+export async function revoke(token: AuthToken): Promise<void> {
+	await redisClient.del(`${PREFIX}:${token}`);
+}
+
 export default {
 	validate,
 	mint,
 	getSessionInfo,
 	setSessionInfo,
+	revoke,
 };

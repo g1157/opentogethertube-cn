@@ -44,6 +44,8 @@ export abstract class Client {
 	token: AuthToken | null = null;
 	session?: SessionInfo;
 	joinStatus: ClientJoinStatus = ClientJoinStatus.WaitingForAuth;
+	/** True when the websocket URL carried ?reconnect=true (session resume attempt). */
+	isReconnect = false;
 
 	private bus: EventEmitter;
 
@@ -252,7 +254,14 @@ export class BalancerClient extends Client {
 	}
 
 	sendRaw(msg: string) {
-		throw new Error("Not implemented");
+		// Raw payloads are serialized ServerMessages (e.g. announcements). Route them
+		// like any other room message; a balancer client has no direct socket.
+		try {
+			const parsed = JSON.parse(msg) as ServerMessage;
+			this.send(parsed);
+		} catch {
+			// Not a ServerMessage; nothing sensible to route, but never crash the caller.
+		}
 	}
 
 	kick(code: OttWebsocketError) {

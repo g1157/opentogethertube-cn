@@ -59,7 +59,7 @@
 								>{{ $t("nav.create.title") }}</v-btn
 							>
 						</template>
-						<v-list width="320" max-width="90vw">
+						<v-list role="menu" width="320" max-width="90vw">
 							<NavCreateRoom
 								@createtemp="createTempRoom"
 								@createperm="createPermanentRoom"
@@ -158,7 +158,10 @@
 				<a class="ml-2" href="/source-code.tar.gz">{{ $t("landing.hero.btns.source") }}</a>
 			</p>
 			<ClientUpdateNotice />
-			<router-view v-if="!isEdgePreview || identityReady" />
+			<!-- Keying by full path forces a real remount when navigating between rooms,
+			     otherwise the Room component is reused while its websocket still belongs
+			     to the previous room and the URL gets rewritten back to the old room. -->
+			<router-view v-if="!isEdgePreview || identityReady" :key="$route.fullPath" />
 			<div v-else class="room-creation-progress" role="status">
 				<span>{{
 					identityFailed ? $t("edge-preview.connection-failed") : $t("common.loading")
@@ -291,12 +294,19 @@ const App = defineComponent({
 		const showMoreMenu = ref(false);
 		const identityReady = ref(false);
 		const identityFailed = ref(false);
-		const loadIdentity = async () => {
+		const loadIdentity = async (attempt = 0): Promise<void> => {
 			identityFailed.value = false;
 			try {
 				await store.dispatch("users/getNewToken");
 				identityReady.value = true;
 			} catch {
+				// Tunnel blips and rate limits are transient; retry with backoff before
+				// surfacing the failure. Room pages retry on their own afterwards.
+				if (attempt < 2) {
+					await new Promise(resolve => setTimeout(resolve, 2000 * 2 ** attempt));
+					await loadIdentity(attempt + 1);
+					return;
+				}
 				identityFailed.value = true;
 			}
 		};

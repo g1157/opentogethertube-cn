@@ -379,6 +379,8 @@ export interface RoomRequestBase {
 export interface JoinRequest extends RoomRequestBase {
 	type: RoomRequestType.JoinRequest;
 	info: ClientInfo;
+	/** Set by the client when this connection is a reconnect of an existing session. */
+	reconnect?: boolean;
 }
 
 export interface LeaveRequest extends RoomRequestBase {

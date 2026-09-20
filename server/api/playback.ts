@@ -2,6 +2,7 @@ import express from "express";
 import { z } from "zod";
 import { Counter, Histogram } from "prom-client";
 import { getLogger } from "../logger.js";
+import { ALL_VIDEO_SERVICES } from "ott-common/constants.js";
 
 // biome-ignore lint/correctness/noUnusedVariables: biome migration
 const log = getLogger("api/playback");
@@ -21,6 +22,18 @@ const reportSchema = z.object({
 	seeks: z.number().int().min(0).max(MAX_EVENTS),
 	errors: z.number().int().min(0).max(MAX_EVENTS),
 });
+
+/**
+ * The service string is a Prometheus label: arbitrary values would create a new time
+ * series per unique attacker string and blow up both the registry and Prometheus.
+ * Everything outside the known services collapses into "other".
+ */
+function metricServiceLabel(service: string): string {
+	if (service === "other" || (ALL_VIDEO_SERVICES as readonly string[]).includes(service)) {
+		return service;
+	}
+	return "other";
+}
 
 const counterStartupSamples = new Counter({
 	name: "ott_playback_startup_samples",
@@ -107,7 +120,7 @@ router.post("/quality", (req, res) => {
 		return;
 	}
 	const report = result.data;
-	const labels = { service: report.service };
+	const labels = { service: metricServiceLabel(report.service) };
 	counterPlaySeconds.inc(labels, report.playSeconds);
 	counterSeeks.inc(labels, report.seeks);
 	counterErrors.inc(labels, report.errors);

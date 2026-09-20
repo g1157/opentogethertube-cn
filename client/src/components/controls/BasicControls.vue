@@ -24,7 +24,11 @@
 			:aria-label="needsLocalPlayback ? $t('common.play') : $t('room.play-pause')"
 		>
 			<v-icon
-				:icon="store.state.room.isPlaying && !needsLocalPlayback ? mdiPause : mdiPlay"
+				:icon="
+					store.state.room.isPlaying && store.state.room.currentSource && !needsLocalPlayback
+						? mdiPause
+						: mdiPlay
+				"
 			/>
 			<v-tooltip activator="parent" location="bottom">
 				<span>{{ needsLocalPlayback ? $t("common.play") : $t("room.play-pause") }}</span>
@@ -132,6 +136,10 @@ onUnmounted(() => {
 function togglePlayback() {
 	if (actions) {
 		actions.togglePlayback();
+		return;
+	}
+	if (!store.state.room.currentSource) {
+		// Nothing to play; an idle room must not gain a phantom isPlaying.
 		return;
 	}
 	if (store.state.room.isPlaying) {

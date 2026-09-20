@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut, path::PathBuf, sync::Once};
+use std::{path::PathBuf, sync::OnceLock};
 
 use clap::{Parser, ValueEnum};
 use figment::providers::Format;
@@ -9,9 +9,7 @@ use ott_common::discovery::DiscoveryConfig;
 
 use crate::selection::MonolithSelectionConfig;
 
-static mut CONFIG: Option<BalancerConfig> = None;
-
-static CONFIG_INIT: Once = Once::new();
+static CONFIG: OnceLock<BalancerConfig> = OnceLock::new();
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -47,38 +45,32 @@ impl BalancerConfig {
         if let Some(region) = figment::providers::Env::var("FLY_REGION") {
             config.region = region.into();
         }
-        // SAFETY: CONFIG is only mutated once, and only from this thread. All other accesses are read-only.
-        #[allow(static_mut_refs)]
-        CONFIG_INIT.call_once(|| unsafe { *CONFIG.borrow_mut() = Some(config) });
+        // A second load keeps the first winner, matching the previous Once semantics.
+        let _ = CONFIG.set(config);
         Ok(())
     }
 
     /// Initialize the config with default values.
     pub fn init_default() {
-        // SAFETY: CONFIG is only mutated once, and only from this thread. All other accesses are read-only.
-        #[allow(static_mut_refs)]
-        CONFIG_INIT.call_once(|| unsafe { *CONFIG.borrow_mut() = Some(BalancerConfig::default()) });
+        let _ = CONFIG.set(BalancerConfig::default());
     }
 
     pub fn get() -> &'static Self {
-        debug_assert!(CONFIG_INIT.is_completed(), "config not initialized");
-        // SAFETY: get is never called before CONFIG is initialized.
-        #[allow(static_mut_refs)]
-        unsafe {
-            CONFIG.as_ref().expect("config not initialized")
-        }
+        debug_assert!(CONFIG.get().is_some(), "config not initialized");
+        CONFIG.get().expect("config not initialized")
     }
 
     /// Get a mutable reference to the config. Should only be used for tests and benchmarks.
     ///
     /// # Safety
     ///
-    /// This function makes absolutely no attempts to ensure atomicity of access to the config.
-    pub unsafe fn get_mut() -> &'static mut Self {
-        debug_assert!(CONFIG_INIT.is_completed(), "config not initialized");
-        // SAFETY: get_mut is only used for benchmarks
-        #[allow(static_mut_refs)]
-        CONFIG.as_mut().expect("config not initialized")
+    /// Must be called before any concurrent `get()` shares the reference; benchmarks
+    /// only use this during single-threaded setup.
+    pub fn get_mut() -> &'static mut Self {
+        debug_assert!(CONFIG.get().is_some(), "config not initialized");
+        // SAFETY: see doc comment above; single-threaded setup casts away constness.
+        let ptr = CONFIG.get().expect("config not initialized") as *const Self as *mut Self;
+        unsafe { &mut *ptr }
     }
 }
 

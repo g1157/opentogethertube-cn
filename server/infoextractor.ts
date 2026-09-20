@@ -28,6 +28,7 @@ import PlutoAdapter from "./services/pluto.js";
 import DashVideoAdapter from "./services/dash.js";
 import InvidiousAdapter from "./services/invidious.js";
 import OdyseeAdapter from "./services/odysee.js";
+import BilibiliAdapter from "./services/bilibili.js";
 
 const log = getLogger("infoextract");
 
@@ -42,6 +43,7 @@ function mergeVideo(a: Video, b: Video): Video {
 }
 
 const adapters: ServiceAdapter[] = [];
+
 export async function initExtractor() {
 	const enabled = conf.get("info_extractor.services");
 	log.info(`Enabled video services: ${enabled.join(", ")}`);
@@ -93,7 +95,9 @@ export async function initExtractor() {
 	if (enabled.includes("odysee")) {
 		adapters.push(new OdyseeAdapter());
 	}
-
+	if (enabled.includes("bilibili")) {
+		adapters.push(new BilibiliAdapter());
+	}
 	await Promise.all(adapters.map(adapter => adapter.initialize()));
 }
 

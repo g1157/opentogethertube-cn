@@ -164,6 +164,9 @@ export const settingsModule: Module<SettingsState, unknown> = {
 			}
 			try {
 				// Save defaults and their migration markers together so they cannot diverge.
+				// Kept synchronous on purpose: tests and the update checker read it right
+				// after an UPDATE, and repeated writes are already de-duplicated at the
+				// media-player layer (a single shared volume watcher instead of one per caller).
 				localStorage.setItem(
 					"settings",
 					JSON.stringify({

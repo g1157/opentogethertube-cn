@@ -19,12 +19,14 @@ fi
 postgres_password="$(openssl rand -hex 32)"
 session_secret="$(openssl rand -hex 48)"
 admin_api_key="$(openssl rand -hex 32)"
+redis_password="$(openssl rand -hex 32)"
 (
 	umask 077
 	sed \
 		-e "s/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=$postgres_password/" \
 		-e "s/^SESSION_SECRET=$/SESSION_SECRET=$session_secret/" \
 		-e "s/^ADMIN_API_KEY=$/ADMIN_API_KEY=$admin_api_key/" \
+		-e "s/^REDIS_PASSWORD=$/REDIS_PASSWORD=$redis_password/" \
 		"$here/.env.example" > .env
 )
 

@@ -138,7 +138,10 @@ async fn connect_and_maintain(
                 "Monolith misbehaved, did not send init, timed out: {}",
                 conf.uri()
             );
-            return;
+            // Retry instead of ending the task: discovery will not re-add a monolith
+            // that is still present, so an early `return` used to strand it forever.
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            continue;
         };
 
         // Handle connection initialization
@@ -157,7 +160,8 @@ async fn connect_and_maintain(
                                 reason: "failed to deserialize message".into(),
                             }))
                             .await;
-                        return;
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        continue;
                     }
                 };
 
@@ -180,7 +184,8 @@ async fn connect_and_maintain(
                                 }))
                                 .await;
                             warn!("Could not send Monolith to balancer: {}", conf.uri());
-                            return;
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            continue;
                         };
                         info!("Monolith {id} linked to balancer", id = monolith_id);
                         outbound_rx = rx;
@@ -193,12 +198,14 @@ async fn connect_and_maintain(
                             }))
                             .await;
                         warn!("Monolith misbehaved, did not send init: {}", conf.uri());
-                        return;
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        continue;
                     }
                 }
             }
             _ => {
-                return;
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
             }
         }
 

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { assertPublicMediaUrl } from "../ffprobe.js";
 
 /** Whether a response we actually received allows cross-origin use of the media. */
 export function corsFromHeaders(headers: Record<string, unknown> | undefined): boolean | undefined {
@@ -19,12 +20,15 @@ const PROBE_MAX_BYTES = 64 * 1024;
  */
 export async function probeCors(link: string): Promise<boolean | undefined> {
 	try {
+		await assertPublicMediaUrl(link);
 		const response = await axios.get(link, {
 			timeout: PROBE_TIMEOUT_MS,
 			responseType: "arraybuffer",
 			maxContentLength: PROBE_MAX_BYTES,
 			headers: { Range: "bytes=0-0" },
 			validateStatus: status => status >= 200 && status < 400,
+			// A redirect can turn a public URL into an intranet one; never follow it here.
+			maxRedirects: 0,
 		});
 		return corsFromHeaders(response.headers as Record<string, unknown>);
 	} catch {

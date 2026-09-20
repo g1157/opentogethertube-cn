@@ -1,4 +1,5 @@
 import { getLogger } from "../logger.js";
+import { safeCompareApiKey } from "../admin.js";
 import { conf } from "../ott-config.js";
 import express, { type RequestHandler } from "express";
 import { redisClient } from "../redisclient.js";
@@ -16,7 +17,7 @@ const announce: RequestHandler<unknown, OttResponseBody, { text: string }> = asy
 	next,
 ) => {
 	if (req.get("apikey")) {
-		if (req.get("apikey") !== conf.get("api_key")) {
+		if (!safeCompareApiKey(req.get("apikey"))) {
 			res.status(400).json({
 				success: false,
 				error: {

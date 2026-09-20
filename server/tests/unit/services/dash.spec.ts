@@ -40,7 +40,8 @@ describe("DashVideoAdapter", () => {
 			const url = URL.parse("http://example.com/video.mpd");
 			await adapter.handleMpd(url);
 
-			expect(mockAxiosGet).toHaveBeenCalledWith(url.href);
+			// SSRF hardening: manifest fetches never follow redirects.
+			expect(mockAxiosGet).toHaveBeenCalledWith(url.href, { maxRedirects: 0 });
 			expect(mockParse).toHaveBeenCalledWith(mockMPDData);
 		});
 	});

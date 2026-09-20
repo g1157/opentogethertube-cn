@@ -79,10 +79,17 @@ export const usersModule: Module<UsersState, FullOTTStoreState> = {
 			context.commit("SET_YOU", message);
 		},
 		async getNewToken(context) {
+			// Re-present the stored token so the server returns the same identity instead of
+			// minting a fresh guest on every load (which splits a browser's tabs into separate
+			// users and resets the nickname). The server mints a new one if it is invalid.
+			const existing = window.localStorage.getItem("token")?.trim();
 			// The generated guest nickname follows this header, so send the chosen UI language
 			// instead of relying on the browser's own Accept-Language.
 			const resp = await API.get("/auth/grant", {
-				headers: { "Accept-Language": context.rootState.settings.locale },
+				headers: {
+					"Accept-Language": context.rootState.settings.locale,
+					...(existing ? { Authorization: `Bearer ${existing}` } : {}),
+				},
 			});
 			context.commit("SET_AUTH_TOKEN", resp.data.token);
 		},

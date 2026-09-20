@@ -76,7 +76,9 @@ export function redisStateToState(state: RoomStateFromRedis): RoomState {
 }
 
 export async function update(): Promise<void> {
-	for (const room of rooms) {
+	// Iterate a snapshot: unloadRoom splices the live array mid-loop, which used to
+	// silently skip the room right after an unloaded one.
+	for (const room of [...rooms]) {
 		try {
 			await room.update();
 			await room.sync();
@@ -111,7 +113,12 @@ export async function createRoom(options: Partial<RoomOptions> & { name: string 
 	}
 	const room = new Room(options);
 	if (!room.isTemporary) {
-		await storage.saveRoom(room);
+		const saved = await storage.saveRoom(room);
+		if (!saved) {
+			// A permanent room without a database row would retry its checkpoint
+			// forever; fail the create instead of admitting a doomed room.
+			throw new Error(`Failed to save room ${options.name} to storage`);
+		}
 	}
 	await room.update();
 	await room.sync();
@@ -144,14 +151,23 @@ export async function getRoom(
 		return err(new RoomNotFoundException(roomName));
 	}
 
+	let fixedState: ReturnType<typeof redisStateToState> | null = null;
 	const redisState = await redisClient.get(`room:${roomName}`);
 	if (redisState) {
 		log.debug("found room in redis");
-		const state = JSON.parse(redisState) as RoomStateFromRedis;
-		const fixedState = redisStateToState(state);
-		if (!fixedState.isTemporary) {
-			fixedState.isPlaying = false;
+		try {
+			const state = JSON.parse(redisState) as RoomStateFromRedis;
+			fixedState = redisStateToState(state);
+			if (!fixedState.isTemporary) {
+				fixedState.isPlaying = false;
+			}
+		} catch (e) {
+			// A corrupt snapshot must not wedge every load; drop it and fall back to the DB.
+			log.error(`Failed to parse redis state for room ${roomName}, discarding it: ${e}`);
+			await redisClient.del(`room:${roomName}`);
 		}
+	}
+	if (fixedState) {
 		const room = new Room(fixedState);
 		await addRoom(room);
 		return ok(room);
@@ -194,7 +210,12 @@ export async function unloadRoom(
 	if (reason !== UnloadReason.Commanded) {
 		await room.onBeforeUnload();
 	}
-	idx = rooms[idx].name === room.name ? idx : rooms.indexOf(room); // because the index may have changed across await boundaries
+	// Re-resolve by identity: the awaits above may have shifted the array, and a
+	// Room object argument never produced a valid index here at all.
+	idx = rooms.indexOf(room);
+	if (idx < 0) {
+		throw new RoomNotFoundException(roomName);
+	}
 	rooms.splice(idx, 1);
 	if (!opts.preserveRedis) {
 		await redisClient.del(`room:${room.name}`);

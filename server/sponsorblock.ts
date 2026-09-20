@@ -36,6 +36,16 @@ export async function getSponsorBlock(): Promise<SponsorBlock> {
 	return sponsorblock;
 }
 
+/** A hung segment fetch runs inside the room's 1s tick and stalls every room; fail fast. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+	let timer: NodeJS.Timeout | undefined;
+	const timeout = new Promise<T>((_resolve, reject) => {
+		timer = setTimeout(() => reject(new Error(`sponsorblock request timed out after ${ms}ms`)), ms);
+	});
+	timer?.unref();
+	return Promise.race([promise, timeout]);
+}
+
 export async function fetchSegments(videoId: string): Promise<Segment[]> {
 	if (conf.get("video.sponsorblock.cache_ttl") > 0) {
 		const cachedSegments = await redisClient.get(`${SEGMENT_CACHE_PREFIX}:${videoId}`);
@@ -51,7 +61,10 @@ export async function fetchSegments(videoId: string): Promise<Segment[]> {
 		}
 	}
 	const sponsorblock = await getSponsorBlock();
-	const segments = await sponsorblock.getSegments(videoId, ALL_SKIP_CATEGORIES);
+	const segments = await withTimeout(
+		sponsorblock.getSegments(videoId, ALL_SKIP_CATEGORIES),
+		5000,
+	);
 	await cacheSegments(videoId, segments);
 	return segments;
 }

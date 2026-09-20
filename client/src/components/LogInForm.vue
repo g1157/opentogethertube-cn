@@ -263,8 +263,12 @@ async function login() {
 			password: password.value,
 		});
 		if (resp.data.success) {
-			console.log("Log in success");
 			store.commit("LOGIN", resp.data.user);
+			// The server rotates the token on login; persist the new one so the
+			// websocket auth (which reads localStorage) uses the logged-in identity.
+			if (resp.data.token) {
+				store.commit("users/SET_AUTH_TOKEN", resp.data.token);
+			}
 			emit("shouldClose");
 			emailOrUsername.value = "";
 			password.value = "";
@@ -310,8 +314,11 @@ async function register() {
 			password: password.value,
 		});
 		if (resp.data.success) {
-			console.log("Registration success");
 			store.commit("LOGIN", resp.data.user);
+			// Registration also logs the user in; persist the rotated token if provided.
+			if (resp.data.token) {
+				store.commit("users/SET_AUTH_TOKEN", resp.data.token);
+			}
 			emit("shouldClose");
 			email.value = "";
 			username.value = "";

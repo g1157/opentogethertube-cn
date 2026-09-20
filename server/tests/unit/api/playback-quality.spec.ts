@@ -23,7 +23,7 @@ const report = {
 
 describe("playback quality reports", () => {
 	it("records an accepted report in the metrics registry", async () => {
-		const service = "hls-accepted";
+		const service = "hls";
 		await request(app)
 			.post("/api/playback/quality")
 			.set("X-Forwarded-For", "10.1.0.1")
@@ -37,6 +37,22 @@ describe("playback quality reports", () => {
 		expect(metrics).toContain(`ott_playback_startup_seconds_count{service="${service}"} 1`);
 		expect(metrics).toContain(`ott_playback_seeks{service="${service}"} 3`);
 		expect(metrics).toContain(`ott_playback_errors{service="${service}"} 1`);
+	});
+
+	it("collapses unknown service labels into other (cardinality safety)", async () => {
+		const before: string[] =
+			(await register.metrics()).match(/ott_playback_play_seconds\{service="[^"]*"\}/g) ?? [];
+		await request(app)
+			.post("/api/playback/quality")
+			.set("X-Forwarded-For", "10.1.0.4")
+			.send({ ...report, service: "hls-accepted", playSeconds: 1 })
+			.expect(204);
+		const after: string[] =
+			(await register.metrics()).match(/ott_playback_play_seconds\{service="[^"]*"\}/g) ?? [];
+		// No new series for the arbitrary label; a series for "other" appears.
+		expect(after.filter(entry => !before.includes(entry))).toEqual([
+			'ott_playback_play_seconds{service="other"}',
+		]);
 	});
 
 	it("accepts a report that never reached a first frame", async () => {

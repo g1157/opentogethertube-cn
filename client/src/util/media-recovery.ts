@@ -269,7 +269,8 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 		phase = "ready";
 		startStallWatch();
 		// Read the latest requested state, including pauses received during the retry delay.
-		// The room's ready handler applies playback and handles browser autoplay restrictions.
+		// The room's ready handler applies playback and handles browser autoplay restrictions;
+		// a dropped play() there is recovered by the room's periodic self-heal tick instead.
 		if (!desiredPlaying) {
 			options.media()?.pause();
 		}

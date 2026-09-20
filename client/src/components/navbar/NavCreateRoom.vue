@@ -1,5 +1,5 @@
 <template>
-	<v-list-item @click="$emit('createtemp')">
+	<v-list-item role="menuitem" @click="$emit('createtemp')">
 		<template #prepend>
 			<v-icon :icon="mdiPlusBox" />
 		</template>
@@ -8,7 +8,7 @@
 			{{ $t("nav.create.temp-desc") }}
 		</v-list-item-subtitle>
 	</v-list-item>
-	<v-list-item @click="$emit('createperm')">
+	<v-list-item role="menuitem" @click="$emit('createperm')">
 		<template #prepend>
 			<v-icon :icon="mdiPlusBox" />
 		</template>

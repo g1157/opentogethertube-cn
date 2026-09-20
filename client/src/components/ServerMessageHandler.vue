@@ -14,7 +14,6 @@ const connection = useConnection();
 const handlers = (
 	[
 		["sync", "room/sync"],
-		["chat", "chat"],
 		["announcement", "announcement"],
 		["user", "users/user"],
 		["you", "users/you"],

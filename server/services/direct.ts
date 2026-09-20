@@ -9,6 +9,7 @@ import {
 import { getMimeType, isSupportedMimeType } from "../mime.js";
 import {
 	type FfprobeStrategy,
+	assertPublicMediaUrl,
 	OnDiskPreviewFfprobe,
 	RunFfprobe,
 	StreamFfprobe,
@@ -121,9 +122,14 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 	}
 
 	async fetchManifestInfo(link: string): Promise<Video> {
+		// The manifest URL is user supplied; the fetch must not reach intranet hosts.
+		await assertPublicMediaUrl(link);
 		let json: unknown;
 		try {
-			const response = await fetch(link);
+			const response = await fetch(link, {
+				// A redirect can turn a public URL into an intranet one; refuse instead of following.
+				redirect: "error",
+			});
 			if (!response.ok) {
 				log.error(`Failed to fetch manifest at ${link}: ${response.status}`);
 				throw new MissingMetadataException(
@@ -165,21 +171,36 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 
 		let mime = getMimeType(extension);
 
-		// If we can't determine a supported MIME type from extension, use ffprobe to detect it.
-		// The CORS verdict rides along with the probe: it only spares the client a doomed
-		// first attempt, so it must not add a second wait.
-		const [fileInfo, cors] = await Promise.all([
-			this.ffprobe.getFileInfo(link),
-			probeCors(link),
-		]);
-		const hasVideo = fileInfo.streams?.some(isVideoStream);
-		const hasAudio = fileInfo.streams?.some(
-			(stream: ProbedStream) => stream.codec_type === "audio",
-		);
+		// If we can't determine a supported MIME type from the extension, only ffprobe can
+		// detect it. The CORS verdict rides along with the probe: it only spares the client
+		// a doomed first attempt, so it must not add a second wait.
+		let fileInfo: Awaited<ReturnType<FfprobeStrategy["getFileInfo"]>> | null = null;
+		let cors: boolean | undefined;
+		try {
+			const [info, corsResult] = await Promise.all([
+				this.ffprobe.getFileInfo(link),
+				probeCors(link),
+			]);
+			fileInfo = info;
+			cors = corsResult;
+		} catch (e) {
+			if (!mime || !isSupportedMimeType(mime)) {
+				// Without a probed container there is no way to tell what this is.
+				throw e;
+			}
+			// A slow or probe-hostile source must not block queueing: degrade to a video
+			// with unknown length instead of failing the whole add. The player streams
+			// the file directly, so playback does not depend on the probe result.
+			log.warn(`ffprobe failed for ${link}, queueing with unknown metadata: ${String(e)}`);
+			cors = await probeCors(link).catch(() => undefined);
+		}
+		const hasVideo = fileInfo?.streams?.some(isVideoStream) ?? false;
+		const hasAudio =
+			fileInfo?.streams?.some((stream: ProbedStream) => stream.codec_type === "audio") ?? false;
 
 		if (!mime || !isSupportedMimeType(mime)) {
 			// Try to get MIME type from ffprobe format info
-			const formatName = fileInfo.format?.format_name;
+			const formatName = fileInfo?.format?.format_name;
 			if (formatName) {
 				const formatMime = this.getMimeFromFormat(formatName);
 				if (formatMime && isSupportedMimeType(formatMime)) {
@@ -212,11 +233,23 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 			throw new UnsupportedMimeTypeException(mime ?? "unknown");
 		}
 
-		const duration = Math.ceil(this.getDuration(fileInfo));
+		let duration: number | undefined;
+		if (fileInfo) {
+			try {
+				duration = Math.ceil(this.getDuration(fileInfo));
+			} catch (e) {
+				if (e instanceof MissingMetadataException) {
+					// Unknown length is fine: the queue UI and the player tolerate it.
+					log.warn(`duration unavailable for ${link}, queueing with unknown length`);
+				} else {
+					throw e;
+				}
+			}
+		}
 		const title =
-			fileInfo.format?.tags?.title ??
+			fileInfo?.format?.tags?.title ??
 			decodeURIComponent(fileName).slice(0, -extension.length - 1);
-		const videoStream = (fileInfo.streams as ProbedStream[] | undefined)?.find(isVideoStream);
+		const videoStream = fileInfo?.streams?.find(isVideoStream) as ProbedStream | undefined;
 		const video: Video = {
 			service: this.serviceId,
 			id: link,

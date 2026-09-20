@@ -139,7 +139,8 @@ export class RoomUser {
 	public async updateInfo(info: ClientInfo): Promise<void> {
 		if (info.user_id) {
 			this.user_id = info.user_id;
-			this.user = await usermanager.getUser({ id: info.user_id });
+			// Cached lookup: status heartbeats call this every few seconds per viewer.
+			this.user = await usermanager.getUserCachedById(info.user_id);
 		} else if (info.username) {
 			this.unregisteredUsername = info.username;
 			this.user_id = undefined;
@@ -684,6 +685,10 @@ export class Room implements RoomState {
 				this.currentSource = this.clearQueueItemTrim(this.currentSource);
 				this.playbackPosition = 0;
 				this._playbackStart = dayjs();
+				if (!this.isPlaying) {
+					// Starting the clock alone is not enough; the room must actually be playing.
+					await this.play();
+				}
 				return;
 			} else if (this.queueMode === QueueMode.Loop) {
 				this.log.debug(`queue in loop mode, requeuing current item`);
@@ -698,6 +703,17 @@ export class Room implements RoomState {
 			this._playbackStart = dayjs();
 			if (this.videoSegments.length > 0) {
 				this.videoSegments = [];
+			}
+			if (this.currentSource) {
+				// Votes for the dequeued video have nowhere to go; drop them so the
+				// vote map cannot grow without bound over a room's lifetime.
+				this.votes.delete(this.currentSource.service + this.currentSource.id);
+				this.markDirty("voteCounts");
+			}
+			if (!this.isPlaying) {
+				// A dequeue into an idle room (first video added, playNow, skip while paused)
+				// implies the intent to play; starting only the clock leaves the room stuck paused.
+				await this.play();
 			}
 		} else if (this.currentSource !== null) {
 			this.log.debug(`queue is empty, but currentSource is not, clearing currentSource`);
@@ -1023,6 +1039,12 @@ export class Room implements RoomState {
 			state.playbackSpeed = this.temporarySpeed.previousSpeed;
 			state.playbackPosition = this.realPlaybackPosition;
 			state._playbackStart = this.isPlaying ? dayjs() : null;
+		}
+		if (state.owner) {
+			// The owner row includes the argon2 hash and salt. Redundant in Redis (the
+			// room only needs the id to re-link the owner), and Redis leaks are far more
+			// common than Postgres leaks; never store password material here.
+			state.owner = { id: state.owner.id } as typeof state.owner;
 		}
 
 		return JSON.stringify(state, replacer);
@@ -1418,9 +1440,10 @@ export class Room implements RoomState {
 	}
 
 	/** Also protect older Redis snapshots, or a play request sent while the room was empty. */
-	public holdEmptyPlaybackForJoin(): void {
+	public holdEmptyPlaybackForJoin(skipForReconnect = false): void {
 		if (
 			this.realusers.length > 0 ||
+			skipForReconnect ||
 			(!this.isPlaying && !this.bufferingGateHeld) ||
 			!this.canPreparePlayback()
 		) {
@@ -1539,7 +1562,9 @@ export class Room implements RoomState {
 			const current = this.currentSource;
 			const prevPosition = this.realPlaybackPosition;
 			counterMediaSkipped.labels({ service: this.currentSource.service }).inc();
-			this.dequeueNext();
+			// Awaiting matters: dequeueNext publishes the queue change, and a floating
+			// call used to race the event order and swallow its rejections.
+			await this.dequeueNext();
 			await this.publishRoomEvent(request, context, { video: current, prevPosition });
 			this.videoSegments = [];
 		}
@@ -1668,6 +1693,8 @@ export class Room implements RoomState {
 		// remove the item from the queue
 		const [matchIdx, removed] = await this.queue.evict(request.video);
 		this.log.info(`Video removed: ${JSON.stringify(removed)}`);
+		this.votes.delete(request.video.service + request.video.id);
+		this.markDirty("voteCounts");
 		await this.publishRoomEvent(request, context, { video: removed, queueIdx: matchIdx });
 	}
 
@@ -1680,11 +1707,27 @@ export class Room implements RoomState {
 			this.log.error("Received a join request without an auth token");
 			throw new Error("No auth token");
 		}
-		this.holdEmptyPlaybackForJoin();
+		this.holdEmptyPlaybackForJoin(request.reconnect === true);
 		const user = new RoomUser(request.info.id, context.auth?.token);
 		await user.updateInfo(request.info);
 		this.realusers.push(user);
-		this.prepareEmptyRoomPlayback();
+		if (
+			request.reconnect === true &&
+			this.resumeOnNextJoin &&
+			this.realusers.length === 1 &&
+			this.grants.granted(context.role, "playback.play-pause") &&
+			this.canPreparePlayback()
+		) {
+			// The room saved its resume intent for this returning viewer; resuming immediately
+			// beats forcing them through the priming handshake again (which can stall entirely
+			// in a throttled background tab). Clients self-align to the authoritative position.
+			this.resumeOnNextJoin = false;
+			this.markDirty("isPlaying");
+			await this.play();
+			this.markDirty("playbackPosition");
+		} else {
+			this.prepareEmptyRoomPlayback();
+		}
 		this.log.info(`${user.username} joined the room`);
 		await this.publishRoomEvent(request, context);
 		// The joining client receives the authoritative position directly from the client
@@ -1856,6 +1899,9 @@ export class Room implements RoomState {
 				) {
 					this.currentSource = request.event.additional.video;
 					this.playbackPosition = request.event.additional.prevPosition;
+					// Reset the anchor: keeping the old anchor made the restored position
+					// keep drifting forward by everything that elapsed since the skip.
+					this._playbackStart = dayjs();
 				}
 				break;
 			case RoomRequestType.AddRequest:
@@ -1893,6 +1939,10 @@ export class Room implements RoomState {
 	public async vote(request: VoteRequest, context: RoomRequestContext): Promise<void> {
 		if (!context.clientId) {
 			throw new OttException("Can't vote if not connected to room.");
+		}
+		if (!this.queue.contains(request.video)) {
+			// Accepting votes for arbitrary service/id pairs would grow the vote map forever.
+			throw new VideoNotFoundException();
 		}
 		const key = request.video.service + request.video.id;
 		if (this.votes.has(key)) {
@@ -2163,6 +2213,10 @@ export class Room implements RoomState {
 		this.playbackPosition = 0;
 		this._playbackStart = dayjs();
 		this.videoSegments = [];
+		if (!this.isPlaying) {
+			// playNow implies the intent to play; an idle room must not stay paused on the new video.
+			await this.play();
+		}
 		if (this.autoSkipSegmentCategories.length > 0) {
 			this.wantSponsorBlock = true;
 		}

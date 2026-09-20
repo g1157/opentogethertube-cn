@@ -479,13 +479,25 @@ fn is_authorized_with_key<B>(req: &Request<B>, api_key: Option<&str>) -> bool {
         let auth = headers.get("Authorization");
         if let Some(auth) = auth {
             if auth.as_bytes().starts_with(b"Bearer ")
-                && &auth.as_bytes()[7..] == api_key.as_bytes()
+                && constant_time_eq(&auth.as_bytes()[7..], api_key.as_bytes())
             {
                 return true;
             }
         }
     }
     false
+}
+
+/// Timing-safe comparison so the apikey endpoint cannot be used as a byte oracle.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 static GAUGE_CLIENTS: Lazy<IntGauge> = Lazy::new(|| {

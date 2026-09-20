@@ -11,14 +11,15 @@ const isMuted = ref(false);
  */
 const duckFactor = ref(1);
 
-export function useVolume() {
-	const store = useStore();
-
-	onMounted(() => {
-		volume.value = store.state.settings.volume;
-		isMuted.value = store.state.settings.muted;
-	});
-
+// The volume refs are module-level singletons; their persistence watchers must be
+// singletons too, otherwise every useVolume() caller commits the same UPDATE once
+// per tick of the slider.
+let volumeWatchersBound = false;
+function bindVolumeWatchers(store: ReturnType<typeof useStore>) {
+	if (volumeWatchersBound) {
+		return;
+	}
+	volumeWatchersBound = true;
 	watch(volume, () => {
 		// If user drags the volume slider while muted, automatically unmute
 		if (isMuted.value && volume.value > 0) {
@@ -30,7 +31,6 @@ export function useVolume() {
 			store.commit("settings/UPDATE", { volume: volume.value });
 		}
 	});
-
 	watch(isMuted, () => {
 		if (isMuted.value) {
 			// When muting: save current volume if it's > 0, otherwise keep the previous saved volume
@@ -42,6 +42,17 @@ export function useVolume() {
 		}
 		store.commit("settings/UPDATE", { muted: isMuted.value });
 	});
+}
+
+export function useVolume() {
+	const store = useStore();
+
+	onMounted(() => {
+		volume.value = store.state.settings.volume;
+		isMuted.value = store.state.settings.muted;
+	});
+
+	bindVolumeWatchers(store);
 
 	return { volume, prevVolume, isMuted, duckFactor };
 }

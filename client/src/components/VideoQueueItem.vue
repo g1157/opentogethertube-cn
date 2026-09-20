@@ -62,6 +62,7 @@
 					@click="playNow"
 					v-if="store.state.room.queueMode !== QueueMode.Vote"
 					:disabled="!granted('manage-queue.play-now')"
+					:aria-label="$t('video.playnow')"
 					data-cy="btn-play-now"
 				>
 					<v-icon :icon="mdiPlay" />
@@ -75,6 +76,7 @@
 					:loading="isLoadingAdd"
 					@click="addToQueue"
 					v-if="isPreview && store.state.room.queueMode !== QueueMode.Dj"
+					:aria-label="$t('common.add')"
 					data-cy="btn-add-to-queue"
 				>
 					<v-icon v-if="hasError" :icon="mdiExclamation" />
@@ -90,6 +92,7 @@
 					:loading="isLoadingAdd"
 					v-if="!isPreview && store.state.room.queueMode !== QueueMode.Dj"
 					@click="removeFromQueue"
+					:aria-label="$t('common.remove')"
 					data-cy="btn-remove-from-queue"
 				>
 					<v-icon v-if="hasError" :icon="mdiExclamation" />

@@ -42,7 +42,13 @@ export async function getRoomByName(roomName: string): Promise<RoomOptions | nul
 	try {
 		const dbroom = await DbRoomModel.findOne({
 			where: buildFindRoomWhere(roomName),
-			include: { model: UserModel, as: "owner" },
+			include: {
+				model: UserModel,
+				as: "owner",
+				// Room state only needs the owner's identity; never pull password
+				// material into memory where it can leak into snapshots or logs.
+				attributes: { exclude: ["salt", "hash"] },
+			},
 		});
 		if (!dbroom) {
 			log.debug(`Room ${roomName} does not exist in db.`);

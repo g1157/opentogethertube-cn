@@ -168,8 +168,14 @@ function activateAndFocus(): void {
 defineExpose({ setActivated, activateAndFocus, activated });
 
 const sfx = useSfx();
+// Keep the rendered history bounded: an all-day watch party would otherwise grow
+// the transition-group DOM without limit and degrade scrolling and re-renders.
+const MAX_CHAT_MESSAGES = 200;
 function onChatReceived(msg: ServerMessageChat): void {
 	chatMessages.value.push({ id: nextMessageId++, message: msg, receivedAt: Date.now() });
+	if (chatMessages.value.length > MAX_CHAT_MESSAGES) {
+		chatMessages.value.splice(0, chatMessages.value.length - MAX_CHAT_MESSAGES);
+	}
 	updateMessageVisibility();
 	nextTick(enforceStickToBottom);
 	if (store.state.settings.sfxEnabled) {

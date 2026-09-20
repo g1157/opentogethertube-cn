@@ -1,5 +1,6 @@
 import URL from "node:url";
 import axios from "axios";
+import { assertPublicMediaUrl } from "../ffprobe.js";
 import { corsFromHeaders } from "./cors-probe.js";
 import { Parser as M3u8Parser, type PlaylistItem } from "m3u8-parser";
 import { OttException } from "ott-common/exceptions.js";
@@ -50,7 +51,10 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 
 	async handleM3u8(url: URL.UrlWithStringQuery): Promise<Video> {
 		const parser = new M3u8Parser();
-		const resp = await axios.get(url.href);
+		// Manifest URLs are user supplied; never follow redirects that could land on an
+		// intranet address and only fetch hosts that resolve publicly.
+		await assertPublicMediaUrl(url.href);
+		const resp = await axios.get(url.href, { maxRedirects: 0 });
 		const cors = corsFromHeaders(resp.headers as Record<string, unknown>);
 		parser.push(resp.data);
 		parser.end();
@@ -96,7 +100,8 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 			);
 			const playlistUrl = URL.resolve(url.href, lowestBitratePlaylist.uri);
 			log.silly(`new playlist path ${playlistUrl}`);
-			const respStreams = await axios.get(playlistUrl);
+			await assertPublicMediaUrl(playlistUrl);
+			const respStreams = await axios.get(playlistUrl, { maxRedirects: 0 });
 			const parser2 = new M3u8Parser();
 			parser2.push(respStreams.data);
 			parser2.end();

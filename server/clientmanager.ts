@@ -226,6 +226,7 @@ async function onDirectConnect(socket: WebSocket, req: express.Request) {
 		}
 		log.debug(`connection received: ${roomName}, waiting for auth token...`);
 		const client = new DirectClient(roomName, socket);
+		client.isReconnect = isReconnectRequest(req);
 		addClient(client);
 	} catch (e) {
 		log.error(`Failed to process new client : ${e}`);
@@ -243,6 +244,14 @@ export function parseWebsocketConnectionUrl(req: express.Request): string {
 	const adjustedPath = baseUrl ? connectUrl.pathname.replace(baseUrl, "") : connectUrl.pathname;
 	const roomName = adjustedPath.split("/").slice(3)[0];
 	return roomName;
+}
+
+/**
+ * Whether the websocket connection url carries ?reconnect=true.
+ */
+function isReconnectRequest(req: express.Request): boolean {
+	const connectUrl = new URL(req.url, `ws://${req.headers.host ?? "localhost"}`);
+	return connectUrl.searchParams.get("reconnect") === "true";
 }
 
 export function addClient(client: Client) {
@@ -279,7 +288,7 @@ async function joinAuthenticatedClient(client: Client, token: AuthToken, session
 	}
 	const room = result.value;
 	client.room = room.name;
-	room.holdEmptyPlaybackForJoin();
+	room.holdEmptyPlaybackForJoin(client.isReconnect);
 
 	// full sync
 	const syncMsg = Object.assign(
@@ -302,6 +311,7 @@ async function joinAuthenticatedClient(client: Client, token: AuthToken, session
 		await makeRoomRequest(client, {
 			type: RoomRequestType.JoinRequest,
 			info: client.getClientInfo(),
+			reconnect: client.isReconnect,
 		});
 	} catch (e) {
 		log.error(`Failed to process join request for client ${client.id}: ${e}`);
@@ -374,6 +384,29 @@ async function onClientMessage(client: Client, msg: ClientMessage) {
 				log.warn(`Rejecting invalid or internal room request from client ${client.id}`);
 				client.kick(OttWebsocketError.UNKNOWN);
 				return;
+			}
+			// WS requests bypass the REST body schemas; enforce the same content caps
+			// so oversized text cannot reach storage or every client's UI.
+			if (msg.request.type === RoomRequestType.ApplySettingsRequest) {
+				const settings = (
+					msg.request as { settings?: { title?: unknown; description?: unknown } }
+				).settings;
+				if (settings) {
+					if (typeof settings.title === "string" && settings.title.length > 254) {
+						throw new OttException("title is too long (max 254 characters)");
+					}
+					if (
+						typeof settings.description === "string" &&
+						settings.description.length > 5000
+					) {
+						throw new OttException("description is too long (max 5000 characters)");
+					}
+				}
+			} else if (msg.request.type === RoomRequestType.ChatRequest) {
+				const text = (msg.request as { text?: unknown }).text;
+				if (typeof text !== "string" || text.length === 0 || text.length > 300) {
+					throw new OttException("chat message must be between 1 and 300 characters");
+				}
 			}
 			await makeRoomRequest(client, msg.request);
 		} else if (msg.action === "voice") {

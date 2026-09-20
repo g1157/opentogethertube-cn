@@ -3,6 +3,7 @@ import { getLogger } from "./logger.js";
 import childProcess from "node:child_process";
 import axios from "axios";
 import type { Stream } from "node:stream";
+import type { Readable } from "node:stream";
 import fs from "node:fs/promises";
 import path from "node:path";
 // FIXME: remove node-abort-controller package when we stop supporting node 14.
@@ -11,19 +12,20 @@ import http from "node:http";
 import https from "node:https";
 import dns from "node:dns/promises";
 import net from "node:net";
+import { pipeline } from "node:stream/promises";
 import { Counter } from "prom-client";
 import { FfprobeError, FfprobeTimeoutError } from "./exceptions.js";
 import { conf } from "./ott-config.js";
-
 const log = getLogger("infoextract/ffprobe");
 
-// Hard ffprobe, 35 Seconds.
-const FFPROBE_TIMEOUT_MS = 35000;
+// Hard ffprobe cap. Duration/mime probing must never wedge a slow source
+// onto the room tick for long; a probe that fails fast degrades to no length.
+const FFPROBE_TIMEOUT_MS = 20000;
 
 /** Reject private, loopback, link-local and other non-public targets for user supplied URLs. */
 export function isPrivateAddress(address: string): boolean {
 	if (net.isIPv4(address)) {
-		const [a, b] = address.split(".").map(Number);
+		const [a, b, c] = address.split(".").map(Number);
 		return (
 			a === 0 ||
 			a === 10 ||
@@ -32,13 +34,27 @@ export function isPrivateAddress(address: string): boolean {
 			(a === 169 && b === 254) ||
 			(a === 172 && b >= 16 && b <= 31) ||
 			(a === 192 && b === 168) ||
+			// 192.0.0.0/24 (IETF protocol assignments) and 198.18.0.0/15 (benchmarks)
+			(a === 192 && b === 0 && c === 0) ||
+			(a === 198 && (b === 18 || b === 19)) ||
 			a >= 224
 		);
 	}
 	if (net.isIPv6(address)) {
 		const ip = address.toLowerCase();
 		if (ip.startsWith("::ffff:")) {
-			return isPrivateAddress(ip.slice("::ffff:".length));
+			const mapped = ip.slice("::ffff:".length);
+			if (net.isIPv4(mapped)) {
+				return isPrivateAddress(mapped);
+			}
+			// Hex form like ::ffff:7f00:1 is 127.0.0.1 written without dots.
+			const hex = mapped.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+			if (hex) {
+				const hi = parseInt(hex[1], 16);
+				const lo = parseInt(hex[2], 16);
+				return isPrivateAddress(`${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`);
+			}
+			return true;
 		}
 		return (
 			ip === "::" ||
@@ -289,6 +305,13 @@ export class RunFfprobe extends FfprobeStrategy {
 			"http,https,tcp,tls",
 			"-rw_timeout",
 			"12000000",
+			// Cap the analysis work: extracting duration/mime needs the container index,
+			// not a full decode pass. This turns multi-second probes on slow sources into
+			// a couple of Range reads when the index is reachable early.
+			"-analyzeduration",
+			"10000000",
+			"-probesize",
+			"32000000",
 			"-i",
 			uri,
 			"-print_format",
@@ -372,22 +395,31 @@ export class OnDiskPreviewFfprobe extends FfprobeStrategy {
 
 		try {
 			let counter = 0;
-			resp.data.on("data", data => {
-				log.silly("got data");
-
-				counter += data.length;
-				counterBytesDownloaded.inc(data.length);
-				if (counter > byteLimit) {
-					log.debug(`read ${counter} bytes, stopping`);
-					controller.abort();
-				}
-			});
-
-			await resp.data.pipe(handle.createWriteStream());
+			// pipeline really waits for the copy to finish before resolving, unlike
+			// `await resp.data.pipe(w)` which resolves immediately and used to abort
+			// the download while ffprobe was handed a truncated file.
+			await pipeline(
+				resp.data as Readable,
+				async function* (source: AsyncIterable<Buffer>) {
+					for await (const data of source) {
+						counter += data.length;
+						counterBytesDownloaded.inc(data.length);
+						if (counter > byteLimit) {
+							log.debug(`read ${counter} bytes, stopping`);
+							// End the copy early on purpose; probing only needs the
+							// container index near the head of the file.
+							return;
+						}
+						yield data;
+					}
+				},
+				handle.createWriteStream(),
+			);
 		} finally {
 			controller.abort();
 			httpAgent.destroy();
 			httpsAgent.destroy();
+			await handle.close().catch(() => {});
 		}
 
 		try {
@@ -453,7 +485,9 @@ export class OnDiskPreviewFfprobe extends FfprobeStrategy {
 			});
 			return JSON.parse(out);
 		} finally {
-			await fs.rm(tmpfile);
+			await fs.rm(tmpfile, { force: true });
+			// The mkdtemp directory itself used to leak one entry per probe.
+			await fs.rm(tmpdir, { recursive: true, force: true });
 		}
 	}
 }

@@ -4,6 +4,7 @@ import { register } from "prom-client";
 import { conf } from "../ott-config.js";
 import { setNoStoreHeaders } from "../client-assets.js";
 import { getVoiceUsageSnapshot } from "../voice-budget.js";
+import { safeCompareApiKey } from "../admin.js";
 
 const router = express.Router();
 // biome-ignore lint/correctness/noUnusedVariables: biome migration
@@ -22,9 +23,12 @@ router.get("/version", (_req, res) => {
 });
 
 function isLocalOrAdmin(req: express.Request): boolean {
-	const address = req.socket.remoteAddress;
-	const local = address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
-	return local || Boolean(conf.get("api_key") && req.get("apikey") === conf.get("api_key"));
+	// req.ip respects the trust proxy setting. Behind a local reverse proxy every
+	// request's socket address is 127.0.0.1, but req.ip is the real client address,
+	// so socket-based "local" checks would expose metrics to everyone.
+	const local =
+		req.ip === "127.0.0.1" || req.ip === "::1" || req.ip === "::ffff:127.0.0.1";
+	return local || safeCompareApiKey(req.get("apikey"));
 }
 
 router.get("/metrics", async (req, res) => {

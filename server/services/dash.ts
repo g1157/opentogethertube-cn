@@ -1,5 +1,6 @@
 import URL from "node:url";
 import { ServiceAdapter } from "../serviceadapter.js";
+import { assertPublicMediaUrl } from "../ffprobe.js";
 import {
 	LocalFileException,
 	UnsupportedMimeTypeException,
@@ -53,7 +54,10 @@ export default class DashVideoAdapter extends ServiceAdapter {
 	}
 
 	async handleMpd(url: URL.UrlWithStringQuery): Promise<Video> {
-		const resp = await axios.get(url.href);
+		// Manifest URLs are user supplied; never follow redirects that could land on an
+		// intranet address and only fetch hosts that resolve publicly.
+		await assertPublicMediaUrl(url.href);
+		const resp = await axios.get(url.href, { maxRedirects: 0 });
 		const mpd = new DashMPD();
 		mpd.parse(resp.data);
 		const manifest = mpd.getJSON();

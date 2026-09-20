@@ -8,6 +8,7 @@ import nocache from "nocache";
 import usermanager from "../usermanager.js";
 import { requireApiKey } from "../admin.js";
 import { conf } from "../ott-config.js";
+import { consumeRateLimitPoints } from "../rate-limit.js";
 
 export type { SessionInfo } from "./tokens.js";
 
@@ -97,6 +98,11 @@ export async function authTokenMiddleware(
 }
 
 router.get("/grant", async (req, res) => {
+	// Minting a 512-byte token plus a multi-day Redis session is not free, and this
+	// is the only token endpoint that accepted unlimited anonymous traffic.
+	if (!(await consumeRateLimitPoints(res, req.ip, 20))) {
+		return;
+	}
 	if (req.headers.authorization) {
 		log.debug("authorization header found");
 		if (req.headers.authorization.startsWith("Bearer")) {
@@ -156,8 +162,8 @@ router.get(
 			});
 			return;
 		}
-		const token = req.cookies?.[conf.get("auth_cookie_name")];
-		if (!token) {
+		const oldToken = req.cookies?.[conf.get("auth_cookie_name")];
+		if (!oldToken) {
 			res.status(400).json({
 				success: false,
 				error: {
@@ -167,12 +173,26 @@ router.get(
 			return;
 		}
 
-		await tokens.setSessionInfo(token, {
+		// Rotate the token on privilege change so a planted pre-auth token cannot
+		// be used to take over the account after login (session fixation).
+		const newToken: AuthToken = await tokens.mint();
+		await tokens.setSessionInfo(newToken, {
 			isLoggedIn: true,
 			user_id: req.user.id,
 		});
+		await tokens.revoke(oldToken);
+		req.token = newToken;
+		res.cookie(conf.get("auth_cookie_name"), newToken, {
+			httpOnly: true,
+			sameSite: "lax",
+			secure: !conf.get("force_insecure_cookies"),
+		});
 		log.info(`${req.user.username} logged in via social login.`);
-		const redirect = (req.session as MySession).postLoginRedirect ?? "/";
+		// Only follow same-site relative redirects; anything else is a fishing hop.
+		let redirect = (req.session as MySession).postLoginRedirect ?? "/";
+		if (!redirect.startsWith("/") || redirect.startsWith("//")) {
+			redirect = "/";
+		}
 		log.debug(`redirecting to ${redirect}`);
 		res.redirect(redirect); // Successful auth
 		delete (req.session as MySession).postLoginRedirect;
