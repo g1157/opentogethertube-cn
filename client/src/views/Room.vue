@@ -1099,7 +1099,7 @@ export default defineComponent({
 					}
 					store.commit("toast/ADD_TOAST", {
 						style: ToastStyle.Error,
-						content: t("room.token-retry"),
+						content: t("room.con-status.token-retry"),
 						duration: 6000,
 					});
 					await new Promise(resolve => setTimeout(resolve, 5000));
@@ -1777,6 +1777,7 @@ export default defineComponent({
 			onPlayerReady,
 			onPlaybackChange,
 			onMediaLoadingState,
+			onMediaEnded,
 			onPlayerRetry,
 			playbackPreparationState,
 			waitingForPreparedPlayback,
