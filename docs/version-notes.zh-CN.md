@@ -4,6 +4,31 @@
 `archive/history` 分支与 `v0.14.1` 标签。`v1.0.0` 起跳出 cn 序列，作为本分支的正式大版本，
 标签与镜像名不再带 cn 编号。
 
+-   **v1.1.5**：新增 Bilibili 适配器，播放链路与安全加固，房间不再卡在「连接中」。
+    无数据库迁移、无新增依赖。
+    **Bilibili**：新增 `bilibili` 服务适配器，识别 BV/av 号与 b23.tv 短链（短链逐跳解析、每跳
+    做 SSRF 校验），分 P 用 `BV…@pN` 表达；前端走官方 iframe 嵌入播放——嵌入页没有 JS API，
+    换片/加入/跳转都以起播时间重载 iframe，帧内播放保持由观看者手动控制，限制见帮助页 FAQ。
+    **播放链路**：空闲房间出队/立即播放时同时启动播放时钟与 `isPlaying`（此前房间里的第一个视频
+    不会播放）；跳过与撤销重置同步锚点；出队/移除时清理投票并拒绝为非队列视频投票；房主密码
+    材料不再进入 Redis 快照；设置与聊天文本在 WS 端设有长度上限；重连加入（`?reconnect=true`）
+    跳过一次性的初始化握手。
+    **连接体验**：`waitForToken` 在等待令牌期间持续重试、超时弹提示，不再永远停在「连接中」；
+    房间组件在导航间强制重挂载、聊天历史设上限；播放结束后的图标显示真实状态，自动播放开关
+    始终留有出口；生产构建剥离控制台噪音。
+    **安全**：API key 改为常量时间比较；登录/注册/Discord 登录轮换令牌并限制授权速率；OAuth
+    重定向收口；直链 manifest、HLS、DASH 与 CORS 探测统一走 SSRF 防护（拒私网地址、不跟随
+    重定向）；ffprobe 改为真实流式管线（此前是假 `await`），修复临时目录泄漏并限制探测时长。
+    **稳定性**：房间快照遍历与对象卸载修正、数据库保存失败回滚、Redis 损坏快照回退；
+    sponsorblock 请求 5 秒超时；balancer 公告重新经负载均衡器路由（Rust 侧与上游同步，单机
+    部署未使用）。
+    **部署文件（沿用旧 compose 的部署需要同步）**：Redis 现在必须设置 `REDIS_PASSWORD`
+    （`init.sh` 会自动生成）；应用端口默认只绑定 `127.0.0.1`，由 HTTPS 入口从本机回源；
+    postgres/redis 容器加 `cap_drop: ALL` 与 `no-new-privileges`；备份脚本默认保留最新 14 份；
+    新增裸 IP 证书自动续期的 systemd 单元示例（`deploy/ott-acme-renew.service` / `.timer`）。
+    **裸 IP HTTPS**：DEPLOYMENT.md 增加用 Let's Encrypt 直接为公网 IP 签发受信任证书的步骤
+    （shortlived 档约 6 天，acme.sh 走 80 端口 HTTP-01 校验并自动续期），自签名方案保留为备用。
+
 -   **v1.1.4**：修复全屏提示的实际失效，画质增强菜单改版，右键详情，AI 超分跟随显示尺寸。
     无数据库迁移、无新增依赖。
     **全屏提示（真 bug）**：`Room.vue` 用的是默认导出上不存在的 `toast.fullscreenNoticeHost`，
