@@ -1,0 +1,12 @@
+[Unit]
+Description=Renew the Let's Encrypt IP certificate for OpenTogetherTube
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu
+# The certificate lives for six days; --days 3 (used when issuing) marks it for renewal with
+# three days left, and acme.sh runs the saved reloadcmd to install the new cert and restart Caddy.
+ExecStart=/home/ubuntu/.acme.sh/acme.sh --cron --home /home/ubuntu/.acme.sh

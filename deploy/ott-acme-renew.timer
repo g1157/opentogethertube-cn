@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the OpenTogetherTube IP certificate for renewal twice daily
+
+[Timer]
+OnCalendar=*-*-* 03,15:17:00
+Persistent=true
+RandomizedDelaySec=1800
+
+[Install]
+WantedBy=timers.target

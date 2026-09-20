@@ -128,9 +128,10 @@ Compose 示例按直接 HTTP 端口访问设计（`FORCE_INSECURE_COOKIES=true`�
 
 ### 可选：裸 IP 直连入口（国内网络不稳时的备用通道）
 
-Cloudflare 免费版在国内经常被限速：实测同一台服务器，裸 IP 取首页约 50 ms，经 Cloudflare 边缘
-要 3 s 以上，长连接（WebSocket）更容易直接建不起来——表现是页面能打开但一直「无法连接到房间」。
-线上示例因此同时发布了裸 IP 的直连端口，作为 Cloudflare 之外的第二条通道。
+Cloudflare 免费版在国内经常被限速：实测同一台服务器（2026-09-20），裸 IP 取首页约 50 ms，经
+Cloudflare 边缘要 0.6–1.5 s；房间的 WebSocket 往返从 30 ms 涨到约 0.5 s、建立同步要 4–7 s，
+隧道一抖动就表现为页面能打开但一直「连接中」。线上示例因此同时发布了裸 IP 的直连端口，作为
+Cloudflare 之外的第二条通道。
 
 1. 在 `compose.override.yml` 里给 `ott` 追加明文端口，并加一个只做 TLS 终结的 Caddy
    （不必改动仓库自带的 `compose.yml`，它保持只绑 `127.0.0.1` 的安全默认值）：
@@ -166,7 +167,29 @@ Cloudflare 免费版在国内经常被限速：实测同一台服务器，裸 IP
     }
     ```
 
-2. 生成自签名证书（浏览器首次会提示证书不受信任，点「继续前往」即可）：
+2. 给裸 IP 配一张受信任证书（不需要域名，因此不涉及备案）。Let's Encrypt 自 2026-01 起为公网 IP
+   签发证书，只能使用 `shortlived` 配置档（约 6 天有效期），所以必须自动续期。签发用 `acme.sh`，
+   校验走 HTTP-01：由 80 端口上的服务把 `/.well-known/acme-challenge/` 映射到某个 webroot 目录
+   （线上示例的独立解析小服务已内置该分支，可用环境变量 `ACME_WEBROOT` 指定目录）：
+
+    ```sh
+    curl https://get.acme.sh | sh
+    install -d ~/acme-webroot
+    ~/.acme.sh/acme.sh --issue --server letsencrypt_test \
+      --cert-profile shortlived --days 3 -d <服务器 IP> --webroot ~/acme-webroot
+    ~/.acme.sh/acme.sh --issue --server letsencrypt --cert-profile shortlived \
+      --days 3 -d <服务器 IP> --webroot ~/acme-webroot --force
+    ~/.acme.sh/acme.sh --install-cert --ecc -d <服务器 IP> \
+      --key-file ~/ott-next/caddy/ip.key \
+      --fullchain-file ~/ott-next/caddy/ip.crt \
+      --reloadcmd "sudo -n docker restart ott-next-caddy-1"
+    ```
+
+    续期交给 systemd 定时器（示例见 `deploy/ott-acme-renew.service` / `.timer`，每天检查两次；
+    `--days 3` 表示剩余 3 天时续期，续期成功后自动执行上面保存的 `--reloadcmd`）。IP 证书只有 6 天
+    有效期，请确认 `systemctl is-active ott-acme-renew.timer` 为 `active`，并偶尔查看
+    `journalctl -u ott-acme-renew`。不想自动续期时可以退回自签名证书（浏览器首次提示「继续前往」
+    即可）：
 
     ```sh
     openssl req -x509 -newkey rsa:2048 -nodes -days 1095 \
@@ -176,7 +199,7 @@ Cloudflare 免费版在国内经常被限速：实测同一台服务器，裸 IP
 
 3. `sudo docker compose up -d` 后，访客用 `http://<服务器 IP>:8082` 看视频，用
    `https://<服务器 IP>`（备用 `:8443`）拿安全上下文以启用语音。记得在云厂商安全组放行这些端口，
-   并确认没有其他进程占用。将来拿到正式证书，替换 `caddy/` 下两个文件并重启 Caddy 即可。
+   并确认没有其他进程占用；将来换成别的证书，替换 `caddy/` 下两个文件后重启 Caddy 即可。
 
 实测结论与限制（2026-09-13，腾讯云大陆机型，端口探测 + 抓包验证）：
 
@@ -184,12 +207,15 @@ Cloudflare 免费版在国内经常被限速：实测同一台服务器，裸 IP
     `302 → https://dnspod.qcloud.com/static/webblock.html?d=<域名>`；`Host` 为裸 IP 时正常返回
     应用内容。所以明文入口要用 IP，不要用域名。
 -   **HTTPS（443 + SNI）不被拦截**：用域名的 SNI 握手得到的是服务器自己的证书和响应，说明拦截只
-    针对明文 HTTP；Let's Encrypt 不为裸 IP 签发证书，HTTP-01 又会撞上上面的拦截。用未备案域名 +
-    TLS-ALPN-01 签证书在技术上可行，但那属于绕开备案要求，本仓库线上示例不走这条路：不碰域名，
-    只用裸 IP + 自签名证书。
--   明文 HTTP 不是安全上下文，`navigator.mediaDevices` 不可用，语音会提示无法使用麦克风。语音需要
-    `https://<服务器 IP>`：自签名证书实测同样能拿到安全上下文（`isSecureContext` 为真、
-    `navigator.mediaDevices` 可用），只是浏览器首次会提示证书不受信任。
+    针对明文 HTTP；裸 IP 的 HTTPS 同样不受影响。Let's Encrypt 自 2026-01 起可直接为公网 IP 签发
+    证书（见上一步），HTTP-01 校验走裸 IP 的明文 80 端口，不会撞上备案拦截，所以不必再停留在自
+    签名证书上。用未备案域名 + TLS-ALPN-01 签证书在技术上可行，但那属于绕开备案要求，本仓库线上
+    示例不走这条路：不碰域名，只用裸 IP。
+-   明文 HTTP（`http://<服务器 IP>:8082`）不是安全上下文，`navigator.mediaDevices` 不可用，语音
+    会提示无法使用麦克风；而且房间的鉴权 token 与控制消息在 `ws://` 上是明文，同网络可以窃听和
+    篡改。语音和隐私都要求 `https://<服务器 IP>`（备用 `:8443`）：受信任的 IP 证书没有首次告警，
+    自签名证书实测也能拿到安全上下文（`isSecureContext` 为真、`navigator.mediaDevices` 可用），
+    只是浏览器首次会提示证书不受信任。
 -   直连端口与 Cloudflare 入口是同一个应用实例，登录态、房间、便签、播放列表完全共享。
 
 HTML、源码包和 `/api/status/version` 使用 `Cache-Control: no-store`，前端每 2 分钟及网络恢复、
