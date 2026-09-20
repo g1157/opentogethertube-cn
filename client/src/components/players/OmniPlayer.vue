@@ -143,6 +143,7 @@
 				@buffer-progress="onBufferProgress"
 				@buffer-spans="onBufferSpans"
 				@loading-state="onLoadingState"
+				@end="onEnd"
 			/>
 			<PeertubePlayer
 				v-else-if="!!source && source.service === 'peertube'"
@@ -155,6 +156,16 @@
 				@ready="onReady"
 				@buffering="onBuffering"
 				@error="onError"
+			/>
+			<BilibiliPlayer
+				v-else-if="!!source && source.service === 'bilibili'"
+				ref="player"
+				:video-id="source.id"
+				class="player"
+				@apiready="onApiReady"
+				@playing="onPlaying"
+				@paused="onPaused"
+				@buffering="onBuffering"
 			/>
 			<div v-else class="no-video">
 				<h1>{{ $t("video.no-video") }}</h1>
@@ -226,11 +237,13 @@ const emit = defineEmits([
 	"buffering",
 	"error",
 	"loading-state",
+	"end",
 	"retry",
 ]);
 
 const YoutubePlayer = defineAsyncComponent(() => import("./YoutubePlayer.vue"));
 const VimeoPlayer = defineAsyncComponent(() => import("./VimeoPlayer.vue"));
+const BilibiliPlayer = defineAsyncComponent(() => import("./BilibiliPlayer.vue"));
 const HlsPlayer = defineAsyncComponent(() => import("./HlsPlayer.vue"));
 const DashPlayer = defineAsyncComponent(() => import("./DashPlayer.vue"));
 const DirectPlayer = defineAsyncComponent(() => import("./DirectPlayer.vue"));
@@ -281,7 +294,7 @@ const showLoadingNotice = computed(
 	() =>
 		!!props.source?.id &&
 		(usesNativeVideo.value ||
-			["youtube", "vimeo", "peertube"].includes(props.source.service)) &&
+			["youtube", "vimeo", "peertube", "bilibili"].includes(props.source.service)) &&
 		loadingNoticeState.value.phase !== null &&
 		!props.playbackBlocked &&
 		!showPlaybackError.value,
@@ -460,6 +473,11 @@ function onPaused() {
 	hackReadyEdgeCase();
 	controls.playing.value = false;
 	emit("paused");
+}
+
+function onEnd() {
+	controls.playing.value = false;
+	emit("end");
 }
 
 function onBuffering() {

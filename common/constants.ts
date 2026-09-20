@@ -22,6 +22,7 @@ export const ALL_VIDEO_SERVICES = [
 	"pluto",
 	"invidious",
 	"odysee",
+	"bilibili",
 ] as const;
 /** Notes are append-only; the per-room cap is the only growth gate. */
 export const MAX_NOTES_PER_ROOM = 200;

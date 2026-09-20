@@ -324,6 +324,8 @@ export default {
 				hls: "HLS (.m3u8) live or on-demand playlists",
 				dash: "DASH (.mpd) manifests",
 				manifest: "Custom media manifests (.json)",
+				bilibili:
+					"Bilibili videos (BV/av ids, multi-part videos and b23.tv short links; the embed offers no JS API, so video changes and joins are aligned while in-frame playback stays manual per viewer)",
 			},
 			note: "Paid sites that require sign-in or use DRM, and links protected by hotlink guards, usually cannot be played.",
 		},
