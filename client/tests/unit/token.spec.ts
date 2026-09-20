@@ -2,8 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildNewStore } from "@/store";
 import { waitForToken } from "@/util/token";
 
+const { API } = vi.hoisted(() => ({
+	API: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+}));
+vi.mock("@/common-http", () => ({ API }));
+
+const TOKEN_TIMEOUT_MESSAGE = /Timed out waiting for an auth token/;
+
 describe("waiting for the current stored auth token", () => {
 	beforeEach(() => {
+		vi.resetAllMocks();
 		const saved = new Map<string, string>();
 		vi.stubGlobal("localStorage", {
 			getItem: (key: string) => saved.get(key) ?? null,
@@ -13,61 +21,56 @@ describe("waiting for the current stored auth token", () => {
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
 	});
 
-	it("waits for the first token, then returns on a second visit without another token mutation", async () => {
-		const store = buildNewStore();
-		const subscribe = vi.spyOn(store, "subscribe");
-		const firstResolved = vi.fn();
-		const firstVisit = waitForToken(store).then(firstResolved);
-		await Promise.resolve();
-		expect(firstResolved).not.toHaveBeenCalled();
-		store.commit("users/SET_AUTH_TOKEN", "first-visit-token");
-		await firstVisit;
-		expect(firstResolved).toHaveBeenCalledOnce();
-		expect(localStorage.getItem("token")).toBe("first-visit-token");
-
-		const secondResolved = vi.fn();
-		void waitForToken(store).then(secondResolved);
-		await Promise.resolve();
-		await Promise.resolve();
-		expect(secondResolved).toHaveBeenCalledOnce();
-		expect(subscribe).toHaveBeenCalledOnce();
+	it("returns immediately when a token is already stored", async () => {
+		localStorage.setItem("token", "stored-token");
+		await waitForToken(buildNewStore());
+		expect(API.get).not.toHaveBeenCalled();
 	});
 
-	it("waits again if a previously available token has been removed", async () => {
-		const store = buildNewStore();
-		localStorage.setItem("token", "previous-token");
-		await waitForToken(store);
-		localStorage.removeItem("token");
-		const resolved = vi.fn();
-		const waiting = waitForToken(store).then(resolved);
-		await Promise.resolve();
-		await Promise.resolve();
-		expect(resolved).not.toHaveBeenCalled();
-		store.commit("users/SET_AUTH_TOKEN", "replacement-token");
-		await waiting;
-		expect(resolved).toHaveBeenCalledOnce();
+	it("requests a token and resolves once the grant stores one", async () => {
+		API.get.mockResolvedValueOnce({ data: { token: "fresh-token" } });
+		await waitForToken(buildNewStore());
+		expect(API.get).toHaveBeenCalledWith("/auth/grant", expect.anything());
+		expect(localStorage.getItem("token")).toBe("fresh-token");
 	});
 
-	it.each([
-		"",
-		"   ",
-	])("keeps waiting when a token mutation still leaves blank storage: %j", async token => {
-		const store = buildNewStore();
-		localStorage.setItem("token", token);
-		const resolved = vi.fn();
-		const waiting = waitForToken(store).then(resolved);
-		await Promise.resolve();
-		expect(resolved).not.toHaveBeenCalled();
-		store.commit("users/SET_AUTH_TOKEN", token);
-		await Promise.resolve();
-		await Promise.resolve();
-		expect(resolved).not.toHaveBeenCalled();
-		store.commit("users/SET_AUTH_TOKEN", "usable-token");
-		await waiting;
-		expect(resolved).toHaveBeenCalledOnce();
+	it("keeps waiting when a blank token is already stored and asks for a usable one", async () => {
+		vi.useFakeTimers();
+		localStorage.setItem("token", "   ");
+		API.get.mockResolvedValueOnce({ data: { token: "usable-token" } });
+		const waiting = waitForToken(buildNewStore(), 60_000);
+		await vi.advanceTimersByTimeAsync(20_000);
+		await expect(waiting).resolves.toBeUndefined();
+		expect(API.get).toHaveBeenCalledTimes(1);
+		expect(localStorage.getItem("token")).toBe("usable-token");
+	});
+
+	it("keeps retrying after failed grants and resolves after a later success", async () => {
+		vi.useFakeTimers();
+		API.get
+			.mockRejectedValueOnce(new Error("rate limited"))
+			.mockRejectedValueOnce(new Error("tunnel blip"))
+			.mockResolvedValueOnce({ data: { token: "eventual-token" } });
+		const waiting = waitForToken(buildNewStore(), 60_000);
+		await vi.advanceTimersByTimeAsync(20_000);
+		await expect(waiting).resolves.toBeUndefined();
+		expect(API.get).toHaveBeenCalledTimes(3);
+		expect(localStorage.getItem("token")).toBe("eventual-token");
+	});
+
+	it("rejects with a timeout instead of waiting forever when every grant fails", async () => {
+		vi.useFakeTimers();
+		API.get.mockRejectedValue(new Error("no network"));
+		const waiting = waitForToken(buildNewStore(), 8_000);
+		const rejection = expect(waiting).rejects.toThrow(TOKEN_TIMEOUT_MESSAGE);
+		await vi.advanceTimersByTimeAsync(60_000);
+		await rejection;
+		expect(API.get.mock.calls.length).toBeGreaterThan(1);
+		expect(localStorage.getItem("token")).toBeNull();
 	});
 });

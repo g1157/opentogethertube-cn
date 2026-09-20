@@ -259,6 +259,7 @@ export default {
 			timeout: "连接超时，正在重试…",
 			reconnecting: "连接中断，正在重试…",
 			retry: "立即重连",
+			"token-retry": "获取身份凭证失败（网络波动或限流），正在自动重试…",
 			"network-help":
 				"先分辨线路问题：开了代理的话，请将本站地址加入代理的绕过列表，或改用支持 WebSocket 的代理；没开代理则换个网络（例如手机热点、另一家运营商）再试。本站经 Cloudflare 对外，部分网络到该线路的 WebSocket 会被限速或阻断。网络恢复后会自动重连。",
 		},

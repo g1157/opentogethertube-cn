@@ -265,6 +265,8 @@ export default {
 			timeout: "Connection timed out. Retrying…",
 			reconnecting: "Connection interrupted. Retrying…",
 			retry: "Reconnect now",
+			"token-retry":
+				"Could not get an identity token (network blip or rate limit); retrying automatically…",
 			"network-help":
 				"Tell the routes apart first: with a proxy, add this site to the proxy bypass list or use a proxy that supports WebSockets; without one, try another network (a phone hotspot or a different carrier). This site is served through Cloudflare, and some networks throttle or block WebSockets on that route. Reconnection is automatic once the network recovers.",
 		},

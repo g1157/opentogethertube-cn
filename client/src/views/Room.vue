@@ -129,6 +129,7 @@
 							@ready="onPlayerReady"
 							@loading-state="onMediaLoadingState"
 							@retry="onPlayerRetry"
+							@end="onMediaEnded"
 						/>
 						<div
 							v-else
@@ -714,13 +715,16 @@ export default defineComponent({
 				store.state.room.isPlaying &&
 				!!currentSource.value?.id &&
 				player.apiReady.value &&
-				playerHasPicture.value &&
 				store.state.playerStatus !== PlayerStatus.error &&
 				!localPlaying.value &&
 				!pendingLocalSeek.value &&
-				!playbackPreparationState.value.active &&
-				!playbackPreparationState.value.priming &&
-				!waitingForPreparedPlayback.value,
+				// A latched autoplay rejection must always keep its manual exit visible,
+				// even while a preparation is priming or the player is still loading.
+				(mediaPlaybackBlocked.value ||
+					(playerHasPicture.value &&
+						!playbackPreparationState.value.active &&
+						!playbackPreparationState.value.priming &&
+						!waitingForPreparedPlayback.value)),
 		);
 		// Controls must treat both a rejected autoplay and "room is playing, this device is
 		// not" as local playback the viewer can start without pausing everyone.
@@ -913,6 +917,20 @@ export default defineComponent({
 			nextPrefetch.tick();
 			void playbackPreparation.tick();
 			void playbackSync.tick();
+			// The apply chain is event-driven and can silently drop its last play()
+			// (autoplay latch, aborted by a seek, no follow-up ready event). Tick a
+			// bounded self-heal attempt so the room state cannot stay unapplied forever.
+			if (
+				store.state.room.isPlaying &&
+				!localPlaying.value &&
+				player.apiReady.value &&
+				!mediaPlaybackBlocked.value &&
+				!playbackPreparationState.value.active &&
+				!pendingLocalSeek.value &&
+				!mediaEndedRecently.value
+			) {
+				void applyIsPlaying();
+			}
 		}
 
 		// A native fullscreen element only renders its own subtree: notices and the
@@ -1068,7 +1086,25 @@ export default defineComponent({
 
 		let roomCreatedUnsub: (() => void) | null = null;
 		onMounted(async () => {
-			await waitForToken(store);
+			// A transient token failure (rate limit, tunnel blip, cold server) must never
+			// wedge the room on "connecting..." forever: waitForToken now times out, and
+			// this loop keeps retrying while telling the user what is going on.
+			while (!disposed) {
+				try {
+					await waitForToken(store);
+					break;
+				} catch {
+					if (disposed) {
+						return;
+					}
+					store.commit("toast/ADD_TOAST", {
+						style: ToastStyle.Error,
+						content: t("room.token-retry"),
+						duration: 6000,
+					});
+					await new Promise(resolve => setTimeout(resolve, 5000));
+				}
+			}
 			if (disposed) {
 				return;
 			}
@@ -1103,6 +1139,10 @@ export default defineComponent({
 			if (!connection.connected.value) {
 				return;
 			}
+			if (!currentSource.value?.id) {
+				// Nothing to play; an idle room must not gain a phantom isPlaying.
+				return;
+			}
 			if ((mediaPlaybackBlocked.value || shouldJoinPlayback.value) && wantsPlayback()) {
 				// The room is playing but this device is not: join locally instead of
 				// sending a pause that would stop everyone.
@@ -1126,6 +1166,10 @@ export default defineComponent({
 		 */
 		function setRoomPlayback(play: boolean) {
 			if (!connection.connected.value) {
+				return;
+			}
+			if (play && !currentSource.value?.id) {
+				// Nothing to play; an idle room must not gain a phantom isPlaying.
 				return;
 			}
 			if (
@@ -1261,9 +1305,23 @@ export default defineComponent({
 			});
 		}
 
+		// Between the browser firing `end` and the server's 1s tick noticing it, the room
+		// still says isPlaying=true. Applying that state would replay the ended element
+		// from 0; suppress re-application briefly until the next sync resolves the state.
+		const mediaEndedRecently = ref(false);
+		let mediaEndedTimer: ReturnType<typeof setTimeout> | undefined;
+		function onMediaEnded() {
+			mediaEndedRecently.value = true;
+			clearTimeout(mediaEndedTimer);
+			mediaEndedTimer = setTimeout(() => {
+				mediaEndedRecently.value = false;
+			}, 2500);
+		}
+
 		function onMediaLoadingState(state: MediaLoadingState) {
 			localMediaState.value = state;
 			mediaFrameVersion++;
+			mediaEndedRecently.value = false;
 			void playbackPreparation.tick();
 		}
 
@@ -1295,6 +1353,10 @@ export default defineComponent({
 				activateVideoControls();
 			}
 			if (changeTo === wantsPlayback()) {
+				return;
+			}
+			if (!changeTo && mediaEndedRecently.value) {
+				// The element ended; do not "restore" it back to playing (which replays from 0).
 				return;
 			}
 
