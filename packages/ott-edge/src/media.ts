@@ -5,6 +5,16 @@ import { digest } from "./session";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_REQUESTS = 16;
+/**
+ * The origin a browser on the site would send as Referer. Commands arrive over a websocket
+ * with no page origin, so this reserved-TLD stand-in takes its place: `.invalid` can never
+ * resolve or be allowlisted, which is exactly what "some other site" means to a CDN.
+ */
+const DEFAULT_APP_ORIGIN = "https://ott.invalid";
+/** Content types that cannot be the media a segment or a file promised. */
+const NON_MEDIA_CONTENT_TYPE = /^(?:image|text)\/|^application\/(?:json|xml|javascript|pdf)\b/i;
+/** Statuses that refuse this request rather than report a missing or broken file. */
+const ACCESS_DENIED = new Set([401, 403, 410, 451]);
 const SUPPORTED = new Set(["direct", "hls", "dash"]);
 const HTTP_PROTOCOL = /^https?:$/;
 const NUMERIC_HOST = /^[\d.]+$/;
@@ -52,6 +62,9 @@ export class Probe {
 	bytes = 0;
 	requests = 0;
 	private deadline = Date.now() + 20_000;
+
+	constructor(readonly appOrigin = DEFAULT_APP_ORIGIN) {}
+
 	async read(
 		url: URL,
 		start = 0,
@@ -162,6 +175,37 @@ export class Probe {
 			clearTimeout(timeout);
 			controller.abort();
 		}
+	}
+
+	/**
+	 * Ask for the status line and headers only, and treat a refusal as an answer rather than
+	 * an error. No body is read: a host that ignores Range would otherwise stream a whole
+	 * segment through the worker just to say "403".
+	 */
+	async probe(
+		url: URL,
+		headers: Record<string, string> = {},
+	): Promise<{ status: number; headers: Headers }> {
+		let target = url;
+		for (let redirect = 0; redirect < 4; redirect++) {
+			if (this.deadline - Date.now() <= 0) {
+				throw new ApiError(400, "读取片源信息超时，请稍后重试。");
+			}
+			if (++this.requests > MAX_REQUESTS) {
+				throw new ApiError(400, "本次媒体信息读取次数已达上限，请减少同时添加的视频数量。");
+			}
+			const response = await fetch(target, {
+				redirect: "manual",
+				headers: { Range: "bytes=0-0", "Accept-Encoding": "identity", ...headers },
+			});
+			await response.body?.cancel();
+			const location = response.headers.get("Location");
+			if (![301, 302, 303, 307, 308].includes(response.status) || !location) {
+				return { status: response.status, headers: response.headers };
+			}
+			target = mediaUrl(new URL(location, target).href);
+		}
+		throw new ApiError(400, "片源返回了过多跳转。");
 	}
 }
 
@@ -325,12 +369,63 @@ async function probeHls(url: URL, probe: Probe, depth = 0): Promise<Partial<Vide
 	if (!durations.length || durations.some(value => !Number.isFinite(value) || value <= 0)) {
 		throw new ApiError(400, "HLS 清单中没有有效的视频分段。");
 	}
+	// A playlist can be wide open while its segments are hotlink protected, so the first
+	// segment is the request whose answer predicts whether a browser here can play this.
+	let access: Partial<Video> = {};
+	const firstSegment = lines.find(line => line && !line.startsWith("#"));
+	if (firstSegment) {
+		try {
+			access = await probeAccess(mediaUrl(new URL(firstSegment, response.url).href), probe);
+		} catch {
+			// A segment this worker may not fetch is no reason to reject the playlist.
+		}
+	}
 	return {
 		mime: "application/x-mpegURL",
 		...(lines.includes("#EXT-X-ENDLIST")
 			? { length: durations.reduce((sum, value) => sum + value, 0) }
 			: {}),
+		...access,
 	};
+}
+
+function containerMismatch(headers: Headers): boolean {
+	const value = headers.get("content-type");
+	return !!value && NON_MEDIA_CONTENT_TYPE.test(value.trim());
+}
+
+/**
+ * Ask the source what it requires of the player's requests, using the two Referer policies a
+ * browser can choose between. The browser's own policy is tried first, so a source that
+ * already works is never told to change; a host that refuses both wants its own site's
+ * Referer, a cookie or a signature, none of which another site's page can supply.
+ */
+async function probeAccess(url: URL, probe: Probe): Promise<Partial<Video>> {
+	try {
+		const asBrowser = await probe.probe(url, { Referer: `${probe.appOrigin}/` });
+		if (asBrowser.status < 400) {
+			return containerMismatch(asBrowser.headers)
+				? { mediaAccess: { containerMismatch: true } }
+				: {};
+		}
+		const withoutReferer = await probe.probe(url);
+		if (withoutReferer.status < 400) {
+			return {
+				mediaAccess: {
+					referrerPolicy: "no-referrer",
+					...(containerMismatch(withoutReferer.headers)
+						? { containerMismatch: true }
+						: {}),
+				},
+			};
+		}
+		return asBrowser && ACCESS_DENIED.has(asBrowser.status)
+			? { mediaAccess: { requiresOriginReferer: true } }
+			: {};
+	} catch {
+		// A network failure says nothing about what the host would answer a browser.
+		return {};
+	}
 }
 
 function filename(url: URL): string {

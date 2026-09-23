@@ -12,6 +12,9 @@ const PROBE_TIMEOUT_MS = 5000;
  */
 const NON_MEDIA_CONTENT_TYPE = /^(?:image|text)\/|^application\/(?:json|xml|javascript|pdf)\b/i;
 
+/** Statuses that refuse this request rather than report a missing or broken file. */
+const ACCESS_DENIED = new Set([401, 403, 410, 451]);
+
 export interface MediaAccessProbe {
 	mediaAccess?: MediaAccess;
 	cors?: boolean;
@@ -88,7 +91,12 @@ export async function probeMediaAccess(link: string, appOrigin: string): Promise
 		};
 	}
 	if (asBrowser || withoutReferer) {
-		return { mediaAccess: { requiresOriginReferer: true } };
+		// The host answered. When it refuses the request a browser would send, that refusal is
+		// the verdict; a plain 404 on both says only that the file is not there, which is not
+		// something this probe can attribute to a policy.
+		return asBrowser && ACCESS_DENIED.has(asBrowser.status)
+			? { mediaAccess: { requiresOriginReferer: true } }
+			: {};
 	}
 	return {};
 }

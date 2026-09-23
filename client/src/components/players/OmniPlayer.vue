@@ -94,6 +94,7 @@
 				ref="player"
 				:video-url="source.hls_url ?? source.id"
 				:thumbnail="source.thumbnail"
+				:referrer-policy="source.mediaAccess?.referrerPolicy"
 				class="player"
 				@apiready="onApiReady"
 				@playing="onPlaying"
@@ -133,6 +134,7 @@
 				:video-mime="source.mime!"
 				:thumbnail="source.thumbnail"
 				:subtitle-url="source.subtitleUrl"
+				:referrer-policy="source.mediaAccess?.referrerPolicy"
 				class="player"
 				@apiready="onApiReady"
 				@playing="onPlaying"
@@ -262,6 +264,8 @@ const sourceKey = computed(() =>
 		props.source?.dash_url,
 		props.source?.mime,
 		props.source?.subtitleUrl,
+		// A changed request policy reloads the player, the same as a changed URL.
+		props.source?.mediaAccess?.referrerPolicy,
 	]),
 );
 const usesNativeVideo = computed(() => {

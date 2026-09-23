@@ -327,7 +327,7 @@ export default {
 				bilibili:
 					"Bilibili videos (BV/av ids, multi-part videos and b23.tv short links; the embed offers no JS API, so video changes and joins are aligned while in-frame playback stays manual per viewer)",
 			},
-			note: "Paid sites that require sign-in or use DRM, and links protected by hotlink guards, usually cannot be played.",
+			note: "Paid sites that require sign-in or use DRM, and links that only allow their own site as the source, usually cannot be played.",
 		},
 		playback: {
 			title: "Playback and synchronization",
@@ -341,7 +341,7 @@ export default {
 					"When it says the device cannot reach the video source, your browser cannot reach that host (blocked network, bad DNS, or a proxy rule sending it down a dead route). It is unrelated to the server: the server reaching it does not mean you can.",
 				retry: '"Retry my video" in the error message reloads only your device and does not affect the rest of the room.',
 				gate: '"Wait for buffering viewers" in room settings pauses everyone for viewers with slow connections.',
-				source: "A link that plays when opened directly may still refuse to play embedded elsewhere; links that need a Referer, cookies or hotlink protection usually fail.",
+				source: "A link that plays when opened directly may still refuse to play embedded elsewhere. Sources that only turn away a foreign Referer are retried without one; sources that require their own site's Referer or a cookie still fail.",
 			},
 		},
 		enhance: {
@@ -485,6 +485,8 @@ export default {
 	},
 	"video-queue-item": {
 		experimental: "Experimental support for this service! Expect it to break a lot.",
+		"media-access-warning":
+			"This host only accepts requests that come from its own site, so it may not play here.",
 		"play-next": "Play Next",
 		"play-last": "Play Last",
 		messages: {

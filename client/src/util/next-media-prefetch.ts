@@ -1,4 +1,5 @@
 import type { QueueItem } from "ott-common/models/video";
+import { referrerPolicyValue } from "./media-access";
 
 /** How close to the end of the current item the next one starts warming. */
 export const PREFETCH_LEAD_SECONDS = 30;
@@ -10,6 +11,8 @@ export interface MediaCandidate {
 	service: string;
 	/** Playable URL, or null when the item plays through an embedded player. */
 	url: string | null;
+	/** Probed requirement of the source's host, so the warm-up request matches playback. */
+	referrerPolicy?: string;
 }
 
 /** Resolve the next queue item the way the player would, without starting it. */
@@ -18,23 +21,24 @@ export function resolveMediaCandidate(item: QueueItem | null | undefined): Media
 		return null;
 	}
 	const key = `${item.service}:${item.id}`;
+	const referrerPolicy = item.mediaAccess?.referrerPolicy;
 	switch (item.service) {
 		case "hls":
 		case "reddit":
 		case "tubi":
 		case "pluto":
-			return { key, service: item.service, url: item.hls_url ?? item.id };
+			return { key, service: item.service, url: item.hls_url ?? item.id, referrerPolicy };
 		case "dash":
-			return { key, service: item.service, url: item.dash_url ?? item.id };
+			return { key, service: item.service, url: item.dash_url ?? item.id, referrerPolicy };
 		case "direct":
 		case "googledrive":
-			return { key, service: item.service, url: item.src_url ?? item.id };
+			return { key, service: item.service, url: item.src_url ?? item.id, referrerPolicy };
 		case "odysee":
 			if (item.mime?.includes("mpegurl")) {
-				return { key, service: item.service, url: item.hls_url ?? item.id };
+				return { key, service: item.service, url: item.hls_url ?? item.id, referrerPolicy };
 			}
 			if (item.mime?.includes("mp4")) {
-				return { key, service: item.service, url: item.src_url ?? item.id };
+				return { key, service: item.service, url: item.src_url ?? item.id, referrerPolicy };
 			}
 			return null;
 		default:
@@ -63,14 +67,20 @@ export function createNextMediaPrefetch(options: NextMediaPrefetchOptions) {
 		if (!candidate.url) {
 			return;
 		}
+		const policy = referrerPolicyValue(candidate.referrerPolicy);
 		try {
 			if (candidate.service === "direct" || candidate.service === "googledrive") {
-				await fetchImpl(candidate.url, {
-					headers: { Range: `bytes=0-${PREFETCH_BYTES - 1}` },
-				});
+				const headers = { Range: `bytes=0-${PREFETCH_BYTES - 1}` };
+				// An ordinary source keeps exactly the request it made before the probe existed.
+				await fetchImpl(
+					candidate.url,
+					policy ? { headers, referrerPolicy: policy } : { headers },
+				);
 				return;
 			}
-			await fetchImpl(candidate.url);
+			await (policy
+				? fetchImpl(candidate.url, { referrerPolicy: policy })
+				: fetchImpl(candidate.url));
 		} catch {
 			// A prefetch that fails is simply a prefetch that did not help.
 		}

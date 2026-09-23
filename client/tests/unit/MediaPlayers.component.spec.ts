@@ -8,6 +8,7 @@ import DirectPlayer from "@/components/players/DirectPlayer.vue";
 import HlsPlayer from "@/components/players/HlsPlayer.vue";
 import OmniPlayer from "@/components/players/OmniPlayer.vue";
 import type { MediaPlayer } from "@/components/composables/media-player";
+import { DEFAULT_HLS_BUFFER_SECONDS, HLS_BUFFER_SECONDS_OPTIONS } from "@/stores/settings";
 import { mountComponent } from "./component-test-utils";
 
 interface HlsDouble {
@@ -56,6 +57,7 @@ vi.mock("hls.js", () => ({
 			this.listeners.set(event, handler);
 		}
 	},
+	FetchLoader: class FetchLoader {},
 }));
 
 vi.mock("@/components/composables/media-audio-boost", () => ({
@@ -273,9 +275,9 @@ describe("native and HLS player reliability", () => {
 		wrapper = page.wrapper;
 		const engine = hlsMock.instances[0];
 		expect(engine.config).toEqual({
-			maxBufferLength: 60,
+			maxBufferLength: DEFAULT_HLS_BUFFER_SECONDS,
 			// The ceiling sits above the target so a fast connection keeps buffering.
-			maxMaxBufferLength: 240,
+			maxMaxBufferLength: DEFAULT_HLS_BUFFER_SECONDS * 4,
 			maxBufferSize: 150 * 1024 * 1024,
 			backBufferLength: 90,
 			// Level selection follows the size the picture is drawn at, not the source ladder.
@@ -287,11 +289,43 @@ describe("native and HLS player reliability", () => {
 		expect(wrapper.emitted("ready")).toBeUndefined();
 		await playable(wrapper);
 		expect(wrapper.emitted("ready")).toHaveLength(1);
-		page.store.commit("settings/UPDATE", { hlsBufferSeconds: 120 });
+		// A new target must reach the running engine: a different value from the default, so
+		// the assertion proves the update path rather than repeating what mount already did.
+		const changed = HLS_BUFFER_SECONDS_OPTIONS.find(
+			value => value !== DEFAULT_HLS_BUFFER_SECONDS,
+		)!;
+		page.store.commit("settings/UPDATE", { hlsBufferSeconds: changed });
 		await nextTick();
-		expect(engine.config.maxBufferLength).toBe(120);
-		expect(engine.config.maxMaxBufferLength).toBe(480);
+		expect(engine.config.maxBufferLength).toBe(changed);
+		expect(engine.config.maxMaxBufferLength).toBe(changed * 4);
 		expect(hlsMock.instances).toHaveLength(1);
+	});
+
+	it("keeps hls.js on its default loader for an ordinary source", () => {
+		({ wrapper } = mountComponent(HlsPlayer, {
+			props: { videoUrl: "https://media.example/episode.m3u8" },
+		}));
+		const config = hlsMock.instances[0].config as unknown as Record<string, unknown>;
+		expect(config.loader).toBeUndefined();
+		expect(config.fetchSetup).toBeUndefined();
+	});
+
+	it("uses a fetch loader that sends no Referer when the source demands it", () => {
+		({ wrapper } = mountComponent(HlsPlayer, {
+			props: {
+				videoUrl: "https://media.example/episode.m3u8",
+				referrerPolicy: "no-referrer",
+			},
+		}));
+		const config = hlsMock.instances[0].config as unknown as Record<string, unknown>;
+		expect(config.loader).toBeTypeOf("function");
+		const fetchSetup = config.fetchSetup as (
+			context: { url: string },
+			init: RequestInit,
+		) => Request;
+		const request = fetchSetup({ url: "https://media.example/seg-1.ts" }, { mode: "cors" });
+		expect(request.url).toBe("https://media.example/seg-1.ts");
+		expect(request.referrerPolicy).toBe("no-referrer");
 	});
 
 	it("uses HLS network restart and decoder recovery separately and bounds repeated decoder errors", async () => {

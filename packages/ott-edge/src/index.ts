@@ -3,7 +3,7 @@ import { RoomRequestType as R } from "ott-common/models/messages.js";
 import { QueueMode, Visibility } from "ott-common/models/types.js";
 import { OttApiRequestRoomCreateSchema } from "ott-common/models/zod-schemas.js";
 import { commandSchema, videoAdd, videoId } from "./commands";
-import { resolveMedia } from "./media";
+import { resolveMedia, Probe } from "./media";
 import { findRoom, idleMilliseconds, listItem, roomStub, type RoomRecord } from "./room-index";
 import { checkOrigin, digest, grant, limit, requireSession } from "./session";
 import { ApiError, errorResponse, json, readJson, type Env, type GuestSession } from "./types";
@@ -247,7 +247,10 @@ async function api(request: Request, env: Env): Promise<Response> {
 	if (path === "/api/data/previewAdd" && request.method === "GET") {
 		await limit(env.DB, `media:${session.identity_id}`, 20);
 		const input = z.string().min(1).max(4096).parse(url.searchParams.get("input"));
-		return json({ success: true, result: [await resolveMedia(env, input.trim())] });
+		return json({
+			success: true,
+			result: [await resolveMedia(env, input.trim(), new Probe(url.origin))],
+		});
 	}
 	if (ACCOUNT_ROUTE.test(path)) {
 		throw new ApiError(

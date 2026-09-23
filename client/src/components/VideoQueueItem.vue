@@ -35,6 +35,13 @@
 				<div v-if="item.service === 'googledrive'" class="experimental">
 					{{ $t("video-queue-item.experimental") }}
 				</div>
+				<div
+					v-if="requiresOriginReferer"
+					class="media-access-warning"
+					data-cy="media-access-warning"
+				>
+					{{ $t("video-queue-item.media-access-warning") }}
+				</div>
 				<span v-if="item.startAt !== undefined" class="video-start-at">
 					{{ $t("video-queue-item.start-at", { timestamp: videoStartAt }) }}
 				</span>
@@ -323,6 +330,14 @@ const localizedDescription = computed(() => {
 	return description;
 });
 const videoStartAt = computed(() => secondsToTimestamp(item.value?.startAt ?? 0));
+/**
+ * The probe found a host that refuses this app's origin and answers nothing without a
+ * Referer either, so no browser on another origin can play it. Everyone should see that
+ * before the queue reaches the item, not only the person who added it.
+ */
+const requiresOriginReferer = computed(
+	() => item.value.mediaAccess?.requiresOriginReferer === true,
+);
 const thumbnailSource = computed(() => {
 	return !thumbnailHasError.value && item.value.thumbnail ? item.value.thumbnail : placeholderUrl;
 });
@@ -575,6 +590,12 @@ watchEffect(() => {
 			font-size: 0.8rem;
 			color: rgb(var(--v-theme-primary));
 			opacity: 0.8;
+		}
+
+		.media-access-warning {
+			flex-grow: 1;
+			font-size: 0.8rem;
+			color: rgb(var(--v-theme-warning));
 		}
 	}
 

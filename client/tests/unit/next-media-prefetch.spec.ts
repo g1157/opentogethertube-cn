@@ -26,6 +26,13 @@ describe("next media candidate", () => {
 		expect(resolveMediaCandidate(source as QueueItem)?.url).toBe(url);
 	});
 
+	it("carries the probed referrer policy along with the candidate", () => {
+		const candidate = resolveMediaCandidate(
+			item({ mediaAccess: { referrerPolicy: "no-referrer" } }),
+		);
+		expect(candidate?.referrerPolicy).toBe("no-referrer");
+	});
+
 	it.each([
 		["youtube", { service: "youtube", id: "dQw4w9WgXcQ" }],
 		["vimeo", { service: "vimeo", id: "12345" }],
@@ -88,6 +95,14 @@ describe("next media prefetch", () => {
 		next = item({ id: "https://cdn/other.m3u8" });
 		prefetch.tick();
 		expect(fetchImpl).toHaveBeenCalledTimes(2);
+	});
+
+	it("warms without a Referer when the source refuses this origin", () => {
+		next = item({ mediaAccess: { referrerPolicy: "no-referrer" } });
+		prefetch.tick();
+		expect(fetchImpl).toHaveBeenCalledWith("https://cdn.example.com/master.m3u8", {
+			referrerPolicy: "no-referrer",
+		});
 	});
 
 	it("ignores a failed prefetch", async () => {

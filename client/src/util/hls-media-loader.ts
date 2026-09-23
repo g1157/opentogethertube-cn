@@ -14,6 +14,7 @@ export function hlsLoaderOptions(policy: string | undefined): Partial<HlsConfig>
 	}
 	return {
 		loader: FetchLoader,
-		fetchSetup: (context, initParams) => new Request(context.url, { ...initParams, referrerPolicy }),
+		fetchSetup: (context, initParams) =>
+			new Request(context.url, { ...initParams, referrerPolicy }),
 	};
 }

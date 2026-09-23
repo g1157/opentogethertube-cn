@@ -106,7 +106,11 @@ const metadataFixtures = new Map([
 
 async function outbound(request) {
 	const url = new URL(request.url);
-	outboundCalls.push({ url: url.href, range: request.headers.get("range") });
+	outboundCalls.push({
+		url: url.href,
+		range: request.headers.get("range"),
+		referer: request.headers.get("referer"),
+	});
 	if (url.origin !== mediaOrigin) {
 		throw new Error(`Unexpected outbound request: ${url.origin}`);
 	}
@@ -143,6 +147,19 @@ async function outbound(request) {
 	}
 	if (url.pathname === "/master.m3u8") {
 		return new Response("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=400000\nchild/vod.m3u8\n");
+	}
+	if (url.pathname === "/protected/master.m3u8") {
+		return new Response("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=400000\nchild/vod.m3u8\n");
+	}
+	if (url.pathname === "/protected/child/vod.m3u8") {
+		return new Response("#EXTM3U\n#EXTINF:6.0,\nseg-1.ts\n#EXT-X-ENDLIST\n");
+	}
+	if (url.pathname === "/protected/child/seg-1.ts") {
+		// A hotlink guard: only requests that arrive without a Referer are served, and the
+		// bytes come back disguised as an image, as image CDNs used as video hosts do.
+		return request.headers.get("referer")
+			? new Response(null, { status: 403 })
+			: new Response("segment", { headers: { "Content-Type": "image/png" } });
 	}
 	if (url.pathname.endsWith(".m3u8")) {
 		return new Response(
@@ -594,6 +611,26 @@ it("MP4 tail indexes, HLS variants, DASH and custom manifests produce bounded me
 		assert.equal(outboundCalls.length, count, "cache avoids repeated external probes");
 	}
 	assert.ok(outboundCalls.some(call => call.range?.startsWith("bytes=8220-")));
+});
+
+it("a stream whose segments refuse a Referer is marked so the player can ask without one", async () => {
+	const owner = await identity();
+	const before = outboundCalls.length;
+	const response = await request(
+		`/data/previewAdd?input=${encodeURIComponent(`${mediaOrigin}/protected/master.m3u8`)}`,
+		owner,
+	);
+	assert.equal(response.status, 200, JSON.stringify(await response.clone().json()));
+	const video = (await response.json()).result[0];
+	assert.equal(video.service, "hls");
+	assert.deepEqual(video.mediaAccess, {
+		referrerPolicy: "no-referrer",
+		containerMismatch: true,
+	});
+	const probes = outboundCalls.slice(before).filter(call => call.url.endsWith("/seg-1.ts"));
+	assert.equal(probes.length, 2, "one probe with a Referer and one without");
+	assert.ok(probes[0].referer, "the first probe mimics a browser on another origin");
+	assert.equal(probes[1].referer, null, "the second probe asks without a Referer");
 });
 
 it("MP4 metadata skips large sample tables and reuses already fetched box headers", async () => {
