@@ -364,6 +364,18 @@ export default {
 		"to-bottom": "跳到最新消息",
 		empty: "还没有消息，打个招呼开始吧！",
 		"empty-hint": "新消息提示音默认关闭，可在偏好设置中开启。",
+		emoji: {
+			open: "插入表情",
+			quick: "常用表情",
+			groups: {
+				smileys: "笑脸",
+				gestures: "手势",
+				animals: "动物",
+				food: "食物",
+				activities: "活动",
+				symbols: "符号",
+			},
+		},
 	},
 	"room-notes": {
 		"input-label": "添加便签",

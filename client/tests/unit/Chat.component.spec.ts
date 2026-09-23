@@ -7,6 +7,7 @@ import {
 } from "ott-common/models/messages";
 import { PlayerStatus, Role } from "ott-common/models/types";
 import Chat from "@/components/Chat.vue";
+import { EMOJI_GROUPS } from "@/util/chat-emoji";
 import { flush, mountComponent } from "./component-test-utils";
 
 function chatActions(wrapper: ReturnType<typeof mountComponent>["wrapper"]) {
@@ -242,6 +243,40 @@ describe("Chat component", () => {
 		expect(chatActivated(wrapper)).toBe(true);
 		expect((input.element as HTMLInputElement).value).toBe("");
 		expect(document.activeElement).toBe(input.element);
+	});
+
+	it("offers the emoji panel on pointer devices only", async () => {
+		const { wrapper } = mountComponent(Chat);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		expect(wrapper.find('[data-cy="chat-emoji"]').exists()).toBe(true);
+
+		// A mobile keyboard already carries its own emoji, so a button would only take space.
+		stubTouchDevice(true);
+		const mobile = mountComponent(Chat);
+		await mobile.wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		expect(mobile.wrapper.find('[data-cy="chat-emoji"]').exists()).toBe(false);
+	});
+
+	it("inserts a picked emoji at the caret and keeps the composer focused", async () => {
+		stubTouchDevice(false);
+		const { wrapper } = mountComponent(Chat);
+		chatActions(wrapper).activateAndFocus();
+		await nextTick();
+		const input = wrapper.get('[data-cy="chat-input"] input');
+		await input.setValue("ab");
+		(input.element as HTMLInputElement).setSelectionRange(1, 1);
+
+		await wrapper.get('[data-cy="chat-emoji"]').trigger("click");
+		await flush();
+		const button = document.querySelector<HTMLButtonElement>('[data-cy="chat-emoji-item"]');
+		expect(button).not.toBeNull();
+		button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		await flush();
+
+		const emoji = EMOJI_GROUPS[0].emoji[0];
+		expect((input.element as HTMLInputElement).value).toBe(`a${emoji}b`);
+		expect(document.activeElement).toBe(input.element);
+		expect((input.element as HTMLInputElement).selectionStart).toBe(1 + emoji.length);
 	});
 
 	it("opens and closes from the buttons", async () => {

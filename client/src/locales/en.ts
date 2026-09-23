@@ -372,6 +372,18 @@ export default {
 		"to-bottom": "Jump to latest messages",
 		empty: "No messages yet. Say hello!",
 		"empty-hint": "New message sounds are off by default; enable them in Preferences.",
+		emoji: {
+			open: "Insert emoji",
+			quick: "Common reactions",
+			groups: {
+				smileys: "Smileys",
+				gestures: "Gestures",
+				animals: "Animals",
+				food: "Food",
+				activities: "Activities",
+				symbols: "Symbols",
+			},
+		},
 	},
 	"room-notes": {
 		"input-label": "Add a note",

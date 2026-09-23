@@ -41,6 +41,25 @@
 		</div>
 		<Transition name="input" @after-enter="enforceStickToBottom">
 			<form class="input-box" v-if="activated" @submit.prevent="onSubmit">
+				<v-menu
+					v-if="emojiMenuAvailable"
+					location="top"
+					:offset="6"
+					:close-on-content-click="false"
+				>
+					<template #activator="{ props: activatorProps }">
+						<v-btn
+							v-bind="activatorProps"
+							icon
+							variant="text"
+							:aria-label="$t('chat.emoji.open')"
+							data-cy="chat-emoji"
+						>
+							<v-icon :icon="mdiEmoticonHappyOutline" />
+						</v-btn>
+					</template>
+					<ChatEmojiPanel @select="insertEmojiText" />
+				</v-menu>
 				<v-text-field
 					variant="solo"
 					density="compact"
@@ -88,7 +107,13 @@
 </template>
 
 <script lang="ts" setup>
-import { mdiChevronDown, mdiChevronDoubleDown, mdiCommentOutline, mdiSend } from "@mdi/js";
+import {
+	mdiChevronDown,
+	mdiChevronDoubleDown,
+	mdiCommentOutline,
+	mdiEmoticonHappyOutline,
+	mdiSend,
+} from "@mdi/js";
 import { computed, onUpdated, ref, type Ref, nextTick, onMounted, onUnmounted, watch } from "vue";
 import type { ChatMessage } from "ott-common/models/types";
 import { useConnection } from "@/plugins/connection";
@@ -96,6 +121,8 @@ import { useRoomApi } from "@/util/roomapi";
 import type { ServerMessageChat } from "ott-common/models/messages";
 import { useSfx } from "@/plugins/sfx";
 import { useStore } from "@/store";
+import { insertEmoji } from "@/util/chat-emoji";
+import ChatEmojiPanel from "./ChatEmojiPanel.vue";
 import ChatMsg from "./ChatMsg.vue";
 
 const props = withDefaults(defineProps<{ controlsVisible?: boolean; draft?: string }>(), {
@@ -245,6 +272,39 @@ function isTouchPrimaryDevice(): boolean {
 	return (
 		typeof window.matchMedia === "function" && window.matchMedia(TOUCH_PRIMARY_QUERY).matches
 	);
+}
+
+// Mobile keyboards carry their own emoji, so the panel is for pointer devices; it stays
+// available whenever the composer is open.
+const emojiMenuAvailable = computed(() => !isTouchPrimaryDevice());
+
+/** The underlying <input> behind the Vuetify field, for reading and restoring the caret. */
+function chatInputElement(): HTMLInputElement | null {
+	const root = (chatInput.value as unknown as { $el?: HTMLElement } | undefined)?.$el;
+	return root?.querySelector("input") ?? null;
+}
+
+/**
+ * Inserts an emoji where the caret is and puts it back afterwards. The field keeps focus,
+ * so the panel never interrupts "type, Enter, send" and the mobiles keyboard does not close.
+ */
+function insertEmojiText(emoji: string): void {
+	const input = chatInputElement();
+	const result = insertEmoji(
+		inputValue.value,
+		emoji,
+		input && input.selectionStart !== null && input.selectionEnd !== null
+			? { start: input.selectionStart, end: input.selectionEnd }
+			: null,
+	);
+	inputValue.value = result.value;
+	void nextTick().then(() => {
+		if (disposed || !activated.value) {
+			return;
+		}
+		input?.setSelectionRange(result.caret, result.caret);
+		chatInput.value?.focus();
+	});
 }
 
 function sendMessage(): void {
