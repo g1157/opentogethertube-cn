@@ -906,7 +906,11 @@ export default defineComponent({
 			getNext: () => store.state.room.queue[0],
 		});
 
-		function timestampUpdate() {
+		/**
+		 * Refresh everything that follows the clock. Returns whether it already applied the
+		 * room's playback state, so a caller that would apply it too can skip the duplicate.
+		 */
+		function timestampUpdate(): boolean {
 			truePosition.value = roomPosition();
 			sliderPosition.value = _.clamp(
 				truePosition.value,
@@ -930,7 +934,9 @@ export default defineComponent({
 				!mediaEndedRecently.value
 			) {
 				void applyIsPlaying();
+				return true;
 			}
+			return false;
 		}
 
 		// A native fullscreen element only renders its own subtree: notices and the
@@ -1363,8 +1369,12 @@ export default defineComponent({
 			await applyIsPlaying();
 		}
 		function onPlayerReady() {
-			timestampUpdate();
-			void applyIsPlaying();
+			// The clock refresh already applies the room state when this device is behind it;
+			// applying it again here would call play() twice for one readiness event. A device
+			// that is ahead of the room still needs the explicit application.
+			if (!timestampUpdate()) {
+				void applyIsPlaying();
+			}
 		}
 
 		const captions = useCaptions();

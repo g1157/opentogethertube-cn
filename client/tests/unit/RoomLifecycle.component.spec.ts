@@ -12,6 +12,17 @@ vi.mock("@/components/composables/media-audio-boost", () => ({
 	useMediaAudioBoost: () => ({ setBoost: vi.fn(), resetFailedSetup: vi.fn() }),
 }));
 
+// The guest identity now arrives over the API and the room waits for it before connecting;
+// without a stub the wait sits in its retry loop and the connection step is never reached.
+vi.mock("@/common-http", () => ({
+	API: {
+		get: vi.fn(async () => ({ data: { token: "lifecycle-token" } })),
+		post: vi.fn(),
+		patch: vi.fn(),
+		delete: vi.fn(),
+	},
+}));
+
 describe("room connection lifecycle", () => {
 	let page: ReturnType<typeof mountComponent> | undefined;
 

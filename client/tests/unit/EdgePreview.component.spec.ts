@@ -41,6 +41,7 @@ describe("Cloudflare guest identity and room ownership", () => {
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		vi.unstubAllGlobals();
 		vuetify.display.update();
 	});
@@ -76,21 +77,33 @@ describe("Cloudflare guest identity and room ownership", () => {
 	});
 
 	it("recovers a failed identity request without starting unauthenticated room requests", async () => {
+		// The bootstrap retries a transient failure with backoff before surfacing anything,
+		// so the prompt only appears once the whole retry budget is spent.
+		// Only the timers the backoff uses: faking setImmediate would hang flushPromises.
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		API.get.mockRejectedValueOnce(new Error("Network unavailable"));
+		API.get.mockRejectedValueOnce(new Error("Network unavailable"));
 		API.get.mockRejectedValueOnce(new Error("Network unavailable"));
 		API.get.mockResolvedValueOnce({ data: { token: "retried-edge-token" } });
 		const { wrapper, router } = mountEdgeApp();
+		// The router's initial navigation needs a tick of the faked timers before it settles.
+		await vi.advanceTimersByTimeAsync(0);
 		await router.isReady();
 		await flushPromises();
 
 		expect(wrapper.find('[data-testid="room-route"]').exists()).toBe(false);
+		await vi.advanceTimersByTimeAsync(6000);
+		await flushPromises();
 		expect(wrapper.get('[role="status"]').text()).toContain("重试");
-		expect(API.get).toHaveBeenCalledTimes(1);
+		expect(API.get).toHaveBeenCalledTimes(3);
 		await wrapper.get('[role="status"] button').trigger("click");
 		await flushPromises();
 
 		expect(wrapper.find('[data-testid="room-route"]').exists()).toBe(true);
 		expect(localStorage.getItem("token")).toBe("retried-edge-token");
 		expect(API.get.mock.calls).toEqual([
+			["/auth/grant", expect.anything()],
+			["/auth/grant", expect.anything()],
 			["/auth/grant", expect.anything()],
 			["/auth/grant", expect.anything()],
 		]);

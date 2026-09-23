@@ -9,8 +9,8 @@
 		"lint": "tsc --noEmit && eslint --cache --ext .js,.ts,.vue --fix .",
 		"i18n:report": "vue-cli-service i18n:report --src \"./src/**/*.?(js|vue)\" --locales \"./src/locales/**/*.json\"",
 		"lint-ci": "tsc --noEmit && eslint --cache .",
-		"test": "vitest run --coverage",
-		"test:component": "vitest run tests/unit/*.component.spec.ts",
+		"test": "NODE_ENV=test vitest run --coverage",
+		"test:component": "NODE_ENV=test vitest run tests/unit/*.component.spec.ts",
 		"cy:run": "yarn test:component"
 	},
 	"dependencies": {

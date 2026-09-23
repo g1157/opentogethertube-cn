@@ -371,8 +371,14 @@ describe("room player interactions", () => {
 		expect(media.play).not.toHaveBeenCalled();
 		page.store.commit("room/SYNC", { isPlaying: true });
 		playerEvent("ready");
+		// The room re-applies playback while the device has not started, so a player that
+		// reports playback - as a real one does - ends the retrying.
+		playerEvent("playing");
 		await vi.advanceTimersByTimeAsync(0);
+		// One readiness event applies the room state once, even though the clock refresh it
+		// triggers carries a self-heal path of its own.
 		expect(media.play).toHaveBeenCalledOnce();
+		expect(media.pause).toHaveBeenCalledOnce();
 		expect(page.connection.sent).toEqual([]);
 	});
 
@@ -405,9 +411,8 @@ describe("room player interactions", () => {
 
 	it("unlocks with the normal play button even if ready fires while the click is pending", async () => {
 		const media = installPlayer();
-		media.play.mockRejectedValueOnce(
-			new DOMException("Interaction required", "NotAllowedError"),
-		);
+		// Until a user gesture, a browser rejects every automatic attempt, not just the first.
+		media.play.mockRejectedValue(new DOMException("Interaction required", "NotAllowedError"));
 		playerEvent("ready");
 		await vi.advanceTimersByTimeAsync(0);
 		expect(page.wrapper.vm.mediaPlaybackBlocked).toBe(true);
@@ -416,20 +421,23 @@ describe("room player interactions", () => {
 		page.store.state.room.grants.setRoleGrants(Role.UnregisteredUser, []);
 		playerEvent("ready");
 		await vi.advanceTimersByTimeAsync(0);
-		expect(media.play).toHaveBeenCalledOnce();
+		// The automatic attempts themselves are not what this test is about; the click must
+		// add exactly one unblocking play() on top of whatever they were.
+		const automaticAttempts = media.play.mock.calls.length;
 		let finish!: () => void;
 		media.play.mockReturnValueOnce(new Promise<void>(resolve => (finish = resolve)));
 		media.setPosition.mockClear();
 		await page.wrapper.get('[data-cy="playback-toggle"]').trigger("click");
 		expect(media.play).toHaveBeenLastCalledWith(true);
+		expect(media.play).toHaveBeenCalledTimes(automaticAttempts + 1);
 		expect(media.setPosition).not.toHaveBeenCalled();
 		playerEvent("ready");
 		await vi.advanceTimersByTimeAsync(0);
-		expect(media.play).toHaveBeenCalledTimes(2);
+		expect(media.play).toHaveBeenCalledTimes(automaticAttempts + 1);
 		playerEvent("playing");
 		finish();
 		await vi.advanceTimersByTimeAsync(0);
-		expect(media.play).toHaveBeenCalledTimes(2);
+		expect(media.play).toHaveBeenCalledTimes(automaticAttempts + 1);
 		expect(page.wrapper.vm.mediaPlaybackBlocked).toBe(false);
 		expect(page.connection.sent).toEqual([]);
 		expect(page.store.state.room.isPlaying).toBe(true);
@@ -452,7 +460,8 @@ describe("room player interactions", () => {
 
 	it("clears a blocked state on actual playback and ignores a later rejection", async () => {
 		const media = installPlayer();
-		media.play.mockRejectedValueOnce(new DOMException("Blocked", "NotAllowedError"));
+		// Every automatic attempt is rejected until a gesture, exactly like a browser.
+		media.play.mockRejectedValue(new DOMException("Blocked", "NotAllowedError"));
 		playerEvent("ready");
 		await vi.advanceTimersByTimeAsync(0);
 		expect(page.wrapper.vm.mediaPlaybackBlocked).toBe(true);
