@@ -245,9 +245,9 @@ export default {
 			advanced: "Advanced",
 			strength: "Sharpen strength",
 			scale: "Render scale",
-			"scale-auto": "Auto (fit display, never below the source)",
+			"scale-auto": "Auto (2× source on a pointer device, display-fit on touch)",
 			"scale-hint":
-				"Auto follows the display size and never renders below the source. Higher multipliers are sharper on large screens and more demanding; lower values save a lot on slow devices.",
+				"Auto never renders below the source. On a pointer device it renders at 2× the source and lets the screen downscale, which is what makes the AI upscale stage do its work. Higher multipliers are sharper on large screens and more demanding; lower values save a lot on slow devices.",
 			"auto-degrade": "Reduce automatically when performance drops",
 			"auto-degrade-hint": "Turn off to keep these settings even if the video stutters.",
 		},
@@ -368,6 +368,7 @@ export default {
 		open: "Open chat without focusing the input",
 		close: "Close chat",
 		"type-here": "Type your message here...",
+		send: "Send message",
 		"to-bottom": "Jump to latest messages",
 		empty: "No messages yet. Say hello!",
 		"empty-hint": "New message sounds are off by default; enable them in Preferences.",
@@ -689,9 +690,9 @@ export default {
 		"controls-hide-delay": "Hide controls after",
 		"controls-hide-hint":
 			"Idle time before controls hide. The cursor also hides in desktop fullscreen.",
-		"hls-buffer-duration": "HLS buffer target",
+		"hls-buffer-duration": "Buffer target",
 		"hls-buffer-hint":
-			"For HLS (.m3u8) only. MP4 and native HLS buffers are managed by your browser. Longer buffers use more memory and data.",
+			"Applies to HLS (.m3u8) and DASH (.mpd). It is a target, not a cap: a fast connection keeps buffering past it up to the device's memory budget. MP4 and native HLS buffers are managed by your browser. Longer buffers use more memory and data.",
 		"audio-boost": "Audio Boost",
 		"audio-boost-hint":
 			"Boost audio from supported non-iframe players up to 300%. Sound effects are unaffected.",
@@ -895,9 +896,9 @@ export default {
 			"waiting-frame": "Waiting for a video frame",
 			"waiting-viewer": "Waiting for the first viewer",
 			"wait-together":
-				"Restoring the saved position. Playback will start when the first viewer is ready.",
+				"Everyone starts together: the room clock begins once the first viewer has a frame up, so nobody misses the start.",
 			"resume-saved":
-				"Restoring the saved position. The room clock will start when the video is ready.",
+				"Preparing the picture: the room clock starts once the first frame is ready, so everyone begins at the same position.",
 			"resume-retry": "Playback needs another attempt",
 			"resume-failed":
 				"The saved position could not be restored. Retry your video to try again.",

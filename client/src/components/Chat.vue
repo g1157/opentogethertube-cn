@@ -40,7 +40,7 @@
 			</v-btn>
 		</div>
 		<Transition name="input" @after-enter="enforceStickToBottom">
-			<div class="input-box" v-if="activated">
+			<form class="input-box" v-if="activated" @submit.prevent="onSubmit">
 				<v-text-field
 					variant="solo"
 					density="compact"
@@ -49,12 +49,27 @@
 					@keydown="onInputKeyDown"
 					@compositionstart="composing = true"
 					@compositionend="composing = false"
+					@blur="composing = false"
 					v-model="inputValue"
 					autocomplete="off"
+					enterkeyhint="send"
 					ref="chatInput"
 					data-cy="chat-input"
 				/>
-			</div>
+				<v-btn
+					type="button"
+					icon
+					variant="text"
+					color="primary"
+					:aria-label="$t('chat.send')"
+					:disabled="!canSend"
+					data-cy="chat-send"
+					@mousedown.prevent
+					@click="sendMessage"
+				>
+					<v-icon :icon="mdiSend" />
+				</v-btn>
+			</form>
 		</Transition>
 		<div class="manual-activate" v-if="!activated">
 			<v-btn
@@ -73,7 +88,7 @@
 </template>
 
 <script lang="ts" setup>
-import { mdiChevronDown, mdiChevronDoubleDown, mdiCommentOutline } from "@mdi/js";
+import { mdiChevronDown, mdiChevronDoubleDown, mdiCommentOutline, mdiSend } from "@mdi/js";
 import { computed, onUpdated, ref, type Ref, nextTick, onMounted, onUnmounted, watch } from "vue";
 import type { ChatMessage } from "ott-common/models/types";
 import { useConnection } from "@/plugins/connection";
@@ -103,6 +118,7 @@ const inputValue = computed({
 	set: updateDraft,
 });
 const composing = ref(false);
+const canSend = computed(() => inputValue.value.trim() !== "");
 const stickToBottom = ref(true);
 /**
  * When chat is activated, all messages are shown. and the
@@ -219,6 +235,44 @@ function enforceStickToBottom() {
 	}
 }
 
+// Soft keyboards are unreliable: an IME swallows Enter while composing, and dismissing the
+// keyboard can leave the composition flag set, which used to silence every later Enter. The
+// composer therefore sends from its own button too, and touch devices keep it open after a
+// send — collapsing it drops focus and the keyboard, and the panel is what the next tap hits.
+const TOUCH_PRIMARY_QUERY = "(hover: none) and (pointer: coarse)";
+
+function isTouchPrimaryDevice(): boolean {
+	return (
+		typeof window.matchMedia === "function" && window.matchMedia(TOUCH_PRIMARY_QUERY).matches
+	);
+}
+
+function sendMessage(): void {
+	if (inputValue.value.trim() !== "") {
+		roomapi.chat(inputValue.value);
+	}
+	inputValue.value = "";
+	stickToBottom.value = true;
+	if (isTouchPrimaryDevice()) {
+		composing.value = false;
+		void nextTick().then(() => {
+			if (!disposed && activated.value) {
+				chatInput.value?.focus();
+			}
+		});
+	} else {
+		setActivated(false);
+	}
+}
+
+// Mobile keyboards can deliver their "send" action as an implicit form submission instead of
+// a keydown, so the composer submits too; composing still means "pick a candidate", not "send".
+function onSubmit(): void {
+	if (!composing.value) {
+		sendMessage();
+	}
+}
+
 function onInputKeyDown(e: KeyboardEvent): void {
 	if (
 		!activated.value ||
@@ -234,7 +288,8 @@ function onInputKeyDown(e: KeyboardEvent): void {
 	) {
 		return;
 	}
-	const submit = e.key === "Enter" || e.code === "NumpadEnter";
+	// Some soft keyboards report Enter as an unidentified key and only fill in keyCode.
+	const submit = e.key === "Enter" || e.code === "NumpadEnter" || e.keyCode === 13;
 	if (!submit && e.key !== "Escape") {
 		return;
 	}
@@ -244,12 +299,7 @@ function onInputKeyDown(e: KeyboardEvent): void {
 		return;
 	}
 	if (submit) {
-		if (inputValue.value.trim() !== "") {
-			roomapi.chat(inputValue.value);
-		}
-		inputValue.value = "";
-		stickToBottom.value = true;
-		setActivated(false);
+		sendMessage();
 	} else {
 		setActivated(false);
 	}
@@ -318,9 +368,16 @@ onUpdated(enforceStickToBottom);
 
 .input-box {
 	display: flex;
+	align-items: center;
+	gap: 4px;
 	justify-self: end;
 	flex-shrink: 1;
 	height: 40px;
+
+	.v-text-field {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
 }
 
 .grow {

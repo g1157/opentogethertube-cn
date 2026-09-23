@@ -6,7 +6,14 @@ import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 export const CHAT_OVERLAY_SECONDS_OPTIONS = [0, 3, 5, 10, 20] as const;
 export const ROOM_NOTICE_SECONDS_OPTIONS = [0, 1, 2, 3, 5, 10, 20] as const;
 export const CONTROLS_HIDE_SECONDS_OPTIONS = [2, 3, 5, 10] as const;
-export const HLS_BUFFER_SECONDS_OPTIONS = [30, 60, 120] as const;
+/**
+ * Forward buffering target for the players that own their buffer (HLS and DASH). The value is
+ * the target, not a hard cap: a fast connection keeps loading past it, up to a byte budget
+ * that follows the device's memory. 300s is for long films on a stable line.
+ */
+export const HLS_BUFFER_SECONDS_OPTIONS = [30, 60, 120, 300] as const;
+/** Default leans deep: a room stall pauses everyone, and the target is not a hard cap. */
+export const DEFAULT_HLS_BUFFER_SECONDS: (typeof HLS_BUFFER_SECONDS_OPTIONS)[number] = 120;
 export const UPSCALE_MODES = ["off", "sharpen", "anime4k", "anime4k-quality"] as const;
 /**
  * "anime4k-quality" runs the heavier A+A preset (Restore -> Upscale -> Restore -> Upscale)
@@ -109,7 +116,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		presenceNoticeSeconds: 3,
 		seekNoticeSeconds: 3,
 		controlsHideSeconds: 3,
-		hlsBufferSeconds: 60,
+		hlsBufferSeconds: DEFAULT_HLS_BUFFER_SECONDS,
 		upscaleMode: "off",
 		upscaleStrength: DEFAULT_UPSCALE_STRENGTH,
 		upscaleScale: "auto",
@@ -141,7 +148,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 				state.controlsHideSeconds = 3;
 			}
 			if (!HLS_BUFFER_SECONDS_OPTIONS.includes(state.hlsBufferSeconds)) {
-				state.hlsBufferSeconds = 60;
+				state.hlsBufferSeconds = DEFAULT_HLS_BUFFER_SECONDS;
 			}
 			if (!UPSCALE_MODES.includes(state.upscaleMode)) {
 				state.upscaleMode = "off";

@@ -15,10 +15,10 @@ import {
 	StreamFfprobe,
 } from "../ffprobe.js";
 import { getLogger } from "../logger.js";
-import type { Video } from "ott-common/models/video.js";
+import type { MediaAccess, Video } from "ott-common/models/video.js";
 import { conf } from "../ott-config.js";
 import { CustomMediaManifestSchema } from "ott-common/models/zod-schemas.js";
-import { probeCors } from "./cors-probe.js";
+import { appOriginFromHostname, probeMediaAccess } from "./media-access.js";
 
 const log = getLogger("direct");
 const DIRECT_MEDIA_URL_REGEX =
@@ -172,17 +172,20 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 		let mime = getMimeType(extension);
 
 		// If we can't determine a supported MIME type from the extension, only ffprobe can
-		// detect it. The CORS verdict rides along with the probe: it only spares the client
+		// detect it. The access verdict rides along with the probe: it only spares the client
 		// a doomed first attempt, so it must not add a second wait.
 		let fileInfo: Awaited<ReturnType<FfprobeStrategy["getFileInfo"]>> | null = null;
 		let cors: boolean | undefined;
+		let mediaAccess: MediaAccess | undefined;
+		const appOrigin = appOriginFromHostname(conf.get("hostname"));
 		try {
-			const [info, corsResult] = await Promise.all([
+			const [info, access] = await Promise.all([
 				this.ffprobe.getFileInfo(link),
-				probeCors(link),
+				probeMediaAccess(link, appOrigin),
 			]);
 			fileInfo = info;
-			cors = corsResult;
+			cors = access.cors;
+			mediaAccess = access.mediaAccess;
 		} catch (e) {
 			if (!mime || !isSupportedMimeType(mime)) {
 				// Without a probed container there is no way to tell what this is.
@@ -192,7 +195,9 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 			// with unknown length instead of failing the whole add. The player streams
 			// the file directly, so playback does not depend on the probe result.
 			log.warn(`ffprobe failed for ${link}, queueing with unknown metadata: ${String(e)}`);
-			cors = await probeCors(link).catch(() => undefined);
+			const access = await probeMediaAccess(link, appOrigin);
+			cors = access.cors;
+			mediaAccess = access.mediaAccess;
 		}
 		const hasVideo = fileInfo?.streams?.some(isVideoStream) ?? false;
 		const hasAudio =
@@ -260,6 +265,7 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 			width: videoStream?.width,
 			height: videoStream?.height,
 			cors,
+			...(mediaAccess ? { mediaAccess } : {}),
 		};
 
 		return video;

@@ -41,7 +41,7 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.sfxEnabled).toBe(false);
 		expect(store.state.settings.chatOverlaySeconds).toBe(5);
 		expect(store.state.settings.controlsHideSeconds).toBe(3);
-		expect(store.state.settings.hlsBufferSeconds).toBe(60);
+		expect(store.state.settings.hlsBufferSeconds).toBe(120);
 	});
 
 	it("mutes the old sound default once without changing language or other preferences", async () => {
@@ -145,7 +145,7 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.presenceNoticeSeconds).toBe(3);
 		expect(store.state.settings.seekNoticeSeconds).toBe(3);
 		expect(store.state.settings.controlsHideSeconds).toBe(3);
-		expect(store.state.settings.hlsBufferSeconds).toBe(60);
+		expect(store.state.settings.hlsBufferSeconds).toBe(120);
 	});
 
 	it("migrates a returning English visitor while preserving their other settings and storage", async () => {

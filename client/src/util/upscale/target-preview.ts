@@ -18,6 +18,8 @@ export function computeRenderedTarget(options: {
 	boxHeight: number;
 	dpr: number;
 	requestedScale: number | "auto";
+	/** Mirrors the layer's device rule, so the preview matches what is rendered. */
+	cnnUpscale?: boolean;
 }): RenderedTarget | null {
 	const { nativeWidth, nativeHeight } = options;
 	if (!nativeWidth || !nativeHeight || options.boxWidth <= 0 || options.boxHeight <= 0) {
@@ -37,6 +39,7 @@ export function computeRenderedTarget(options: {
 		boxHeight,
 		dpr: options.dpr,
 		requestedScale: options.requestedScale,
+		cnnUpscale: options.cnnUpscale,
 	});
 	return { width: size.width, height: size.height, scale: size.width / nativeWidth };
 }

@@ -7,6 +7,21 @@ export interface VideoId {
 	id: string;
 }
 
+/**
+ * What a source's host requires of the player's own requests, probed when the link is
+ * added. Only `referrerPolicy` changes how the client plays; the rest is diagnostics.
+ */
+export interface MediaAccess {
+	/** The referrer policy the browser must use; absent means the default works. */
+	referrerPolicy?: "no-referrer";
+	/** The host only answers requests carrying its own site's Referer, so a browser on
+	 * another origin cannot play it at all. */
+	requiresOriginReferer?: boolean;
+	/** The response type does not match the media it carries, such as TS segments served
+	 * as image/png. */
+	containerMismatch?: boolean;
+}
+
 export interface VideoMetadata {
 	title: string;
 	description: string;
@@ -21,6 +36,8 @@ export interface VideoMetadata {
 	 * the browser must load it without crossOrigin; undefined means we could not tell.
 	 */
 	cors?: boolean;
+	/** How the player's requests to the source must be shaped, when it is not obvious. */
+	mediaAccess?: MediaAccess;
 	highlight?: true;
 	hls_url?: string;
 	dash_url?: string;

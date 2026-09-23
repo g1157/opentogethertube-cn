@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	canAffordCnnUpscale,
 	computeCanvasSize,
 	MAX_AUTO_PIXELS,
 	MAX_SCALE,
@@ -155,5 +156,73 @@ describe("enhancement canvas sizing", () => {
 		const size = computeCanvasSize({ ...base, nativeWidth: 0, nativeHeight: 0 });
 		expect(size.width).toBeGreaterThanOrEqual(1);
 		expect(size.height).toBeGreaterThanOrEqual(1);
+	});
+});
+
+describe("CNN upscale target", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("renders above the display box on a capable device so the upscale stages run", () => {
+		// Anime4K's presets skip their upscale stages below ~1.2x, so the canvas used to
+		// sit on the box and only the restore passes ran.
+		const size = computeCanvasSize({
+			...base,
+			boxWidth: 960,
+			boxHeight: 540,
+			cnnUpscale: true,
+		});
+		expect(size).toEqual({ width: 3840, height: 2160 });
+	});
+
+	it("keeps the pixel budget as the ceiling", () => {
+		const size = computeCanvasSize({
+			...base,
+			nativeWidth: 2560,
+			nativeHeight: 1440,
+			boxWidth: 1280,
+			boxHeight: 720,
+			cnnUpscale: true,
+		});
+		// 2x a 1440p source would be 5120x2880; the budget settles for 1.5x.
+		expect(size).toEqual({ width: 3840, height: 2160 });
+		expect(size.width * size.height).toBeLessThanOrEqual(MAX_AUTO_PIXELS);
+	});
+
+	it("adds nothing when the box already exceeds the CNN target", () => {
+		const size = computeCanvasSize({
+			...base,
+			nativeWidth: 640,
+			nativeHeight: 360,
+			boxWidth: 1920,
+			boxHeight: 1080,
+			cnnUpscale: true,
+		});
+		expect(size).toEqual({ width: 1920, height: 1080 });
+	});
+
+	it("leaves an explicit multiplier alone", () => {
+		const size = computeCanvasSize({
+			...base,
+			boxWidth: 390,
+			boxHeight: 219,
+			dpr: 2,
+			requestedScale: 1,
+			cnnUpscale: true,
+		});
+		expect(size).toEqual({ width: 1920, height: 1080 });
+	});
+
+	it("keeps the box-fitted target on touch devices", () => {
+		vi.stubGlobal("matchMedia", () => ({ matches: true }));
+		expect(canAffordCnnUpscale()).toBe(false);
+		vi.stubGlobal("matchMedia", () => ({ matches: false }));
+		expect(canAffordCnnUpscale()).toBe(true);
+	});
+
+	it("treats an environment without media queries as a pointer device", () => {
+		vi.stubGlobal("matchMedia", undefined);
+		expect(canAffordCnnUpscale()).toBe(false);
 	});
 });

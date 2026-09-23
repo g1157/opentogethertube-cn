@@ -2,12 +2,14 @@ import URL from "node:url";
 import axios from "axios";
 import { assertPublicMediaUrl } from "../ffprobe.js";
 import { corsFromHeaders } from "./cors-probe.js";
+import { appOriginFromHostname, probeMediaAccess, type MediaAccessProbe } from "./media-access.js";
 import { Parser as M3u8Parser, type PlaylistItem } from "m3u8-parser";
 import { OttException } from "ott-common/exceptions.js";
 import type { Video } from "ott-common/models/video.js";
 import { LocalFileException, UnsupportedMimeTypeException } from "../exceptions.js";
 import { getLogger } from "../logger.js";
 import { getMimeType, isSupportedMimeType } from "../mime.js";
+import { conf } from "../ott-config.js";
 import { ServiceAdapter } from "../serviceadapter.js";
 
 const log = getLogger("hls");
@@ -65,6 +67,9 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 		let title: string | undefined;
 		let width: number | undefined;
 		let height: number | undefined;
+		// The media playlist lists the segments the browser will actually fetch; remember
+		// where it lives so relative segment URLs can be resolved against it.
+		const mediaPlaylist = { url: url.href, segments: manifest.segments };
 
 		// The m3u8 manifest can be a master playlist containing other playlists or a media playlist containing segments.
 		// If it has playlists, we find the lowest bitrate one and extract the duration from it.
@@ -109,6 +114,8 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 			// log.silly(`Got m3u8 manifest with ${JSON.stringify(manifest2)}`);
 			duration = manifest2.segments.reduce((acc, cur) => acc + cur.duration, 0);
 			title = manifest2.segments[0].title;
+			mediaPlaylist.url = playlistUrl;
+			mediaPlaylist.segments = manifest2.segments;
 		} else {
 			duration = manifest.segments.reduce((acc, cur) => acc + cur.duration, 0);
 			title = manifest.segments[0].title;
@@ -117,6 +124,8 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 		if (duration === 0) {
 			throw new M3u8ParseError("Duration of the selected playlist is 0");
 		}
+
+		const access = await this.probeSegmentAccess(mediaPlaylist.url, mediaPlaylist.segments);
 
 		return {
 			service: "hls",
@@ -127,9 +136,29 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 			length: duration,
 			width,
 			height,
-			cors,
+			// A segment is what the browser actually downloads, so its answer beats the
+			// playlist's when the two disagree.
+			cors: access.cors ?? cors,
+			...(access.mediaAccess ? { mediaAccess: access.mediaAccess } : {}),
 			hls_url: url.href,
 		};
+	}
+
+	/**
+	 * Probe the first segment from an origin other than the host's own, which is what the
+	 * player does. A playlist can be wide open while its segments are hotlink protected, so
+	 * this is the only request whose answer predicts whether playback will work.
+	 */
+	private async probeSegmentAccess(
+		playlistUrl: string,
+		segments: { uri: string }[],
+	): Promise<MediaAccessProbe> {
+		const firstSegment = segments[0]?.uri;
+		if (!firstSegment) {
+			return {};
+		}
+		const segmentUrl = URL.resolve(playlistUrl, firstSegment);
+		return await probeMediaAccess(segmentUrl, appOriginFromHostname(conf.get("hostname")));
 	}
 }
 

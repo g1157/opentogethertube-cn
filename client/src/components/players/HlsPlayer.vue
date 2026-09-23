@@ -40,6 +40,8 @@ import {
 	recallHlsBandwidthEstimate,
 	rememberHlsBandwidthEstimate,
 } from "@/util/hls-bandwidth-memory";
+import { hlsLoaderOptions } from "@/util/hls-media-loader";
+import { referrerPolicyValue } from "@/util/media-access";
 import { ToastStyle } from "@/models/toast";
 import toast from "@/util/toast";
 import { i18n } from "@/i18n";
@@ -57,13 +59,24 @@ import type { MediaPlayerError } from "../composables/media-player";
 interface Props {
 	videoUrl: string;
 	thumbnail?: string;
+	/** Probed requirement of the source's host, when it differs from the browser default. */
+	referrerPolicy?: string;
 }
 
 /** Forward buffer while the tab is hidden; the picture nobody is watching needs less. */
 const HIDDEN_TAB_BUFFER_SECONDS = 30;
+/** How far past the buffer target hls.js may grow while the connection and memory allow. */
+const MAX_BUFFER_MULTIPLIER = 4;
+/** Ceiling for buffered media. A room stall pauses everyone, so depth is worth the memory. */
+const MAX_BUFFER_BYTES = 150 * 1024 * 1024;
+/** Devices below this much RAM keep hls.js' own default byte budget instead. */
+const LOW_MEMORY_DEVICE_GB = 4;
+const LOW_MEMORY_BUFFER_BYTES = 60 * 1024 * 1024;
+/** Rewinding is part of watching together; hls.js' 30s default is thinner than a room rewind. */
+const BACK_BUFFER_SECONDS = 90;
 
 const props = defineProps<Props>();
-const { videoUrl, thumbnail } = toRefs(props);
+const { videoUrl, thumbnail, referrerPolicy } = toRefs(props);
 const videoElem = ref<HTMLVideoElement | undefined>();
 const captions = useCaptions();
 const qualities = useQualities();
@@ -316,6 +329,9 @@ function attachSource() {
 	previous?.destroy();
 	videoElem.value.pause();
 	videoElem.value.removeAttribute("src");
+	// Element-level so it also covers the native HLS path on Safari, which bypasses hls.js
+	// entirely; hls.js requests get the same policy from its own loader options below.
+	videoElem.value.referrerPolicy = referrerPolicyValue(referrerPolicy.value) ?? "";
 	videoElem.value.load();
 	if (!Hls.isSupported()) {
 		if (videoElem.value.canPlayType("application/vnd.apple.mpegurl")) {
@@ -332,8 +348,13 @@ function attachSource() {
 	const rememberedBandwidth = recallHlsBandwidthEstimate();
 	const engine = new Hls({
 		maxBufferLength: bufferSeconds,
-		maxMaxBufferLength: bufferSeconds,
-		backBufferLength: 30,
+		// Longer than the target on purpose: hls.js keeps loading past it while the connection
+		// allows, which is the "buffer more when you can" behaviour of the big players.
+		maxMaxBufferLength: bufferSeconds * MAX_BUFFER_MULTIPLIER,
+		maxBufferSize: isLowMemoryDevice() ? LOW_MEMORY_BUFFER_BYTES : MAX_BUFFER_BYTES,
+		// Going back is part of watching together (re-seeks, undo); hls.js' 30s default is
+		// thinner than what a room rewind asks for.
+		backBufferLength: BACK_BUFFER_SECONDS,
 		// The room player is usually smaller than the source's top rendition; there is no
 		// point fetching 4K into a small box. A manual quality pick can still exceed it.
 		capLevelToPlayerSize: true,
@@ -350,6 +371,8 @@ function attachSource() {
 					testBandwidth: false,
 			  }
 			: {}),
+		// Empty for every ordinary source, which keeps hls.js on its default XHR loader.
+		...hlsLoaderOptions(referrerPolicy.value),
 	});
 	hls = engine;
 	applyVisibleBufferTarget();
@@ -503,6 +526,12 @@ function onEnd() {
 	emit("end");
 }
 
+/** `deviceMemory` is Chromium-only; an unknown value keeps the generous budget. */
+function isLowMemoryDevice(): boolean {
+	const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+	return typeof memory === "number" && memory <= LOW_MEMORY_DEVICE_GB;
+}
+
 /**
  * A hidden tab usually still plays audio, but nobody sees the picture; buffering the full
  * window there spends bandwidth and memory on frames that were never shown.
@@ -511,12 +540,13 @@ function applyVisibleBufferTarget() {
 	if (!hls) {
 		return;
 	}
-	const target = Math.min(
-		store.state.settings.hlsBufferSeconds,
-		document.hidden ? HIDDEN_TAB_BUFFER_SECONDS : store.state.settings.hlsBufferSeconds,
-	);
+	const target = document.hidden
+		? Math.min(store.state.settings.hlsBufferSeconds, HIDDEN_TAB_BUFFER_SECONDS)
+		: store.state.settings.hlsBufferSeconds;
 	hls.config.maxBufferLength = target;
-	hls.config.maxMaxBufferLength = target;
+	// A visible tab may grow past the target while the connection allows; a hidden one keeps
+	// a flat window, because nobody sees the frames it would be fetching.
+	hls.config.maxMaxBufferLength = document.hidden ? target : target * MAX_BUFFER_MULTIPLIER;
 }
 
 function onVisibilityChange() {
@@ -538,7 +568,8 @@ onBeforeUnmount(() => {
 	videoElem.value?.load();
 });
 
-watch(videoUrl, () => {
+// A changed policy means the requests must be built differently, which only a reload does.
+watch([videoUrl, referrerPolicy], () => {
 	loadVideoSource();
 });
 

@@ -364,6 +364,11 @@ function loadVideoSource(resumePosition: number | null = null) {
 		streaming: {
 			buffer: {
 				fastSwitchEnabled: true,
+				// The same buffer preference as HLS: dash.js' own defaults (18/30/60s) are
+				// thinner than a room wants, and a stall here pauses everyone.
+				bufferTimeDefault: store.state.settings.hlsBufferSeconds,
+				bufferTimeAtTopQuality: store.state.settings.hlsBufferSeconds,
+				bufferTimeAtTopQualityLongForm: store.state.settings.hlsBufferSeconds,
 			},
 			abr: {
 				// A device that cannot decode the current rendition cleanly keeps dropping

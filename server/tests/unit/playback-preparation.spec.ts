@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { PlayerStatus, Role } from "ott-common/models/types.js";
+import { BehaviorOption, PlayerStatus, Role } from "ott-common/models/types.js";
 import {
 	RoomRequestType,
 	type PlaybackPrepared,
@@ -10,6 +10,7 @@ import roommanager, { redisStateToState, update as updateRooms } from "../../roo
 import { buildClients, redisClient } from "../../redisclient.js";
 import { conf } from "../../ott-config.js";
 import storage from "../../storage.js";
+import { VideoQueue } from "../../videoqueue.js";
 
 describe("preparing playback after a room was empty", () => {
 	let room: Room;
@@ -412,5 +413,140 @@ describe("preparing playback after a room was empty", () => {
 		await join("returning-live-viewer");
 		expect(room.playbackPreparation).toBeNull();
 		expect(room.isPlaying).toBe(false);
+	});
+});
+
+describe("advancing to the next video", () => {
+	let room: Room;
+	const first = { service: "direct" as const, id: "episode-03.mp4", length: 600 };
+	const next: { service: "direct"; id: string; length: number; startAt?: number } = {
+		service: "direct",
+		id: "episode-04.mp4",
+		length: 600,
+	};
+	const context = (id: string): RoomRequestContext => ({
+		clientId: id,
+		username: id,
+		role: Role.UnregisteredUser,
+		auth: { token: `test-${id}`, clientId: id },
+	});
+	const join = (id: string, target = room) =>
+		target.joinRoom(
+			{ type: RoomRequestType.JoinRequest, info: { id, username: id } },
+			context(id),
+		);
+	const confirm = (id: string, prepared: PlaybackPrepared, target = room) =>
+		target.updateUser(
+			{
+				type: RoomRequestType.UpdateUser,
+				info: { id, status: PlayerStatus.ready },
+				playbackPrepared: prepared,
+			},
+			context(id),
+		);
+	const advanceTime = (seconds: number) => vi.setSystemTime(Date.now() + seconds * 1000);
+
+	beforeAll(async () => {
+		await buildClients();
+	});
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-09-09T08:00:00Z"));
+		vi.spyOn(storage, "updateRoom").mockResolvedValue(true);
+		room = new Room({ name: "next-episode", isTemporary: true });
+		room.currentSource = first;
+		room.grants.setRoleGrants(Role.UnregisteredUser, ["playback.play-pause", "playback.seek"]);
+		vi.spyOn(room, "publish").mockResolvedValue(undefined);
+	});
+
+	afterEach(() => {
+		roommanager.clearRooms();
+		room.throttledSync.cancel();
+		room.saveStateToRedisDebounced.cancel();
+		vi.useRealTimers();
+		vi.restoreAllMocks();
+	});
+
+	it("holds the next episode at its start until a viewer has the first frame up", async () => {
+		await join("viewer");
+		await room.play();
+		room.queue = new VideoQueue([next]);
+
+		await room.dequeueNext();
+		expect(room.currentSource).toEqual(next);
+		expect(room.isPlaying).toBe(false);
+		expect(room.realPlaybackPosition).toBe(0);
+		expect(room.playbackPreparation).toEqual({
+			id: expect.any(String),
+			clientId: "viewer",
+			video: { service: "direct", id: "episode-04.mp4" },
+			position: 0,
+		});
+
+		// Loading time is not counted against the opening: the clock stays where it is.
+		advanceTime(4);
+		expect(room.realPlaybackPosition).toBe(0);
+
+		await confirm("viewer", { id: room.playbackPreparation!.id, position: 0 });
+		expect(room.playbackPreparation).toBeNull();
+		expect(room.isPlaying).toBe(true);
+		advanceTime(3);
+		expect(room.realPlaybackPosition).toBe(3);
+	});
+
+	it("keeps a viewer's confirmed position when the held episode starts", async () => {
+		await join("viewer");
+		await room.play();
+		next.startAt = 12;
+		room.queue = new VideoQueue([next]);
+
+		await room.dequeueNext();
+		expect(room.realPlaybackPosition).toBe(12);
+		expect(room.playbackPreparation?.position).toBe(12);
+	});
+
+	it("starts a new video directly when no player can be prepared", async () => {
+		room.currentSource = { service: "youtube", id: "embedded-03", length: 600 };
+		await join("viewer");
+		await room.play();
+		room.queue = new VideoQueue([{ service: "youtube", id: "embedded-04", length: 600 }]);
+
+		await room.dequeueNext();
+		expect(room.currentSource).toEqual({
+			service: "youtube",
+			id: "embedded-04",
+			length: 600,
+		});
+		expect(room.playbackPreparation).toBeNull();
+		expect(room.isPlaying).toBe(true);
+	});
+
+	it("brings a room back from storage paused, with its first item ready to continue", async () => {
+		const restored = new Room({
+			name: "restored-room",
+			prevQueue: [first],
+			restoreQueueBehavior: BehaviorOption.Always,
+		});
+		restored.grants.setRoleGrants(Role.UnregisteredUser, [
+			"playback.play-pause",
+			"playback.seek",
+		]);
+		vi.spyOn(restored, "publish").mockResolvedValue(undefined);
+		restored.restoreFromStorage();
+
+		await restored.update();
+		expect(restored.currentSource).toEqual(first);
+		expect(restored.isPlaying).toBe(false);
+		expect(restored.resumeOnNextJoin).toBe(false);
+
+		// Entering the room must not start it; this is the documented "stays paused" guarantee.
+		await join("returning", restored);
+		expect(restored.isPlaying).toBe(false);
+		expect(restored.playbackPreparation).toBeNull();
+		expect(restored.realPlaybackPosition).toBe(0);
+
+		await restored.play();
+		expect(restored.isPlaying).toBe(true);
 	});
 });

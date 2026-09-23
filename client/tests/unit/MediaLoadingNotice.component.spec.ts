@@ -77,18 +77,18 @@ describe("media loading notice", () => {
 		expect(vi.getTimerCount()).toBe(before);
 	});
 
-	it("explains why viewers wait together at the saved position", async () => {
+	it("explains why viewers wait for the first frame before the clock starts", async () => {
 		const wrapper = mountNotice();
 		await wrapper.setProps({ roomPlaying: false, resuming: true });
 		await vi.advanceTimersByTimeAsync(1000);
-		expect(wrapper.text()).toContain("画面准备好后再开始计时");
+		expect(wrapper.text()).toContain("等到首帧就绪后房间才开始计时");
 		await wrapper.setProps({
 			state: { phase: "waiting-frame", currentTime: 310, bufferAhead: 4 },
 			resuming: false,
 			waitingForViewer: true,
 		});
 		expect(wrapper.text()).toContain("等待首位观众准备好");
-		expect(wrapper.text()).toContain("首位观众准备好后大家一起播放");
+		expect(wrapper.text()).toContain("不会漏掉开头");
 	});
 
 	it("offers an immediate retry after failed preparation instead of an endless progress bar", async () => {

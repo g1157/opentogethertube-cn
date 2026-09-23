@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { nextTick } from "vue";
+import { nextTick, type Ref, unref } from "vue";
 import {
 	RoomRequestType,
 	type ClientMessageRoomRequest,
@@ -7,17 +7,38 @@ import {
 } from "ott-common/models/messages";
 import { PlayerStatus, Role } from "ott-common/models/types";
 import Chat from "@/components/Chat.vue";
-import { mountComponent } from "./component-test-utils";
+import { flush, mountComponent } from "./component-test-utils";
 
 function chatActions(wrapper: ReturnType<typeof mountComponent>["wrapper"]) {
 	// This VTU version keeps script-setup's public methods on the exposed instance.
 	return wrapper.vm.$.exposed as {
 		activateAndFocus(): void;
 		setActivated(value: boolean): void;
+		activated: Ref<boolean>;
 	};
 }
 
+// The leave transition does not finish under jsdom, so the composer's state is read directly.
+function chatActivated(wrapper: ReturnType<typeof mountComponent>["wrapper"]): boolean {
+	return unref(chatActions(wrapper).activated);
+}
+
+// Vuetify reads matchMedia on mount, so the stub has to look like a real MediaQueryList.
+function stubTouchDevice(touch: boolean) {
+	vi.stubGlobal("matchMedia", (query: string) => {
+		const media = new EventTarget();
+		Object.defineProperties(media, {
+			media: { value: query },
+			matches: { get: () => touch && query === "(hover: none) and (pointer: coarse)" },
+		});
+		return media;
+	});
+}
+
 describe("Chat component", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
 	it("opens without focus, permits deliberate input focus, and preserves a closed draft", async () => {
 		const { wrapper } = mountComponent(Chat);
 		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
@@ -132,6 +153,97 @@ describe("Chat component", () => {
 			{ action: "req", request: { type: RoomRequestType.ChatRequest, text: "中文消息" } },
 		]);
 	});
+	it("sends the draft from the send button", async () => {
+		const { wrapper, connection } = mountComponent(Chat);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		expect(wrapper.get('[data-cy="chat-send"]').attributes("disabled")).toBeDefined();
+
+		await wrapper.get('[data-cy="chat-input"] input').setValue("按钮发送");
+		expect(wrapper.get('[data-cy="chat-send"]').attributes("disabled")).toBeUndefined();
+		await wrapper.get('[data-cy="chat-send"]').trigger("click");
+
+		expect(connection.sent).toEqual([
+			{ action: "req", request: { type: RoomRequestType.ChatRequest, text: "按钮发送" } },
+		]);
+		expect(chatActivated(wrapper)).toBe(false);
+	});
+
+	it("sends when a mobile keyboard submits the composer instead of pressing a key", async () => {
+		const { wrapper, connection } = mountComponent(Chat);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		await wrapper.get('[data-cy="chat-input"] input').setValue("输入法的发送键");
+		await wrapper.get("form.input-box").trigger("submit");
+
+		expect(connection.sent).toEqual([
+			{
+				action: "req",
+				request: { type: RoomRequestType.ChatRequest, text: "输入法的发送键" },
+			},
+		]);
+	});
+
+	it("does not send a submit that arrives while a candidate is being picked", async () => {
+		const { wrapper, connection } = mountComponent(Chat);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		const input = wrapper.get('[data-cy="chat-input"] input');
+		await input.setValue("选词中");
+		await input.trigger("compositionstart");
+		await wrapper.get("form.input-box").trigger("submit");
+
+		expect(connection.sent).toEqual([]);
+		expect(chatActivated(wrapper)).toBe(true);
+	});
+
+	it("sends a soft keyboard's raw Enter code", async () => {
+		const { wrapper, connection } = mountComponent(Chat);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		await wrapper.get('[data-cy="chat-input"] input').setValue("未知按键名");
+		await wrapper
+			.get('[data-cy="chat-input"]')
+			.trigger("keydown", { key: "Unidentified", keyCode: 13 });
+
+		expect(connection.sent).toEqual([
+			{ action: "req", request: { type: RoomRequestType.ChatRequest, text: "未知按键名" } },
+		]);
+	});
+
+	it("recovers when a composition ends without a compositionend event", async () => {
+		const { wrapper, connection } = mountComponent(Chat);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		const input = wrapper.get('[data-cy="chat-input"] input');
+		await input.setValue("键盘收起后仍可发送");
+		await input.trigger("compositionstart");
+		await input.trigger("keydown", { key: "Enter" });
+		expect(connection.sent).toEqual([]);
+
+		await input.trigger("blur");
+		await input.trigger("keydown", { key: "Enter" });
+		expect(connection.sent).toEqual([
+			{
+				action: "req",
+				request: { type: RoomRequestType.ChatRequest, text: "键盘收起后仍可发送" },
+			},
+		]);
+	});
+
+	it("keeps the composer open and focused after sending on touch devices", async () => {
+		stubTouchDevice(true);
+		const { wrapper, connection } = mountComponent(Chat);
+		chatActions(wrapper).activateAndFocus();
+		await nextTick();
+		const input = wrapper.get('[data-cy="chat-input"] input');
+		await input.setValue("手机连发");
+		await input.trigger("keydown", { key: "Enter" });
+		await flush();
+
+		expect(connection.sent).toEqual([
+			{ action: "req", request: { type: RoomRequestType.ChatRequest, text: "手机连发" } },
+		]);
+		expect(chatActivated(wrapper)).toBe(true);
+		expect((input.element as HTMLInputElement).value).toBe("");
+		expect(document.activeElement).toBe(input.element);
+	});
+
 	it("opens and closes from the buttons", async () => {
 		const { wrapper } = mountComponent(Chat);
 

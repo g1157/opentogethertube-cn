@@ -291,6 +291,11 @@ export class Room implements RoomState {
 	} | null = null;
 	private lastPlayAt = -Infinity;
 	private bufferGateCooldownUntil = -Infinity;
+	/**
+	 * A room rebuilt from storage has no playback intent: only the Redis snapshot remembers
+	 * whether it was playing, so a restored queue is a list, not an instruction to play.
+	 */
+	private restoredFromStorage = false;
 
 	_currentSource: QueueItem | null = null;
 	queue: VideoQueue;
@@ -710,7 +715,15 @@ export class Room implements RoomState {
 				this.votes.delete(this.currentSource.service + this.currentSource.id);
 				this.markDirty("voteCounts");
 			}
-			if (!this.isPlaying) {
+			if (this.restoredFromStorage) {
+				// Nothing to resume from: a restored room hands the item over paused so a viewer
+				// can continue watching deliberately instead of missing the opening.
+				this._playbackStart = null;
+			} else if (this.canHoldPlaybackForPreparation()) {
+				// Holding is what keeps the next episode's opening intact: the clock only starts
+				// once a viewer has the first frame up.
+				this.holdPlaybackForPreparation();
+			} else if (!this.isPlaying) {
 				// A dequeue into an idle room (first video added, playNow, skip while paused)
 				// implies the intent to play; starting only the clock leaves the room stuck paused.
 				await this.play();
@@ -1382,6 +1395,7 @@ export class Room implements RoomState {
 			this.bufferGateCooldownUntil = Date.now() + BUFFER_GATE_COOLDOWN_MS;
 		}
 		this.cancelPlaybackPreparation();
+		this.restoredFromStorage = false;
 		if (this.isPlaying) {
 			this.log.silly("already playing");
 			return;
@@ -1426,6 +1440,41 @@ export class Room implements RoomState {
 		}
 	}
 
+	/** The viewer who primes a held source: a present viewer who may start playback. */
+	private findPreparer(): RoomUser | undefined {
+		return this.realusers.find(user =>
+			this.grants.granted(this.getRole(user), "playback.play-pause"),
+		);
+	}
+
+	/**
+	 * Whether a new source can wait for the first frame: only sources with a real player can be
+	 * positioned and confirmed, and someone present has to be able to prime it.
+	 */
+	private canHoldPlaybackForPreparation(): boolean {
+		return this.canPreparePlayback() && !!this.findPreparer();
+	}
+
+	/**
+	 * A new source must not run its clock while everyone is still loading it — the room would
+	 * resume seconds into the video and every viewer would seek past the opening. Hold the
+	 * clock at the source's start position and let the priming handshake start it.
+	 */
+	private holdPlaybackForPreparation(): void {
+		this.endTemporaryPlaybackSpeed();
+		this._playbackStart = null;
+		this.isPlaying = false;
+		this.resumeOnNextJoin = true;
+		// Checkpoints both the paused clock and the Redis-only resume intent.
+		this.markDirty("isPlaying");
+		this.prepareEmptyRoomPlayback();
+	}
+
+	/** Marks a room rebuilt from storage: no playback intent survives outside Redis. */
+	public restoreFromStorage(): void {
+		this.restoredFromStorage = true;
+	}
+
 	private canPreparePlayback(): boolean {
 		const source = this.currentSource;
 		if (!source || !Number.isFinite(source.length) || (source.length ?? 0) <= 0) {
@@ -1468,9 +1517,7 @@ export class Room implements RoomState {
 		) {
 			return;
 		}
-		const viewer = this.realusers.find(user =>
-			this.grants.granted(this.getRole(user), "playback.play-pause"),
-		);
+		const viewer = this.findPreparer();
 		if (!viewer) {
 			return;
 		}
@@ -2213,7 +2260,10 @@ export class Room implements RoomState {
 		this.playbackPosition = 0;
 		this._playbackStart = dayjs();
 		this.videoSegments = [];
-		if (!this.isPlaying) {
+		if (this.canHoldPlaybackForPreparation()) {
+			// The replacement source is new to every player, so it waits for the first frame too.
+			this.holdPlaybackForPreparation();
+		} else if (!this.isPlaying) {
 			// playNow implies the intent to play; an idle room must not stay paused on the new video.
 			await this.play();
 		}

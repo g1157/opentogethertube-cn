@@ -30,6 +30,31 @@ export const MIN_SCALE = 0.25;
  */
 export const MAX_AUTO_PIXELS = 3840 * 2160;
 
+/** Upper bound for the device pixel ratio used when sizing the canvas. */
+export const MAX_DPR = 3;
+
+/**
+ * Minimum target the CNN tiers aim for when the device can afford it. Anime4K's
+ * presets only run their upscale stages when the target is clearly larger than the
+ * source (the library checks for >1.2x), and its design point is a 2x upscale that the
+ * display then downsamples. Sizing the canvas to the display box left those stages
+ * switched off — only the restore passes ran — which is what made the top tier look
+ * softer than a desktop player running the same shader chain.
+ */
+export const CNN_UPSCALE_SCALE = 2;
+
+/**
+ * Whether this device should render above the display box to feed the CNN. Touch devices
+ * pay for those pixels in heat and battery without a big picture to show for it, so they
+ * keep the box-fitted target; the auto-degrade ladder steps down either way.
+ */
+export function canAffordCnnUpscale(): boolean {
+	if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+		return false;
+	}
+	return !window.matchMedia("(pointer: coarse)").matches;
+}
+
 export interface CanvasSizeInput {
 	nativeWidth: number;
 	nativeHeight: number;
@@ -39,6 +64,8 @@ export interface CanvasSizeInput {
 	dpr: number;
 	/** Explicit multiplier from settings, or "auto" to fit the displayed box. */
 	requestedScale: number | "auto";
+	/** Let "auto" supersample so the CNN's upscale stages run (see CNN_UPSCALE_SCALE). */
+	cnnUpscale?: boolean;
 }
 
 export interface CanvasSize {
@@ -58,6 +85,11 @@ export function computeCanvasSize(input: CanvasSizeInput): CanvasSize {
 		const ratioX = (Math.max(input.boxWidth, 1) * input.dpr) / nativeWidth;
 		const ratioY = (Math.max(input.boxHeight, 1) * input.dpr) / nativeHeight;
 		scale = Math.min(ratioX, ratioY);
+		if (input.cnnUpscale) {
+			// The display box is the floor, not the target: the CNN only upscales above
+			// 1.2x, so aiming at the box silently reduced the top tier to its restore passes.
+			scale = Math.max(scale, CNN_UPSCALE_SCALE);
+		}
 		scale = Math.min(MAX_SCALE, Math.max(MIN_AUTO_SCALE, scale));
 		// The budget only binds when the target itself would exceed it, so it caps
 		// huge sources without pulling normal ones down.

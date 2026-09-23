@@ -60,6 +60,7 @@ import { ToastStyle } from "@/models/toast";
 import toast from "@/util/toast";
 import { i18n } from "@/i18n";
 import { rememberCors, rememberedCors } from "@/util/cors-memory";
+import { referrerPolicyValue } from "@/util/media-access";
 import type {
 	MediaPlayerError,
 	MediaPlayerWithAudioBoost,
@@ -78,10 +79,12 @@ interface Props {
 	videoMime: string;
 	thumbnail?: string;
 	subtitleUrl?: string;
+	/** Probed requirement of the source's host, when it differs from the browser default. */
+	referrerPolicy?: string;
 }
 
 const props = defineProps<Props>();
-const { videoUrl, videoMime, thumbnail, subtitleUrl } = toRefs(props);
+const { videoUrl, videoMime, thumbnail, subtitleUrl, referrerPolicy } = toRefs(props);
 const videoElem = ref<HTMLVideoElement | undefined>();
 const captions = useCaptions();
 const audioBoost = useMediaAudioBoost(videoElem);
@@ -333,6 +336,8 @@ async function loadVideoSource() {
 	activeMediaUrl = "";
 	videoElem.value.pause();
 	videoElem.value.removeAttribute("src");
+	// The source's host may refuse a Referer from this page; the probe decided which.
+	videoElem.value.referrerPolicy = referrerPolicyValue(referrerPolicy.value) ?? "";
 	videoElem.value.load();
 	// Fix for captions from previous video still showing after source change
 	for (let i = 0; i < videoElem.value.textTracks.length; i++) {
@@ -356,7 +361,10 @@ async function resolveVideoSource(generation: number) {
 		const request = new AbortController();
 		manifestRequest = request;
 		try {
-			const response = await fetch(videoUrl.value, { signal: request.signal });
+			const response = await fetch(videoUrl.value, {
+				signal: request.signal,
+				referrerPolicy: referrerPolicyValue(referrerPolicy.value),
+			});
 			if (generation !== sourceGeneration || request.signal.aborted) {
 				return;
 			}
@@ -542,7 +550,8 @@ onMounted(() => {
 	loadVideoSource();
 });
 
-watch([videoUrl, videoMime, subtitleUrl], () => {
+// A changed policy means the requests must be built differently, which only a reload does.
+watch([videoUrl, videoMime, subtitleUrl, referrerPolicy], () => {
 	loadVideoSource();
 });
 

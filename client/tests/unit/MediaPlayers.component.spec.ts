@@ -11,7 +11,12 @@ import type { MediaPlayer } from "@/components/composables/media-player";
 import { mountComponent } from "./component-test-utils";
 
 interface HlsDouble {
-	config: { maxBufferLength: number; maxMaxBufferLength: number; backBufferLength: number };
+	config: {
+		maxBufferLength: number;
+		maxMaxBufferLength: number;
+		maxBufferSize: number;
+		backBufferLength: number;
+	};
 	levels: { width: number; height: number }[];
 	listeners: Map<string, (event: string, data: unknown) => void>;
 	loadSource: ReturnType<typeof vi.fn>;
@@ -269,8 +274,10 @@ describe("native and HLS player reliability", () => {
 		const engine = hlsMock.instances[0];
 		expect(engine.config).toEqual({
 			maxBufferLength: 60,
-			maxMaxBufferLength: 60,
-			backBufferLength: 30,
+			// The ceiling sits above the target so a fast connection keeps buffering.
+			maxMaxBufferLength: 240,
+			maxBufferSize: 150 * 1024 * 1024,
+			backBufferLength: 90,
 			// Level selection follows the size the picture is drawn at, not the source ladder.
 			capLevelToPlayerSize: true,
 			// Loading starts where playback begins, not at zero.
@@ -283,7 +290,7 @@ describe("native and HLS player reliability", () => {
 		page.store.commit("settings/UPDATE", { hlsBufferSeconds: 120 });
 		await nextTick();
 		expect(engine.config.maxBufferLength).toBe(120);
-		expect(engine.config.maxMaxBufferLength).toBe(120);
+		expect(engine.config.maxMaxBufferLength).toBe(480);
 		expect(hlsMock.instances).toHaveLength(1);
 	});
 

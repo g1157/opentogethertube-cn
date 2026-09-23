@@ -179,6 +179,9 @@ export async function getRoom(
 		return err(new RoomNotFoundException(roomName));
 	}
 	const room = new Room(opts);
+	// No snapshot survived, so the room comes back paused with its queue loaded: only Redis
+	// remembers whether the room was playing, and entering the room must not start it.
+	room.restoreFromStorage();
 	await addRoom(room);
 	return ok(room);
 }

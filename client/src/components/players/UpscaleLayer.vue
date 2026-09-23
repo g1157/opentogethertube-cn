@@ -11,7 +11,7 @@ import { i18n } from "@/i18n";
 import { ToastStyle } from "@/models/toast";
 import { useStore } from "@/store";
 import type { SettingsState } from "@/stores/settings";
-import { computeCanvasSize } from "@/util/upscale/scale";
+import { canAffordCnnUpscale, computeCanvasSize, MAX_DPR } from "@/util/upscale/scale";
 import type { UpscaleRenderer } from "@/util/upscale/upscale-renderer";
 import { reportEnhancementError, reportEnhancementTarget } from "@/util/upscale/status";
 import toast from "@/util/toast";
@@ -70,8 +70,9 @@ function sizeCanvas(video: HTMLVideoElement, target: HTMLCanvasElement) {
 		nativeHeight: video.videoHeight,
 		boxWidth: box.width,
 		boxHeight: box.height,
-		dpr: Math.min(window.devicePixelRatio || 1, 2),
+		dpr: Math.min(window.devicePixelRatio || 1, MAX_DPR),
 		requestedScale: store.state.settings.upscaleScale,
+		cnnUpscale: canAffordCnnUpscale(),
 	});
 	target.width = size.width;
 	target.height = size.height;

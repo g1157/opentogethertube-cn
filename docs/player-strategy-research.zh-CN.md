@@ -129,13 +129,16 @@
   `maxBufferSize = 60*1000*1000`（60MB）、`backBufferLength = Infinity`、`frontBufferFlushThreshold = Infinity`、
   `maxBufferHole = 0.1`s、`maxFragLookUpTolerance = 0.25`s、`appendErrorMaxRetry = 3`、`appendTimeout = Infinity`、
   `liveDurationInfinity = false`。
-- **对本项目的适用性**：本项目把 `maxBufferLength = maxMaxBufferLength = hlsBufferSeconds(默认60)`、
-  `backBufferLength = 30`。判断：**方向正确**。两点注意：
-  1. `maxBufferSize` 仍为默认 60MB。对 1080p/5 Mbps 的源，60s ≈ 37.5MB，够用；但若源单档 > 8 Mbps，
-     60s 会先撞到 60MB 字节上限，实际前向缓冲会低于 60s。若要保证 60s，需要相应提高 `maxBufferSize`
-     （如 100–150MB）或接受按字节驱逐。
-  2. `backBufferLength = 30` 对**同步观看的“回退/重看同一个点”**是加分项（不必重新下载）；可考虑
-     提到 30–60s 与房间“跳转/回退”习惯匹配，代价是内存。
+- **对本项目的适用性**：本项目把 `maxBufferLength` 设为 `hlsBufferSeconds`（默认 120，可选
+  30/60/120/300），并把**上限与目标解耦**：`maxMaxBufferLength = 目标 × 4`，网络允许时继续多缓
+  （隐藏标签页仍是 30s 的平窗，因为没人看画面）；`maxBufferSize` 默认 150MB，`deviceMemory ≤ 4GB`
+  的设备退回 60MB 以免内存压力；`backBufferLength = 90`，配合房间「回退/重看同一点」的习惯。
+  判断：**方向正确**，两点注意：
+  1. `maxBufferSize` 现在是按设备内存给的字节上限。对 1080p/5 Mbps 的源，60s ≈ 37.5MB，够用；
+     超长目标（300s）在低码率源上才是主要收益点，高码率源仍会先撞字节上限，这是预期行为。
+  2. `backBufferLength = 90` 让同步观看的「回退/重看同一个点」不必重新下载；代价是内存。
+     DASH 侧用同一设置（`bufferTimeDefault` / `bufferTimeAtTopQuality(…LongForm)`），
+     不再依赖 dash.js 的 18/30/60s 默认值。
 
 ### 2.2 hls.js 启动优化
 - **机制/默认值**：`autoStartLoad:true`、`startPosition:-1`、`startLevel:undefined`、
@@ -163,9 +166,10 @@
   ABR 越可在缓冲高时敢于升档（混合策略的 BOLA 段），在网络抖动时也有更多回旋。
 - **各库推荐区间**：dash.js 长内容顶点目标 30–60s；Shaka 默认较保守（10s），文档明确“默认非常保守、应按应用自定义”；
   hls.js 保证值 30s + 上限 600s；VHS 高水位 30s；mpv 直接按分钟/小时缓存。
-- **对本项目的适用性**：**60s 默认是合适的**——同步观影对延迟不敏感、对“卡一下所有人都等”敏感。
-  30s 选项适合移动网络/低内存设备，120s 适合稳定宽带的长片。项目已做成 30/60/120 三档，
-  判断合理，无需改默认值。
+- **对本项目的适用性**：同步观影对延迟不敏感、对“卡一下所有人都等”敏感，所以默认值定得偏深：
+  **当前默认 120s**（30/60/120/300 四档，见 `settings.ts` 的 `DEFAULT_HLS_BUFFER_SECONDS`）。
+  30s 档留给移动网络/低内存设备；300s 适合稳定宽带的长片。默认值高于本节的 60s 结论，是维护者
+  按实测体验上调的；由于目标值不是硬上限（见 2.1），实际深度仍由网络与字节预算决定。
 
 ---
 
@@ -346,7 +350,7 @@
 | P1 | 设 hls.js `errorPenaltyExpireMs ≈ 30000–60000` | `HlsPlayer.vue` | 主题 3（避免瞬时错误被钉在低画质） |
 | P1 | 剧集下一项**预取清单**（片尾 15–30s 触发） | 新逻辑 | 主题 4.4 |
 | P1 | 用 localStorage 缓存 `hls.bandwidthEstimate` 作下次 `abrEwmaDefaultEstimate` | `HlsPlayer.vue` | 主题 1.1 |
-| P2 | 视源码率调整 hls.js `maxBufferSize`（保证 60s 不被 60MB 截断） | `HlsPlayer.vue` | 主题 2.1 |
+| P2 | ~~视源码率调整 hls.js `maxBufferSize`~~（已做：按设备内存给 150MB/60MB，目标与上限解耦） | `HlsPlayer.vue` | 主题 2.1 |
 | P2 | 对不稳定第三方源显式调优 `fragLoadPolicy`；对取整设备调 `skipBufferHolePadding` | `HlsPlayer.vue` | 主题 3.1 |
 | P2 | dash.js 视情况开 `droppedFramesRule` / `enableStallFix` | `DashPlayer.vue` | 主题 1.3 / 3.4 |
 | P3 | 关注 hls.js 对 MSE-in-Workers 的支持；WebCodecs 暂不引入 | — | 主题 4 |

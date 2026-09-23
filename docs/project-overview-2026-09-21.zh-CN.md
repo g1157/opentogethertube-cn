@@ -111,7 +111,8 @@ Rust（balancer/collector/harness）；构建 Vite；lint Biome + 旧 ESLint/Pre
 - **支持 bend 的播放器**：Direct、HLS、DASH（原生 `<video>`，可写 playbackRate）；
   YouTube/Vimeo/PeerTube/Bilibili 只能 seek。
 - 媒体恢复（`media-recovery.ts`）、seek 语义（`media-seek.ts`，50ms 无操作阈值）、
-  首帧对齐（`playback-preparation.ts`，仅空房恢复时选一名观众 prime 并等 ready 确认）
+  首帧对齐（`playback-preparation.ts`：空房恢复、出队换片、`playNow` 都会选一名有播放权限的
+  观众 prime 并等 ready 确认——换片时房间先停在片头，确认首帧后才启动时钟）
   是纠偏之外的三个配套机制——它们的互斥缺陷见对抗式审查 P1-3/P1-4。
 
 ### 4.5 播放器抽象（两层、彼此独立）
@@ -126,7 +127,9 @@ Rust（balancer/collector/harness）；构建 Vite；lint Biome + 旧 ESLint/Pre
 ### 4.6 房间生命周期与扩展模型
 
 - 加入握手三段：完整 `sync` → `JoinRequest` → 仅位置的 `sync`（补偿 join 期间空房恢复导致的
-  时钟变化）；重连带 `?reconnect=true`，空房恢复靠 `resumeOnNextJoin` + 首帧对齐；
+  时钟变化）；重连带 `?reconnect=true`，空房恢复靠 `resumeOnNextJoin` + 首帧对齐；出队换片
+  走同一套持有逻辑（`holdPlaybackForPreparation`），从数据库恢复的房间由 `restoreFromStorage`
+  标记为「无播放意图」，进入房间不会自动开播；
 - 房间**单节点持有**：Redis 只存快照（崩溃可恢复播放进度，因为 `_playbackStart` 是绝对时间戳），
   **不参与同步消息扇出**；多机扩展靠 Rust balancer 路由（`load_epoch` 解决重复加载），
   但该路径在本 fork 的生产未启用。
