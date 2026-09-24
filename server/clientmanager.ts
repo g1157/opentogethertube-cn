@@ -756,13 +756,25 @@ function getClientsInRoom(roomName: string): Client[] {
 	return roomJoins.get(roomName) ?? [];
 }
 
-setInterval(() => {
+/**
+ * Drop the sockets that stopped answering pings. A connection the browser has abandoned behind
+ * a proxy or a sleeping laptop would otherwise keep its user in the room, listed next to the
+ * reconnect that replaced it.
+ */
+export function sweepDeadClients() {
 	for (const client of connections) {
 		if (client instanceof DirectClient) {
+			if (!client.isAlive) {
+				client.socket.terminate();
+				continue;
+			}
+			client.isAlive = false;
 			client.ping();
 		}
 	}
-}, 10000);
+}
+
+setInterval(sweepDeadClients, 10000);
 
 /**
  * Accrue estimated relayed volume while voice is active. Accounting in the unit Cloudflare bills

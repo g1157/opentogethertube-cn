@@ -114,6 +114,9 @@ describe("room connection lifecycle", () => {
 	it("cancels a pending room-created reconnect when the room unmounts", async () => {
 		const { wrapper, store, connection, connect, disconnect } = await mountRoom();
 		store.commit("users/SET_AUTH_TOKEN", "available-token");
+		// The grant is shared between callers now, so the token reaches the room one microtask
+		// later than a single direct dispatch would.
+		await flushPromises();
 		await flush();
 		await nextTick();
 		expect(connect).toHaveBeenCalledOnce();

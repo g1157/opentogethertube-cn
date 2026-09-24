@@ -126,6 +126,8 @@ export abstract class Client {
  */
 export class DirectClient extends Client {
 	socket: WebSocket;
+	/** Every pong sets this back to true; a sweep that finds it false terminates the socket. */
+	isAlive = true;
 	private authTimeout: ReturnType<typeof setTimeout>;
 	private lastLatencyReplyAt = 0;
 
@@ -135,6 +137,7 @@ export class DirectClient extends Client {
 
 		this.socket.on("message", this.onData.bind(this));
 		this.socket.on("ping", this.onPing.bind(this));
+		this.socket.on("pong", this.onPong.bind(this));
 		this.socket.on("close", this.onClose.bind(this));
 		this.socket.on("error", this.onError.bind(this));
 		this.authTimeout = setTimeout(() => {
@@ -179,6 +182,10 @@ export class DirectClient extends Client {
 
 	onPing() {
 		this.socket.pong();
+	}
+
+	onPong() {
+		this.isAlive = true;
 	}
 
 	/**

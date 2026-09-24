@@ -17,6 +17,9 @@ export interface UsersState {
 	};
 }
 
+/** The grant currently in flight, so overlapping callers share one identity instead of two. */
+let pendingGrant: Promise<void> | null = null;
+
 export const usersModule: Module<UsersState, FullOTTStoreState> = {
 	namespaced: true,
 	state: {
@@ -79,19 +82,34 @@ export const usersModule: Module<UsersState, FullOTTStoreState> = {
 			context.commit("SET_YOU", message);
 		},
 		async getNewToken(context) {
-			// Re-present the stored token so the server returns the same identity instead of
-			// minting a fresh guest on every load (which splits a browser's tabs into separate
-			// users and resets the nickname). The server mints a new one if it is invalid.
-			const existing = window.localStorage.getItem("token")?.trim();
-			// The generated guest nickname follows this header, so send the chosen UI language
-			// instead of relying on the browser's own Accept-Language.
-			const resp = await API.get("/auth/grant", {
-				headers: {
-					"Accept-Language": context.rootState.settings.locale,
-					...(existing ? { Authorization: `Bearer ${existing}` } : {}),
-				},
-			});
-			context.commit("SET_AUTH_TOKEN", resp.data.token);
+			// A page loaded straight into a room asks for a token twice: the app bootstrap and the
+			// room's own wait. Two grants in flight mint two guests for one device, and the second
+			// name then shows up next to the first. One grant, shared by both callers, keeps the
+			// device on a single identity.
+			if (pendingGrant) {
+				await pendingGrant;
+				return;
+			}
+			pendingGrant = (async () => {
+				// Re-present the stored token so the server returns the same identity instead of
+				// minting a fresh guest on every load (which splits a browser's tabs into separate
+				// users and resets the nickname). The server mints a new one if it is invalid.
+				const existing = window.localStorage.getItem("token")?.trim();
+				// The generated guest nickname follows this header, so send the chosen UI language
+				// instead of relying on the browser's own Accept-Language.
+				const resp = await API.get("/auth/grant", {
+					headers: {
+						"Accept-Language": context.rootState.settings.locale,
+						...(existing ? { Authorization: `Bearer ${existing}` } : {}),
+					},
+				});
+				context.commit("SET_AUTH_TOKEN", resp.data.token);
+			})();
+			try {
+				await pendingGrant;
+			} finally {
+				pendingGrant = null;
+			}
 		},
 	},
 };

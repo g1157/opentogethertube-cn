@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import clientmanager, {
+	addClient,
 	parseWebsocketConnectionUrl,
 	setupBalancerManager,
+	sweepDeadClients,
 } from "../../clientmanager.js";
 import {
 	BalancerConnection,
@@ -10,7 +12,8 @@ import {
 	type MsgM2B,
 	balancerManager,
 } from "../../balancer.js";
-import { BalancerClient, Client } from "../../client.js";
+import { BalancerClient, Client, DirectClient } from "../../client.js";
+import type WebSocket from "ws";
 import type { OttWebsocketError } from "ott-common/models/types.js";
 import { buildClients } from "../../redisclient.js";
 import { type Result, ok } from "ott-common/result.js";
@@ -277,5 +280,40 @@ describe("BalancerManager", () => {
 		});
 		await new Promise(resolve => setTimeout(resolve, 100));
 		expect((await roommanager.getRoom("foo", { mustAlreadyBeLoaded: true })).ok).toEqual(false);
+	});
+});
+
+describe("dead connection sweep", () => {
+	it("terminates a direct socket that stops answering pings", async () => {
+		const handlers = new Map<string, (...args: unknown[]) => void>();
+		const socket = {
+			on: (event: string, handler: (...args: unknown[]) => void) => {
+				handlers.set(event, handler);
+			},
+			ping: vi.fn(),
+			terminate: vi.fn(),
+			close: vi.fn(),
+			send: vi.fn(),
+		} as unknown as WebSocket;
+		const client = new DirectClient("sweep-room", socket);
+		addClient(client);
+
+		try {
+			// The first sweep arms the check and pings; a socket that stays silent is reaped by
+			// the next one, so an abandoned connection cannot keep its user in the room.
+			sweepDeadClients();
+			expect(socket.ping).toHaveBeenCalledOnce();
+			expect(socket.terminate).not.toHaveBeenCalled();
+
+			sweepDeadClients();
+			expect(socket.terminate).toHaveBeenCalledOnce();
+
+			// A pong revives the socket: a reply still in flight is not a dead peer.
+			handlers.get("pong")?.();
+			expect(client.isAlive).toBe(true);
+		} finally {
+			handlers.get("close")?.();
+			await new Promise(resolve => setTimeout(resolve, 0));
+		}
 	});
 });
