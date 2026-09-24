@@ -88,14 +88,14 @@
 						</v-list-item>
 						<v-list-item>
 							<v-list-item-title>{{
-								$t("player.interactions.swipe-step")
+								$t("player.interactions.seek-step")
 							}}</v-list-item-title>
 							<v-btn-toggle
-								v-model="swipeSeekSeconds"
+								v-model="seekSeconds"
 								mandatory
 								density="compact"
 								color="primary"
-								class="swipe-step-options"
+								class="seek-step-options"
 							>
 								<v-btn
 									v-for="seconds in [5, 10, 30]"
@@ -478,9 +478,9 @@ const menu = ref<{ updateLocation: () => void } | null>(null);
 const preferenceMenuProps = computed(() => ({
 	attach: store.state.fullscreen ? ".player-fullscreen" : false,
 }));
-const swipeSeekSeconds = computed({
-	get: () => store.state.settings.swipeSeekSeconds,
-	set: value => store.commit("settings/UPDATE", { swipeSeekSeconds: value }),
+const seekSeconds = computed({
+	get: () => store.state.settings.seekSeconds,
+	set: value => store.commit("settings/UPDATE", { seekSeconds: value }),
 });
 const sfxEnabled = computed({
 	get: () => store.state.settings.sfxEnabled,
@@ -669,7 +669,7 @@ function selectSubtitleTrack(track: number): void {
 	overscroll-behavior: contain;
 }
 
-.swipe-step-options {
+.seek-step-options {
 	margin: 8px 0;
 }
 

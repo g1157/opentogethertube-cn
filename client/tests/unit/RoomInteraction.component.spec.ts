@@ -259,6 +259,12 @@ describe("room player interactions", () => {
 		return event;
 	}
 
+	function keyUp(code: string, target: EventTarget = document.body) {
+		target.dispatchEvent(
+			new KeyboardEvent("keyup", { code, key: code, bubbles: true, cancelable: true }),
+		);
+	}
+
 	function stubFullscreen(mode: string, target: HTMLElement) {
 		const originalFullscreen = Object.getOwnPropertyDescriptor(document, "fullscreenElement");
 		const originalExit = Object.getOwnPropertyDescriptor(document, "exitFullscreen");
@@ -742,17 +748,69 @@ describe("room player interactions", () => {
 		]);
 	});
 
-	it("exposes the swipe interval in player settings and keeps the menu visible while reading", async () => {
+	it("exposes the seek interval in player settings and keeps the menu visible while reading", async () => {
 		const settings = page.wrapper.findComponent(VideoSettings);
 		await settings.get("button").trigger("click");
 		await vi.advanceTimersByTimeAsync(4000);
 		expect(page.wrapper.get(".video-controls").classes()).not.toContain("hide");
-		document.querySelectorAll<HTMLButtonElement>(".swipe-step-options button")[2].click();
+		document.querySelectorAll<HTMLButtonElement>(".seek-step-options button")[2].click();
 		await nextTick();
-		expect(page.store.state.settings.swipeSeekSeconds).toBe(30);
+		expect(page.store.state.settings.seekSeconds).toBe(30);
 		key("Escape");
 		await nextTick();
 		expect(document.querySelector(".settings-menu-container")).toBeNull();
+	});
+
+	it("seeks by the same interval from the keyboard as from a swipe", async () => {
+		installPlayer();
+		page.store.commit("settings/UPDATE", { seekSeconds: 30 });
+		page.store.commit("room/SYNC", {
+			currentSource: { service: "direct", id: "https://example.test/source", length: 600 },
+			isPlaying: false,
+		});
+		await nextTick();
+		page.connection.sent.length = 0;
+		const before = page.wrapper.vm.truePosition as number;
+
+		key("ArrowRight");
+		await nextTick();
+
+		expect(page.connection.sent).toContainEqual({
+			action: "req",
+			request: { type: RoomRequestType.SeekRequest, value: before + 30 },
+		});
+	});
+
+	it("plays fast while the right arrow is held and restores on release", async () => {
+		installPlayer();
+		// The gesture is only offered where the player can actually bend the rate.
+		usePlaybackRate().availablePlaybackRates.value = [0.5, 1, 2];
+		page.store.commit("room/SYNC", {
+			currentSource: { service: "direct", id: "https://example.test/source", length: 600 },
+			isPlaying: true,
+		});
+		await nextTick();
+		page.connection.sent.length = 0;
+		const speedActions = () =>
+			page.connection.sent
+				.filter(
+					(m: any) => m?.request?.type === RoomRequestType.TemporaryPlaybackSpeedRequest,
+				)
+				.map((m: any) => m.request.action);
+
+		// A tap is still a seek: releasing before the threshold must not start the gesture.
+		key("ArrowRight");
+		await vi.advanceTimersByTimeAsync(200);
+		keyUp("ArrowRight");
+		expect(speedActions()).toEqual([]);
+
+		// Holding it starts the room's temporary speed and the release gives it back.
+		key("ArrowRight");
+		await vi.advanceTimersByTimeAsync(600);
+		expect(speedActions()).toEqual(["start"]);
+		keyUp("ArrowRight");
+		await nextTick();
+		expect(speedActions()).toEqual(["start", "stop"]);
 	});
 
 	it.each([

@@ -26,7 +26,7 @@ export type UpscaleMode = (typeof UPSCALE_MODES)[number];
  * ever sees the three rendering tiers.
  */
 export function enhancementLayerMode(mode: UpscaleMode): Exclude<UpscaleMode, "off"> {
-	return mode === "anime4k" || mode === "anime4k-quality" ? mode : "sharpen";
+	return mode === "off" ? "sharpen" : mode;
 }
 
 /** Render multipliers for the enhancement canvas; "auto" follows the displayed box. */
@@ -52,7 +52,8 @@ export interface SettingsState {
 	sfxVolume: number;
 	defaultRoomSettings?: DefaultRoomSettings;
 	enableAdapterSelector: boolean;
-	swipeSeekSeconds: 5 | 10 | 30;
+	/** How far one seek goes, whatever asked for it: a swipe or an arrow key. */
+	seekSeconds: 5 | 10 | 30;
 	chatOverlaySeconds: (typeof CHAT_OVERLAY_SECONDS_OPTIONS)[number];
 	presenceNoticeSeconds: (typeof ROOM_NOTICE_SECONDS_OPTIONS)[number];
 	seekNoticeSeconds: (typeof ROOM_NOTICE_SECONDS_OPTIONS)[number];
@@ -111,7 +112,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		sfxEnabled: false,
 		sfxVolume: 0.8,
 		enableAdapterSelector: false,
-		swipeSeekSeconds: 10,
+		seekSeconds: 10,
 		chatOverlaySeconds: 5,
 		presenceNoticeSeconds: 3,
 		seekNoticeSeconds: 3,
@@ -132,8 +133,8 @@ export const settingsModule: Module<SettingsState, unknown> = {
 			if (!Number.isFinite(state.sfxVolume) || state.sfxVolume < 0 || state.sfxVolume > 1) {
 				state.sfxVolume = 0.8;
 			}
-			if (![5, 10, 30].includes(state.swipeSeekSeconds)) {
-				state.swipeSeekSeconds = 10;
+			if (![5, 10, 30].includes(state.seekSeconds)) {
+				state.seekSeconds = 10;
 			}
 			if (!CHAT_OVERLAY_SECONDS_OPTIONS.includes(state.chatOverlaySeconds)) {
 				state.chatOverlaySeconds = 5;

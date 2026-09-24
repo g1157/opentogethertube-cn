@@ -350,7 +350,7 @@ export default {
 		},
 		shortcuts: {
 			title: "Shortcuts and gestures",
-			text: "Space / K play or pause, ← / → seek 5 seconds, J / L seek 10 seconds, F fullscreen, M mute, T open chat, ? shows the full list. On touch screens, double-tap to play or pause, swipe to seek, and hold for about 0.5 seconds for 2× speed.",
+			text: "Space / K play or pause, ← / → and J / L seek by the interval you set, hold → for 2× speed, F fullscreen, M mute, T open chat, ? shows the full list. On touch screens, double-tap to play or pause, swipe to seek, and hold for about 0.5 seconds for 2× speed.",
 		},
 		rooms: {
 			title: "Rooms and identity",
@@ -809,7 +809,7 @@ export default {
 		"season-episode": "Season {season} · Episode {episode}",
 		interactions: {
 			"toggle-controls": "Show or hide playback controls",
-			"swipe-step": "Swipe seek interval",
+			"seek-step": "Seek interval (swipe / arrow keys)",
 			seconds: "{count} sec",
 			"seek-preview": "{delta} sec → {time}, release to seek",
 			"seek-denied": "You do not have permission to seek in this room",
@@ -827,8 +827,8 @@ export default {
 			"chat-hint":
 				"Press Enter on desktop to open chat and start typing, then press Enter again to send. Clicking the chat button or pressing T opens chat for reading without focusing the input. Escape closes chat and keeps your unsent draft.",
 			"play-pause": "Play / pause",
-			"seek-five": "Seek back / forward 5 seconds",
-			"seek-ten": "Seek back / forward 10 seconds",
+			"seek-step": "Seek back / forward by the interval you set",
+			"speed-hold": "Hold for 2× speed, release to restore",
 			volume: "Volume up / down 5%",
 			mute: "Mute / unmute",
 			fullscreen: "Toggle player fullscreen",

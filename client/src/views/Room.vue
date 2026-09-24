@@ -1494,7 +1494,7 @@ export default defineComponent({
 		const gestures = createPlayerGestures({
 			getPosition: () => truePosition.value,
 			getBounds: seekBounds,
-			getSeekStep: () => store.state.settings.swipeSeekSeconds,
+			getSeekStep: () => store.state.settings.seekSeconds,
 			canSeek: () => connection.connected.value && granted("playback.seek"),
 			isPlaying: () => store.state.room.isPlaying && !mediaPlaybackBlocked.value,
 			onTap: onVideoTap,
@@ -1589,24 +1589,51 @@ export default defineComponent({
 
 		// keyboard shortcuts
 		const shortcuts = new KeyboardShortcuts();
+		// Holding the right arrow plays fast, the way the touch hold does: a tap still seeks
+		// one step, and only a hold long enough to mean it starts the room's temporary speed.
+		const ARROW_HOLD_MS = 500;
+		let arrowHoldTimer: ReturnType<typeof setTimeout> | null = null;
+		let arrowHoldPlaying = false;
+		function armArrowHold() {
+			if (arrowHoldTimer !== null || arrowHoldPlaying) {
+				return;
+			}
+			arrowHoldTimer = setTimeout(() => {
+				arrowHoldTimer = null;
+				arrowHoldPlaying = temporarySpeed.start();
+			}, ARROW_HOLD_MS);
+		}
+		function releaseArrowHold() {
+			if (arrowHoldTimer !== null) {
+				clearTimeout(arrowHoldTimer);
+				arrowHoldTimer = null;
+			}
+			if (arrowHoldPlaying) {
+				arrowHoldPlaying = false;
+				temporarySpeed.stop();
+			}
+		}
 		shortcuts.bind([{ code: "Space" }, { code: "KeyK" }], () => {
 			if (mediaPlaybackBlocked.value || granted("playback.play-pause")) {
 				togglePlayback();
 			}
 		});
+		shortcuts.bind({ code: "ArrowRight", repeat: true }, () => {
+			// While the hold is already playing fast, repeats must not also seek.
+			if (arrowHoldPlaying) {
+				return;
+			}
+			if (granted("playback.seek")) {
+				seekDelta(store.state.settings.seekSeconds);
+			}
+			armArrowHold();
+		});
 		shortcuts.bind(
-			["ArrowLeft", "ArrowRight", "KeyJ", "KeyL"].map(code => ({ code, repeat: true })),
+			["ArrowLeft", "KeyJ", "KeyL"].map(code => ({ code, repeat: true })),
 			(e: KeyboardEvent) => {
 				if (granted("playback.seek")) {
-					let seekIncrement = 5;
-					if (e.ctrlKey || e.code === "KeyJ" || e.code === "KeyL") {
-						seekIncrement = 10;
-					}
-					if (e.code === "ArrowLeft" || e.code === "KeyJ") {
-						seekIncrement *= -1;
-					}
-
-					seekDelta(seekIncrement);
+					const step = store.state.settings.seekSeconds;
+					seekDelta(e.code === "ArrowLeft" ? -step : step);
 				}
 			},
 		);
@@ -1662,14 +1689,28 @@ export default defineComponent({
 		function onKeyDown(e: KeyboardEvent) {
 			shortcuts.handleKeyDown(e);
 		}
+		function onKeyUp(e: KeyboardEvent) {
+			if (e.code === "ArrowRight") {
+				releaseArrowHold();
+			}
+		}
+		function onWindowBlur() {
+			// A held key never reports its release once focus leaves the page.
+			releaseArrowHold();
+		}
 		provide(RoomKeyboardShortcutsKey, shortcuts);
 
 		onMounted(() => {
 			window.addEventListener("keydown", onKeyDown);
+			window.addEventListener("keyup", onKeyUp);
+			window.addEventListener("blur", onWindowBlur);
 		});
 
 		onUnmounted(() => {
 			window.removeEventListener("keydown", onKeyDown);
+			window.removeEventListener("keyup", onKeyUp);
+			window.removeEventListener("blur", onWindowBlur);
+			releaseArrowHold();
 		});
 
 		const roomVisibility = computed(() => store.state.room.visibility);

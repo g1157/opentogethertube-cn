@@ -35,8 +35,8 @@ defineProps<{ modelValue: boolean }>();
 const emit = defineEmits(["update:modelValue"]);
 const shortcuts = [
 	["Space / K", "play-pause"],
-	["← / →", "seek-five"],
-	["J / L", "seek-ten"],
+	["← / → · J / L", "seek-step"],
+	["→ 长按 / Hold →", "speed-hold"],
 	["↑ / ↓", "volume"],
 	["M", "mute"],
 	["F", "fullscreen"],

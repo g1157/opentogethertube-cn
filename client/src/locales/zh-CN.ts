@@ -342,7 +342,7 @@ export default {
 		},
 		shortcuts: {
 			title: "快捷键与手势",
-			text: "空格 / K 播放或暂停，← / → 跳转 5 秒，J / L 跳转 10 秒，F 全屏，M 静音，T 打开聊天，按 ? 查看完整说明。手机双击画面暂停或继续，左右滑动跳转，长按约 0.5 秒进入 2 倍速。",
+			text: "空格 / K 播放或暂停，← / → 与 J / L 按设置的时长跳转，长按 → 进入 2 倍速，F 全屏，M 静音，T 打开聊天，按 ? 查看完整说明。手机双击画面暂停或继续，左右滑动跳转，长按约 0.5 秒进入 2 倍速。",
 		},
 		rooms: {
 			title: "房间与身份",
@@ -775,7 +775,7 @@ export default {
 		"season-episode": "第 {season} 季 · 第 {episode} 集",
 		interactions: {
 			"toggle-controls": "显示或收起播放控件",
-			"swipe-step": "左右滑动跳转时长",
+			"seek-step": "跳转时长（滑动 / 方向键）",
 			seconds: "{count} 秒",
 			"seek-preview": "{delta} 秒 → {time}，松手跳转",
 			"seek-denied": "你没有调整房间播放进度的权限",
@@ -793,8 +793,8 @@ export default {
 			"chat-hint":
 				"电脑按 Enter 展开聊天并开始输入，再按 Enter 发送。点击聊天按钮或按 T 只展开阅读，不会自动弹出键盘；按 Escape 收起聊天并保留未发送的草稿。",
 			"play-pause": "播放 / 暂停",
-			"seek-five": "后退 / 前进 5 秒",
-			"seek-ten": "后退 / 前进 10 秒",
+			"seek-step": "按设置的时长后退 / 前进",
+			"speed-hold": "长按进入 2 倍速，松手恢复",
 			volume: "音量增加 / 减少 5%",
 			mute: "静音 / 取消静音",
 			fullscreen: "切换播放器全屏",
