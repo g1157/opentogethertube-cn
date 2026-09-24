@@ -58,7 +58,6 @@
 						<PlayerStatsPanel
 							v-if="statsOpen"
 							:video-element="statsVideoElement"
-							:expanded="statsExpanded"
 							@close="closeStats"
 						/>
 						<BufferGateNotice v-if="hasRoomSync" />
@@ -602,25 +601,16 @@ export default defineComponent({
 		const chatDraft = ref("");
 		const shortcutHelp = ref(false);
 		const statsOpen = ref(false);
-		// Right-click opens the panel in its enlarged form and right-clicking again puts it
-		// away; the settings menu entry is the quiet look at the same numbers.
-		const statsExpanded = ref(false);
+		// Right-click toggles the panel and the settings menu opens it; both show the same
+		// small, translucent read-out, so there is nothing to keep in sync but the flag.
 		const statsVideoElement = computed(() => player.player.value?.getVideoElement?.());
 		function toggleStats() {
-			if (statsOpen.value) {
-				statsOpen.value = false;
-				statsExpanded.value = false;
-				return;
-			}
-			statsExpanded.value = true;
-			statsOpen.value = true;
+			statsOpen.value = !statsOpen.value;
 		}
 		function closeStats() {
 			statsOpen.value = false;
-			statsExpanded.value = false;
 		}
 		function openStats() {
-			statsExpanded.value = false;
 			statsOpen.value = true;
 		}
 		const controlsHeight = ref(90);
@@ -1752,7 +1742,6 @@ export default defineComponent({
 			chatTarget,
 			shortcutHelp,
 			statsOpen,
-			statsExpanded,
 			statsVideoElement,
 			toggleStats,
 			closeStats,

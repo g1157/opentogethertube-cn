@@ -1,9 +1,5 @@
 <template>
-	<div
-		class="player-stats"
-		:class="{ 'player-stats--expanded': expanded }"
-		data-cy="player-stats-panel"
-	>
+	<div class="player-stats" data-cy="player-stats-panel">
 		<div class="player-stats-header">
 			<span>{{ $t("player.stats.title") }}</span>
 			<button
@@ -33,8 +29,6 @@ import { usePlayerStats } from "./composables/player-stats";
 const props = defineProps<{
 	/** The live media element, when the current player owns one. */
 	videoElement?: HTMLVideoElement;
-	/** The enlarged view right-click opens, as opposed to the menu's compact one. */
-	expanded?: boolean;
 }>();
 const emit = defineEmits(["close"]);
 
@@ -47,9 +41,10 @@ const { sections } = usePlayerStats(
 
 <style scoped>
 /*
- * Floats over the picture the way YouTube's "stats for nerds" does: pinned to the
- * top-left, translucent, and pointer-events none so it never blocks the video or
- * the playback gestures underneath. Only the close button takes clicks.
+ * Floats over the picture the way YouTube's "stats for nerds" and Bilibili's 统计信息 do:
+ * pinned to the top-left, narrow enough to leave most of the frame uncovered, and
+ * pointer-events none so it never blocks the video or the playback gestures underneath.
+ * Only the close button takes clicks.
  */
 .player-stats {
 	position: absolute;
@@ -57,39 +52,35 @@ const { sections } = usePlayerStats(
 	top: calc(max(12px, env(safe-area-inset-top)) + 44px);
 	left: 0.5rem;
 	z-index: 4;
-	max-width: min(22rem, calc(100% - 1rem));
+	/* A glance, not a page. The label column and the values are the only things that
+	   need to fit; anything wider would start covering the picture it describes. */
+	max-width: min(15.5rem, calc(100% - 1rem));
 	max-height: calc(100% - 1rem);
 	overflow: hidden;
-	padding: 0.4rem 0.55rem 0.5rem;
-	border-radius: 0.4rem;
-	background: rgb(0 0 0 / 72%);
-	color: white;
-	font-size: 0.72rem;
-	line-height: 1.45;
+	padding: 0.3rem 0.45rem 0.35rem;
+	border-radius: 3px;
+	/* Both references keep the video visible behind their numbers; the blur does the
+	   legibility work that a dark fill would otherwise have to do. */
+	background: rgb(0 0 0 / 30%);
+	backdrop-filter: blur(5px) saturate(120%);
+	box-shadow: inset 0 0 0 1px rgb(255 255 255 / 10%);
+	color: rgb(255 255 255 / 96%);
+	/* A translucent fill cannot reach AA contrast over a white frame on its own, so the
+	   text carries its own outline the way subtitles do. */
+	text-shadow: 0 0 3px rgb(0 0 0 / 85%), 0 1px 2px rgb(0 0 0 / 70%);
+	font-size: 0.7rem;
+	line-height: 1.35;
 	font-variant-numeric: tabular-nums;
 	pointer-events: none;
-}
-
-/*
- * Right-click opens the enlarged view: a fixed-width box with larger type, for reading
- * the numbers from a couch while the picture stays visible. It stays inside
- * .player-container, so the "now playing" bar above and the controls below are never
- * covered.
- */
-.player-stats--expanded {
-	width: min(30rem, calc(100% - 1rem));
-	/* The compact box's 22rem cap would otherwise keep this at its natural width. */
-	max-width: calc(100% - 1rem);
-	font-size: 0.84rem;
 }
 
 .player-stats-header {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 0.5rem;
+	gap: 0.4rem;
 	font-weight: 600;
-	opacity: 0.9;
+	opacity: 0.95;
 }
 
 .player-stats-close {
@@ -97,9 +88,9 @@ const { sections } = usePlayerStats(
 	border: none;
 	background: transparent;
 	color: inherit;
-	font-size: 0.95rem;
+	font-size: 0.9rem;
 	line-height: 1;
-	padding: 0 0.15rem;
+	padding: 0 0.1rem;
 	cursor: pointer;
 	opacity: 0.7;
 }
@@ -109,26 +100,26 @@ const { sections } = usePlayerStats(
 }
 
 .player-stats-section {
-	margin-top: 0.3rem;
+	margin-top: 0.25rem;
 }
 
 .player-stats-section-title {
-	margin-top: 0.25rem;
+	margin-top: 0.2rem;
 	opacity: 0.55;
 	text-transform: uppercase;
-	letter-spacing: 0.04em;
-	font-size: 0.62rem;
+	letter-spacing: 0.03em;
+	font-size: 0.58rem;
 }
 
 .player-stats-row {
 	display: flex;
 	align-items: baseline;
-	gap: 0.5rem;
+	gap: 0.35rem;
 }
 
 .player-stats-label {
-	flex: 0 0 5.4rem;
-	opacity: 0.7;
+	flex: 0 0 4.6rem;
+	opacity: 0.75;
 }
 
 .player-stats-value {
@@ -137,18 +128,14 @@ const { sections } = usePlayerStats(
 }
 
 /* On phones the title bar, subtitles and controls crowd the same corner; sit above the
-   controls instead, where nothing else is drawn. */
+   controls instead, where nothing else is drawn. The panel also narrows further, so the
+   picture keeps most of the screen even with the details open. */
 @media (max-width: 760px) {
 	.player-stats {
 		top: auto;
 		bottom: calc(var(--player-controls-height, 90px) + 0.5rem);
-		max-height: calc(100% - var(--player-controls-height, 90px) - 4.5rem);
-	}
-
-	/* The enlarged view is read on purpose, so it takes the room the compact one
-	   reserves for the subtitle line — otherwise only the first rows survive. */
-	.player-stats--expanded {
-		max-height: calc(100% - var(--player-controls-height, 90px) - 0.5rem);
+		max-width: min(13.5rem, calc(100% - 1.25rem));
+		max-height: calc(100% - var(--player-controls-height, 90px) - 1rem);
 	}
 }
 </style>
