@@ -313,6 +313,7 @@
 									</template>
 									<div class="upscale-help">
 										<p>{{ $t("room.upscale.intro-sharpen") }}</p>
+										<p>{{ $t("room.upscale.intro-film") }}</p>
 										<p v-if="webgpuAvailable">
 											{{ $t("room.upscale.intro-anime4k") }}
 										</p>
@@ -442,6 +443,7 @@ const upscaleOptions = computed(() => {
 	const options: Array<{ value: UpscaleMode; text: string }> = [
 		{ value: "off", text: t("room.upscale.off") },
 		{ value: "sharpen", text: t("room.upscale.sharpen") },
+		{ value: "film", text: t("room.upscale.film") },
 	];
 	if (webgpuAvailable) {
 		options.push({ value: "anime4k", text: t("room.upscale.anime4k") });

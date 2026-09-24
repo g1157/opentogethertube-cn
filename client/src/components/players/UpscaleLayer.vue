@@ -18,7 +18,7 @@ import toast from "@/util/toast";
 
 const props = defineProps<{
 	video?: HTMLVideoElement;
-	mode: "sharpen" | "anime4k" | "anime4k-quality";
+	mode: "sharpen" | "film" | "anime4k" | "anime4k-quality";
 }>();
 
 const store = useStore();
@@ -170,7 +170,12 @@ function pickDegradeStep(
 	}
 	if (props.mode === "anime4k") {
 		// The CNN runs at the source resolution, so shrinking the render target buys
-		// almost nothing; switching to the cheap pass is the step that actually helps.
+		// almost nothing; switching to the cheaper pass is the step that actually helps.
+		return { upscaleMode: "film" };
+	}
+	if (props.mode === "film") {
+		// The film chain is the heavier of the two WebGL2 tiers; plain sharpening is what
+		// is left before the ladder starts shrinking the render target.
 		return { upscaleMode: "sharpen" };
 	}
 	// The canvas may already sit below 1x when "auto" sized it to the displayed box,
@@ -269,6 +274,11 @@ function failureFallback(): { settings: Partial<SettingsState>; message: string 
 					: "room.upscale.webgpu-fallback",
 		};
 	}
+	if (props.mode === "film") {
+		// A failed clean chain usually means the driver refused its half-float targets;
+		// the plain sharpen tier is the one that has always worked everywhere.
+		return { settings: { upscaleMode: "sharpen" }, message: "room.upscale.film-fallback" };
+	}
 	return { settings: { upscaleMode: "off" }, message: "room.upscale.failed" };
 }
 
@@ -319,6 +329,12 @@ async function start() {
 					fallBackFromFailure();
 				},
 			);
+		} else if (props.mode === "film") {
+			// Live action: clean the source's compression artifacts before the upscale.
+			const { startFilmRenderer } = await import("@/util/upscale/film");
+			created = startFilmRenderer(video, element, {
+				getStrength: () => store.state.settings.upscaleStrength,
+			});
 		} else {
 			const { startSharpenRenderer } = await import("@/util/upscale/cas");
 			created = startSharpenRenderer(

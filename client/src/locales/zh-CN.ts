@@ -221,9 +221,11 @@ export default {
 			title: "画质增强",
 			off: "关闭",
 			sharpen: "清晰化（锐化放大）",
+			film: "影视（去噪去带）",
 			anime4k: "AI 超分（Anime4K）",
 			"anime4k-quality": "AI 超分（质量）",
 			"webgpu-fallback": "此设备不支持 WebGPU，已切换为「清晰化」。",
+			"film-fallback": "影视档无法运行，已切换为「清晰化」。",
 			"anime4k-fallback": "AI 超分无法运行，已切换为「清晰化」。",
 			"anime4k-quality-fallback": "「质量」档无法启用，已切换为「AI 超分」。",
 			failed: "无法启用画质增强，已关闭。",
@@ -231,6 +233,8 @@ export default {
 			help: "画质增强说明",
 			"intro-sharpen":
 				"清晰化：GPU 边缘自适应放大（EASU）加锐化，所有设备都能用；倍率贴合显示尺寸且不低于原分辨率，最省电。效果偏轻微，低分辨率或发糊的片源更明显。",
+			"intro-film":
+				"影视：先用保边去噪清掉压缩块与蚊噪、按邻域跨度压平色带并加抖动，再做 EASU 放大与收敛锐化（锐化强度按 0.6 计）。真人剧集与电影建议用它；动画片用下面的 AI 超分。只需 WebGL2，手机也能开。",
 			"intro-anime4k":
 				"AI 超分（Anime4K）：用 WebGPU 神经网络重建线条，适合动漫；独立显卡余量充足，集显和手机可能吃力。",
 			"intro-anime4k-quality":

@@ -4,10 +4,12 @@ import { flush, mountComponent } from "./component-test-utils";
 
 const drivers = vi.hoisted(() => ({
 	sharpen: vi.fn(),
+	film: vi.fn(),
 	anime4k: vi.fn(),
 }));
 
 vi.mock("@/util/upscale/cas", () => ({ startSharpenRenderer: drivers.sharpen }));
+vi.mock("@/util/upscale/film", () => ({ startFilmRenderer: drivers.film }));
 vi.mock("@/util/upscale/anime4k", () => ({ startAnime4KRenderer: drivers.anime4k }));
 
 let clock = 0;
@@ -81,6 +83,7 @@ describe("enhancement layer lifecycle", () => {
 		// driver is mocked here, so the marker is all jsdom needs.
 		Object.defineProperty(navigator, "gpu", { value: {}, configurable: true });
 		drivers.sharpen.mockImplementation(() => renderer());
+		drivers.film.mockImplementation(() => renderer());
 		drivers.anime4k.mockImplementation(() => Promise.resolve(renderer()));
 	});
 	afterEach(() => {
@@ -214,7 +217,29 @@ describe("enhancement layer lifecycle", () => {
 		fatal?.("WebGPU device lost (destroyed)");
 		await settle();
 
+		// A failed AI tier still lands on the tier that works everywhere.
 		expect(store.state.settings.upscaleMode).toBe("sharpen");
+	});
+
+	it("steps the film chain down to plain sharpening when the device cannot keep up", async () => {
+		const { video, fire } = fakeVideo();
+		const { store } = mountComponent(UpscaleLayer, { props: { video, mode: "film" } });
+		await settle();
+
+		for (let i = 0; i < 80; i++) {
+			fire(100);
+		}
+
+		expect(store.state.settings.upscaleMode).toBe("sharpen");
+	});
+
+	it("runs the film chain for the live-action tier", async () => {
+		const { video } = fakeVideo();
+		mountComponent(UpscaleLayer, { props: { video, mode: "film" } });
+		await settle();
+
+		expect(drivers.film).toHaveBeenCalledTimes(1);
+		expect(drivers.sharpen).not.toHaveBeenCalled();
 	});
 
 	it("still steps down when playback is genuinely slow", async () => {

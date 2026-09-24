@@ -225,9 +225,11 @@ export default {
 			title: "Video enhancement",
 			off: "Off",
 			sharpen: "Sharpen",
+			film: "Film (denoise, deband)",
 			anime4k: "AI upscale (Anime4K)",
 			"anime4k-quality": "AI upscale (quality)",
 			"webgpu-fallback": "WebGPU is unavailable here; switched to Sharpen.",
+			"film-fallback": "The film tier could not run; switched to Sharpen.",
 			"anime4k-fallback": "AI upscale could not run; switched to Sharpen.",
 			"anime4k-quality-fallback":
 				"The quality tier could not start; switched to the fast AI upscale.",
@@ -236,6 +238,8 @@ export default {
 			help: "What these tiers do",
 			"intro-sharpen":
 				"Sharpen: GPU edge-adaptive upscaling (EASU) plus sharpening, available everywhere. It follows the displayed size, never renders below the source, and costs the least power. The effect is subtle — most visible on low-resolution or soft sources.",
+			"intro-film":
+				"Film: an edge-preserving pass removes blocking and mosquito noise, flattens banding where the neighborhood spans a couple of code values and dithers what is left, then EASU upscales and sharpening runs at 0.6 of the slider. Use it for live-action shows and movies; anime belongs to the AI upscale below. WebGL2 only, so phones can run it too.",
 			"intro-anime4k":
 				"AI upscale (Anime4K): a WebGPU neural network rebuilds lines, best on anime. A discrete GPU has plenty of headroom; integrated graphics and phones may struggle.",
 			"intro-anime4k-quality":

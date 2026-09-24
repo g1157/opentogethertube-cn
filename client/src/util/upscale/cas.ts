@@ -39,7 +39,7 @@ export interface UpscaleRenderer {
 // input texture stores the picture top row first (the video, which uploads
 // unflipped) or bottom row first (the intermediate render target, whose rows the
 // framebuffer wrote bottom-up).
-const VERTEX_SHADER = `#version 300 es
+export const VERTEX_SHADER = `#version 300 es
 layout(location = 0) in vec2 aPos;
 out vec2 vUv;
 void main() {
@@ -48,7 +48,7 @@ void main() {
 }
 `;
 
-const SHARPEN_FRAGMENT_SHADER = `#version 300 es
+export const SHARPEN_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 uniform sampler2D uTexture;
 uniform vec2 uTexel;
@@ -73,7 +73,7 @@ void main() {
 }
 `;
 
-const EASU_FRAGMENT_SHADER = `#version 300 es
+export const EASU_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 uniform sampler2D uTexture;
 uniform vec2 uInSize;
@@ -240,7 +240,7 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string): WebG
 	return shader;
 }
 
-function link(gl: WebGL2RenderingContext, fragmentSource: string): WebGLProgram {
+export function link(gl: WebGL2RenderingContext, fragmentSource: string): WebGLProgram {
 	const program = gl.createProgram();
 	if (!program) {
 		throw new Error("Unable to create program");
@@ -254,11 +254,71 @@ function link(gl: WebGL2RenderingContext, fragmentSource: string): WebGLProgram 
 	return program;
 }
 
-interface RenderTarget {
+export interface RenderTarget {
 	texture: WebGLTexture;
 	framebuffer: WebGLFramebuffer;
 	width: number;
 	height: number;
+	/** True when the target holds more than 8 bits per channel. */
+	halfFloat: boolean;
+}
+
+/**
+ * A framebuffer to render one pass into. Half float keeps the precision a deband pass needs;
+ * platforms without the extension (or drivers that refuse the attachment) fall back to the
+ * 8-bit target every tier used before.
+ */
+export function createRenderTarget(
+	gl: WebGL2RenderingContext,
+	width: number,
+	height: number,
+): RenderTarget {
+	const halfFloat = gl.getExtension("EXT_color_buffer_half_float") !== null;
+	const target =
+		allocateRenderTarget(gl, width, height, halfFloat) ??
+		(halfFloat ? allocateRenderTarget(gl, width, height, false) : null);
+	if (!target) {
+		throw new Error("Unable to allocate the enhancement render target");
+	}
+	return target;
+}
+
+function allocateRenderTarget(
+	gl: WebGL2RenderingContext,
+	width: number,
+	height: number,
+	halfFloat: boolean,
+): RenderTarget | null {
+	const texture = gl.createTexture();
+	const framebuffer = gl.createFramebuffer();
+	if (!texture || !framebuffer) {
+		return null;
+	}
+	gl.bindTexture(gl.TEXTURE_2D, texture);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+	if (halfFloat) {
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, width, height, 0, gl.RGBA, gl.HALF_FLOAT, null);
+	} else {
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+	}
+	gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+	gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+	const complete = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	if (!complete) {
+		gl.deleteFramebuffer(framebuffer);
+		gl.deleteTexture(texture);
+		return null;
+	}
+	return { texture, framebuffer, width, height, halfFloat };
+}
+
+export function releaseRenderTarget(gl: WebGL2RenderingContext, target: RenderTarget): void {
+	gl.deleteFramebuffer(target.framebuffer);
+	gl.deleteTexture(target.texture);
 }
 
 export function startSharpenRenderer(
@@ -310,24 +370,9 @@ export function startSharpenRenderer(
 			return stage;
 		}
 		if (stage) {
-			gl.deleteFramebuffer(stage.framebuffer);
-			gl.deleteTexture(stage.texture);
+			releaseRenderTarget(gl, stage);
 		}
-		const texture = gl.createTexture();
-		const framebuffer = gl.createFramebuffer();
-		if (!texture || !framebuffer) {
-			throw new Error("Unable to allocate the enhancement render target");
-		}
-		gl.bindTexture(gl.TEXTURE_2D, texture);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
-		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-		stage = { texture, framebuffer, width, height };
+		stage = createRenderTarget(gl, width, height);
 		return stage;
 	};
 
@@ -388,8 +433,7 @@ export function startSharpenRenderer(
 			stopped = true;
 			video.cancelVideoFrameCallback(frameRequest);
 			if (stage) {
-				gl.deleteFramebuffer(stage.framebuffer);
-				gl.deleteTexture(stage.texture);
+				releaseRenderTarget(gl, stage);
 				stage = null;
 			}
 			gl.getExtension("WEBGL_lose_context")?.loseContext();

@@ -161,7 +161,7 @@ describe("video enhancement settings", () => {
 	it("persists every enhancement mode, including the heavy AI tier", async () => {
 		// The degrade ladder also writes anime4k when the quality tier gives way, so
 		// every value it can produce has to survive a reload.
-		for (const mode of ["sharpen", "anime4k", "anime4k-quality"] as const) {
+		for (const mode of ["sharpen", "film", "anime4k", "anime4k-quality"] as const) {
 			saved.clear();
 			const first = newStore();
 			await first.dispatch("settings/load");
