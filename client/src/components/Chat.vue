@@ -46,6 +46,7 @@
 					location="top"
 					:offset="6"
 					:close-on-content-click="false"
+					:attach="emojiMenuAttach"
 				>
 					<template #activator="{ props: activatorProps }">
 						<v-btn
@@ -277,6 +278,10 @@ function isTouchPrimaryDevice(): boolean {
 // Mobile keyboards carry their own emoji, so the panel is for pointer devices; it stays
 // available whenever the composer is open.
 const emojiMenuAvailable = computed(() => !isTouchPrimaryDevice());
+
+// A native fullscreen element renders only its own subtree, so the panel has to open inside
+// the player while it is fullscreen or it never appears; otherwise it teleports to the body.
+const emojiMenuAttach = computed(() => (store.state.fullscreen ? ".player-fullscreen" : false));
 
 /** The underlying <input> behind the Vuetify field, for reading and restoring the caret. */
 function chatInputElement(): HTMLInputElement | null {

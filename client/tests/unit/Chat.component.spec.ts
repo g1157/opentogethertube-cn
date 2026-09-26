@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick, type Ref, unref } from "vue";
+import { VMenu } from "vuetify/components";
 import {
 	RoomRequestType,
 	type ClientMessageRoomRequest,
@@ -255,6 +256,18 @@ describe("Chat component", () => {
 		const mobile = mountComponent(Chat);
 		await mobile.wrapper.get('[data-cy="chat-activate"]').trigger("click");
 		expect(mobile.wrapper.find('[data-cy="chat-emoji"]').exists()).toBe(false);
+	});
+
+	it("opens the emoji panel inside the player while fullscreen is up", async () => {
+		// A native fullscreen element only renders its own subtree: the panel has to attach to
+		// the player container there, and to the page body otherwise.
+		const { wrapper, store } = mountComponent(Chat);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		expect(wrapper.getComponent(VMenu).props("attach")).toBe(false);
+
+		store.state.fullscreen = true;
+		await nextTick();
+		expect(wrapper.getComponent(VMenu).props("attach")).toBe(".player-fullscreen");
 	});
 
 	it("inserts a picked emoji at the caret and keeps the composer focused", async () => {
