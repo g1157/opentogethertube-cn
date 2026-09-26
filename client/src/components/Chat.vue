@@ -52,6 +52,7 @@
 						<v-btn
 							v-bind="activatorProps"
 							icon
+							size="small"
 							variant="text"
 							:aria-label="$t('chat.emoji.open')"
 							data-cy="chat-emoji"
@@ -65,6 +66,7 @@
 					variant="solo"
 					density="compact"
 					single-line
+					hide-details
 					:placeholder="$t('chat.type-here')"
 					@keydown="onInputKeyDown"
 					@compositionstart="composing = true"
@@ -79,6 +81,7 @@
 				<v-btn
 					type="button"
 					icon
+					size="small"
 					variant="text"
 					color="primary"
 					:aria-label="$t('chat.send')"
@@ -439,9 +442,14 @@ onUpdated(enforceStickToBottom);
 	flex-shrink: 1;
 	height: 40px;
 
+	// The row is exactly as tall as the field's control: without hiding the details area the
+	// wrapper grows an empty 22px block and the field drifts above the buttons.
 	.v-text-field {
 		flex: 1 1 auto;
 		min-width: 0;
+	}
+	.v-btn {
+		flex: 0 0 auto;
 	}
 }
 

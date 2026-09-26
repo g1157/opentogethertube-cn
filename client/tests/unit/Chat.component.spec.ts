@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick, type Ref, unref } from "vue";
-import { VMenu } from "vuetify/components";
+import { VBtn, VMenu, VTextField } from "vuetify/components";
 import {
 	RoomRequestType,
 	type ClientMessageRoomRequest,
@@ -268,6 +268,20 @@ describe("Chat component", () => {
 		store.state.fullscreen = true;
 		await nextTick();
 		expect(wrapper.getComponent(VMenu).props("attach")).toBe(".player-fullscreen");
+	});
+
+	it("keeps the composer row one control high so its parts line up", async () => {
+		// Measured on the deployed build: the field's wrapper was 62px (an empty details area)
+		// while the icon buttons were 48px, so the field sat above the buttons. Both are pinned.
+		const { wrapper } = mountComponent(Chat);
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+
+		expect(wrapper.getComponent(VTextField).props("hideDetails")).toBeTruthy();
+		expect(wrapper.getComponent(VTextField).props("density")).toBe("compact");
+		expect(wrapper.getComponent(VMenu).getComponent(VBtn).props("size")).toBe("small");
+		// The header's close button comes first; the composer's send button is the last one.
+		const buttons = wrapper.findAllComponents(VBtn);
+		expect(buttons[buttons.length - 1].props("size")).toBe("small");
 	});
 
 	it("inserts a picked emoji at the caret and keeps the composer focused", async () => {
