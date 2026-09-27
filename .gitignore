@@ -65,3 +65,6 @@ yarn-error.log*
 /opentogethertube-audit-*/
 /AUDIT-REPORT.md
 /PLAYER-INTERACTION-PLAN.md
+
+# Command Code session state (taste, scratch)
+.commandcode/
