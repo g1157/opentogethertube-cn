@@ -11,7 +11,12 @@ const log = getLogger("bilibili");
 
 // Matches /video/BV…, /video/av… (with optional ?p=N) and b23.tv short links.
 const BILIBILI_VIDEO_PATH_REGEX = /^\/video\/(BV[0-9A-Za-z]+|av\d+)/;
-const BILIBILI_SHORT_HOSTS = new Set(["b23.tv", "bilibili.com", "www.bilibili.com", "m.bilibili.com"]);
+const BILIBILI_SHORT_HOSTS = new Set([
+	"b23.tv",
+	"bilibili.com",
+	"www.bilibili.com",
+	"m.bilibili.com",
+]);
 const BILIBILI_VIDEO_HOSTS = new Set([
 	"www.bilibili.com",
 	"m.bilibili.com",
@@ -68,7 +73,10 @@ export default class BilibiliAdapter extends ServiceAdapter {
 			if (BILIBILI_SHORT_HOSTS.has(url.hostname) && url.hostname === "b23.tv") {
 				return true;
 			}
-			return BILIBILI_VIDEO_HOSTS.has(url.hostname) && BILIBILI_VIDEO_PATH_REGEX.test(url.pathname);
+			return (
+				BILIBILI_VIDEO_HOSTS.has(url.hostname) &&
+				BILIBILI_VIDEO_PATH_REGEX.test(url.pathname)
+			);
 		} catch {
 			return false;
 		}
@@ -151,7 +159,10 @@ export default class BilibiliAdapter extends ServiceAdapter {
 		return {
 			service: this.serviceId,
 			id: idWithPart,
-			title: pages.length > 1 && part ? `${data.title} · P${part.page} ${part.part}` : data.title,
+			title:
+				pages.length > 1 && part
+					? `${data.title} · P${part.page} ${part.part}`
+					: data.title,
 			description: data.owner?.name
 				? `UP: ${data.owner.name} · https://www.bilibili.com/video/${data.bvid}${page > 1 ? `?p=${page}` : ""}`
 				: `https://www.bilibili.com/video/${data.bvid}${page > 1 ? `?p=${page}` : ""}`,

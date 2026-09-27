@@ -20,6 +20,9 @@ const log = getLogger("infoextract/ffprobe");
 
 // Hard ffprobe cap. Duration/mime probing must never wedge a slow source
 // onto the room tick for long; a probe that fails fast degrades to no length.
+// Hex form of an IPv4-mapped address: ::ffff:7f00:1 is 127.0.0.1 without dots.
+const IPV4_MAPPED_HEX_PATTERN = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/;
+
 const FFPROBE_TIMEOUT_MS = 20000;
 
 /** Reject private, loopback, link-local and other non-public targets for user supplied URLs. */
@@ -48,11 +51,13 @@ export function isPrivateAddress(address: string): boolean {
 				return isPrivateAddress(mapped);
 			}
 			// Hex form like ::ffff:7f00:1 is 127.0.0.1 written without dots.
-			const hex = mapped.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+			const hex = mapped.match(IPV4_MAPPED_HEX_PATTERN);
 			if (hex) {
 				const hi = parseInt(hex[1], 16);
 				const lo = parseInt(hex[2], 16);
-				return isPrivateAddress(`${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`);
+				return isPrivateAddress(
+					`${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`,
+				);
 			}
 			return true;
 		}
@@ -419,7 +424,7 @@ export class OnDiskPreviewFfprobe extends FfprobeStrategy {
 			controller.abort();
 			httpAgent.destroy();
 			httpsAgent.destroy();
-			await handle.close().catch(() => {});
+			await handle.close().catch(() => undefined);
 		}
 
 		try {

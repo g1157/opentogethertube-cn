@@ -201,7 +201,8 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 		}
 		const hasVideo = fileInfo?.streams?.some(isVideoStream) ?? false;
 		const hasAudio =
-			fileInfo?.streams?.some((stream: ProbedStream) => stream.codec_type === "audio") ?? false;
+			fileInfo?.streams?.some((stream: ProbedStream) => stream.codec_type === "audio") ??
+			false;
 
 		if (!mime || !isSupportedMimeType(mime)) {
 			// Try to get MIME type from ffprobe format info

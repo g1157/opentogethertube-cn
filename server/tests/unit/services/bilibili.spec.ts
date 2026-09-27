@@ -37,7 +37,9 @@ describe("BilibiliAdapter", () => {
 	describe("canHandleURL", () => {
 		it("accepts canonical video pages", () => {
 			expect(adapter.canHandleURL("https://www.bilibili.com/video/BV1GJ411x7h7")).toBe(true);
-			expect(adapter.canHandleURL("https://www.bilibili.com/video/av75890161?p=2")).toBe(true);
+			expect(adapter.canHandleURL("https://www.bilibili.com/video/av75890161?p=2")).toBe(
+				true,
+			);
 		});
 
 		it("accepts b23.tv short links", () => {
@@ -59,7 +61,9 @@ describe("BilibiliAdapter", () => {
 		});
 
 		it("extracts the av number without the prefix", () => {
-			expect(adapter.getVideoId("https://www.bilibili.com/video/av75890161")).toBe("75890161");
+			expect(adapter.getVideoId("https://www.bilibili.com/video/av75890161")).toBe(
+				"75890161",
+			);
 		});
 
 		it("encodes the part number into the id", () => {

@@ -26,8 +26,7 @@ function isLocalOrAdmin(req: express.Request): boolean {
 	// req.ip respects the trust proxy setting. Behind a local reverse proxy every
 	// request's socket address is 127.0.0.1, but req.ip is the real client address,
 	// so socket-based "local" checks would expose metrics to everyone.
-	const local =
-		req.ip === "127.0.0.1" || req.ip === "::1" || req.ip === "::ffff:127.0.0.1";
+	const local = req.ip === "127.0.0.1" || req.ip === "::1" || req.ip === "::ffff:127.0.0.1";
 	return local || safeCompareApiKey(req.get("apikey"));
 }
 

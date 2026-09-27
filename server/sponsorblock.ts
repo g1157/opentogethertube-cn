@@ -40,7 +40,10 @@ export async function getSponsorBlock(): Promise<SponsorBlock> {
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 	let timer: NodeJS.Timeout | undefined;
 	const timeout = new Promise<T>((_resolve, reject) => {
-		timer = setTimeout(() => reject(new Error(`sponsorblock request timed out after ${ms}ms`)), ms);
+		timer = setTimeout(
+			() => reject(new Error(`sponsorblock request timed out after ${ms}ms`)),
+			ms,
+		);
 	});
 	timer?.unref();
 	return Promise.race([promise, timeout]);
