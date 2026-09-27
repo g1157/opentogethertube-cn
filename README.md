@@ -1,7 +1,8 @@
 # OpenTogetherTube 中文版
 
-和朋友同步看视频：一个房间、一条链接，播放、暂停、跳转、倍速对**全房间**生效。
-默认简体中文、免注册开房；可 Docker / Node.js 自托管，也有**不需要服务器**的 Cloudflare 预览版。
+和朋友同步看视频：一个房间、多个链接，播放、暂停、跳转、倍速对**全房间**生效。默认简体中文、
+免注册开房；低延迟、聊天、语音、视频超分（Anime4K）；可 Docker / Node.js 自托管，也有
+**不需要服务器**的 Cloudflare 预览版。
 
 [English](README.en.md) · [部署](DEPLOYMENT.md) · [Cloudflare 预览版](DEPLOYMENT-CLOUDFLARE.md) · [版本记录](docs/version-notes.zh-CN.md)
 
@@ -99,3 +100,23 @@ sudo docker compose up -d           # 自动拉取镜像、迁移数据库、启
 （v0.15.0）的简体中文版本，保留原作者与贡献者归属；上游来源与移植范围见
 [UPSTREAM.md](UPSTREAM.md)，字体许可见
 [字体来源](client/src/assets/fonts/vendor/LICENSES.md)。
+
+这个分支站在很多开源工作上面，特别感谢：
+
+- **[Anime4K](https://github.com/bloc97/Anime4K)（bloc97 等）**——「AI 超分」两档用的就是它的
+  Mode A / A+A 着色器链，本项目只做了 WebGPU 驱动与档位管理。
+- **[anime4k-webgpu](https://github.com/Anime4KWebBoost/anime4k-webgpu)**——Anime4K 的 WebGPU 移植，
+  我们直接调用它导出的预设、修复与放大模型（`ModeA` / `ModeAA` 等）。
+- **[AMD FidelityFX Super Resolution 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR)**——
+  「清晰化」与「影视」档的 EASU（12 抽头边缘自适应放大）与 CAS 锐化移植自 `ffx_fsr1.h`。
+- **[hls.js](https://github.com/video-dev/hls.js) 与 [dash.js](https://github.com/Dash-Industry-Forum/dash.js)**——
+  HLS / DASH 的播放、缓冲与码率自适应，缓冲策略就是在这两者的配置上做的。
+- **[Vue 3](https://github.com/vuejs/core)、[Vuetify](https://github.com/vuetifyjs/vuetify)、
+  [MDI](https://github.com/Templarian/MaterialDesign)**——界面、组件与图标。
+- **[PostgreSQL](https://www.postgresql.org/)、[Redis](https://redis.io/)、[Caddy](https://caddyserver.com/)、
+  [Docker](https://www.docker.com/)**——持久化、房间状态、HTTPS 入口与部署方式；
+  以及 [sponsorblock-api](https://github.com/ajayyy/SponsorBlock)、
+  [Vimeo](https://github.com/vimeo/player.js) / [PeerTube](https://github.com/Chocobozzz/PeerTube)
+  嵌入 SDK 等上下游库。
+
+各依赖的具体许可见各自的仓库与 `node_modules/*/LICENSE`。

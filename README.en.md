@@ -1,8 +1,9 @@
 # OpenTogetherTube (Simplified Chinese edition)
 
-Watch videos together, in sync: one room, one link. Play, pause, seek and speed changes apply to
+Watch videos together, in sync: one room, many links. Play, pause, seek and speed changes apply to
 **everyone in the room**. Ships in Simplified Chinese by default, needs no sign-up to start, and
-runs either self-hosted (**Docker / Node.js**) or as a **serverless Cloudflare preview**.
+offers low-latency sync, chat, voice and AI video upscaling (Anime4K); run it self-hosted
+(**Docker / Node.js**) or as a **serverless Cloudflare preview**.
 
 [中文文档](README.md) · [Deployment](DEPLOYMENT.md) · [Cloudflare preview](DEPLOYMENT-CLOUDFLARE.md) · [Release notes](docs/version-notes.zh-CN.md)
 
@@ -119,3 +120,25 @@ Most documents are written in Chinese, the project’s primary language.
 [OpenTogetherTube](https://github.com/dyc3/opentogethertube) (v0.15.0), keeping the original
 authors’ and contributors’ attribution; see [UPSTREAM.md](UPSTREAM.md) for provenance and porting
 scope, and the [font licenses](client/src/assets/fonts/vendor/LICENSES.md).
+
+This fork stands on a lot of open-source work — in particular:
+
+- **[Anime4K](https://github.com/bloc97/Anime4K)** (bloc97 and contributors): the AI upscale tiers
+  run its Mode A / A+A shader chain; this project only drives it, manages the tiers and picks the
+  render target.
+- **[anime4k-webgpu](https://github.com/Anime4KWebBoost/anime4k-webgpu)**: the WebGPU port of those
+  models, which we call directly (`ModeA`, `ModeAA`, restore and upscale pipelines).
+- **[AMD FidelityFX Super Resolution 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR)**:
+  EASU (the 12-tap edge-adaptive upscale) and CAS sharpening in the Sharpen and Film tiers are
+  ported from `ffx_fsr1.h`.
+- **[hls.js](https://github.com/video-dev/hls.js) and [dash.js](https://github.com/Dash-Industry-Forum/dash.js)**:
+  HLS / DASH playback, buffering and ABR — the buffering strategy is built on their configuration.
+- **[Vue 3](https://github.com/vuejs/core), [Vuetify](https://github.com/vuetifyjs/vuetify) and
+  [MDI](https://github.com/Templarian/MaterialDesign)**: UI, components and icons.
+- **[PostgreSQL](https://www.postgresql.org/), [Redis](https://redis.io/), [Caddy](https://caddyserver.com/)
+  and [Docker](https://www.docker.com/)**: persistence, room state, HTTPS entry and deployment; plus
+  [sponsorblock-api](https://github.com/ajayyy/SponsorBlock) and the
+  [Vimeo](https://github.com/vimeo/player.js) / [PeerTube](https://github.com/Chocobozzz/PeerTube)
+  embed SDKs.
+
+Each dependency carries its own license; see the upstream repositories and `node_modules/*/LICENSE`.
