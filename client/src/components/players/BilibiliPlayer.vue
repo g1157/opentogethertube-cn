@@ -27,10 +27,10 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-	"apiready": [];
-	"buffering": [];
-	"playing": [];
-	"paused": [];
+	apiready: [];
+	buffering: [];
+	playing: [];
+	paused: [];
 }>();
 
 const rootElem = ref<HTMLElement>();

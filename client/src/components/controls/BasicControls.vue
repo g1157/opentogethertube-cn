@@ -25,7 +25,9 @@
 		>
 			<v-icon
 				:icon="
-					store.state.room.isPlaying && store.state.room.currentSource && !needsLocalPlayback
+					store.state.room.isPlaying &&
+					store.state.room.currentSource &&
+					!needsLocalPlayback
 						? mdiPause
 						: mdiPlay
 				"
