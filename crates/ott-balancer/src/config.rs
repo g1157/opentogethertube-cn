@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::OnceLock};
+use std::{cell::UnsafeCell, path::PathBuf};
 
 use clap::{Parser, ValueEnum};
 use figment::providers::Format;
@@ -9,7 +9,38 @@ use ott_common::discovery::DiscoveryConfig;
 
 use crate::selection::MonolithSelectionConfig;
 
-static CONFIG: OnceLock<BalancerConfig> = OnceLock::new();
+/// The config is written once during single-threaded startup (or by tests and benchmarks
+/// before any reader exists) and read concurrently afterwards. Writing it through a shared
+/// reference is what this type documents; the previous `&T`-to-`&mut T` cast did the same
+/// thing implicitly, which current rustc rejects as undefined behaviour.
+struct ConfigCell(UnsafeCell<Option<BalancerConfig>>);
+
+// SAFETY: the value is only written before readers run (startup, or a test's setup phase),
+// and never mutated once `get()` has handed out a reference.
+unsafe impl Sync for ConfigCell {}
+
+static CONFIG: ConfigCell = ConfigCell(UnsafeCell::new(None));
+
+impl ConfigCell {
+    fn set(&self, config: BalancerConfig) {
+        // SAFETY: single-threaded startup; see the type comment.
+        let slot = unsafe { &mut *self.0.get() };
+        // A second load keeps the first winner, matching the previous Once semantics.
+        if slot.is_none() {
+            *slot = Some(config);
+        }
+    }
+
+    fn get(&self) -> Option<&'static BalancerConfig> {
+        // SAFETY: the slot lives for the program's lifetime and is never written again.
+        unsafe { (*self.0.get()).as_ref() }
+    }
+
+    fn get_mut(&self) -> Option<&'static mut BalancerConfig> {
+        // SAFETY: only reachable in single-threaded setup; see the type comment.
+        unsafe { (*self.0.get()).as_mut() }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -45,14 +76,13 @@ impl BalancerConfig {
         if let Some(region) = figment::providers::Env::var("FLY_REGION") {
             config.region = region.into();
         }
-        // A second load keeps the first winner, matching the previous Once semantics.
-        let _ = CONFIG.set(config);
+        CONFIG.set(config);
         Ok(())
     }
 
     /// Initialize the config with default values.
     pub fn init_default() {
-        let _ = CONFIG.set(BalancerConfig::default());
+        CONFIG.set(BalancerConfig::default());
     }
 
     pub fn get() -> &'static Self {
@@ -68,9 +98,9 @@ impl BalancerConfig {
     /// only use this during single-threaded setup.
     pub fn get_mut() -> &'static mut Self {
         debug_assert!(CONFIG.get().is_some(), "config not initialized");
-        // SAFETY: see doc comment above; single-threaded setup casts away constness.
-        let ptr = CONFIG.get().expect("config not initialized") as *const Self as *mut Self;
-        unsafe { &mut *ptr }
+        // SAFETY: see the doc comment above; the cell is only touched during single-threaded
+        // setup, before any `get()` reference is shared.
+        CONFIG.get_mut().expect("config not initialized")
     }
 }
 

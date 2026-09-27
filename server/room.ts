@@ -380,6 +380,9 @@ export class Room implements RoomState {
 			this.queue.items.push(...this.prevQueue);
 			this.markDirty("queue");
 			this.prevQueue = null;
+			// The queue came from storage and nothing said the room was playing: it comes back
+			// paused, so the first update tick must not dequeue and start playing it.
+			this.restoredFromStorage = true;
 		}
 		if (options.grants instanceof Grants) {
 			this.grants = options.grants;
