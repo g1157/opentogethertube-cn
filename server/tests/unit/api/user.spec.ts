@@ -613,6 +613,7 @@ describe("User API", () => {
 								username: "test user",
 								email: "test@localhost",
 							},
+							token: expect.any(String),
 						});
 						expect(onUserLogInSpy).toBeCalled();
 					});
@@ -739,6 +740,7 @@ describe("User API", () => {
 								username: "registered",
 								email: "register@localhost",
 							},
+							token: expect.any(String),
 						});
 						expect(onUserLogInSpy).toBeCalled();
 					});
