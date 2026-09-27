@@ -1,25 +1,67 @@
 # OpenTogetherTube 中文版
 
 和朋友同步看视频：一个房间、一条链接，播放、暂停、跳转、倍速对**全房间**生效。
-默认简体中文、无需注册即可开房，支持 **Docker / Node.js 自托管**，也提供**无需服务器的
-Cloudflare 预览版**。
+默认简体中文、免注册开房；可 Docker / Node.js 自托管，也有**不需要服务器**的 Cloudflare 预览版。
 
 [English](README.en.md) · [部署](DEPLOYMENT.md) · [Cloudflare 预览版](DEPLOYMENT-CLOUDFLARE.md) · [版本记录](docs/version-notes.zh-CN.md)
 
-## 亮点
+## 这个版本特别在哪
 
-- **同步播放**：播放、暂停、跳转、倍速全房间一致，双人同步实测到 0.01 秒级；长按可临时全房间 2 倍速。
-- **中文优先**：界面默认简体中文，可切换其他语言；无需注册，创建房间即可开始。
-- **房间**：临时房用完即走；永久房保存当前视频、播放位置与待播队列，下次回来接着看。
-- **一起聊**：实时聊天、**房间便签**（追加式共享笔记，谁都能加、能删，不能改）。
-- **房间语音**：P2P 直连，服务器只转发信令、不承载媒体；未配置 TURN 时为「仅直连」。
-- **精细权限**：房主 / 管理员 / 协管 / 受信任 / 注册 / 未注册，逐项权限可配置；支持投票跳过。
--   **片源**：公开直链（MP4 / HLS / DASH / 自定义媒体清单）以及上游平台适配器（YouTube、Vimeo、PeerTube 等，视部署配置）；添加直链后会自动探测相邻集数，给出「同剧集」一键加入队列。
-- **看得舒服**：画质增强（清晰化 / Anime4K）、字幕、可选「缓冲时一起暂停」、手机横竖屏控件。
+### 同步不是「差不多」：换片、卡顿、掉线的边界都处理过
+
+- **换片先等首帧。** 自动下一集、跳过、立即播放都会先停在新视频的片头，等首位观众的画面
+  准备好才启动房间时钟——不会一开播就跳掉开头十几秒；外嵌播放器与直播源仍立即开始。
+- **空房恢复与暂停意图。** 最后一人离开后暂停，回来时先加载保存的位置、本机就绪后再开始计时；
+  从数据库恢复的房间保持暂停，进入房间不会自动开播。
+- **缓冲联动（可选）。** 有人明确上报正在缓冲时全房间一起等：15 秒上限、30 秒冷却、后台标签页
+  不算等待方；「缓冲时一起暂停」由房间设置控制。
+- **漂移用速率收敛，而不是反复跳。** ±8% 的速率在 8–30 秒内拉回，超期才硬跳；seek 有冷却，
+  键盘与手势共用同一个跳转间隔，长按 → 临时全房间 2 倍速。
+- **出问题时看得见。** 播放详情面板给出分辨率、缓冲前瞻、丢帧、实测帧率、与房间偏差、画质增强
+  状态与 WebGPU 设备，数据每秒刷新且不打断播放。
+
+### 浏览器内的画质增强：四档，分别面向不同内容
+
+| 档位 | 面向 | 做法 |
+| --- | --- | --- |
+| 清晰化 | 通用、最省电 | FSR1 的 EASU 多抽头放大 + CAS 对比自适应锐化（WebGL2） |
+| **影视（去噪去带）** | **真人剧集与电影** | 保边去噪去块、按邻域跨度压平色带并加抖动 → EASU 放大 → 0.6 倍强度锐化 |
+| AI 超分 / AI 超分（质量） | 动画片 | Anime4K Mode A / A+A（WebGPU），质量档约为快速档两倍开销 |
+
+自动档在电脑（指针设备）上按 **2× 源分辨率**渲染再缩到屏幕，AI 超分的放大阶段因此才真正生效；
+触屏设备贴合显示尺寸以省电。设备吃不消时按档位逐级降档，仍不行再降渲染倍率。
+整条链路都在客户端，**服务器不需要 GPU**。
+
+### 片源吃得广，防盗链有兜底
+
+- 直链 MP4 / HLS / DASH / 自定义媒体清单；添加直链后自动探测相邻集数，一键加入「同剧集」。
+- **只拦站外 Referer 的源会自动重试**：先用本应用 origin 的 Referer 探测，被拒再试不带 Referer，
+  实测可用才记下策略；必须站内来源或需要 Cookie 的源会在添加时就明确提示，不再「添加成功、播放报错」。
+- 上游平台适配器（YouTube、Bilibili、Vimeo、PeerTube、Odysee 等，取决于部署配置）。
+
+### 一起聊、一起记、一起说
+
+- **聊天**：实时消息、表情面板、手机端发送按钮与输入法兼容（中文输入法选词不会误发送）。
+- **房间便签**：追加式共享笔记，房间内谁都能加、能删，不能改。
+- **房间语音**：P2P 直连，服务器只转发信令、不承载媒体；未配置 TURN 时明确提示「仅直连」。
+
+### 中文优先，手机端做过细节
+
+- 界面默认简体中文（可切换），免注册即可开房；权限分房主 / 管理员 / 协管 / 受信任 / 注册 / 未注册，
+  逐项可配置，支持投票跳过。
+- 手机竖屏控件精简（音量与倍速收进设置菜单），单击显隐控件、双击暂停，横屏或全屏展开完整控件；
+  滑动跳转步长可选；聊天在触屏设备上发送后保持展开，不会收起键盘。
+
+### 自托管省心
+
+- GitHub Actions 在打标签时构建并推送镜像到 GHCR，**服务器只拉取、不编译**；
+  `deploy/init.sh` 生成 `compose.yml` 与 `.env`，升级只需改一行 `OTT_IMAGE`。
+- 另有 **Cloudflare 预览版**：不需要服务器，适合以视频直链观看为主的小规模共同观看；
+  两种方式的取舍、额度与费用见对照文档。
 
 ## 快速开始
 
-**Docker / Node.js 自托管（功能完整，推荐）**——在任意 Linux 服务器上（建议 2 vCPU / 2 GiB 起步）：
+**Docker / Node.js 自托管（功能完整，推荐）**——任意 Linux 服务器，建议 2 vCPU / 2 GiB 起步：
 
 ```sh
 git clone https://github.com/g1157/opentogethertube-cn.git source
@@ -28,34 +70,28 @@ bash source/deploy/init.sh          # 生成 compose.yml 与 .env
 sudo docker compose up -d           # 自动拉取镜像、迁移数据库、启动应用
 ```
 
-镜像由 GitHub Actions 发布到 GHCR，服务器只拉取、不编译。升级、回退、Cloudflare Tunnel 入口与
-容量参考见 [部署文档](DEPLOYMENT.md)。
+升级、回退、Cloudflare Tunnel 入口与容量参考见[部署文档](DEPLOYMENT.md)。
 
-**Cloudflare 预览版（不需要服务器）**——按 [分步部署](DEPLOYMENT-CLOUDFLARE.md) 发布到
-Cloudflare，使用免费的 `workers.dev` 地址；适合以视频直链观看为主的小规模共同观看。
-
-两种方式的完整取舍见 [两版对照](docs/deployment-options.zh-CN.md)。
+**Cloudflare 预览版（不需要服务器）**——按[分步部署](DEPLOYMENT-CLOUDFLARE.md)发布到 Cloudflare，
+使用免费的 `workers.dev` 地址。两种方式的完整取舍见[两版对照](docs/deployment-options.zh-CN.md)。
 
 ## 文档
 
 | 想了解 | 看这里 |
 | --- | --- |
-| 部署、升级、回退 | [DEPLOYMENT.md](DEPLOYMENT.md) · [DEPLOYMENT-CLOUDFLARE.md](DEPLOYMENT-CLOUDFLARE.md) · [两版对照与资源消耗](docs/deployment-options.zh-CN.md) |
-| 房间语音（P2P、成本刹车） | [docs/voice.zh-CN.md](docs/voice.zh-CN.md) |
-| 房间便签（追加式、权限与迁移） | [docs/room-notes.zh-CN.md](docs/room-notes.zh-CN.md) |
-| 播放器操作与「一直缓冲」排查 | [docs/player-interactions.zh-CN.md](docs/player-interactions.zh-CN.md) |
+| 播放器操作、聊天与「一直缓冲」排查 | [docs/player-interactions.zh-CN.md](docs/player-interactions.zh-CN.md) |
 | 同步与速率微调 | [docs/playback-sync.zh-CN.md](docs/playback-sync.zh-CN.md) |
 | 缓冲联动（一起等待） | [docs/buffer-gate.zh-CN.md](docs/buffer-gate.zh-CN.md) |
-| 画质增强与渲染倍率 | [docs/video-enhancement.zh-CN.md](docs/video-enhancement.zh-CN.md) |
+| 画质增强、渲染倍率与影视档 | [docs/video-enhancement.zh-CN.md](docs/video-enhancement.zh-CN.md) · [真人影视滤镜选型](docs/upscale-for-live-action.zh-CN.md) |
 | 播放详情（视频数据面板） | [docs/player-stats.zh-CN.md](docs/player-stats.zh-CN.md) |
+| 房间语音（P2P、成本刹车） | [docs/voice.zh-CN.md](docs/voice.zh-CN.md) |
+| 房间便签（追加式、权限与迁移） | [docs/room-notes.zh-CN.md](docs/room-notes.zh-CN.md) |
 | 大 MP4 解析与探测策略 | [docs/media-parsing.zh-CN.md](docs/media-parsing.zh-CN.md) |
+| 部署、升级、回退与资源消耗 | [DEPLOYMENT.md](DEPLOYMENT.md) · [docs/deployment-options.zh-CN.md](docs/deployment-options.zh-CN.md) |
 | 安全响应头与 CSP | [docs/security-headers.zh-CN.md](docs/security-headers.zh-CN.md) |
-| Cloudflare 额度与费用 | [docs/cloudflare-quotas.zh-CN.md](docs/cloudflare-quotas.zh-CN.md) |
 | 各版本改了什么 | [docs/version-notes.zh-CN.md](docs/version-notes.zh-CN.md) |
-| 开发与贡献 | [CONTRIBUTING.md](CONTRIBUTING.md) · [AGENTS.md](AGENTS.md) |
+| 开发、测试与贡献 | [CONTRIBUTING.md](CONTRIBUTING.md) · [AGENTS.md](AGENTS.md) |
 | 上游来源与移植范围 | [UPSTREAM.md](UPSTREAM.md) |
-| 用户体验与产品审查（2026-09-13） | [docs/ux-review-2026-09-13.zh-CN.md](docs/ux-review-2026-09-13.zh-CN.md) |
-| 播放链路与 UI 走查（2026-09-15） | [docs/ux-review-2026-09-15.zh-CN.md](docs/ux-review-2026-09-15.zh-CN.md) |
 
 ## 许可证与致谢
 
