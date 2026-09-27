@@ -755,6 +755,9 @@ describe("User API", () => {
 					.expect("Content-Type", JSON_CONTENT_TYPE_REGEX)
 					.then(resp => {
 						expect(resp.body.success).toBe(true);
+						// Registering rotates the session token, so the next account has to
+						// present the one this response just issued.
+						token = resp.body.token;
 					});
 
 				await request(app)
