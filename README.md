@@ -3,7 +3,7 @@
 和朋友同步看视频：一个房间、一条链接，播放、暂停、跳转、倍速对**全房间**生效。
 默认简体中文、免注册开房；可 Docker / Node.js 自托管，也有**不需要服务器**的 Cloudflare 预览版。
 
-[English](README.en.md) · [部署](DEPLOYMENT.md) · [Cloudflare 预览版](DEPLOYMENT-CLOUDFLARE.md) · [版本记录](docs/version-notes.zh-CN.md)
+[部署](DEPLOYMENT.md) · [Cloudflare 预览版](DEPLOYMENT-CLOUDFLARE.md) · [版本记录](docs/version-notes.zh-CN.md)
 
 ## 这个版本特别在哪
 
