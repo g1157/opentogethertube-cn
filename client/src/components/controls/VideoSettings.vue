@@ -443,11 +443,20 @@ type UpscaleMode = (typeof UPSCALE_MODES)[number];
 const webgpuAvailable = ref(typeof navigator !== "undefined" && "gpu" in navigator);
 // Which tiers to offer follows from a real probe of the WebGPU path, not from the interface
 // existing: Firefox exposes navigator.gpu everywhere but hands out no adapter outside Windows and
-// Nightly — and where it does hand one out, its devices have failed to write the storage textures
-// the Anime4K pipelines need. There the AI tier is the WebGL2 chain, with the heavy A+A (HQ)
-// chain above it.
-void import("@/util/upscale/webgpu-probe").then(async ({ canRunWebGPUEnhancement }) => {
-	webgpuAvailable.value = await canRunWebGPUEnhancement();
+// Nightly — and where it does hand one out, its devices have drawn frames that do not match the
+// video. That verdict arrives asynchronously and can also flip after playback starts, so the tier
+// list follows the shared reactive value instead of a one-shot answer.
+void import("@/util/upscale/webgpu-probe").then(({ canRunWebGPUEnhancement, webgpuUsable }) => {
+	watch(
+		webgpuUsable,
+		usable => {
+			if (usable !== null) {
+				webgpuAvailable.value = usable;
+			}
+		},
+		{ immediate: true },
+	);
+	void canRunWebGPUEnhancement();
 });
 const upscaleLabel = computed(() => t(`room.upscale.${store.state.settings.upscaleMode}`));
 const upscaleOptions = computed(() => {

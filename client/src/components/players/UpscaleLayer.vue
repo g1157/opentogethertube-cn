@@ -12,6 +12,7 @@ import { ToastStyle } from "@/models/toast";
 import { useStore } from "@/store";
 import type { SettingsState } from "@/stores/settings";
 import { canAffordCnnUpscale, computeCanvasSize, MAX_DPR } from "@/util/upscale/scale";
+import { enhancedFrameLooksLikeVideo } from "@/util/upscale/frame-check";
 import type { UpscaleRenderer } from "@/util/upscale/upscale-renderer";
 import { reportEnhancementError, reportEnhancementTarget } from "@/util/upscale/status";
 import toast from "@/util/toast";
@@ -37,6 +38,13 @@ const STALL_MS = 1000;
 let renderer: UpscaleRenderer | null = null;
 let canvas: HTMLCanvasElement | null = null;
 let generation = 0;
+// True when the current renderer came from the WebGPU path, whose output is verified below.
+let webgpuStarted = false;
+// How long to let the WebGPU path draw before checking its first frames, and how many times to
+// try: a frame or two may land while the video moved on, which is not the browser's fault.
+const VERIFY_DELAY_MS = 1200;
+const VERIFY_ATTEMPTS = 4;
+const VERIFY_INTERVAL_MS = 400;
 let captionTimer: ReturnType<typeof setInterval> | undefined;
 let monitorFrame = 0;
 let monitorWindowStart = 0;
@@ -312,6 +320,7 @@ async function start() {
 	}
 	sizeCanvas(video, element);
 	const current = ++generation;
+	webgpuStarted = false;
 	// Hold the result locally until the generation check: assigning straight to `renderer`
 	// lets a slow start clobber the renderer a newer one already installed, after which
 	// nothing holds a reference to stop it and its frame loop and device leak.
@@ -349,6 +358,7 @@ async function start() {
 						reportEnhancementError(message);
 						fallBackFromFailure();
 					});
+					webgpuStarted = created !== null;
 				} catch (err) {
 					// The same network runs on WebGL2, which every browser has. Only reachable
 					// for the tiers that need a GPU: the plain tiers above are already WebGL2.
@@ -408,6 +418,40 @@ async function start() {
 	monitorWindowStart = 0;
 	monitorFrames = 0;
 	monitorFrame = video.requestVideoFrameCallback(monitorPerformance);
+	if (webgpuStarted) {
+		void verifyWebGPUFrames(generation);
+	}
+}
+
+/**
+ * Starting cleanly is not enough for the WebGPU path: Firefox's device passed every probe and
+ * still drew a blurry, vertically misplaced layer over the video, without ever reporting an
+ * error. So the first frames it draws are compared with the video itself — same content, same
+ * size — and a mismatch switches the tier to the WebGL2 chain, which is validated against mpv.
+ */
+async function verifyWebGPUFrames(startedAt: number) {
+	for (let attempt = 0; attempt < VERIFY_ATTEMPTS; attempt++) {
+		await new Promise(resolve => setTimeout(resolve, attempt === 0 ? VERIFY_DELAY_MS : VERIFY_INTERVAL_MS));
+		if (startedAt !== generation || !renderer || !canvas || !props.video) {
+			return;
+		}
+		const verdict = enhancedFrameLooksLikeVideo(props.video, canvas);
+		if (!verdict || verdict.ok) {
+			// Nothing readable yet, or it tracks the video: either way there is nothing to fix.
+			return;
+		}
+	}
+	if (startedAt !== generation || !renderer) {
+		return;
+	}
+	console.warn(
+		"WebGPU Anime4K drew a frame that does not match the video, using the WebGL2 chain instead",
+	);
+	const { markWebGPUPathBroken } = await import("@/util/upscale/webgpu-probe");
+	markWebGPUPathBroken("rendered frame does not match the video");
+	reportEnhancementError("WebGPU 的输出与视频不一致，已改用 WebGL2 链路");
+	stopRenderers();
+	void start();
 }
 
 function onLoadedMetadata() {

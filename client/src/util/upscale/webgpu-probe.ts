@@ -1,5 +1,6 @@
 /// <reference types="@webgpu/types" />
 /* global GPUAdapter, GPUDevice */
+import { ref } from "vue";
 
 // Whether this browser can actually run the WebGPU tiers.
 //
@@ -19,6 +20,29 @@ const SECOND = 0x5c00; // 192.0
 const ONE = 0x3c00; // 1.0
 const PROBE_TIMEOUT = 2000;
 let probe: Promise<boolean> | undefined;
+
+/**
+ * Reactive for the settings menu: null until the probe has run. A device can pass every probe and
+ * still draw the wrong picture (Firefox's WebGPU did exactly that), so this also flips to false
+ * when the first rendered frame turns out not to be the video — see `markWebGPUPathBroken`.
+ */
+export const webgpuUsable = ref<boolean | null>(null);
+
+let brokenReason: string | null = null;
+
+/**
+ * Called when a started WebGPU renderer is caught drawing something that is not the video. From
+ * then on nothing offers the WebGPU path again, so the next start takes the WebGL2 chain.
+ */
+export function markWebGPUPathBroken(reason: string): void {
+	brokenReason = reason;
+	probe = Promise.resolve(false);
+	webgpuUsable.value = false;
+}
+
+export function webgpuBrokenReason(): string | null {
+	return brokenReason;
+}
 
 async function requestAdapter(): Promise<GPUAdapter | null> {
 	if (!("gpu" in navigator)) {
@@ -140,11 +164,16 @@ async function canWriteStorageTexture(adapter: GPUAdapter): Promise<boolean> {
  * reset, a slow GPU process) still gets the WebGPU tier on the next tier switch or video.
  */
 export function canRunWebGPUEnhancement(): Promise<boolean> {
+	if (brokenReason) {
+		return Promise.resolve(false);
+	}
 	probe ??= requestAdapter().then(async adapter => {
 		if (!adapter || !(await canWriteStorageTexture(adapter))) {
 			probe = undefined;
+			webgpuUsable.value = false;
 			return false;
 		}
+		webgpuUsable.value = true;
 		return true;
 	});
 	return probe;
