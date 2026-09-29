@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ANIME4K_ULTRA_SHADERS } from "@/util/upscale/anime4k-ultra";
 import { ANIME4K_WEBGL_SHADERS } from "@/util/upscale/anime4k-webgl";
 import { EASU_FRAGMENT_SHADER, SHARPEN_FRAGMENT_SHADER, VERTEX_SHADER } from "@/util/upscale/cas";
 import { CLEAN_FRAGMENT_SHADER } from "@/util/upscale/film";
@@ -56,6 +57,9 @@ const SHADERS: Record<string, string> = {
 	"film clean fragment": CLEAN_FRAGMENT_SHADER,
 	...Object.fromEntries(
 		ANIME4K_WEBGL_SHADERS.map((source, index) => [`anime4k webgl pass ${index + 1}`, source]),
+	),
+	...Object.fromEntries(
+		ANIME4K_ULTRA_SHADERS.map((source, index) => [`anime4k ultra pass ${index + 1}`, source]),
 	),
 };
 

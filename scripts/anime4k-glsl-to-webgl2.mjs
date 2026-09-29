@@ -24,6 +24,9 @@ uniform vec2 uSize;
 in vec2 vUv;
 out vec4 outColor;`;
 
+const LEADING_PATH = /^.*[/]/;
+const GLSL_SUFFIX = /[.]glsl$/;
+const UPSCALE_CONDITION = /1\.200 >/;
 const BASE_DIRECTIVE = /\bMAIN_(tex|pos)\b/;
 const DIRECTIVE_LINE = /^\/\/![^\n]*\n/gm;
 const HOOK_SIGNATURE = /^vec4 hook\s*\(\s*\)\s*\{/m;
@@ -35,11 +38,19 @@ const SAVE_LINE = /^\/\/!SAVE (.+)$/m;
 
 function buildPass(block, index, mainIsVideo) {
 	const body = block.body.replace(DIRECTIVE_LINE, "");
-	const binds = block.binds.filter(name => name !== "HOOKED");
+	const binds = block.binds.map(name => (name === "HOOKED" ? "MAIN" : name));
 	const primary = pickPrimary(body, binds);
 	const primaryIsVideo = mainIsVideo && primary === "MAIN";
-	const usesBase = BASE_DIRECTIVE.test(body) && primary !== "MAIN";
-	const baseIsVideo = mainIsVideo;
+	// The pass may sample a second texture: MAIN (the picture at this point in the chain) or,
+	// for Clamp_Highlights, the statistics it computed a moment ago.
+	const otherBind = binds.find(
+		name => name !== primary && new RegExp(`\\b${name}_tex\\b`).test(body),
+	);
+	const usesBase = (BASE_DIRECTIVE.test(body) && primary !== "MAIN") || Boolean(otherBind);
+	// mpv's MAIN is "the picture as it stands at this point in the chain", i.e. the input
+	// of the segment the pass belongs to; STATSMAX and friends stay named.
+	const baseName = !otherBind || otherBind === "MAIN" ? "input" : otherBind;
+	const baseIsVideo = baseName === "input" && mainIsVideo;
 
 	const read = (uv, flip) => (flip ? `vec2((${uv}).x, 1.0 - (${uv}).y)` : uv);
 	const lines = [FRAGMENT_HEADER, ""];
@@ -56,12 +67,16 @@ function buildPass(block, index, mainIsVideo) {
 		)}))`,
 	);
 	lines.push(`#define ${primary}_tex(uv) (texture(uTexture, ${read("(uv)", primaryIsVideo)}))`);
+	lines.push(`#define MAIN_size uSize`);
+	lines.push(`#define MAIN_pt uTexel`);
 	lines.push(`#define ${primary}_pos p`);
 	lines.push(`#define ${primary}_size uSize`);
 	lines.push(`#define ${primary}_pt uTexel`);
 	if (usesBase) {
-		lines.push("#define MAIN_pos p");
-		lines.push(`#define MAIN_tex(uv) (texture(uBase, ${read("(uv)", baseIsVideo)}))`);
+		lines.push(`#define ${baseName === "input" ? "MAIN" : baseName}_pos p`);
+		lines.push(
+			`#define ${baseName === "input" ? "MAIN" : baseName}_tex(uv) (texture(uBase, ${read("(uv)", baseIsVideo)}))`,
+		);
 	}
 	lines.push("");
 	let converted = body.replace(HOOK_SIGNATURE, "void main() {\n\tvec2 p = vUv;");
@@ -73,8 +88,11 @@ function buildPass(block, index, mainIsVideo) {
 		header: block.header,
 		video: primaryIsVideo,
 		base: usesBase,
+		baseName,
 		baseVideo: baseIsVideo,
 		scale: SCALE_MARKER.test(block.header) ? 2 : 1,
+		pingPong: Boolean(block.save) && primary === block.save,
+		upscaleOnly: UPSCALE_CONDITION.test(block.header),
 		fragment: lines.join("\n"),
 	};
 }
@@ -116,65 +134,80 @@ function parse(file) {
 		});
 }
 
-const [restoreFile, upscaleFile, outFile] = process.argv.slice(2);
-const restore = parse(restoreFile).map((block, index) => buildPass(block, index, true));
-const upscale = parse(upscaleFile).map((block, index) =>
-	buildPass(block, restore.length + index, false),
-);
+const files = process.argv.slice(2, -1);
+const outFile = process.argv[process.argv.length - 1];
+const segments = files.map((file, index) => ({
+	file: file.replace(LEADING_PATH, "").replace(GLSL_SUFFIX, ""),
+	passes: parse(file).map(block => buildPass(block, 0, index === 0)),
+}));
+let cursor = 0;
+const segmentRanges = segments.map(segment => segment.passes.map(() => cursor++));
+const all = segments.flatMap(segment => segment.passes);
 
-const describe = (pass, index) => `\t{
-\t\tname: ${JSON.stringify(pass.name)},
-\t\tdesc: ${JSON.stringify(pass.desc)},
-\t\tvideo: ${pass.video},
-\t\tbase: ${pass.base},
-\t\tbaseVideo: ${pass.baseVideo},
-\t\tscale: ${pass.scale},
-\t\tfragment: PASS_${index},
-\t}`;
+const header = [
+	"// Generated from the official Anime4K v4.0.1 GLSL by scripts/anime4k-glsl-to-webgl2.mjs —",
+	"// do not edit by hand. The convolution weights are the official ones, byte for byte; only the",
+	"// mpv hook macros were rewritten (see the script). Segments run in order, each reading the",
+	"// previous segment's output. A pass marked upscaleOnly carries Anime4K's own",
+	"// `//!WHEN OUTPUT > 1.2x MAIN` condition, so the driver only inserts it when the target is",
+	"// large enough for the x2 stage.",
+	"//",
+	"// Sources: " + segments.map(segment => segment.file).join(", "),
+].join("\n");
 
-const fragments = [...restore, ...upscale];
-const out = `// Generated from Anime4K v4.0.1 (bloc97/Anime4K, MIT) by
-// scripts/anime4k-glsl-to-webgl2.mjs — do not edit by hand. The convolution weights are the
-// official ones, byte for byte; only the mpv hook macros were rewritten (see the script).
-//
-// Chain: Restore_CNN_S (3 passes at the source resolution) then Upscale_CNN_x2_S (3 passes at
-// the source resolution plus a depth-to-space pass at 2x). A pass marked video convolves the
-// video frame itself, one marked base also samples the picture it adds its result to.
+const passInterface = [
+	"export interface Anime4KPassSpec {",
+	"\t/** The intermediate the pass writes. */",
+	"\tname: string;",
+	"\tdesc: string;",
+	"\t/** True when the pass reads the video texture rather than a render target. */",
+	"\tvideo: boolean;",
+	"\t/** True when the pass also samples a second texture. */",
+	"\tbase: boolean;",
+	'\t/** Which texture that is: "input" (the segment\'s own input) or a save name like STATSMAX. */',
+	"\tbaseName: string;",
+	"\t/** True when that second texture is the video texture (restore segments). */",
+	"\tbaseVideo: boolean;",
+	"\t/** 2 for a depth-to-space pass that carries the x2 upscale, 1 otherwise. */",
+	"\tscale: number;",
+	"\t/** True when the pass reads and writes the same name and needs double buffering. */",
+	"\tpingPong: boolean;",
+	"\t/** True when Anime4K only runs this pass above 1.2x magnification. */",
+	"\tupscaleOnly: boolean;",
+	"\tfragment: string;",
+	"}",
+].join("\n");
 
-export interface Anime4KPassSpec {
-	/** The intermediate the pass writes, or the pass's role. */
-	name: string;
-	desc: string;
-	/** True when the pass reads the video texture rather than a render target. */
-	video: boolean;
-	/** True when the pass also samples a base picture to add its result to. */
-	base: boolean;
-	/** True when that base picture is the video texture (the restore chain's base). */
-	baseVideo: boolean;
-	/** 2 for the depth-to-space pass that carries the x2 upscale, 1 for every other pass. */
-	scale: number;
-	fragment: string;
-}
+const fragments = all
+	.map((pass, index) => "const PASS_" + index + " = " + JSON.stringify(pass.fragment) + ";")
+	.join("\n\n");
 
-${fragments.map((pass, index) => `const PASS_${index} = ${JSON.stringify(pass.fragment)};`).join("\n\n")}
+const specs = all
+	.map((pass, index) => {
+		const { fragment, header, ...rest } = pass;
+		return "\t{ ..." + JSON.stringify(rest) + ", fragment: PASS_" + index + " },";
+	})
+	.join("\n");
 
-export const ANIME4K_RESTORE_PASSES: Anime4KPassSpec[] = [
-${restore.map((pass, index) => describe(pass, index)).join(",\n")},
-];
-
-export const ANIME4K_UPSCALE_PASSES: Anime4KPassSpec[] = [
-${upscale.map((pass, index) => describe(pass, restore.length + index)).join(",\n")},
-];
-`;
+const out = [
+	header,
+	"",
+	passInterface,
+	"",
+	fragments,
+	"",
+	"export const ANIME4K_PASSES: Anime4KPassSpec[] = [",
+	specs,
+	"];",
+	"",
+	"/** The chain as consecutive groups of pass indices; each group reads the previous group's output. */",
+	"export const ANIME4K_SEGMENTS: number[][] = " + JSON.stringify(segmentRanges) + ";",
+	"",
+	"export const ANIME4K_SHADERS: string[] = ANIME4K_PASSES.map(pass => pass.fragment);",
+	"",
+].join("\n");
 
 writeFileSync(outFile, out);
 console.log(
-	`restore: ${restore.map(p => `${p.name}${p.video ? "(video)" : ""}${p.base ? "(+base)" : ""}x${p.scale}`).join(" -> ")}`,
-);
-console.log(
-	`upscale: ${upscale.map(p => `${p.name}${p.video ? "(video)" : ""}${p.base ? "(+base)" : ""}x${p.scale}`).join(" -> ")}`,
-);
-console.log(`\n--- first pass ---\n${restore[0].fragment.split("\n").slice(0, 22).join("\n")}`);
-console.log(
-	`\n--- last pass ---\n${upscale[upscale.length - 1].fragment.split("\n").slice(0, 20).join("\n")}`,
+	segments.map(segment => segment.file + ": " + segment.passes.length + " passes").join(" | "),
 );
