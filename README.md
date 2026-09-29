@@ -28,9 +28,12 @@
 | 清晰化 | 通用、最省电 | FSR1 的 EASU 多抽头放大 + CAS 对比自适应锐化（WebGL2） |
 | **影视（去噪去带）** | **真人剧集与电影** | 保边去噪去块、按邻域跨度压平色带并加抖动 → EASU 放大 → 0.6 倍强度锐化 |
 | AI 超分 / AI 超分（质量） | 动画片 | Anime4K Mode A / A+A（WebGPU），质量档约为快速档两倍开销 |
+| **AI 超分（极致）** | 动画片；没有 WebGPU 的设备 | 把 mpv 的 A+A (HQ) 链原样跑在 WebGL2 上：官方 v4.0.1 GLSL 权重逐字不变，统计在链首、clamp 在链尾，2× 目标下每帧 46 个 pass |
 
 自动档在电脑（指针设备）上按 **2× 源分辨率**渲染再缩到屏幕，AI 超分的放大阶段因此才真正生效；
 触屏设备贴合显示尺寸以省电。设备吃不消时按档位逐级降档，仍不行再降渲染倍率。
+拿不到 WebGPU 的浏览器（Windows 之外的 Firefox、Safari 26 之前、被驱动黑名单挡住的机器）会改用
+WebGL2 跑同一套 Anime4K 网络，极致档只在那些设备上出现，「质量」档在 WebGPU 上就是同一条链。
 整条链路都在客户端，**服务器不需要 GPU**。
 
 ### 片源吃得广，防盗链有兜底
@@ -83,7 +86,7 @@ sudo docker compose up -d           # 自动拉取镜像、迁移数据库、启
 | 播放器操作、聊天与「一直缓冲」排查 | [docs/player-interactions.zh-CN.md](docs/player-interactions.zh-CN.md) |
 | 同步与速率微调 | [docs/playback-sync.zh-CN.md](docs/playback-sync.zh-CN.md) |
 | 缓冲联动（一起等待） | [docs/buffer-gate.zh-CN.md](docs/buffer-gate.zh-CN.md) |
-| 画质增强、渲染倍率与影视档 | [docs/video-enhancement.zh-CN.md](docs/video-enhancement.zh-CN.md) · [真人影视滤镜选型](docs/upscale-for-live-action.zh-CN.md) |
+| 画质增强、渲染倍率与影视档 | [docs/video-enhancement.zh-CN.md](docs/video-enhancement.zh-CN.md) · [真人影视滤镜选型](docs/upscale-for-live-action.zh-CN.md) · [极致档与 mpv 的逐块对齐](docs/upscale-webgl2-mpv-parity.zh-CN.md) |
 | 播放详情（视频数据面板） | [docs/player-stats.zh-CN.md](docs/player-stats.zh-CN.md) |
 | 房间语音（P2P、成本刹车） | [docs/voice.zh-CN.md](docs/voice.zh-CN.md) |
 | 房间便签（追加式、权限与迁移） | [docs/room-notes.zh-CN.md](docs/room-notes.zh-CN.md) |
@@ -103,8 +106,9 @@ sudo docker compose up -d           # 自动拉取镜像、迁移数据库、启
 
 这个分支站在很多开源工作上面，特别感谢：
 
-- **[Anime4K](https://github.com/bloc97/Anime4K)（bloc97 等）**——「AI 超分」两档用的就是它的
-  Mode A / A+A 着色器链，本项目只做了 WebGPU 驱动与档位管理。
+- **[Anime4K](https://github.com/bloc97/Anime4K)（bloc97 等）**——「AI 超分」各档用的就是它的
+  Mode A / A+A 着色器链：WebGPU 侧调用现成移植库，WebGL2 侧从官方 v4.0.1 GLSL 生成（卷积权重
+  逐字不变），本项目做的是驱动、档位与坐标语义的对齐。
 - **[anime4k-webgpu](https://github.com/Anime4KWebBoost/anime4k-webgpu)**——Anime4K 的 WebGPU 移植，
   我们直接调用它导出的预设、修复与放大模型（`ModeA` / `ModeAA` 等）。
 - **[AMD FidelityFX Super Resolution 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR)**——

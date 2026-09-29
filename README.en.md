@@ -33,11 +33,15 @@ offers low-latency sync, chat, voice and AI video upscaling (Anime4K); run it se
 | Sharpen | Anything, cheapest | FSR1's EASU edge-adaptive upscale plus CAS contrast-adaptive sharpening (WebGL2) |
 | **Film (denoise, deband)** | **Live-action shows and movies** | Edge-preserving denoise/deblock, banding flattening where a neighborhood spans a few code values, LSB dither, then EASU and sharpening at 0.6 strength |
 | AI upscale / AI upscale (quality) | Anime | Anime4K Mode A / A+A (WebGPU); the quality tier costs about twice the fast one |
+| **AI upscale (ultra)** | Anime, on devices with no WebGPU | mpv's A+A (HQ) chain run on WebGL2: the official v4.0.1 GLSL with its weights untouched, statistics first and the clamp last, 46 passes a frame at a 2× target |
 
 On a pointer device the automatic scale renders at **2× the source** and lets the screen
 downsample, which is what makes the AI tier’s upscale stages run at all; touch devices keep the
 display-sized target to save power. Slow devices step down tier by tier, then by render scale.
-All of it runs on the client — **the server needs no GPU**.
+Browsers without a usable WebGPU adapter (Firefox outside Windows, Safari before 26, GPUs on the
+driver blocklist) run the same Anime4K networks on WebGL2; the ultra tier only shows up there,
+since on WebGPU the quality tier already is that chain. All of it runs on the client —
+**the server needs no GPU**.
 
 ### Sources are broad, and hotlink guards have a fallback
 
@@ -101,7 +105,7 @@ address. The full trade-off table is in [deployment options](docs/deployment-opt
 | Player controls, chat and “always buffering” | [docs/player-interactions.zh-CN.md](docs/player-interactions.zh-CN.md) |
 | Playback sync and rate bending | [docs/playback-sync.zh-CN.md](docs/playback-sync.zh-CN.md) |
 | “Pause while others buffer” | [docs/buffer-gate.zh-CN.md](docs/buffer-gate.zh-CN.md) |
-| Enhancement tiers, render scale and the film tier | [docs/video-enhancement.zh-CN.md](docs/video-enhancement.zh-CN.md) · [live-action filter survey](docs/upscale-for-live-action.zh-CN.md) |
+| Enhancement tiers, render scale and the film tier | [docs/video-enhancement.zh-CN.md](docs/video-enhancement.zh-CN.md) · [live-action filter survey](docs/upscale-for-live-action.zh-CN.md) · [ultra tier vs mpv, block by block](docs/upscale-webgl2-mpv-parity.zh-CN.md) |
 | Playback details panel | [docs/player-stats.zh-CN.md](docs/player-stats.zh-CN.md) |
 | Room voice (P2P, cost brake) | [docs/voice.zh-CN.md](docs/voice.zh-CN.md) |
 | Room notes (append-only, permissions, migration) | [docs/room-notes.zh-CN.md](docs/room-notes.zh-CN.md) |
@@ -124,8 +128,9 @@ scope, and the [font licenses](client/src/assets/fonts/vendor/LICENSES.md).
 This fork stands on a lot of open-source work — in particular:
 
 - **[Anime4K](https://github.com/bloc97/Anime4K)** (bloc97 and contributors): the AI upscale tiers
-  run its Mode A / A+A shader chain; this project only drives it, manages the tiers and picks the
-  render target.
+  run its Mode A / A+A shader chain. The WebGPU side calls an existing port; the WebGL2 side is
+  generated from the official v4.0.1 GLSL with its convolution weights untouched — what this
+  project adds is the driver, the tiers and the coordinate semantics.
 - **[anime4k-webgpu](https://github.com/Anime4KWebBoost/anime4k-webgpu)**: the WebGPU port of those
   models, which we call directly (`ModeA`, `ModeAA`, restore and upscale pipelines).
 - **[AMD FidelityFX Super Resolution 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR)**:
