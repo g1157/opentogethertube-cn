@@ -30,14 +30,16 @@ const UPSCALE_CONDITION = /1\.200 >/;
 const BASE_DIRECTIVE = /\bMAIN_(tex|pos)\b/;
 const DIRECTIVE_LINE = /^\/\/![^\n]*\n/gm;
 const HOOK_SIGNATURE = /^vec4 hook\s*\(\s*\)\s*\{/m;
-const RETURN_STATEMENT = /^(\s*)return\s+([^\n;]+);$/gm;
+// Trailing whitespace is common in the official sources; `;$` alone misses those lines.
+const RETURN_STATEMENT = /^(\s*)return\s+([^\n;]+);\s*$/gm;
 const SCALE_MARKER = /2 \*/;
 const DESC_SPLIT = /^\/\/!DESC /m;
 const BIND_LINE = /^\/\/!BIND (.+)$/gm;
 const SAVE_LINE = /^\/\/!SAVE (.+)$/m;
 
 function buildPass(block, index, mainIsVideo) {
-	const body = block.body.replace(DIRECTIVE_LINE, "");
+	// HOOKED is mpv's name for "the picture this hook runs on"; in a shader it is MAIN.
+	const body = block.body.replace(DIRECTIVE_LINE, "").replace(/HOOKED_/g, "MAIN_");
 	const binds = block.binds.map(name => (name === "HOOKED" ? "MAIN" : name));
 	const primary = pickPrimary(body, binds);
 	const primaryIsVideo = mainIsVideo && primary === "MAIN";
@@ -79,8 +81,15 @@ function buildPass(block, index, mainIsVideo) {
 		);
 	}
 	lines.push("");
-	let converted = body.replace(HOOK_SIGNATURE, "void main() {\n\tvec2 p = vUv;");
-	converted = converted.replace(RETURN_STATEMENT, "$1outColor = $2;\n$1return;");
+	// Only the hook's own returns become writes to the output; helper functions kept above it
+	// (Clamp_Highlights has get_luma) must keep their returns intact.
+	const hookAt = body.search(HOOK_SIGNATURE);
+	const helpers = hookAt > 0 ? body.slice(0, hookAt) : "";
+	const hook = body
+		.slice(Math.max(hookAt, 0))
+		.replace(HOOK_SIGNATURE, "void main() {\n\tvec2 p = vUv;")
+		.replace(RETURN_STATEMENT, "$1outColor = $2;\n$1return;");
+	const converted = helpers + hook;
 	lines.push(converted.trim());
 	return {
 		name: block.save ?? "output",
