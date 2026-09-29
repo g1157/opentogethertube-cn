@@ -40,7 +40,7 @@ export function planFilmPasses(input: { magnifying: boolean }): FilmPass[] {
 
 // Reads the video with plain uv (top-row-first storage) and writes the filtered picture;
 // neighborhood taps are symmetric, so only the sample/write mapping depends on this.
-const CLEAN_FRAGMENT_SHADER = `#version 300 es
+export const CLEAN_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 uniform sampler2D uTexture;
 uniform vec2 uTexel;
@@ -74,9 +74,10 @@ void main() {
 	// those towards the filtered mean and leave textured areas alone.
 	vec3 mn = min(min(min(n, s), min(w, e)), c);
 	vec3 mx = max(max(max(n, s), max(w, e)), c);
-	float flat = 1.0 - smoothstep(0.02, 0.10, luma(mx) - luma(mn));
+	// "flat" is an interpolation qualifier in GLSL ES 3.00 and cannot name a variable.
+	float flatness = 1.0 - smoothstep(0.02, 0.10, luma(mx) - luma(mn));
 
-	float weight = clamp(uDenoise + uDeband * flat, 0.0, 1.0);
+	float weight = clamp(uDenoise + uDeband * flatness, 0.0, 1.0);
 	vec3 result = mix(c, filtered, weight);
 
 	// Ordered dither at the LSB: without it, quantising to the display's 8 bits would put
@@ -102,7 +103,15 @@ export function startFilmRenderer(
 	canvas: HTMLCanvasElement,
 	options: FilmRendererOptions,
 ): UpscaleRenderer {
-	const gl = canvas.getContext("webgl2", { alpha: false, antialias: false });
+	const gl = canvas.getContext("webgl2", {
+		alpha: false,
+		antialias: false,
+		// A paused video presents no new frames and this tier only draws on presented frames,
+		// so the buffer has to survive being composited on its own; otherwise a re-composite
+		// (a resize, a tab switch) can leave the canvas empty, and an empty canvas shows the
+		// raw video through it in Firefox.
+		preserveDrawingBuffer: true,
+	});
 	if (!gl) {
 		throw new Error("WebGL2 unavailable");
 	}
@@ -163,72 +172,91 @@ export function startFilmRenderer(
 		return createRenderTarget(gl, width, height);
 	};
 
+	/**
+	 * Draws the frame the video currently holds. requestVideoFrameCallback is what normally
+	 * drives the loop, and it only fires for newly presented frames: while the video is paused
+	 * nothing would ever be drawn, so starting or rebuilding the tier while paused used to
+	 * leave a canvas nobody had drawn into — which shows the raw video underneath instead of
+	 * the enhanced picture. start(), pause and seeked therefore draw explicitly.
+	 */
+	const drawFrame = () => {
+		if (stopped || video.readyState < video.HAVE_CURRENT_DATA) {
+			return;
+		}
+		gl.bindVertexArray(vao);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, videoTexture);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+
+		const inputWidth = Math.max(1, video.videoWidth);
+		const inputHeight = Math.max(1, video.videoHeight);
+		const outputWidth = Math.max(1, canvas.width);
+		const outputHeight = Math.max(1, canvas.height);
+		const magnifying = outputWidth > inputWidth || outputHeight > inputHeight;
+
+		cleanTarget = ensureTarget(cleanTarget, inputWidth, inputHeight);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, cleanTarget.framebuffer);
+		gl.viewport(0, 0, inputWidth, inputHeight);
+		gl.useProgram(cleanProgram);
+		gl.bindTexture(gl.TEXTURE_2D, videoTexture);
+		gl.uniform2f(cleanTexel, 1 / inputWidth, 1 / inputHeight);
+		gl.uniform1f(cleanDenoise, FILM_DENOISE);
+		gl.uniform1f(cleanDeband, FILM_DEBAND);
+		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+		let outputTexture = cleanTarget.texture;
+		if (magnifying) {
+			upscaleTarget = ensureTarget(upscaleTarget, outputWidth, outputHeight);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, upscaleTarget.framebuffer);
+			gl.viewport(0, 0, outputWidth, outputHeight);
+			gl.useProgram(easuProgram);
+			gl.bindTexture(gl.TEXTURE_2D, cleanTarget.texture);
+			gl.uniform2f(easuInSize, inputWidth, inputHeight);
+			gl.uniform2f(easuOutSize, outputWidth, outputHeight);
+			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+			outputTexture = upscaleTarget.texture;
+		}
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		gl.viewport(0, 0, outputWidth, outputHeight);
+		gl.useProgram(sharpenProgram);
+		gl.bindTexture(gl.TEXTURE_2D, outputTexture);
+		gl.uniform1f(sharpenAmount, options.getStrength() * FILM_SHARPEN_FACTOR);
+		// The EASU target is framebuffer-style (v=0 is the bottom row); the clean target
+		// holds the picture video-style (v=0 is the top row), so only that one flips.
+		gl.uniform1f(sharpenFlipY, magnifying ? 0 : 1);
+		gl.uniform2f(sharpenTexel, 1 / outputWidth, 1 / outputHeight);
+		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+		if (frames === 0) {
+			console.info(
+				`[video-enhancement] film chain cleaning ${inputWidth}×${inputHeight} into ${outputWidth}×${outputHeight}`,
+			);
+			reportEnhancementTarget(`film · ${outputWidth}×${outputHeight}`);
+		}
+		frames++;
+	};
+
 	const frame = () => {
 		if (stopped) {
 			return;
 		}
-		if (!video.paused && video.readyState >= video.HAVE_CURRENT_DATA) {
-			gl.bindVertexArray(vao);
-			gl.activeTexture(gl.TEXTURE0);
-			gl.bindTexture(gl.TEXTURE_2D, videoTexture);
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
-
-			const inputWidth = Math.max(1, video.videoWidth);
-			const inputHeight = Math.max(1, video.videoHeight);
-			const outputWidth = Math.max(1, canvas.width);
-			const outputHeight = Math.max(1, canvas.height);
-			const magnifying = outputWidth > inputWidth || outputHeight > inputHeight;
-
-			cleanTarget = ensureTarget(cleanTarget, inputWidth, inputHeight);
-			gl.bindFramebuffer(gl.FRAMEBUFFER, cleanTarget.framebuffer);
-			gl.viewport(0, 0, inputWidth, inputHeight);
-			gl.useProgram(cleanProgram);
-			gl.bindTexture(gl.TEXTURE_2D, videoTexture);
-			gl.uniform2f(cleanTexel, 1 / inputWidth, 1 / inputHeight);
-			gl.uniform1f(cleanDenoise, FILM_DENOISE);
-			gl.uniform1f(cleanDeband, FILM_DEBAND);
-			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-			let outputTexture = cleanTarget.texture;
-			if (magnifying) {
-				upscaleTarget = ensureTarget(upscaleTarget, outputWidth, outputHeight);
-				gl.bindFramebuffer(gl.FRAMEBUFFER, upscaleTarget.framebuffer);
-				gl.viewport(0, 0, outputWidth, outputHeight);
-				gl.useProgram(easuProgram);
-				gl.bindTexture(gl.TEXTURE_2D, cleanTarget.texture);
-				gl.uniform2f(easuInSize, inputWidth, inputHeight);
-				gl.uniform2f(easuOutSize, outputWidth, outputHeight);
-				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-				outputTexture = upscaleTarget.texture;
-			}
-
-			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-			gl.viewport(0, 0, outputWidth, outputHeight);
-			gl.useProgram(sharpenProgram);
-			gl.bindTexture(gl.TEXTURE_2D, outputTexture);
-			gl.uniform1f(sharpenAmount, options.getStrength() * FILM_SHARPEN_FACTOR);
-			// The EASU target is framebuffer-style (v=0 is the bottom row); the clean target
-			// holds the picture video-style (v=0 is the top row), so only that one flips.
-			gl.uniform1f(sharpenFlipY, magnifying ? 0 : 1);
-			gl.uniform2f(sharpenTexel, 1 / outputWidth, 1 / outputHeight);
-			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-			if (frames === 0) {
-				console.info(
-					`[video-enhancement] film chain cleaning ${inputWidth}×${inputHeight} into ${outputWidth}×${outputHeight}`,
-				);
-				reportEnhancementTarget(`film · ${outputWidth}×${outputHeight}`);
-			}
-			frames++;
-		}
+		drawFrame();
 		frameRequest = video.requestVideoFrameCallback(frame);
 	};
+	// A paused video presents no frames, so nothing would redraw the picture the viewer is
+	// looking at — including the case of a tier that started while the video was paused.
+	video.addEventListener("pause", drawFrame);
+	video.addEventListener("seeked", drawFrame);
+	drawFrame();
 	frameRequest = video.requestVideoFrameCallback(frame);
 
 	return {
 		stop() {
 			stopped = true;
 			video.cancelVideoFrameCallback(frameRequest);
+			video.removeEventListener("pause", drawFrame);
+			video.removeEventListener("seeked", drawFrame);
 			if (cleanTarget) {
 				releaseRenderTarget(gl, cleanTarget);
 				cleanTarget = null;

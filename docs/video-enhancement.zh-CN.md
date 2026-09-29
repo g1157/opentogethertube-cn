@@ -63,6 +63,20 @@ Anime4K 档不经过这条管线，它把画布尺寸交给 WebGPU CNN 作为目
 自动降档的顺序为：质量 → 快速 → 清晰化 → 逐级降倍率 → 关闭。质量档无法启动时（例如设备
 内存不足）只退回快速档，并提示“已切换为「AI 超分」”；快速档无法启动才退回清晰化。
 
+### 没有 WebGPU 时走 WebGL2（2026-09-29 起）
+
+「AI 超分」两档不再要求 WebGPU：优先用 WebGPU 的移植库，拿不到设备或管线创建失败时，
+自动改用 WebGL2 跑**同一套 Anime4K 网络**（官方 GLSL 的 S 档，`Restore_CNN_S` 4 个 pass +
+`Upscale_CNN_x2_S` 5 个 pass，最后一段 depth-to-space 才是 2× 放大）。这条路径覆盖了
+Windows 之外的 Firefox（`requestAdapter()` 会直接抛错）、Safari 26 之前、以及被驱动黑名单
+挡住的机器；质量档在没有 WebGPU 时与快速档共用这条链路。
+
+着色器由 `scripts/anime4k-glsl-to-webgl2.mjs` 从官方 v4.0.1 GLSL 生成（权重逐字不变，
+只把 mpv 的 `//!HOOK` 宏改写成 uniform 与固定 pass），生成结果在
+`client/src/util/upscale/anime4k-glsl.ts`，驱动在 `anime4k-webgl.ts`。实测（Firefox 142 与
+Chromium 141，同一画面暂停后对比同一显示尺寸下的平均梯度）：画布 53.6 / 53.9，原画
+39.7 / 39.9，即增强输出比原画锐约 35%。
+
 A+A 在官方的定位是“感知质量最高”，代价是发热、风扇与耗电；官方也建议只在 2× 及以上
 放大倍率使用。低分辨率或本就干净的片源上，快速档与质量档的差别可能很小。
 
@@ -84,10 +98,26 @@ AI 档会留一块黑画布、既不生效也不降档。现在这条路径会�
 2. **EASU 放大**到画布目标（与清晰化档同一个 12 抽头核）。
 3. **CAS 锐化**，强度取滑块的 0.6 倍：真人脸部比动画更容易出现光晕。
 
-中间目标优先半浮点（`EXT_color_buffer_half_float`，附加不上或驱动拒绝时退回 8-bit）。整条链路
+中间目标优先半浮点（WebGL2 里由 `EXT_color_buffer_float` 提供 16F 的可渲染性，Chromium 另外
+也响应旧的 `EXT_color_buffer_half_float`；两者都没有、或驱动拒绝该附件时退回 8-bit）。整条链路
 只需 WebGL2，不需要 WebGPU，因此手机也能开；降档阶梯是 质量 → AI 超分 → 影视 → 清晰化 → 倍率档
 → 关闭，启动失败时影视档退回清晰化。参数集中在 `client/src/util/upscale/film.ts`：
 `FILM_DENOISE = 0.5`、`FILM_DEBAND = 0.6`、`FILM_SHARPEN_FACTOR = 0.6`。
+
+clean 着色器曾把一个变量命名为 `flat`——那是 GLSL ES 3.00 的插值限定符，编译必然失败，
+于是这一档在**所有浏览器**上都会启动失败并回退到清晰化（2026-09-29 修复，并加了保留字扫描
+测试）。同一次修复还包括：半浮点探测漏掉 `EXT_color_buffer_float`（Firefox 只有这一个），
+以及暂停/跳转时的空白画布问题，见
+[画质增强诊断](upscale-diagnosis-2026-09-29.zh-CN.md)。
+
+## 暂停、跳转与重绘
+
+三档都只在 `requestVideoFrameCallback`（有新帧呈现）时绘制，而暂停的视频不会再产生这个回调。
+因此启动、暂停、`seeked` 都会额外显式绘制一次当前帧：切档、改渲染倍率、进入全屏或窗口尺寸
+稳定都会重建增强层，若此时视频是暂停的，旧实现会留下一张从未绘制过的空画布——它在 Firefox
+与 Windows Chrome 上会透出底层 video，看起来就是"暂停/跳转时变回原画质"，播放中被下一帧补上
+时则是"闪一两帧"。WebGL2 上下文同时使用 `preserveDrawingBuffer`，避免合成的时机把画布内容
+抹掉。暂停时保留的是**超分后的画面**，与播放中一致。
 
 ## 性能与自动降档
 

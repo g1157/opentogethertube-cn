@@ -16,7 +16,7 @@ mpv 侧是同一套着色器跑在 **2× 源分辨率的超级采样目标**上�
 | 环节 | 现状 | 位置 |
 | --- | --- | --- |
 | 最高档预设 | `anime4k-quality` → 库的 `ModeAA`（`Restore → Upscale → Restore → Upscale`，4 pass），`anime4k` → `ModeA`（3 pass） | `client/src/util/upscale/anime4k.ts:95-113` |
-| CNN 变体 | 只用官方 Mode A/A+A（“M”中等模型），未接 `CNNx2VL/CNNx2UL/GANx3L/GANx4UUL`、`CNNVL/CNNUL/GANUUL`、`DenoiseCNNx2VL`，也未用 Mode B/BB/C/CA | `anime4k.ts:106`（库的能力表见 `anime4k-webgpu/README.md`） |
+| CNN 变体 | 用的是官方 Mode A/A+A，其组成（读库源码 `ModeA`/`ModeAA`）为 `ClampHighlights → CNNVL → CNNx2VL → CNNM → …`，即第一段 VL 档修复与放大、第二段 M 档；未接 `CNNx2UL/GANx3L/GANx4UUL/GANUUL`、`DenoiseCNNx2VL`，也未用 Mode B/BB/C/CA | `anime4k.ts:106`（库的能力表见 `anime4k-webgpu/README.md`） |
 | 渲染目标 | `computeCanvasSize()`：auto 档 `scale = min(框宽×dpr÷源宽, 框高×dpr÷源高)`，即**刚好铺满显示框**，不做超采样 | `client/src/util/upscale/scale.ts:49-76` |
 | 像素预算 | `MAX_AUTO_PIXELS = 3840×2160`；由 `budgetScale = sqrt(预算/(w·h))` 再夹一次 | `scale.ts:31,62-64` |
 | 放大上限 | `MAX_SCALE = 3`、`MIN_AUTO_SCALE = 1`（窗口小于源时夹到 1×，此时 target ≈ native，Upscale 段空转） | `scale.ts:13,21,61` |
@@ -33,7 +33,10 @@ mpv 侧是同一套着色器跑在 **2× 源分辨率的超级采样目标**上�
 
 1. **没有超采样**：auto 只铺满显示框；mpv 用 Anime4K 的 2× 上采样再交给高质量缩放器下采样。
 2. **像素预算 + MAX_SCALE + dpr 三重夹取**：1080p 源最高到 2×，1440p 到 1.5×，4K 到 1×；mpv 无这些限制。
-3. **只用中等模型**：Mode A/A+A 是官方「M」档，mpv 配置常用 L/VL/UL/GAN 档（更锐、更贵）。
+3. ~~只用中等模型~~ **已更正（2026-09-29 复核库源码）**：Mode A/A+A 的组成是
+   `ClampHighlights → CNNVL → CNNx2VL → CNNM → …`，第一段就是 VL 档，第二段用 M 档抵消
+   放大后的 4 倍成本——模型档位不是短板；真正差的是最终缩放、像素预算与自动降档（见
+   [画质增强诊断](upscale-diagnosis-2026-09-29.zh-CN.md#四与-mpv--anime4k-a-a-hq-的差距复核)）。
 4. **小窗/嵌入播放器退化成 1×**：`MIN_AUTO_SCALE = 1` 让 Upscale 段空转，只剩 Restore。
 5. **默认自动降档会先牺牲画质**：一次掉帧就可能把最高档换成 `anime4k`，用户看不出。
 6. **最后一步由浏览器缩放**：画布小于框时再次软化。
@@ -48,7 +51,7 @@ mpv 侧是同一套着色器跑在 **2× 源分辨率的超级采样目标**上�
 | P2 ◻ | 质量档接入更重的变体（`CNNx2UL`/`CNNUL`/`GANx3L` 等，库已导出）作为「极致」档 | `anime4k.ts:95-113` | mpv 级别的档位；代价是发热与耗电 |
 | P2 ✅ | dpr 夹取上限 2 → 3（`MAX_DPR`，渲染/详情/预览三处一致） | `UpscaleLayer.vue`、`player-stats.ts`、`VideoQueueItem.vue` | 高 DPI Windows 桌面不再被截断 |
 | P2 ◻ | 自动降档默认改为「先降倍率、后降预设」，或在降档时给出可见提示（目前有 toast） | `UpscaleLayer.vue:161-184`、`settings.ts:116` | 用户不会误判「最高档就这效果」 |
-| P3 ◻ | 清晰化档中间目标改 half-float，减少 8bit 精度损失 | `cas.ts:326` | 清晰化档细节更干净 |
+| P3 ✅ | 清晰化/影视档中间目标改 half-float，减少 8bit 精度损失 | `cas.ts`（`createRenderTarget`） | 2026-09-29：改为同时接受 `EXT_color_buffer_float`（Firefox 只有这个）与 `EXT_color_buffer_half_float`，Firefox 上实测 `halfFloat=true` |
 | P3 ◻ | 加 GPU 时间 / pass 计数遥测，把「比 mpv 弱」变成可量化对比 | `player-stats.ts` | 后续调参有依据 |
 
 ### 已落地的部分（2026-09）
@@ -64,6 +67,8 @@ mpv 侧是同一套着色器跑在 **2× 源分辨率的超级采样目标**上�
 
 - 现有效果与限制记录：`docs/video-enhancement.zh-CN.md`（含 A+A 的 pass 数、像素预算、降档阶梯、
   “画布低于源分辨率反而更软”的旧管线教训）。
+- 2026-09-29 的复核与修复：`docs/upscale-diagnosis-2026-09-29.zh-CN.md`（模型档位更正、最终缩放、
+  4K 预算、自动降档、Firefox 的 WebGL2 路线等仍待决策项）。
 - 库能力表：`anime4k-webgpu` README（Restore / Upscale / Preset 全量清单）。
 
 ## 验证方式（改动后）

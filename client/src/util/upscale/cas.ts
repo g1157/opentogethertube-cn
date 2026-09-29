@@ -265,7 +265,7 @@ export interface RenderTarget {
 
 /**
  * A framebuffer to render one pass into. Half float keeps the precision a deband pass needs;
- * platforms without the extension (or drivers that refuse the attachment) fall back to the
+ * platforms that cannot attach one (or drivers that refuse the attachment) fall back to the
  * 8-bit target every tier used before.
  */
 export function createRenderTarget(
@@ -273,7 +273,13 @@ export function createRenderTarget(
 	width: number,
 	height: number,
 ): RenderTarget {
-	const halfFloat = gl.getExtension("EXT_color_buffer_half_float") !== null;
+	// In WebGL2 the 16-bit float formats become color-renderable through EXT_color_buffer_float;
+	// the half-float extension is the older WebGL1 spelling that Chromium answers as well.
+	// Firefox only implements the float one, so asking for the half-float name alone dropped
+	// every intermediate in the clean and sharpen chains to 8 bits there for no reason.
+	const halfFloat =
+		gl.getExtension("EXT_color_buffer_float") !== null ||
+		gl.getExtension("EXT_color_buffer_half_float") !== null;
 	const target =
 		allocateRenderTarget(gl, width, height, halfFloat) ??
 		(halfFloat ? allocateRenderTarget(gl, width, height, false) : null);
@@ -326,7 +332,15 @@ export function startSharpenRenderer(
 	canvas: HTMLCanvasElement,
 	getAmount: () => number,
 ): UpscaleRenderer {
-	const gl = canvas.getContext("webgl2", { alpha: false, antialias: false });
+	const gl = canvas.getContext("webgl2", {
+		alpha: false,
+		antialias: false,
+		// A paused video presents no new frames and this tier only draws on presented frames,
+		// so the buffer has to survive being composited on its own; otherwise a re-composite
+		// (a resize, a tab switch) can leave the canvas empty, and an empty canvas shows the
+		// raw video through it in Firefox.
+		preserveDrawingBuffer: true,
+	});
 	if (!gl) {
 		throw new Error("WebGL2 unavailable");
 	}
@@ -376,62 +390,81 @@ export function startSharpenRenderer(
 		return stage;
 	};
 
+	/**
+	 * Draws the frame the video currently holds. requestVideoFrameCallback is what normally
+	 * drives the loop, and it only fires for newly presented frames: while the video is paused
+	 * nothing would ever be drawn, so starting or rebuilding the tier while paused used to
+	 * leave a canvas nobody had drawn into — which shows the raw video underneath instead of
+	 * the enhanced picture. start(), pause and seeked therefore draw explicitly.
+	 */
+	const drawFrame = () => {
+		if (stopped || video.readyState < video.HAVE_CURRENT_DATA) {
+			return;
+		}
+		gl.bindVertexArray(vao);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, videoTexture);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+
+		const inputWidth = Math.max(1, video.videoWidth);
+		const inputHeight = Math.max(1, video.videoHeight);
+		const outputWidth = Math.max(1, canvas.width);
+		const outputHeight = Math.max(1, canvas.height);
+		const magnifying = outputWidth > inputWidth || outputHeight > inputHeight;
+
+		if (magnifying) {
+			// EASU in the source resolution's terms, then sharpen the upscaled
+			// picture so the strength slider acts at the displayed scale.
+			const target = ensureStage(outputWidth, outputHeight);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+			gl.viewport(0, 0, outputWidth, outputHeight);
+			gl.useProgram(easuProgram);
+			// ensureStage leaves the stage texture bound; the EASU pass reads the video.
+			gl.bindTexture(gl.TEXTURE_2D, videoTexture);
+			gl.uniform2f(easuInSize, inputWidth, inputHeight);
+			gl.uniform2f(easuOutSize, outputWidth, outputHeight);
+			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+			gl.useProgram(sharpenProgram);
+			gl.bindTexture(gl.TEXTURE_2D, target.texture);
+			gl.uniform1f(sharpenAmount, getAmount());
+			gl.uniform1f(sharpenFlipY, 0);
+			gl.uniform2f(sharpenTexel, 1 / outputWidth, 1 / outputHeight);
+			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+		} else {
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+			gl.viewport(0, 0, outputWidth, outputHeight);
+			gl.useProgram(sharpenProgram);
+			gl.uniform1f(sharpenAmount, getAmount());
+			gl.uniform1f(sharpenFlipY, 1);
+			// Minifying: the neighborhood is measured in source texels, so the
+			// sharpening stays a property of the source detail.
+			gl.uniform2f(sharpenTexel, 1 / inputWidth, 1 / inputHeight);
+			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+		}
+	};
+
 	const frame = () => {
 		if (stopped) {
 			return;
 		}
-		if (!video.paused && video.readyState >= video.HAVE_CURRENT_DATA) {
-			gl.bindVertexArray(vao);
-			gl.activeTexture(gl.TEXTURE0);
-			gl.bindTexture(gl.TEXTURE_2D, videoTexture);
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
-
-			const inputWidth = Math.max(1, video.videoWidth);
-			const inputHeight = Math.max(1, video.videoHeight);
-			const outputWidth = Math.max(1, canvas.width);
-			const outputHeight = Math.max(1, canvas.height);
-			const magnifying = outputWidth > inputWidth || outputHeight > inputHeight;
-
-			if (magnifying) {
-				// EASU in the source resolution's terms, then sharpen the upscaled
-				// picture so the strength slider acts at the displayed scale.
-				const target = ensureStage(outputWidth, outputHeight);
-				gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
-				gl.viewport(0, 0, outputWidth, outputHeight);
-				gl.useProgram(easuProgram);
-				// ensureStage leaves the stage texture bound; the EASU pass reads the video.
-				gl.bindTexture(gl.TEXTURE_2D, videoTexture);
-				gl.uniform2f(easuInSize, inputWidth, inputHeight);
-				gl.uniform2f(easuOutSize, outputWidth, outputHeight);
-				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-				gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-				gl.useProgram(sharpenProgram);
-				gl.bindTexture(gl.TEXTURE_2D, target.texture);
-				gl.uniform1f(sharpenAmount, getAmount());
-				gl.uniform1f(sharpenFlipY, 0);
-				gl.uniform2f(sharpenTexel, 1 / outputWidth, 1 / outputHeight);
-				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-			} else {
-				gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-				gl.viewport(0, 0, outputWidth, outputHeight);
-				gl.useProgram(sharpenProgram);
-				gl.uniform1f(sharpenAmount, getAmount());
-				gl.uniform1f(sharpenFlipY, 1);
-				// Minifying: the neighborhood is measured in source texels, so the
-				// sharpening stays a property of the source detail.
-				gl.uniform2f(sharpenTexel, 1 / inputWidth, 1 / inputHeight);
-				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-			}
-		}
+		drawFrame();
 		frameRequest = video.requestVideoFrameCallback(frame);
 	};
+	// A paused video presents no frames, so nothing would redraw the picture the viewer is
+	// looking at — including the case of a tier that started while the video was paused.
+	video.addEventListener("pause", drawFrame);
+	video.addEventListener("seeked", drawFrame);
+	drawFrame();
 	frameRequest = video.requestVideoFrameCallback(frame);
 
 	return {
 		stop() {
 			stopped = true;
 			video.cancelVideoFrameCallback(frameRequest);
+			video.removeEventListener("pause", drawFrame);
+			video.removeEventListener("seeked", drawFrame);
 			if (stage) {
 				releaseRenderTarget(gl, stage);
 				stage = null;

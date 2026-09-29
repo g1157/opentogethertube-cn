@@ -295,7 +295,7 @@ function fallBackFromFailure(): void {
 async function start() {
 	stopRenderers();
 	const video = props.video;
-	const element = createCanvas();
+	let element = createCanvas();
 	if (!video || !element) {
 		return;
 	}
@@ -307,28 +307,47 @@ async function start() {
 	let created: UpscaleRenderer | null = null;
 	try {
 		if (props.mode === "anime4k" || props.mode === "anime4k-quality") {
-			if (!("gpu" in navigator)) {
-				throw new Error("WebGPU unavailable");
+			const variant = props.mode === "anime4k-quality" ? "quality" : "fast";
+			if ("gpu" in navigator) {
+				// WebGPU reports most setup mistakes through error scopes instead of exceptions, so
+				// a browser with a partial implementation (Firefox outside Windows and Nightly,
+				// blocklisted drivers) throws here rather than at the first drawn frame.
+				const { startAnime4KRenderer } = await import("@/util/upscale/anime4k");
+				if (current !== generation) {
+					// Skip building a GPU device only to throw it away.
+					return;
+				}
+				try {
+					created = await startAnime4KRenderer(video, element, variant, message => {
+						// WebGPU gave up on its own: a lost device, or a validation failure the
+						// error scope caught. Step down instead of leaving a dead canvas.
+						if (current !== generation) {
+							return;
+						}
+						reportEnhancementError(message);
+						fallBackFromFailure();
+					});
+				} catch (err) {
+					// The same network runs on WebGL2, which every browser has. Only reachable
+					// for the tiers that need a GPU: the plain tiers above are already WebGL2.
+					console.warn("WebGPU Anime4K unavailable, using the WebGL2 chain:", err);
+					created = null;
+				}
 			}
-			const { startAnime4KRenderer } = await import("@/util/upscale/anime4k");
-			if (current !== generation) {
-				// Skip building a GPU device only to throw it away.
-				return;
+			if (!created) {
+				if (current !== generation) {
+					return;
+				}
+				// A canvas keeps the context type it was first asked for, so the WebGL2 attempt
+				// gets a canvas of its own rather than the one the failed start may have claimed.
+				const webglCanvas = createCanvas();
+				if (!webglCanvas) {
+					return;
+				}
+				const { startAnime4KWebGLRenderer } = await import("@/util/upscale/anime4k-webgl");
+				created = startAnime4KWebGLRenderer(video, webglCanvas);
+				element = webglCanvas;
 			}
-			created = await startAnime4KRenderer(
-				video,
-				element,
-				props.mode === "anime4k-quality" ? "quality" : "fast",
-				message => {
-					// WebGPU gave up on its own: a lost device, or a validation failure the
-					// error scope caught. Step down instead of leaving a dead canvas.
-					if (current !== generation) {
-						return;
-					}
-					reportEnhancementError(message);
-					fallBackFromFailure();
-				},
-			);
 		} else if (props.mode === "film") {
 			// Live action: clean the source's compression artifacts before the upscale.
 			const { startFilmRenderer } = await import("@/util/upscale/film");
@@ -461,8 +480,7 @@ onBeforeUnmount(() => {
 }
 </style>
 
-<!-- Not scoped: the canvas is built in script, so it never receives this component's
-     scope id and a scoped rule would not match it. -->
+<!-- biome-ignore lint/nursery/useScopedStyles: the canvas is built in script, so it never receives this component's scope id and a scoped rule would not match it. -->
 <style>
 .upscale-canvas {
 	position: absolute;

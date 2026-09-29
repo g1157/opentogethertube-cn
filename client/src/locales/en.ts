@@ -241,9 +241,9 @@ export default {
 			"intro-film":
 				"Film: an edge-preserving pass removes blocking and mosquito noise, flattens banding where the neighborhood spans a couple of code values and dithers what is left, then EASU upscales and sharpening runs at 0.6 of the slider. Use it for live-action shows and movies; anime belongs to the AI upscale below. WebGL2 only, so phones can run it too.",
 			"intro-anime4k":
-				"AI upscale (Anime4K): a WebGPU neural network rebuilds lines, best on anime. A discrete GPU has plenty of headroom; integrated graphics and phones may struggle.",
+				"AI upscale (Anime4K): a neural network rebuilds lines, best on anime. A discrete GPU has plenty of headroom; integrated graphics and phones may struggle. WebGPU is used when available; without it (Firefox outside Windows, for example) the same network runs on WebGL2 at the S variant.",
 			"intro-anime4k-quality":
-				"AI upscale (quality): stacks a second restore-and-upscale pass on the fast preset (A+A). The highest perceptual quality at roughly double the GPU cost — expect heat and fan noise on a laptop, and use it at 2x or above.",
+				"AI upscale (quality): stacks a second restore-and-upscale pass on the fast preset (A+A). The highest perceptual quality at roughly double the GPU cost — expect heat and fan noise on a laptop, and use it at 2x or above. Without WebGPU it runs the same WebGL2 chain as the fast tier.",
 			"intro-note":
 				"Slow devices step down one tier at a time; turn auto-degrade off under Advanced to keep these settings.",
 			advanced: "Advanced",

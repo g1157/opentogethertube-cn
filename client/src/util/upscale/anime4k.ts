@@ -174,17 +174,21 @@ export async function startAnime4KRenderer(
 		reportEnhancementError(event.error.message);
 	};
 
-	const frame = () => {
-		if (stopped) {
+	/**
+	 * Draws the frame the video currently holds. requestVideoFrameCallback is what normally
+	 * drives the loop, and it only fires for newly presented frames: while the video is paused
+	 * nothing would ever be drawn, so starting or rebuilding the tier while paused used to
+	 * leave a canvas nobody had drawn into — which shows the raw video underneath instead of
+	 * the enhanced picture. start(), pause and seeked therefore draw explicitly.
+	 */
+	const drawFrame = () => {
+		if (stopped || video.readyState < video.HAVE_CURRENT_DATA) {
 			return;
 		}
-		if (!video.paused) {
-			device.queue.copyExternalImageToTexture(
-				{ source: video },
-				{ texture: videoFrameTexture },
-				[width, height],
-			);
-		}
+		device.queue.copyExternalImageToTexture({ source: video }, { texture: videoFrameTexture }, [
+			width,
+			height,
+		]);
 		const commandEncoder = device.createCommandEncoder();
 		preset.pass(commandEncoder);
 		const passEncoder = commandEncoder.beginRenderPass({
@@ -209,14 +213,28 @@ export async function startAnime4KRenderer(
 			reportEnhancementTarget(`Anime4K ${variant} · ${canvas.width}×${canvas.height}`);
 		}
 		frames++;
+	};
+
+	const frame = () => {
+		if (stopped) {
+			return;
+		}
+		drawFrame();
 		frameRequest = video.requestVideoFrameCallback(frame);
 	};
+	// A paused video presents no frames, so nothing would redraw the picture the viewer is
+	// looking at — including the case of a tier that started while the video was paused.
+	video.addEventListener("pause", drawFrame);
+	video.addEventListener("seeked", drawFrame);
+	drawFrame();
 	frameRequest = video.requestVideoFrameCallback(frame);
 
 	return {
 		stop() {
 			stopped = true;
 			video.cancelVideoFrameCallback(frameRequest);
+			video.removeEventListener("pause", drawFrame);
+			video.removeEventListener("seeked", drawFrame);
 			device.destroy();
 		},
 	};

@@ -6,11 +6,15 @@ const drivers = vi.hoisted(() => ({
 	sharpen: vi.fn(),
 	film: vi.fn(),
 	anime4k: vi.fn(),
+	anime4kWebGL: vi.fn(),
 }));
 
 vi.mock("@/util/upscale/cas", () => ({ startSharpenRenderer: drivers.sharpen }));
 vi.mock("@/util/upscale/film", () => ({ startFilmRenderer: drivers.film }));
 vi.mock("@/util/upscale/anime4k", () => ({ startAnime4KRenderer: drivers.anime4k }));
+vi.mock("@/util/upscale/anime4k-webgl", () => ({
+	startAnime4KWebGLRenderer: drivers.anime4kWebGL,
+}));
 
 let clock = 0;
 
@@ -85,6 +89,7 @@ describe("enhancement layer lifecycle", () => {
 		drivers.sharpen.mockImplementation(() => renderer());
 		drivers.film.mockImplementation(() => renderer());
 		drivers.anime4k.mockImplementation(() => Promise.resolve(renderer()));
+		drivers.anime4kWebGL.mockImplementation(() => renderer());
 	});
 	afterEach(() => {
 		Reflect.deleteProperty(navigator, "gpu");
@@ -177,6 +182,35 @@ describe("enhancement layer lifecycle", () => {
 		mountComponent(UpscaleLayer, { props: { video: fast.video, mode: "anime4k" } });
 		await settle();
 		expect(drivers.anime4k.mock.calls[1][2]).toBe("fast");
+	});
+
+	it("runs the Anime4K network on WebGL2 when WebGPU cannot start", async () => {
+		// Firefox outside Windows and Nightly exposes navigator.gpu but hands out no adapter,
+		// and a blocklisted driver fails the same way: the same network has a WebGL2 chain.
+		drivers.anime4k.mockImplementationOnce(() =>
+			Promise.reject(new Error("WebGPU adapter unavailable")),
+		);
+		const { store } = mountComponent(UpscaleLayer, {
+			props: { video: fakeVideo().video, mode: "anime4k" },
+		});
+		store.commit("settings/UPDATE", { upscaleMode: "anime4k" });
+		await settle();
+
+		expect(drivers.anime4kWebGL).toHaveBeenCalledTimes(1);
+		// The tier ran, so it must not step down to sharpening or off.
+		expect(store.state.settings.upscaleMode).toBe("anime4k");
+		// A canvas keeps the context type it was first asked for, so the WebGL2 chain gets one
+		// of its own rather than the canvas the failed start may have claimed.
+		expect(drivers.anime4kWebGL.mock.calls[0][1]).not.toBe(drivers.anime4k.mock.calls[0][1]);
+	});
+
+	it("skips the WebGPU attempt when the browser has no such interface", async () => {
+		Reflect.deleteProperty(navigator, "gpu");
+		mountComponent(UpscaleLayer, { props: { video: fakeVideo().video, mode: "anime4k" } });
+		await settle();
+
+		expect(drivers.anime4k).not.toHaveBeenCalled();
+		expect(drivers.anime4kWebGL).toHaveBeenCalledTimes(1);
 	});
 
 	it("drops the quality tier to the fast preset before touching the scale", async () => {

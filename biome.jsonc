@@ -15,7 +15,8 @@
 			"!!**/*.log",
 			"!!**/*.env",
 			"!server/generated.ts",
-			"!packages/ott-vis/generated.ts"
+			"!packages/ott-vis/generated.ts",
+			"!client/src/util/upscale/anime4k-glsl.ts"
 		]
 	},
 	"formatter": {
