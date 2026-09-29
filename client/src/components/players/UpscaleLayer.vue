@@ -373,10 +373,14 @@ async function start() {
 				if (props.mode === "anime4k-quality") {
 					// The heavy tier runs the same A+A (HQ) chain the WebGPU "quality" preset does,
 					// so the two AI tiers differ on WebGL2 the way they do on a WebGPU device.
-					const { startAnime4KUltraRenderer } = await import("@/util/upscale/anime4k-ultra");
+					const { startAnime4KUltraRenderer } = await import(
+						"@/util/upscale/anime4k-ultra"
+					);
 					created = startAnime4KUltraRenderer(video, webglCanvas);
 				} else {
-					const { startAnime4KWebGLRenderer } = await import("@/util/upscale/anime4k-webgl");
+					const { startAnime4KWebGLRenderer } = await import(
+						"@/util/upscale/anime4k-webgl"
+					);
 					created = startAnime4KWebGLRenderer(video, webglCanvas);
 				}
 				element = webglCanvas;
