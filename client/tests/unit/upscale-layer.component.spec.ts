@@ -7,6 +7,7 @@ const drivers = vi.hoisted(() => ({
 	film: vi.fn(),
 	anime4k: vi.fn(),
 	anime4kWebGL: vi.fn(),
+	anime4kUltra: vi.fn(),
 	probe: vi.fn(),
 }));
 
@@ -15,6 +16,9 @@ vi.mock("@/util/upscale/film", () => ({ startFilmRenderer: drivers.film }));
 vi.mock("@/util/upscale/anime4k", () => ({ startAnime4KRenderer: drivers.anime4k }));
 vi.mock("@/util/upscale/anime4k-webgl", () => ({
 	startAnime4KWebGLRenderer: drivers.anime4kWebGL,
+}));
+vi.mock("@/util/upscale/anime4k-ultra", () => ({
+	startAnime4KUltraRenderer: drivers.anime4kUltra,
 }));
 vi.mock("@/util/upscale/webgpu-probe", () => ({
 	canRunWebGPUEnhancement: drivers.probe,
@@ -94,6 +98,7 @@ describe("enhancement layer lifecycle", () => {
 		drivers.film.mockImplementation(() => renderer());
 		drivers.anime4k.mockImplementation(() => Promise.resolve(renderer()));
 		drivers.anime4kWebGL.mockImplementation(() => renderer());
+		drivers.anime4kUltra.mockImplementation(() => renderer());
 		// The probe answers before the WebGPU chunk is imported; the driver is mocked here, so a
 		// usable adapter is all these tests need to exercise the WebGPU branch.
 		drivers.probe.mockImplementation(() => Promise.resolve(true));
@@ -216,6 +221,19 @@ describe("enhancement layer lifecycle", () => {
 		const firstCanvas = drivers.anime4k.mock.calls[0][1] as HTMLCanvasElement;
 		expect(webglCanvas.width).toBe(firstCanvas.width);
 		expect(webglCanvas.height).toBe(firstCanvas.height);
+	});
+
+	it("runs the heavy A+A chain for the quality tier when WebGPU cannot start", async () => {
+		// Without WebGPU the two AI tiers used to run the same small chain; the quality tier now
+		// runs the A+A (HQ) chain the WebGPU "quality" preset does, so they differ here too.
+		drivers.anime4k.mockImplementationOnce(() => Promise.reject(new Error("no WebGPU")));
+		mountComponent(UpscaleLayer, {
+			props: { video: fakeVideo().video, mode: "anime4k-quality" },
+		});
+		await settle();
+
+		expect(drivers.anime4kUltra).toHaveBeenCalledTimes(1);
+		expect(drivers.anime4kWebGL).not.toHaveBeenCalled();
 	});
 
 	it("does not import the WebGPU driver when there is no usable adapter", async () => {

@@ -10,13 +10,15 @@
 // does, and that draw a misplaced, blurry layer on top of the video instead of failing. The probe
 // runs the smallest version of that pipeline and reads the value back.
 //
-// The frame upload has to be probed as well: Firefox's WebGPU rejects an HTMLVideoElement (and a
-// VideoFrame) as a copyExternalImageToTexture source, so the driver would build a whole device and
-// pipeline and then throw on the very first frame, falling back anyway. The probe copies one real
-// frame into a 1x1 texture to find that out before the driver is imported.
+// The frame upload is a separate capability that has to be probed too: Firefox's WebGPU rejects
+// an HTMLVideoElement (and a VideoFrame) as a copyExternalImageToTexture source, so the driver
+// would build a whole device and pipeline and then throw on the very first frame. That check
+// needs a real video, so it runs separately and its result is published for the UI.
 //
 // Finding any of this out by starting the WebGPU driver costs a 3.4 MB chunk, so none of it is
 // downloaded until the probe says yes.
+
+import { ref } from "vue";
 
 /** The pattern the probe pushes through the GPU, as IEEE 754 half-precision bit patterns. */
 const FIRST = 0x5400; // 64.0
@@ -27,13 +29,18 @@ const PROBE_TIMEOUT = 2000;
 const FRAME_WAIT_MS = 4000;
 /** HTMLMediaElement.HAVE_CURRENT_DATA: a frame is decoded and available to copy. */
 const HAVE_CURRENT_DATA = 2;
-let probe: Promise<boolean> | undefined;
+
+let storageProbe: Promise<boolean> | undefined;
+let videoProbe: Promise<VideoUploadOutcome> | undefined;
+
+type VideoUploadOutcome = "supported" | "unsupported" | "inconclusive";
 
 /**
- * "unsupported" is final for the session; "inconclusive" means the video had no frame to test
- * the upload with yet, so the tiers are not ruled out but the answer must not be cached.
+ * Whether this browser's WebGPU accepts a `<video>` (or a VideoFrame) as an external image
+ * source, which Firefox's does not. `null` until a video has been through the probe once; the
+ * tier list watches it so the menu matches what the enhancement layer will actually do.
  */
-type ProbeOutcome = "ok" | "unsupported" | "inconclusive";
+export const webgpuVideoUploadSupported = ref<boolean | null>(null);
 
 async function requestAdapter(): Promise<GPUAdapter | null> {
 	if (!("gpu" in navigator)) {
@@ -49,6 +56,19 @@ async function requestAdapter(): Promise<GPUAdapter | null> {
 	} catch {
 		// Firefox throws on platforms where WebGPU is not enabled at all.
 		return null;
+	}
+}
+
+/** Runs the probe on a device of its own and always frees it. */
+async function withDevice<T>(
+	adapter: GPUAdapter,
+	run: (device: GPUDevice) => Promise<T>,
+): Promise<T> {
+	const device = await adapter.requestDevice();
+	try {
+		return await run(device);
+	} finally {
+		device.destroy();
 	}
 }
 
@@ -182,48 +202,72 @@ async function canUploadVideo(device: GPUDevice, video: HTMLVideoElement): Promi
 	return (await device.popErrorScope()) === null;
 }
 
-/** Runs both capability shapes on a single device, then frees it. */
-async function probeDevice(adapter: GPUAdapter, video?: HTMLVideoElement): Promise<ProbeOutcome> {
-	let device: GPUDevice | undefined;
-	try {
-		device = await adapter.requestDevice();
-		if (!(await canWriteStorageTexture(device))) {
-			return "unsupported";
+/**
+ * The storage-texture shape, answered once per page. A failure is not cached: a transient driver
+ * reset should get another chance on the next tier switch.
+ */
+async function storageTexturesUsable(): Promise<boolean> {
+	storageProbe ??= (async () => {
+		const adapter = await requestAdapter();
+		if (!adapter) {
+			storageProbe = undefined;
+			return false;
 		}
-		if (video) {
+		try {
+			const ok = await withDevice(adapter, device => canWriteStorageTexture(device));
+			if (!ok) {
+				storageProbe = undefined;
+			}
+			return ok;
+		} catch {
+			storageProbe = undefined;
+			return false;
+		}
+	})();
+	return storageProbe;
+}
+
+/**
+ * The frame-upload shape, which needs a video. A verdict ("supported" / "unsupported") is cached
+ * and published; a video that had no frame to copy yet is left undecided and retried next time.
+ */
+function videoUploadOutcome(video: HTMLVideoElement): Promise<VideoUploadOutcome> {
+	videoProbe ??= (async () => {
+		try {
+			const adapter = await requestAdapter();
+			if (!adapter) {
+				return "unsupported" as const;
+			}
 			if (!(await waitForFrame(video))) {
-				return "inconclusive";
+				return "inconclusive" as const;
 			}
-			if (!(await canUploadVideo(device, video))) {
-				return "unsupported";
-			}
+			const ok = await withDevice(adapter, device => canUploadVideo(device, video));
+			return ok ? ("supported" as const) : ("unsupported" as const);
+		} catch {
+			return "unsupported" as const;
 		}
-		return "ok";
-	} catch {
-		return "unsupported";
-	} finally {
-		device?.destroy();
-	}
+	})().then(outcome => {
+		if (outcome === "inconclusive") {
+			videoProbe = undefined;
+		} else {
+			webgpuVideoUploadSupported.value = outcome === "supported";
+		}
+		return outcome;
+	});
+	return videoProbe;
 }
 
 /**
  * Whether the WebGPU tiers can run here, optionally also checking that this video's frames can be
- * uploaded at all. Caching follows the same rule as before: a definite failure is never cached (a
- * transient driver reset should be retried) and a definite success is. An inconclusive pass lets
- * this start proceed but is not cached, so the next start still gets to judge it.
+ * uploaded. The two capabilities are independent, so the tier list can ask this without a video
+ * (the storage shape) and the enhancement layer can ask again later with one (the upload shape).
  */
-export function canRunWebGPUEnhancement(video?: HTMLVideoElement): Promise<boolean> {
-	probe ??= (async () => {
-		const adapter = await requestAdapter();
-		if (!adapter) {
-			probe = undefined;
-			return false;
-		}
-		const outcome = await probeDevice(adapter, video);
-		if (outcome !== "ok") {
-			probe = undefined;
-		}
-		return outcome !== "unsupported";
-	})();
-	return probe;
+export async function canRunWebGPUEnhancement(video?: HTMLVideoElement): Promise<boolean> {
+	if (!(await storageTexturesUsable())) {
+		return false;
+	}
+	if (video && (await videoUploadOutcome(video)) === "unsupported") {
+		return false;
+	}
+	return webgpuVideoUploadSupported.value !== false;
 }

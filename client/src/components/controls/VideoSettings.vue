@@ -285,11 +285,13 @@
 						>
 							{{ $t("room.upscale.title") }}
 							<template #append>
-								<!-- The tiers explain themselves on hover; a tap opens the same
-								     popover on devices that never hover. -->
+								<!-- The tiers explain themselves on hover. A tap opens the same
+								     popover, but hover must be off there: on touch a tap fires a
+								     synthetic mouseenter (open) and then the click (close), which
+								     left it looking dead. -->
 								<v-menu
 									:attach="preferenceMenuProps.attach"
-									open-on-hover
+									:open-on-hover="hoverToOpen"
 									:open-delay="120"
 									:close-delay="150"
 									:close-on-content-click="false"
@@ -431,6 +433,7 @@ import {
 	UPSCALE_MODES,
 	UPSCALE_SCALES,
 } from "@/stores/settings";
+import { canRunWebGPUEnhancement, webgpuVideoUploadSupported } from "@/util/upscale/webgpu-probe";
 import VolumeControl from "./VolumeControl.vue";
 import PlaybackRateSwitcher from "./PlaybackRateSwitcher.vue";
 
@@ -439,15 +442,25 @@ const emit = defineEmits(["show-shortcuts", "show-stats"]);
 const store = useStore();
 const { t } = useI18n();
 
+/** Hover-open only where a pointer can actually hover; touch taps must toggle on click. */
+const hoverToOpen =
+	typeof window !== "undefined" &&
+	typeof window.matchMedia === "function" &&
+	!window.matchMedia("(pointer: coarse)").matches;
+
 type UpscaleMode = (typeof UPSCALE_MODES)[number];
-const webgpuAvailable = ref(typeof navigator !== "undefined" && "gpu" in navigator);
 // Which tiers to offer follows from a real probe of the WebGPU path, not from the interface
 // existing: Firefox exposes navigator.gpu everywhere but hands out no adapter outside Windows and
-// Nightly — and where it does hand one out, its devices have failed to write the storage textures
-// the Anime4K pipelines need. There the AI tier is the WebGL2 chain, with the heavy A+A (HQ)
-// chain above it.
-void import("@/util/upscale/webgpu-probe").then(async ({ canRunWebGPUEnhancement }) => {
-	webgpuAvailable.value = await canRunWebGPUEnhancement();
+// Nightly, and where it does hand one out its WebGPU still cannot upload a video frame — so the
+// AI tiers fall back to the WebGL2 chain, whose heavy A+A (HQ) tier then takes the place of the
+// WebGPU "quality" one. That upload answer is only known once a video has been through the probe,
+// so this recomputes when it arrives.
+const webgpuCoreAvailable = ref(false);
+const webgpuAvailable = computed(
+	() => webgpuCoreAvailable.value && webgpuVideoUploadSupported.value !== false,
+);
+void canRunWebGPUEnhancement().then(usable => {
+	webgpuCoreAvailable.value = usable;
 });
 const upscaleLabel = computed(() => t(`room.upscale.${store.state.settings.upscaleMode}`));
 const upscaleOptions = computed(() => {
@@ -745,6 +758,9 @@ function selectSubtitleTrack(track: number): void {
 .upscale-tiers {
 	display: flex;
 	width: 100%;
+	/* Vuetify's compact density pins the group to a fixed 36px with overflow-y: hidden, while the
+	   buttons below are min-height 40px and their labels wrap, so the row used to clip them. */
+	height: auto !important;
 
 	.v-btn {
 		flex: 1 1 0;

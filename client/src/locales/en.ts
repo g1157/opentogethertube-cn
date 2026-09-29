@@ -245,7 +245,7 @@ export default {
 			"intro-anime4k":
 				"AI upscale (Anime4K): a neural network rebuilds lines, best on anime. A discrete GPU has plenty of headroom; integrated graphics and phones may struggle. WebGPU is used when available; without it (Firefox outside Windows, for example) the same network runs on WebGL2 at the S variant.",
 			"intro-anime4k-quality":
-				"AI upscale (quality): stacks a second restore-and-upscale pass on the fast preset (A+A). The highest perceptual quality at roughly double the GPU cost — expect heat and fan noise on a laptop, and use it at 2x or above. Without WebGPU it runs the same WebGL2 chain as the fast tier.",
+				"AI upscale (quality): stacks a second restore-and-upscale pass on the fast preset (A+A). The highest perceptual quality at roughly double the GPU cost — expect heat and fan noise on a laptop, and use it at 2x or above. Without WebGPU the same A+A chain runs on WebGL2.",
 			"intro-anime4k-ultra":
 				'AI upscale (ultra): the same chain mpv runs as "Mode A+A (HQ)" — VL restore and upscale, M restore and upscale, plus Clamp Highlights, about 55 passes — offered only where WebGPU is unavailable. The first start compiles the shaders and pauses briefly; expect heat on a laptop, and pair it with a 1080p source at 2x.',
 			"intro-note":

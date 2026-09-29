@@ -240,7 +240,7 @@ export default {
 			"intro-anime4k":
 				"AI 超分（Anime4K）：用神经网络重建线条，适合动漫；独立显卡余量充足，集显和手机可能吃力。优先走 WebGPU；拿不到 WebGPU 时（例如 Windows 之外的 Firefox）自动改用 WebGL2 跑同一套网络的 S 档。",
 			"intro-anime4k-quality":
-				"AI 超分（质量）：在快速档之上再叠一遍修复与放大（A+A），感知质量最高，GPU 开销约为快速档两倍；笔记本会明显发热、风扇转速上升，建议在 2× 及以上倍率使用。没有 WebGPU 时与快速档使用同一条 WebGL2 链路。",
+				"AI 超分（质量）：在快速档之上再叠一遍修复与放大（A+A），感知质量最高，GPU 开销约为快速档两倍；笔记本会明显发热、风扇转速上升，建议在 2× 及以上倍率使用。没有 WebGPU 时，在 WebGL2 上跑同一条 A+A 链路。",
 			"intro-anime4k-ultra":
 				"AI 超分（极致）：与 mpv 的 A+A (HQ) 同款链路（VL 修复与放大 + M 修复与放大，外加防光晕的 Clamp Highlights，约 55 个 pass），只在本机拿不到 WebGPU 时出现。首次开启要编译着色器、会停顿一下；笔记本发热明显，建议 1080p 源配 2× 倍率。",
 			"intro-note": "性能不足时会自动逐级降档；在下方「进阶」里关闭自动降档可保持当前设置。",

@@ -141,6 +141,16 @@ describe("WebGPU enhancement probe", () => {
 		expect(await canRunWebGPUEnhancement(fakeVideo())).toBe(true);
 	});
 
+	it("publishes whether a video frame can be uploaded", async () => {
+		const device = fakeDevice({ uploadThrows: true });
+		fakeGpu(vi.fn().mockResolvedValue(fakeAdapter(device)));
+		const { canRunWebGPUEnhancement, webgpuVideoUploadSupported } = await loadProbe();
+
+		expect(webgpuVideoUploadSupported.value).toBe(null);
+		expect(await canRunWebGPUEnhancement(fakeVideo())).toBe(false);
+		expect(webgpuVideoUploadSupported.value).toBe(false);
+	});
+
 	it("does not cache a probe it could not finish without a frame", async () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		const requestAdapter = vi.fn().mockResolvedValue(fakeAdapter(fakeDevice()));
@@ -151,9 +161,11 @@ describe("WebGPU enhancement probe", () => {
 		const pending = canRunWebGPUEnhancement(fakeVideo(0));
 		await vi.advanceTimersByTimeAsync(5000);
 		expect(await pending).toBe(true);
-		// It must be probed again rather than trusting a shape it never tested.
+		// It must be probed again rather than trusting a shape it never tested. The storage shape
+		// was answered on the first call and is cached, so the extra requests are the two upload
+		// attempts (the timed-out one and the one that finally had a frame).
 		expect(await canRunWebGPUEnhancement(fakeVideo())).toBe(true);
-		expect(requestAdapter).toHaveBeenCalledTimes(2);
+		expect(requestAdapter).toHaveBeenCalledTimes(3);
 	});
 
 	it("reports no WebGPU when the values do not come back", async () => {

@@ -370,8 +370,15 @@ async function start() {
 				// WebGL2 chain sizes its whole pipeline from the canvas, so without this it drew
 				// a 2:1 picture the browser then letterboxed over the 16:9 video.
 				sizeCanvas(video, webglCanvas);
-				const { startAnime4KWebGLRenderer } = await import("@/util/upscale/anime4k-webgl");
-				created = startAnime4KWebGLRenderer(video, webglCanvas);
+				if (props.mode === "anime4k-quality") {
+					// The heavy tier runs the same A+A (HQ) chain the WebGPU "quality" preset does,
+					// so the two AI tiers differ on WebGL2 the way they do on a WebGPU device.
+					const { startAnime4KUltraRenderer } = await import("@/util/upscale/anime4k-ultra");
+					created = startAnime4KUltraRenderer(video, webglCanvas);
+				} else {
+					const { startAnime4KWebGLRenderer } = await import("@/util/upscale/anime4k-webgl");
+					created = startAnime4KWebGLRenderer(video, webglCanvas);
+				}
 				element = webglCanvas;
 			}
 		} else if (props.mode === "film") {
