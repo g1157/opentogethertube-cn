@@ -10,7 +10,13 @@
 // clamp at PREKERNEL, after every MAIN pass), and a buffer is only reused once nothing samples the
 // name it holds any more.
 import { ANIME4K_PASSES, ANIME4K_SEGMENTS, type Anime4KPassSpec } from "./anime4k-glsl";
-import { createRenderTarget, link, releaseRenderTarget, SHARPEN_FRAGMENT_SHADER } from "./cas";
+import {
+	createRenderTargetPool,
+	link,
+	releaseRenderTarget,
+	SHARPEN_FRAGMENT_SHADER,
+	type RenderTarget,
+} from "./cas";
 import { reportEnhancementTarget } from "./status";
 import type { UpscaleRenderer } from "./upscale-renderer";
 
@@ -177,6 +183,28 @@ export function planChain(
 	return steps;
 }
 
+/**
+ * How many targets of each size the plan can have live at once. That is exactly what the pool is
+ * allowed to keep between frames: one frame can never hold more per size, so the cap can never
+ * force a re-allocation — it only stops the pool growing past what the chain itself needs.
+ */
+export function planTargetLimits(plan: Anime4KPlanStep[]): Map<string, number> {
+	const slots = new Map<string, Set<number>>();
+	for (const step of plan) {
+		if (!step.active) {
+			continue;
+		}
+		const key = `${step.width}x${step.height}`;
+		const set = slots.get(key);
+		if (set) {
+			set.add(step.slot);
+		} else {
+			slots.set(key, new Set([step.slot]));
+		}
+	}
+	return new Map([...slots].map(([key, set]) => [key, set.size]));
+}
+
 /** Every shader in the chain, so the guard test can scan them like the hand-written ones. */
 export const ANIME4K_WEBGL_SHADERS: string[] = ANIME4K_PASSES.map(pass => pass.fragment);
 
@@ -234,14 +262,49 @@ export function startAnime4KWebGLRenderer(
 	const presentTexel = gl.getUniformLocation(present, "uTexel");
 	const presentFlip = gl.getUniformLocation(present, "uFlipY");
 
+	// Every pass renders into a buffer from this pool. Rebuilding the buffers the planner frees
+	// once nothing samples them any more cost far more than the chain itself (see
+	// createRenderTargetPool), so they are handed back rather than deleted.
+	const pool = createRenderTargetPool(gl);
 	// One render target per buffer the plan hands out, so a long chain keeps only the buffers that
 	// still hold a name something samples.
-	const buffers = new Map<number, ReturnType<typeof createRenderTarget>>();
+	const buffers = new Map<number, RenderTarget>();
 
 	let frameRequest = 0;
 	let stopped = false;
 	let frames = 0;
 	let passCount = 0;
+	// The chain's shape depends only on the source and target sizes, so it is planned once per
+	// size rather than once per frame.
+	let plan: Anime4KPlanStep[] = [];
+	let planKey = "";
+
+	// The buffers are worth holding only while frames are flowing. A pause (or a hidden tab) stops
+	// requestVideoFrameCallback, so a timer — not the loop — is what notices the idle and hands the
+	// memory back; the paused picture stays on screen because the canvas keeps its last frame. The
+	// threshold is generous on purpose: a short pause keeps the buffers so resuming stays instant,
+	// and only a real step away costs the one frame that rebuilds them. Buffering is deliberately
+	// not a trigger: it stalls the loop without the viewer having stopped.
+	const IDLE_MS = 15000;
+	let idleTimer: ReturnType<typeof setTimeout> | undefined;
+	const cancelIdle = () => {
+		if (idleTimer !== undefined) {
+			clearTimeout(idleTimer);
+			idleTimer = undefined;
+		}
+	};
+	const startIdleTimer = () => {
+		cancelIdle();
+		idleTimer = setTimeout(() => {
+			idleTimer = undefined;
+			pool.dispose();
+		}, IDLE_MS);
+	};
+	const onVisibilityChange = () => {
+		if (document.hidden) {
+			startIdleTimer();
+		}
+	};
 
 	const target = (slot: number, width: number, height: number) => {
 		const current = buffers.get(slot);
@@ -249,9 +312,9 @@ export function startAnime4KWebGLRenderer(
 			return current;
 		}
 		if (current) {
-			releaseRenderTarget(gl, current);
+			pool.give(current);
 		}
-		const created = createRenderTarget(gl, width, height);
+		const created = pool.take(width, height);
 		buffers.set(slot, created);
 		return created;
 	};
@@ -260,6 +323,8 @@ export function startAnime4KWebGLRenderer(
 		if (stopped || video.readyState < video.HAVE_CURRENT_DATA) {
 			return;
 		}
+		// A frame is flowing, so nothing is idle.
+		cancelIdle();
 		gl.bindVertexArray(vao);
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, videoTexture);
@@ -269,11 +334,16 @@ export function startAnime4KWebGLRenderer(
 		const inputHeight = Math.max(1, video.videoHeight);
 		const outputWidth = Math.max(1, canvas.width);
 		const outputHeight = Math.max(1, canvas.height);
-		const plan = planChain(
-			chain,
-			{ width: inputWidth, height: inputHeight },
-			{ width: outputWidth, height: outputHeight },
-		);
+		const key = `${inputWidth}x${inputHeight}->${outputWidth}x${outputHeight}`;
+		if (key !== planKey) {
+			plan = planChain(
+				chain,
+				{ width: inputWidth, height: inputHeight },
+				{ width: outputWidth, height: outputHeight },
+			);
+			planKey = key;
+			pool.setLimits(planTargetLimits(plan));
+		}
 
 		// The video texture is stored flipped, render targets are not, so the reads of the video —
 		// and only those — flip, which the converter bakes into the shaders. "input" resolves to
@@ -313,7 +383,7 @@ export function startAnime4KWebGLRenderer(
 			for (const slot of step.releases) {
 				const done = buffers.get(slot);
 				if (done) {
-					releaseRenderTarget(gl, done);
+					pool.give(done);
 					buffers.delete(slot);
 				}
 			}
@@ -353,19 +423,28 @@ export function startAnime4KWebGLRenderer(
 	// looking at — including the case of a tier that started while the video was paused.
 	video.addEventListener("pause", drawFrame);
 	video.addEventListener("seeked", drawFrame);
+	// Registered after drawFrame, so a pause draws first and then arms the idle timer.
+	video.addEventListener("pause", startIdleTimer);
+	video.addEventListener("ended", startIdleTimer);
+	document.addEventListener("visibilitychange", onVisibilityChange);
 	drawFrame();
 	frameRequest = video.requestVideoFrameCallback(frame);
 
 	return {
 		stop() {
 			stopped = true;
+			cancelIdle();
 			video.cancelVideoFrameCallback(frameRequest);
 			video.removeEventListener("pause", drawFrame);
 			video.removeEventListener("seeked", drawFrame);
+			video.removeEventListener("pause", startIdleTimer);
+			video.removeEventListener("ended", startIdleTimer);
+			document.removeEventListener("visibilitychange", onVisibilityChange);
 			for (const current of buffers.values()) {
 				releaseRenderTarget(gl, current);
 			}
 			buffers.clear();
+			pool.dispose();
 			gl.getExtension("WEBGL_lose_context")?.loseContext();
 		},
 	};
