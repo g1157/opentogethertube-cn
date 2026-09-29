@@ -330,7 +330,7 @@ async function start() {
 			// Windows builds have been doing — that download is wasted: the WebGL2 chain below is
 			// the tier that actually runs there.
 			const { canRunWebGPUEnhancement } = await import("@/util/upscale/webgpu-probe");
-			if (await canRunWebGPUEnhancement()) {
+			if (await canRunWebGPUEnhancement(video)) {
 				// WebGPU reports most setup mistakes through error scopes instead of exceptions, so
 				// a browser with a partial implementation throws here rather than at the first
 				// drawn frame.
@@ -366,6 +366,10 @@ async function start() {
 				if (!webglCanvas) {
 					return;
 				}
+				// This second canvas is brand new, so it still holds the 300x150 default. The
+				// WebGL2 chain sizes its whole pipeline from the canvas, so without this it drew
+				// a 2:1 picture the browser then letterboxed over the 16:9 video.
+				sizeCanvas(video, webglCanvas);
 				const { startAnime4KWebGLRenderer } = await import("@/util/upscale/anime4k-webgl");
 				created = startAnime4KWebGLRenderer(video, webglCanvas);
 				element = webglCanvas;

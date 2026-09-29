@@ -209,6 +209,13 @@ describe("enhancement layer lifecycle", () => {
 		// A canvas keeps the context type it was first asked for, so the WebGL2 chain gets one
 		// of its own rather than the canvas the failed start may have claimed.
 		expect(drivers.anime4kWebGL.mock.calls[0][1]).not.toBe(drivers.anime4k.mock.calls[0][1]);
+		// It also has to be sized like the canvas it replaced: a fresh canvas holds the 300x150
+		// default, and the WebGL2 chain takes its render size straight from the canvas, so an
+		// unsized one drew a 2:1 picture the browser letterboxed over the 16:9 video.
+		const webglCanvas = drivers.anime4kWebGL.mock.calls[0][1] as HTMLCanvasElement;
+		const firstCanvas = drivers.anime4k.mock.calls[0][1] as HTMLCanvasElement;
+		expect(webglCanvas.width).toBe(firstCanvas.width);
+		expect(webglCanvas.height).toBe(firstCanvas.height);
 	});
 
 	it("does not import the WebGPU driver when there is no usable adapter", async () => {

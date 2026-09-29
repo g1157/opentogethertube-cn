@@ -10,7 +10,9 @@ function fakeGpu(requestAdapter: () => Promise<unknown>) {
 }
 
 /** The parts of a GPUDevice the probe touches, plus the texels its readback should report. */
-function fakeDevice(options: { error?: unknown; words?: number[]; mapNever?: boolean } = {}) {
+function fakeDevice(
+	options: { error?: unknown; words?: number[]; mapNever?: boolean; uploadThrows?: boolean } = {},
+) {
 	const words = options.words ?? [0x5400, 0, 0, 0x3c00, 0x5c00, 0, 0, 0x3c00];
 	const readback = {
 		mapAsync: () =>
@@ -39,12 +41,30 @@ function fakeDevice(options: { error?: unknown; words?: number[]; mapNever?: boo
 			copyTextureToBuffer: vi.fn(),
 			finish: () => ({}),
 		})),
-		queue: { submit: vi.fn(), writeTexture: vi.fn() },
+		queue: {
+			submit: vi.fn(),
+			writeTexture: vi.fn(),
+			// Firefox's WebGPU throws here for an HTMLVideoElement (or a VideoFrame) source.
+			copyExternalImageToTexture: options.uploadThrows
+				? vi.fn(() => {
+						throw new TypeError(
+							"'source' member of GPUCopyExternalImageSourceInfo could not be converted",
+						);
+					})
+				: vi.fn(),
+		},
 		destroy: vi.fn(),
 	};
 }
 
 const fakeAdapter = (device: unknown) => ({ requestDevice: vi.fn().mockResolvedValue(device) });
+
+/** A video element whose decoded-frame readiness the frame-upload probe reads. */
+function fakeVideo(readyState = 4) {
+	const video = document.createElement("video");
+	Object.defineProperty(video, "readyState", { value: readyState, configurable: true });
+	return video;
+}
 
 describe("WebGPU enhancement probe", () => {
 	beforeEach(() => {
@@ -96,6 +116,41 @@ describe("WebGPU enhancement probe", () => {
 
 		expect(await canRunWebGPUEnhancement()).toBe(false);
 		expect(device.destroy).toHaveBeenCalled();
+	});
+
+	it("reports no WebGPU when the device cannot upload a video frame", async () => {
+		// Firefox's WebGPU writes storage textures but rejects an HTMLVideoElement (and a
+		// VideoFrame) as a copyExternalImageToTexture source, so every Anime4K frame would throw
+		// at the first draw and fall back anyway.
+		const device = fakeDevice({ uploadThrows: true });
+		fakeGpu(vi.fn().mockResolvedValue(fakeAdapter(device)));
+		const { canRunWebGPUEnhancement } = await loadProbe();
+
+		expect(await canRunWebGPUEnhancement(fakeVideo())).toBe(false);
+		expect(device.destroy).toHaveBeenCalled();
+	});
+
+	it("accepts a device that can upload a video frame", async () => {
+		const device = fakeDevice();
+		fakeGpu(vi.fn().mockResolvedValue(fakeAdapter(device)));
+		const { canRunWebGPUEnhancement } = await loadProbe();
+
+		expect(await canRunWebGPUEnhancement(fakeVideo())).toBe(true);
+	});
+
+	it("does not cache a probe it could not finish without a frame", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const requestAdapter = vi.fn().mockResolvedValue(fakeAdapter(fakeDevice()));
+		fakeGpu(requestAdapter);
+		const { canRunWebGPUEnhancement } = await loadProbe();
+
+		// A video that has decoded nothing yet gives the upload shape nothing to copy.
+		const pending = canRunWebGPUEnhancement(fakeVideo(0));
+		await vi.advanceTimersByTimeAsync(5000);
+		expect(await pending).toBe(true);
+		// It must be probed again rather than trusting a shape it never tested.
+		expect(await canRunWebGPUEnhancement(fakeVideo())).toBe(true);
+		expect(requestAdapter).toHaveBeenCalledTimes(2);
 	});
 
 	it("reports no WebGPU when the values do not come back", async () => {
