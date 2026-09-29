@@ -29,6 +29,8 @@ const PROBE_TIMEOUT = 2000;
 const FRAME_WAIT_MS = 4000;
 /** HTMLMediaElement.HAVE_CURRENT_DATA: a frame is decoded and available to copy. */
 const HAVE_CURRENT_DATA = 2;
+/** Firefox refuses a video source with a TypeError naming this phrase. */
+const VIDEO_SOURCE_REJECTED = /could not be converted/;
 
 let storageProbe: Promise<boolean> | undefined;
 let videoProbe: Promise<VideoUploadOutcome> | undefined;
@@ -180,26 +182,43 @@ function waitForFrame(video: HTMLVideoElement): Promise<boolean> {
 }
 
 /**
- * Copies one real frame of the video into a 1x1 texture. Firefox's WebGPU rejects an
- * HTMLVideoElement (and a VideoFrame) as an external image source, so without this the driver
- * would build a device and pipeline and then throw on the first frame.
+ * Firefox's WebGPU refuses a video source with this exact TypeError. That is the only verdict
+ * worth acting on: any other failure — a source without CORS, a validation error, a busy GPU
+ * process, no adapter handed out that moment — is left undecided so the driver still gets its
+ * turn and falls back on its own. Disabling the tiers for those would take away WebGPU from
+ * browsers that can run it.
  */
-async function canUploadVideo(device: GPUDevice, video: HTMLVideoElement): Promise<boolean> {
+function rejectsVideoSource(err: unknown): boolean {
+	return err instanceof TypeError && VIDEO_SOURCE_REJECTED.test(err.message);
+}
+
+/**
+ * Copies one real frame of the video into a 1x1 texture, the smallest version of what the driver
+ * does every frame. Firefox's WebGPU rejects an HTMLVideoElement (and a VideoFrame) as an
+ * external image source, so without this the driver would build a device and pipeline and then
+ * throw on the very first frame.
+ */
+async function uploadVerdict(
+	device: GPUDevice,
+	video: HTMLVideoElement,
+): Promise<VideoUploadOutcome> {
 	device.pushErrorScope("validation");
 	try {
 		const target = device.createTexture({
 			size: [1, 1],
 			format: "rgba8unorm",
-			usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
+			// COPY_DST is what the copy needs; RENDER_ATTACHMENT is what some implementations
+			// additionally require of an external copy destination.
+			usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
 		});
 		device.queue.copyExternalImageToTexture({ source: video }, { texture: target }, [1, 1]);
-	} catch {
+	} catch (err) {
 		// A source the browser will not convert is a synchronous TypeError, not an error-scope
 		// result, so it has to be caught here.
 		await device.popErrorScope();
-		return false;
+		return rejectsVideoSource(err) ? "unsupported" : "inconclusive";
 	}
-	return (await device.popErrorScope()) === null;
+	return (await device.popErrorScope()) === null ? "supported" : "inconclusive";
 }
 
 /**
@@ -236,15 +255,14 @@ function videoUploadOutcome(video: HTMLVideoElement): Promise<VideoUploadOutcome
 		try {
 			const adapter = await requestAdapter();
 			if (!adapter) {
-				return "unsupported" as const;
+				return "inconclusive" as const;
 			}
 			if (!(await waitForFrame(video))) {
 				return "inconclusive" as const;
 			}
-			const ok = await withDevice(adapter, device => canUploadVideo(device, video));
-			return ok ? ("supported" as const) : ("unsupported" as const);
+			return await withDevice(adapter, device => uploadVerdict(device, video));
 		} catch {
-			return "unsupported" as const;
+			return "inconclusive" as const;
 		}
 	})().then(outcome => {
 		if (outcome === "inconclusive") {

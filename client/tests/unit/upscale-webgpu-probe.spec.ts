@@ -11,7 +11,7 @@ function fakeGpu(requestAdapter: () => Promise<unknown>) {
 
 /** The parts of a GPUDevice the probe touches, plus the texels its readback should report. */
 function fakeDevice(
-	options: { error?: unknown; words?: number[]; mapNever?: boolean; uploadThrows?: boolean } = {},
+	options: { error?: unknown; words?: number[]; mapNever?: boolean; uploadError?: Error } = {},
 ) {
 	const words = options.words ?? [0x5400, 0, 0, 0x3c00, 0x5c00, 0, 0, 0x3c00];
 	const readback = {
@@ -45,11 +45,9 @@ function fakeDevice(
 			submit: vi.fn(),
 			writeTexture: vi.fn(),
 			// Firefox's WebGPU throws here for an HTMLVideoElement (or a VideoFrame) source.
-			copyExternalImageToTexture: options.uploadThrows
+			copyExternalImageToTexture: options.uploadError
 				? vi.fn(() => {
-						throw new TypeError(
-							"'source' member of GPUCopyExternalImageSourceInfo could not be converted",
-						);
+						throw options.uploadError;
 					})
 				: vi.fn(),
 		},
@@ -64,6 +62,15 @@ function fakeVideo(readyState = 4) {
 	const video = document.createElement("video");
 	Object.defineProperty(video, "readyState", { value: readyState, configurable: true });
 	return video;
+}
+
+/** The TypeError Firefox's WebGPU raises when it refuses a video as an external image source. */
+function videoSourceTypeError() {
+	return new TypeError(
+		"GPUQueue.copyExternalImageToTexture: 'source' member of GPUCopyExternalImageSourceInfo " +
+			"could not be converted to any of: ImageBitmap, HTMLImageElement, HTMLCanvasElement, " +
+			"OffscreenCanvas.",
+	);
 }
 
 describe("WebGPU enhancement probe", () => {
@@ -125,12 +132,23 @@ describe("WebGPU enhancement probe", () => {
 		// Firefox's WebGPU writes storage textures but rejects an HTMLVideoElement (and a
 		// VideoFrame) as a copyExternalImageToTexture source, so every Anime4K frame would throw
 		// at the first draw and fall back anyway.
-		const device = fakeDevice({ uploadThrows: true });
+		const device = fakeDevice({ uploadError: videoSourceTypeError() });
 		fakeGpu(vi.fn().mockResolvedValue(fakeAdapter(device)));
 		const { canRunWebGPUEnhancement } = await loadProbe();
 
 		expect(await canRunWebGPUEnhancement(fakeVideo())).toBe(false);
 		expect(device.destroy).toHaveBeenCalled();
+	});
+
+	it("keeps WebGPU when the upload fails for a reason other than the source type", async () => {
+		// A source without CORS, a validation error or a busy GPU process must not take the tiers
+		// away: the driver gets its own chance and falls back if it really cannot run.
+		const device = fakeDevice({ uploadError: new Error("OperationError: not origin-clean") });
+		fakeGpu(vi.fn().mockResolvedValue(fakeAdapter(device)));
+		const { canRunWebGPUEnhancement, webgpuVideoUploadSupported } = await loadProbe();
+
+		expect(await canRunWebGPUEnhancement(fakeVideo())).toBe(true);
+		expect(webgpuVideoUploadSupported.value).toBe(null);
 	});
 
 	it("accepts a device that can upload a video frame", async () => {
@@ -142,7 +160,7 @@ describe("WebGPU enhancement probe", () => {
 	});
 
 	it("publishes whether a video frame can be uploaded", async () => {
-		const device = fakeDevice({ uploadThrows: true });
+		const device = fakeDevice({ uploadError: videoSourceTypeError() });
 		fakeGpu(vi.fn().mockResolvedValue(fakeAdapter(device)));
 		const { canRunWebGPUEnhancement, webgpuVideoUploadSupported } = await loadProbe();
 
