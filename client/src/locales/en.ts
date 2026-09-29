@@ -228,9 +228,11 @@ export default {
 			film: "Film (denoise, deband)",
 			anime4k: "AI upscale (Anime4K)",
 			"anime4k-quality": "AI upscale (quality)",
+			"anime4k-ultra": "AI upscale (ultra)",
 			"webgpu-fallback": "WebGPU is unavailable here; switched to Sharpen.",
 			"film-fallback": "The film tier could not run; switched to Sharpen.",
 			"anime4k-fallback": "AI upscale could not run; switched to Sharpen.",
+			"anime4k-ultra-fallback": "The ultra tier could not run; switched to AI upscale.",
 			"anime4k-quality-fallback":
 				"The quality tier could not start; switched to the fast AI upscale.",
 			failed: "Could not enable video enhancement; it was turned off.",
@@ -244,6 +246,8 @@ export default {
 				"AI upscale (Anime4K): a neural network rebuilds lines, best on anime. A discrete GPU has plenty of headroom; integrated graphics and phones may struggle. WebGPU is used when available; without it (Firefox outside Windows, for example) the same network runs on WebGL2 at the S variant.",
 			"intro-anime4k-quality":
 				"AI upscale (quality): stacks a second restore-and-upscale pass on the fast preset (A+A). The highest perceptual quality at roughly double the GPU cost — expect heat and fan noise on a laptop, and use it at 2x or above. Without WebGPU it runs the same WebGL2 chain as the fast tier.",
+			"intro-anime4k-ultra":
+				'AI upscale (ultra): the same chain mpv runs as "Mode A+A (HQ)" — VL restore and upscale, M restore and upscale, plus Clamp Highlights, about 55 passes — offered only where WebGPU is unavailable. The first start compiles the shaders and pauses briefly; expect heat on a laptop, and pair it with a 1080p source at 2x.',
 			"intro-note":
 				"Slow devices step down one tier at a time; turn auto-degrade off under Advanced to keep these settings.",
 			advanced: "Advanced",

@@ -18,7 +18,7 @@ import toast from "@/util/toast";
 
 const props = defineProps<{
 	video?: HTMLVideoElement;
-	mode: "sharpen" | "film" | "anime4k" | "anime4k-quality";
+	mode: "sharpen" | "film" | "anime4k" | "anime4k-quality" | "anime4k-ultra";
 }>();
 
 const store = useStore();
@@ -163,6 +163,11 @@ function pickDegradeStep(
 	video: HTMLVideoElement,
 	target: HTMLCanvasElement,
 ): Partial<SettingsState> {
+	if (props.mode === "anime4k-ultra") {
+		// The heavy chain gives way to the everyday AI tier first: same network family, a
+		// fraction of the passes.
+		return { upscaleMode: "anime4k" };
+	}
 	if (props.mode === "anime4k-quality") {
 		// The heavy A+A chain gives way first: the fast preset keeps the same upscale
 		// for about half the GPU cost.
@@ -257,6 +262,12 @@ function stopRenderers() {
  * WebGPU tier falls back to the next lighter one before giving up the enhancement.
  */
 function failureFallback(): { settings: Partial<SettingsState>; message: string } {
+	if (props.mode === "anime4k-ultra") {
+		return {
+			settings: { upscaleMode: "anime4k" },
+			message: "room.upscale.anime4k-ultra-fallback",
+		};
+	}
 	if (props.mode === "anime4k-quality") {
 		return {
 			settings: { upscaleMode: "anime4k" },
@@ -306,7 +317,11 @@ async function start() {
 	// nothing holds a reference to stop it and its frame loop and device leak.
 	let created: UpscaleRenderer | null = null;
 	try {
-		if (props.mode === "anime4k" || props.mode === "anime4k-quality") {
+		if (props.mode === "anime4k-ultra") {
+			// Offered only where WebGPU is unavailable, so this is the heavy chain on WebGL2.
+			const { startAnime4KUltraRenderer } = await import("@/util/upscale/anime4k-ultra");
+			created = startAnime4KUltraRenderer(video, element);
+		} else if (props.mode === "anime4k" || props.mode === "anime4k-quality") {
 			const variant = props.mode === "anime4k-quality" ? "quality" : "fast";
 			// Ask for an adapter before importing the driver: the driver pulls a 3.4 MB chunk, and
 			// on the platforms that never hand out an adapter (Firefox outside Windows and Nightly,

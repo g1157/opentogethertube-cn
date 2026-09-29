@@ -172,7 +172,7 @@ describe("video enhancement settings", () => {
 		}
 	});
 
-	it.each(["anime4k-ultra", 3, null])("rejects a damaged saved mode: %s", async upscaleMode => {
+	it.each(["anime4k-extreme", 3, null])("rejects a damaged saved mode: %s", async upscaleMode => {
 		saved.set("settings", JSON.stringify({ upscaleMode }));
 		const store = newStore();
 		await store.dispatch("settings/load");

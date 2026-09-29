@@ -320,6 +320,9 @@
 										<p v-if="webgpuAvailable">
 											{{ $t("room.upscale.intro-anime4k-quality") }}
 										</p>
+										<p v-if="!webgpuAvailable">
+											{{ $t("room.upscale.intro-anime4k-ultra") }}
+										</p>
 										<p class="upscale-help-note">
 											{{ $t("room.upscale.intro-note") }}
 										</p>
@@ -437,7 +440,13 @@ const store = useStore();
 const { t } = useI18n();
 
 type UpscaleMode = (typeof UPSCALE_MODES)[number];
-const webgpuAvailable = typeof navigator !== "undefined" && "gpu" in navigator;
+const webgpuAvailable = ref(typeof navigator !== "undefined" && "gpu" in navigator);
+// Which tiers to offer follows from a real adapter probe, not from the interface existing:
+// Firefox exposes navigator.gpu everywhere but hands out no adapter outside Windows and Nightly,
+// and there the AI tier is the WebGL2 chain with the heavy A+A (HQ) chain above it.
+void import("@/util/upscale/webgpu-probe").then(async ({ hasUsableWebGPUAdapter }) => {
+	webgpuAvailable.value = await hasUsableWebGPUAdapter();
+});
 const upscaleLabel = computed(() => t(`room.upscale.${store.state.settings.upscaleMode}`));
 const upscaleOptions = computed(() => {
 	const options: Array<{ value: UpscaleMode; text: string }> = [
@@ -445,9 +454,15 @@ const upscaleOptions = computed(() => {
 		{ value: "sharpen", text: t("room.upscale.sharpen") },
 		{ value: "film", text: t("room.upscale.film") },
 	];
-	if (webgpuAvailable) {
+	if (webgpuAvailable.value) {
 		options.push({ value: "anime4k", text: t("room.upscale.anime4k") });
 		options.push({ value: "anime4k-quality", text: t("room.upscale.anime4k-quality") });
+	} else {
+		options.push({ value: "anime4k", text: t("room.upscale.anime4k") });
+		if (!window.matchMedia("(pointer: coarse)").matches) {
+			// The heavy chain is a desktop affair: about 55 passes per frame.
+			options.push({ value: "anime4k-ultra", text: t("room.upscale.anime4k-ultra") });
+		}
 	}
 	return options;
 });

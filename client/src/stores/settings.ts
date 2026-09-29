@@ -14,7 +14,16 @@ export const CONTROLS_HIDE_SECONDS_OPTIONS = [2, 3, 5, 10] as const;
 export const HLS_BUFFER_SECONDS_OPTIONS = [30, 60, 120, 300] as const;
 /** Default leans deep: a room stall pauses everyone, and the target is not a hard cap. */
 export const DEFAULT_HLS_BUFFER_SECONDS: (typeof HLS_BUFFER_SECONDS_OPTIONS)[number] = 120;
-export const UPSCALE_MODES = ["off", "sharpen", "film", "anime4k", "anime4k-quality"] as const;
+export const UPSCALE_MODES = [
+	"off",
+	"sharpen",
+	"film",
+	"anime4k",
+	"anime4k-quality",
+	// mpv's "Mode A+A (HQ)" chain on WebGL2, for devices without a usable WebGPU. Heavier than
+	// everything else here: about 55 passes per frame.
+	"anime4k-ultra",
+] as const;
 /**
  * "anime4k-quality" runs the heavier A+A preset (Restore -> Upscale -> Restore -> Upscale)
  * instead of the fast one. Same upscale, roughly double the GPU cost, WebGPU only.

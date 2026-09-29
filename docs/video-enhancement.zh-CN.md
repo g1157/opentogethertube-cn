@@ -81,6 +81,17 @@ Chromium 141，同一画面暂停后对比同一显示尺寸下的平均梯度�
 `"gpu" in navigator`：后者在 Firefox 上恒为真，会让用户在下载完 3.4MB 的 WebGPU 库之后才
 失败；探针拿不到适配器就直接走 WebGL2，且失败结果不缓存（换档、换片可再试）。
 
+
+### 极致档（只在没有 WebGPU 时）
+
+WebGPU 可用时，「AI 超分（质量）」就是 mpv 的 A+A (HQ) 同款链（`ClampHighlights → CNNVL →
+CNNx2VL → CNNM → CNNx2M`）。拿不到 WebGPU 的设备（Windows 之外的 Firefox 等）现在也有同一条链：
+`util/upscale/anime4k-ultra.ts` 用通用多 pass 驱动跑官方 v4.0.1 的
+`Clamp_Highlights + Restore_CNN_VL + Upscale_CNN_x2_VL + Restore_CNN_M + Upscale_CNN_x2_M`，
+共 55 个 pass，权重逐字来自官方 GLSL（`anime4k-ultra-glsl.ts`，约 390KB，懒加载）。
+按段执行、段内两块缓冲交替，因此一个 55 pass 的链只占少量常驻渲染目标。触屏设备不显示这一档；
+性能不足时自动降档到「AI 超分」（S 档）。
+
 A+A 在官方的定位是“感知质量最高”，代价是发热、风扇与耗电；官方也建议只在 2× 及以上
 放大倍率使用。低分辨率或本就干净的片源上，快速档与质量档的差别可能很小。
 

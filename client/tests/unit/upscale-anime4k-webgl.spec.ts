@@ -81,7 +81,9 @@ describe("Anime4K WebGL2 chain", () => {
 
 	it("keeps the heavy chain in its own module", () => {
 		expect(ANIME4K_ULTRA_CHAIN.label).toBe("HQ");
-		expect(ANIME4K_ULTRA_CHAIN.segments.flat()).toHaveLength(52);
-		expect(ANIME4K_ULTRA_CHAIN.segments.map(segment => segment.length)).toEqual([17, 18, 8, 9]);
+		expect(ANIME4K_ULTRA_CHAIN.segments.flat()).toHaveLength(55);
+		expect(ANIME4K_ULTRA_CHAIN.segments.map(segment => segment.length)).toEqual([
+			3, 17, 18, 8, 9,
+		]);
 	});
 });
