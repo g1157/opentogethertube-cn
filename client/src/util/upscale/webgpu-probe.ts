@@ -1,5 +1,5 @@
 /// <reference types="@webgpu/types" />
-/* global GPUAdapter, GPUDevice */
+/* global GPUAdapter, GPUDevice, GPUBufferUsage, GPUMapMode, GPUTextureUsage */
 
 // Whether this browser can actually run the WebGPU tiers.
 //

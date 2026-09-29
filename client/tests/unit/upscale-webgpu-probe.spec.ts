@@ -69,7 +69,7 @@ function fakeVideo(readyState = 4) {
 describe("WebGPU enhancement probe", () => {
 	beforeEach(() => {
 		// The probe reads the WebGPU constants the way the browser exposes them.
-		Object.assign(globalThis, {
+		Object.assign(window, {
 			GPUTextureUsage: { STORAGE_BINDING: 1, TEXTURE_BINDING: 2, COPY_SRC: 4 },
 			GPUBufferUsage: { COPY_DST: 1, MAP_READ: 2 },
 			GPUMapMode: { READ: 1 },
@@ -78,6 +78,9 @@ describe("WebGPU enhancement probe", () => {
 
 	afterEach(() => {
 		Reflect.deleteProperty(navigator, "gpu");
+		for (const name of ["GPUTextureUsage", "GPUBufferUsage", "GPUMapMode"]) {
+			Reflect.deleteProperty(window, name);
+		}
 		vi.useRealTimers();
 		vi.resetModules();
 	});
