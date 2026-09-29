@@ -53,6 +53,8 @@ export interface Anime4KPlanStep {
 	height: number;
 	/** Which buffer of the frame this pass renders into. */
 	slot: number;
+	/** Buffers that nothing will sample once this pass has run, so the driver can free them. */
+	releases: number[];
 }
 
 /**
@@ -93,7 +95,17 @@ export function planChain(
 				: (sizes.get(reads[0] ?? "video") ?? pictureSize);
 			const width = pass.scale === 2 ? source.width * 2 : source.width;
 			const height = pass.scale === 2 ? source.height * 2 : source.height;
-			steps.push({ pass, index: index++, active, reads, source, width, height, slot: -1 });
+			steps.push({
+				pass,
+				index: index++,
+				active,
+				reads,
+				source,
+				width,
+				height,
+				slot: -1,
+				releases: [],
+			});
 			if (!active) {
 				continue;
 			}
@@ -113,6 +125,7 @@ export function planChain(
 	});
 	const slotOf = new Map<string, number>([["video", -1]]);
 	const free: number[] = [];
+	const sampledAt: number[][] = [];
 	let next = 0;
 	steps.forEach((step, position) => {
 		if (!step.active) {
@@ -125,6 +138,7 @@ export function planChain(
 			}
 		}
 		const sampled = new Set(step.reads.map(name => slotOf.get(name)));
+		sampledAt[position] = [...sampled].filter((slot): slot is number => slot !== undefined);
 		let slot = slotOf.get(step.pass.name);
 		if (slot === undefined || sampled.has(slot)) {
 			slot = free.length > 0 ? (free.shift() as number) : next++;
@@ -136,6 +150,29 @@ export function planChain(
 		}
 		slotOf.set(step.pass.name, slot);
 		step.slot = slot;
+	});
+
+	// A buffer lives until the last pass that renders into it or samples it. Freeing it there
+	// keeps the frame at a handful of live render targets instead of one per buffer the chain
+	// ever touched — the difference between tens and hundreds of megabytes at 2x on 1080p.
+	const lastUse = new Map<number, number>();
+	steps.forEach((step, position) => {
+		if (!step.active) {
+			return;
+		}
+		lastUse.set(step.slot, position);
+		for (const slot of sampledAt[position] ?? []) {
+			lastUse.set(slot, Math.max(lastUse.get(slot) ?? -1, position));
+		}
+	});
+	const finalPicture = [...steps].reverse().find(step => step.active && writesPicture(step.pass));
+	steps.forEach((step, position) => {
+		if (!step.active) {
+			return;
+		}
+		step.releases = [...lastUse.entries()]
+			.filter(([slot, last]) => last === position && slot !== finalPicture?.slot)
+			.map(([slot]) => slot);
 	});
 	return steps;
 }
@@ -272,6 +309,13 @@ export function startAnime4KWebGLRenderer(
 				picture = out.texture;
 				pictureWidth = step.width;
 				pictureHeight = step.height;
+			}
+			for (const slot of step.releases) {
+				const done = buffers.get(slot);
+				if (done) {
+					releaseRenderTarget(gl, done);
+					buffers.delete(slot);
+				}
 			}
 		}
 

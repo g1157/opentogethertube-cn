@@ -132,6 +132,57 @@ describe("Anime4K WebGL2 chain", () => {
 		expect(steps.map(step => step.slot)).toEqual([0, 1, 0]);
 	});
 
+	it("never renders into a buffer something still samples", () => {
+		// Every read is resolved to the write it observes, and every render is checked against the
+		// last reader of the buffer it lands in. This is the invariant the buffer plan exists for:
+		// reuse a buffer too early and a later pass samples the wrong picture.
+		for (const which of [ANIME4K_S_CHAIN, ANIME4K_ULTRA_CHAIN]) {
+			for (const target of [VIDEO, TWO_X]) {
+				const steps = planChain(which, VIDEO, target);
+				const writer = new Map<string, number>();
+				const neededUntil = new Map<number, number>();
+				steps.forEach((step, position) => {
+					if (!step.active) {
+						return;
+					}
+					for (const name of step.reads) {
+						const written = writer.get(name) ?? -1;
+						neededUntil.set(written, position);
+					}
+					writer.set(step.pass.name, position);
+				});
+				const holder = new Map<number, number>();
+				steps.forEach((step, position) => {
+					if (!step.active) {
+						return;
+					}
+					const previous = holder.get(step.slot);
+					if (previous !== undefined) {
+						expect(neededUntil.get(previous) ?? -1).toBeLessThan(position);
+					}
+					holder.set(step.slot, position);
+				});
+			}
+		}
+	});
+
+	it("hands a buffer back once its last pass has run", () => {
+		const steps = planChain(ANIME4K_S_CHAIN, VIDEO, TWO_X);
+		// The picture the present pass draws is the one buffer that has to survive the last pass.
+		expect(steps.at(-1)?.releases).not.toContain(steps.at(-1)?.slot);
+		expect(steps.some(step => step.releases.length > 0)).toBe(true);
+
+		const ultra = planChain(ANIME4K_ULTRA_CHAIN, VIDEO, TWO_X);
+		// Clamp_Highlights' statistics are read by the clamp at the very end, so their buffer may
+		// only be handed back after it — nothing along the way may free it. The second statistics
+		// pass is the one that moves the name to the buffer the clamp reads.
+		const statsSlot = ultra.filter(step => step.pass.name === "STATSMAX").at(-1)?.slot;
+		expect(ultra.at(-1)?.reads).toContain("STATSMAX");
+		expect(ultra.slice(0, -1).some(step => step.releases.includes(statsSlot as number))).toBe(
+			false,
+		);
+	});
+
 	it("keeps the heavy chain in its own module, with the clamp last", () => {
 		expect(ANIME4K_ULTRA_CHAIN.label).toBe("HQ");
 		expect(ANIME4K_ULTRA_CHAIN.segments.map(segment => segment.length)).toEqual([

@@ -91,7 +91,8 @@ CNNx2VL → CNNM → CNNx2M`）。拿不到 WebGPU 的设备（Windows 之外的
 `Restore_CNN_VL + Upscale_CNN_x2_VL + Restore_CNN_M + Upscale_CNN_x2_M`，模块里共 55 个 pass，
 权重逐字来自官方 GLSL（`anime4k-ultra-glsl.ts`，约 390KB，懒加载）。放大段按每个文件自己的
 `//!WHEN` 闸门逐段判断：2× 目标下第二段 x2 与 `AutoDownscalePre` 都不运行，实际每帧
-**46 个 pass**。缓冲按"名字的活跃期"复用，所以长链只占少量常驻渲染目标。触屏设备不显示这一档；
+**46 个 pass**。缓冲按"名字的活跃期"复用，并在最后一次使用后立即交还给驱动，所以一条长链
+同时只占少量渲染目标，而不是每个用过的缓冲各留一份。触屏设备不显示这一档；
 性能不足时自动降档到「AI 超分」（S 档）。
 
 实测（macOS、Firefox 142 headless、1080p 源、同一帧 t=60s）：与 mpv 自己跑同一条链的参考帧相比，
