@@ -6,18 +6,20 @@ import {
 } from "@/util/upscale/anime4k-glsl";
 import { ANIME4K_ULTRA_CHAIN } from "@/util/upscale/anime4k-ultra";
 import {
+	ANIME4K_S_CHAIN,
 	ANIME4K_UPSCALE_THRESHOLD,
-	planAnime4KWebGLPasses,
-	planSegmentBuffers,
+	type Anime4KChain,
+	planChain,
 } from "@/util/upscale/anime4k-webgl";
 
-const passthrough = (over: Partial<Anime4KPassSpec>): Anime4KPassSpec => ({
+const VIDEO = { width: 1920, height: 1080 };
+const TWO_X = { width: 3840, height: 2160 };
+
+const step = (over: Partial<Anime4KPassSpec>): Anime4KPassSpec => ({
 	name: "x",
 	desc: "x",
 	video: false,
-	base: false,
-	baseName: "input",
-	baseVideo: false,
+	reads: ["input"],
 	scale: 1,
 	pingPong: false,
 	upscaleOnly: false,
@@ -25,65 +27,126 @@ const passthrough = (over: Partial<Anime4KPassSpec>): Anime4KPassSpec => ({
 	...over,
 });
 
+const chain = (segments: Anime4KPassSpec[][]): Anime4KChain => ({ label: "test", segments });
+
 describe("Anime4K WebGL2 chain", () => {
-	it("restores and then upscales when the target magnifies", () => {
-		const passes = planAnime4KWebGLPasses({ magnifying: true });
-		expect(passes).toHaveLength(9);
-		expect(passes[passes.length - 1]).toContain("Depth-to-Space");
-	});
+	it("runs the x2 stage only when the target magnifies", () => {
+		const magnified = planChain(ANIME4K_S_CHAIN, VIDEO, TWO_X).filter(step => step.active);
+		expect(magnified).toHaveLength(9);
+		expect(magnified.at(-1)?.pass.desc).toContain("Depth-to-Space");
 
-	it("keeps the restoration when the target is not large enough for the x2 stage", () => {
 		// Anime4K's own rule: the upscale shaders carry `//!WHEN OUTPUT.w MAIN.w / 1.200 >`.
-		const passes = planAnime4KWebGLPasses({ magnifying: false });
-		expect(passes).toHaveLength(4);
-		expect(passes.some(desc => desc.includes("Depth-to-Space"))).toBe(false);
-	});
-
-	it("keeps the generated S chain wired the way mpv runs it", () => {
-		// Inside the restore segment MAIN is the video frame; inside the upscale segment it is the
-		// picture the restore segment produced. Both end by adding their result to it, and only the
-		// depth-to-space pass carries the x2 upscale.
-		const [restore, upscale] = ANIME4K_SEGMENTS.map(range =>
-			range.map(index => ANIME4K_PASSES[index]),
-		);
-		expect(restore[0]).toMatchObject({ video: true, base: false, scale: 1 });
-		expect(restore.at(-1)).toMatchObject({
-			base: true,
-			baseName: "input",
-			baseVideo: true,
-			scale: 1,
-		});
-		expect(upscale[0]).toMatchObject({ video: false, base: false, scale: 1 });
-		expect(upscale.at(-1)).toMatchObject({
-			base: true,
-			baseVideo: false,
-			scale: 2,
-			upscaleOnly: true,
-		});
-		expect(upscale.filter(pass => pass.scale === 2)).toHaveLength(1);
+		const plain = planChain(ANIME4K_S_CHAIN, VIDEO, VIDEO).filter(step => step.active);
+		expect(plain).toHaveLength(4);
+		expect(plain.some(step => step.pass.desc.includes("Depth-to-Space"))).toBe(false);
 	});
 
 	it("uses Anime4K's own 1.2x threshold for the upscale stages", () => {
 		expect(ANIME4K_UPSCALE_THRESHOLD).toBe(1.2);
 	});
 
-	it("alternates a segment's two buffers and gives a read-and-write pass one of its own", () => {
-		const segment = [
-			passthrough({ name: "a" }),
-			passthrough({ name: "b" }),
-			passthrough({ name: "b", pingPong: true }),
-			passthrough({ name: "c" }),
-		];
-		// The third pass cannot sample and render into the same texture, so it gets its own slot;
-		// the fourth writes the now-free buffer of the second.
-		expect(planSegmentBuffers(segment)).toEqual([0, 1, 2, 1]);
+	it("resolves input to whatever holds the picture at that point", () => {
+		// Inside the restore stage MAIN is the video frame; the stage ends by adding its result to
+		// it. The upscale stage then reads that picture — not the video — as its own MAIN.
+		const steps = planChain(ANIME4K_S_CHAIN, VIDEO, TWO_X);
+		const restoreLast = steps.find(step =>
+			step.pass.desc.includes("Restore-CNN-(S)-Conv-3x3x3x8"),
+		);
+		expect(restoreLast?.reads).toEqual(["conv2d_2_tf", "video"]);
+		const upscaleFirst = steps.find(step =>
+			step.pass.desc.includes("Upscale-CNN-x2-(S)-Conv-4x3x3x3"),
+		);
+		expect(upscaleFirst?.reads).toEqual(["MAIN"]);
+		expect(upscaleFirst?.source).toEqual(VIDEO);
 	});
 
-	it("keeps the heavy chain in its own module", () => {
+	it("keeps the generated S chain wired the way mpv runs it", () => {
+		const [restore, upscale] = ANIME4K_SEGMENTS.map(range =>
+			range.map(index => ANIME4K_PASSES[index]),
+		);
+		expect(restore[0]).toMatchObject({ video: true, reads: ["input"], scale: 1 });
+		expect(restore.at(-1)).toMatchObject({ reads: ["conv2d_2_tf", "input"], scale: 1 });
+		expect(upscale[0]).toMatchObject({ video: false, reads: ["input"], scale: 1 });
+		expect(upscale.at(-1)).toMatchObject({
+			reads: ["conv2d_last_tf", "input"],
+			scale: 2,
+			upscaleOnly: true,
+		});
+		expect(upscale.filter(pass => pass.scale === 2)).toHaveLength(1);
+	});
+
+	it("keeps a buffer alive until the last pass that samples it", () => {
+		// The VL chains write a pair of feature-map halves per layer and the next layer reads both,
+		// so alternating two buffers would overwrite a texture that is still an input.
+		const steps = planChain(
+			chain([
+				[
+					step({ name: "a", reads: ["input"] }),
+					step({ name: "a1", reads: ["input"] }),
+					step({ name: "b", reads: ["a", "a1"] }),
+					step({ name: "b1", reads: ["a", "a1"] }),
+					step({ name: "MAIN", reads: ["b", "b1", "input"] }),
+				],
+			]),
+			VIDEO,
+			VIDEO,
+		);
+		expect(steps.map(step => step.slot)).toEqual([0, 1, 2, 3, 0]);
+	});
+
+	it("never renders into the buffer the picture lives in", () => {
+		// A pass that adds the picture back — the depth-to-space ones do — must still find it, so
+		// its buffer stays off limits for everything that runs in between.
+		const steps = planChain(
+			chain([
+				[
+					step({ name: "MAIN", reads: ["input"] }),
+					step({ name: "a", reads: ["input"] }),
+					step({ name: "b", reads: ["a", "input"] }),
+					step({ name: "MAIN", reads: ["b", "input"], scale: 2 }),
+				],
+			]),
+			VIDEO,
+			TWO_X,
+		);
+		expect(steps.map(step => step.slot)).toEqual([0, 1, 2, 1]);
+		// The picture the last pass adds comes from the first pass's buffer, not from "b".
+		expect(steps[3].reads).toEqual(["b", "MAIN"]);
+		expect(steps[3].source).toEqual(VIDEO);
+	});
+
+	it("gives a read-and-write pass a buffer of its own", () => {
+		// Clamp_Highlights' second statistics pass binds STATSMAX and saves STATSMAX; a texture
+		// cannot be sampled and rendered into at the same time.
+		const steps = planChain(
+			chain([
+				[
+					step({ name: "stat", reads: ["input"] }),
+					step({ name: "stat", reads: ["stat"], pingPong: true }),
+					step({ name: "MAIN", reads: ["stat", "input"] }),
+				],
+			]),
+			VIDEO,
+			VIDEO,
+		);
+		expect(steps.map(step => step.slot)).toEqual([0, 1, 0]);
+	});
+
+	it("keeps the heavy chain in its own module, with the clamp last", () => {
 		expect(ANIME4K_ULTRA_CHAIN.label).toBe("HQ");
-		expect(ANIME4K_ULTRA_CHAIN.segments.flat()).toHaveLength(55);
 		expect(ANIME4K_ULTRA_CHAIN.segments.map(segment => segment.length)).toEqual([
-			3, 17, 18, 8, 9,
+			2, 17, 18, 8, 9, 1,
 		]);
+		const steps = planChain(ANIME4K_ULTRA_CHAIN, VIDEO, TWO_X);
+		// mpv runs Clamp_Highlights' statistics first and its clamp at PREKERNEL, after every MAIN
+		// pass, so the last thing the chain does is clamp the finished picture.
+		expect(steps[0].pass.desc).toContain("Compute-Statistics");
+		const last = steps.at(-1);
+		expect(last?.pass.desc).toContain("De-Ring-Clamp");
+		expect(last?.reads).toEqual(["STATSMAX", "MAIN"]);
+		expect(last?.width).toBe(3840);
+		// At a 2x target the second x2 stage is 1:1 with the target and skips itself, exactly as it
+		// does in mpv: 46 passes run, not 55.
+		expect(steps.filter(step => step.active)).toHaveLength(46);
 	});
 });

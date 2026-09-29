@@ -168,7 +168,8 @@ mpv 的 `//!HOOK/SAVE/BIND` 体系改写成 uniform 与固定 pass 即可（本�
 4 pass，与既有实测一致。官方对 A+A 的定义是 `Restore → Upscale → Restore → Upscale`，并建议
 只在 ≥2× 时使用。模型档位不是我们的短板。
 
-**剩下的差距（按可操作性排序）。**
+**剩下的差距（按可操作性排序）。** 其中「极致档」这一项已在同日落地并逐块对齐到 mpv——
+结论与实测见 [《WebGL2 极致档与 mpv A+A (HQ) 的逐块对齐》](upscale-webgl2-mpv-parity.zh-CN.md)。
 
 1. **最后一级缩放交给了浏览器。** 我们渲染 2× 画布后由合成器缩到显示框（Chromium/Firefox
    的合成缩放），而 ModeAA 的 `AutoDownscalePre` 只在 `1.2× < 目标 < 2.0×` 时才插入——恰好

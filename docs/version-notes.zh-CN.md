@@ -6,15 +6,21 @@
 
 -   **v1.2.0**：新增「AI 超分（极致）」档——没有 WebGPU 的设备也能跑 mpv 的 A+A (HQ) 同款链路。
     无数据库迁移、无新增依赖。
-    **画质增强**：WebGL2 链路从写死的 S 档泛化为通用多 pass 驱动（按段执行、段内双缓冲交替、读写同名
-    的纹理单独分配），转换器补齐 HQ 链所需语义（`HOOKED`→`MAIN`、`MAIN` 表示段输入、命名第二纹理、
-    读写同名标记、官方 `//!WHEN >1.2×` 条件）。由此生成的极致档是 `Clamp_Highlights` +
-    `Restore_CNN_VL` + `Upscale_CNN_x2_VL` + `Restore_CNN_M` + `Upscale_CNN_x2_M`，共 **55 个 pass**，
-    独立懒加载模块（约 390KB），**只在拿不到 WebGPU 的设备上出现**（触屏不显示）；WebGPU 可用时
-    「质量」档本身就是同一条链，因此不重复提供。降档阶梯为 极致 → AI 超分 → 影视 → 清晰化。
+    **画质增强**：WebGL2 链路从写死的 S 档泛化为通用多 pass 驱动（按 mpv 的模型执行：`MAIN` 是
+    此刻的画面、命名纹理跨文件存活、缓冲按名字的活跃期复用；每个放大文件按自己的 `//!WHEN` 逐段
+    判断闸门）。转换器补齐 HQ 链所需语义（`HOOKED`→`MAIN`、画面仍是视频时读取要翻转、命名第二纹理、
+    读写同名标记，并按 mpv 的 `PREKERNEL` 顺序把 `Clamp_Highlights` 拆成"统计在链首、clamp 在链尾"）。
+    由此生成的极致档是 `Clamp_Highlights + Restore_CNN_VL + Upscale_CNN_x2_VL + Restore_CNN_M +
+    Upscale_CNN_x2_M`，模块里 **55 个 pass**（2× 目标下实际运行 46 个），独立懒加载模块（约 390KB），
+    **只在拿不到 WebGPU 的设备上出现**（触屏不显示）；WebGPU 可用时「质量」档本身就是同一条链，
+    因此不重复提供。降档阶梯为 极致 → AI 超分 → 影视 → 清晰化。
     **界面**：档位可见性改为按真实适配器探测（`util/upscale/webgpu-probe.ts`）而不是 `"gpu" in navigator`；
     极致档的说明文案中英同步。
-    **待验证**（发版前）：55 段编译耗时、1080p→2× 的实测帧率与显存，见「画质增强」文档的实测章节。
+    **实测**（macOS、Firefox 142 headless、1080p 源、同一帧 t=60s）：与 mpv 跑同一条链的参考帧逐块
+    比对，1× 细节相关 0.975、2× 0.930；55 段着色器首次编译约 0.29s；1080p→2× 每帧 46 个 pass、
+    12.3 fps（S 档同机 22 fps）。方法、逐段数据与四联拼图见
+    《WebGL2 极致档与 mpv A+A (HQ) 的逐块对齐》（`docs/upscale-webgl2-mpv-parity.zh-CN.md`）；
+    4060 上的帧率门槛仍需在维护者的 Windows 机器上复测。
 -   **v1.1.10**：没有 WebGPU 的浏览器打开「AI 超分」时不再白下 3.4MB。无数据库迁移、无新增依赖。
     **画质增强**：此前可用性只看 `"gpu" in navigator`，而 Firefox 在所有平台都有这个接口、除
     Windows 与 Nightly 外却拿不到适配器——这些用户点开 AI 超分时会**先下载 `anime4k-webgpu` 的

@@ -87,10 +87,17 @@ Chromium 141，同一画面暂停后对比同一显示尺寸下的平均梯度�
 WebGPU 可用时，「AI 超分（质量）」就是 mpv 的 A+A (HQ) 同款链（`ClampHighlights → CNNVL →
 CNNx2VL → CNNM → CNNx2M`）。拿不到 WebGPU 的设备（Windows 之外的 Firefox 等）现在也有同一条链：
 `util/upscale/anime4k-ultra.ts` 用通用多 pass 驱动跑官方 v4.0.1 的
-`Clamp_Highlights + Restore_CNN_VL + Upscale_CNN_x2_VL + Restore_CNN_M + Upscale_CNN_x2_M`，
-共 55 个 pass，权重逐字来自官方 GLSL（`anime4k-ultra-glsl.ts`，约 390KB，懒加载）。
-按段执行、段内两块缓冲交替，因此一个 55 pass 的链只占少量常驻渲染目标。触屏设备不显示这一档；
+`Clamp_Highlights`（统计挂在链首、clamp 挂在链尾，与 mpv 的 `PREKERNEL` 一致）+
+`Restore_CNN_VL + Upscale_CNN_x2_VL + Restore_CNN_M + Upscale_CNN_x2_M`，模块里共 55 个 pass，
+权重逐字来自官方 GLSL（`anime4k-ultra-glsl.ts`，约 390KB，懒加载）。放大段按每个文件自己的
+`//!WHEN` 闸门逐段判断：2× 目标下第二段 x2 与 `AutoDownscalePre` 都不运行，实际每帧
+**46 个 pass**。缓冲按"名字的活跃期"复用，所以长链只占少量常驻渲染目标。触屏设备不显示这一档；
 性能不足时自动降档到「AI 超分」（S 档）。
+
+实测（macOS、Firefox 142 headless、1080p 源、同一帧 t=60s）：与 mpv 自己跑同一条链的参考帧相比，
+1× 细节相关 **0.975**、2× **0.930**；55 段着色器首次编译约 **0.29s**；1080p→2× 为 **12.3 fps**
+（S 档同机 22 fps）。方法、逐段数据与四联拼图见
+[《WebGL2 极致档与 mpv A+A (HQ) 的逐块对齐》](upscale-webgl2-mpv-parity.zh-CN.md)。
 
 A+A 在官方的定位是“感知质量最高”，代价是发热、风扇与耗电；官方也建议只在 2× 及以上
 放大倍率使用。低分辨率或本就干净的片源上，快速档与质量档的差别可能很小。
