@@ -335,7 +335,9 @@ export function startAnime4KWebGLRenderer(
 			console.info(
 				`[video-enhancement] Anime4K ${chain.label} (WebGL2) drawing ${outputWidth}×${outputHeight} from ${inputWidth}×${inputHeight}, ${passCount} passes`,
 			);
-			reportEnhancementTarget(`Anime4K ${chain.label} · ${outputWidth}×${outputHeight}`);
+			reportEnhancementTarget(
+				`Anime4K ${chain.label} (WebGL2) · ${outputWidth}×${outputHeight}`,
+			);
 		}
 		frames++;
 	};

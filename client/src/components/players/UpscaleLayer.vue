@@ -323,12 +323,14 @@ async function start() {
 			created = startAnime4KUltraRenderer(video, element);
 		} else if (props.mode === "anime4k" || props.mode === "anime4k-quality") {
 			const variant = props.mode === "anime4k-quality" ? "quality" : "fast";
-			// Ask for an adapter before importing the driver: the driver pulls a 3.4 MB chunk, and
-			// on the platforms that never hand out an adapter (Firefox outside Windows and Nightly,
-			// blocklisted drivers) that download is wasted — the WebGL2 chain below is the tier
-			// that actually runs there.
-			const { hasUsableWebGPUAdapter } = await import("@/util/upscale/webgpu-probe");
-			if (await hasUsableWebGPUAdapter()) {
+			// Probe the WebGPU path before importing the driver: the driver pulls a 3.4 MB chunk,
+			// and on the platforms that never hand out an adapter (Firefox outside Windows and
+			// Nightly, blocklisted drivers) — or that hand out one which cannot write the
+			// rgba16float storage textures the Anime4K pipelines need, which is what Firefox's
+			// Windows builds have been doing — that download is wasted: the WebGL2 chain below is
+			// the tier that actually runs there.
+			const { canRunWebGPUEnhancement } = await import("@/util/upscale/webgpu-probe");
+			if (await canRunWebGPUEnhancement()) {
 				// WebGPU reports most setup mistakes through error scopes instead of exceptions, so
 				// a browser with a partial implementation throws here rather than at the first
 				// drawn frame.

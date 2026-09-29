@@ -208,9 +208,11 @@ export async function startAnime4KRenderer(
 		device.queue.submit([commandEncoder.finish()]);
 		if (frames === 0) {
 			console.info(
-				`[video-enhancement] Anime4K ${variant} drawing ${canvas.width}×${canvas.height} from ${width}×${height}`,
+				`[video-enhancement] Anime4K ${variant} (WebGPU) drawing ${canvas.width}×${canvas.height} from ${width}×${height}`,
 			);
-			reportEnhancementTarget(`Anime4K ${variant} · ${canvas.width}×${canvas.height}`);
+			reportEnhancementTarget(
+				`Anime4K ${variant} (WebGPU) · ${canvas.width}×${canvas.height}`,
+			);
 		}
 		frames++;
 	};

@@ -17,7 +17,7 @@ vi.mock("@/util/upscale/anime4k-webgl", () => ({
 	startAnime4KWebGLRenderer: drivers.anime4kWebGL,
 }));
 vi.mock("@/util/upscale/webgpu-probe", () => ({
-	hasUsableWebGPUAdapter: drivers.probe,
+	canRunWebGPUEnhancement: drivers.probe,
 }));
 
 let clock = 0;
