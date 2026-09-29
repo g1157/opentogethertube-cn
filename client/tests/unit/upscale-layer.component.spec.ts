@@ -7,6 +7,7 @@ const drivers = vi.hoisted(() => ({
 	film: vi.fn(),
 	anime4k: vi.fn(),
 	anime4kWebGL: vi.fn(),
+	probe: vi.fn(),
 }));
 
 vi.mock("@/util/upscale/cas", () => ({ startSharpenRenderer: drivers.sharpen }));
@@ -14,6 +15,9 @@ vi.mock("@/util/upscale/film", () => ({ startFilmRenderer: drivers.film }));
 vi.mock("@/util/upscale/anime4k", () => ({ startAnime4KRenderer: drivers.anime4k }));
 vi.mock("@/util/upscale/anime4k-webgl", () => ({
 	startAnime4KWebGLRenderer: drivers.anime4kWebGL,
+}));
+vi.mock("@/util/upscale/webgpu-probe", () => ({
+	hasUsableWebGPUAdapter: drivers.probe,
 }));
 
 let clock = 0;
@@ -90,6 +94,9 @@ describe("enhancement layer lifecycle", () => {
 		drivers.film.mockImplementation(() => renderer());
 		drivers.anime4k.mockImplementation(() => Promise.resolve(renderer()));
 		drivers.anime4kWebGL.mockImplementation(() => renderer());
+		// The probe answers before the WebGPU chunk is imported; the driver is mocked here, so a
+		// usable adapter is all these tests need to exercise the WebGPU branch.
+		drivers.probe.mockImplementation(() => Promise.resolve(true));
 	});
 	afterEach(() => {
 		Reflect.deleteProperty(navigator, "gpu");
@@ -204,8 +211,10 @@ describe("enhancement layer lifecycle", () => {
 		expect(drivers.anime4kWebGL.mock.calls[0][1]).not.toBe(drivers.anime4k.mock.calls[0][1]);
 	});
 
-	it("skips the WebGPU attempt when the browser has no such interface", async () => {
-		Reflect.deleteProperty(navigator, "gpu");
+	it("does not import the WebGPU driver when there is no usable adapter", async () => {
+		// Firefox exposes navigator.gpu on every platform but hands out no adapter outside Windows
+		// and Nightly; importing the driver to find that out would download 3.4 MB for nothing.
+		drivers.probe.mockImplementation(() => Promise.resolve(false));
 		mountComponent(UpscaleLayer, { props: { video: fakeVideo().video, mode: "anime4k" } });
 		await settle();
 

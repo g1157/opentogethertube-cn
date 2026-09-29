@@ -308,10 +308,15 @@ async function start() {
 	try {
 		if (props.mode === "anime4k" || props.mode === "anime4k-quality") {
 			const variant = props.mode === "anime4k-quality" ? "quality" : "fast";
-			if ("gpu" in navigator) {
+			// Ask for an adapter before importing the driver: the driver pulls a 3.4 MB chunk, and
+			// on the platforms that never hand out an adapter (Firefox outside Windows and Nightly,
+			// blocklisted drivers) that download is wasted — the WebGL2 chain below is the tier
+			// that actually runs there.
+			const { hasUsableWebGPUAdapter } = await import("@/util/upscale/webgpu-probe");
+			if (await hasUsableWebGPUAdapter()) {
 				// WebGPU reports most setup mistakes through error scopes instead of exceptions, so
-				// a browser with a partial implementation (Firefox outside Windows and Nightly,
-				// blocklisted drivers) throws here rather than at the first drawn frame.
+				// a browser with a partial implementation throws here rather than at the first
+				// drawn frame.
 				const { startAnime4KRenderer } = await import("@/util/upscale/anime4k");
 				if (current !== generation) {
 					// Skip building a GPU device only to throw it away.
