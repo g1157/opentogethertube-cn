@@ -265,7 +265,12 @@ export function startFilmRenderer(
 				releaseRenderTarget(gl, upscaleTarget);
 				upscaleTarget = null;
 			}
-			gl.getExtension("WEBGL_lose_context")?.loseContext();
+			// Degrading the tier or stepping the scale rebuilds this renderer on the same canvas,
+			// so the context (and the programs linked on it) stay; only this instance's own
+			// objects go.
+			gl.deleteVertexArray(vao);
+			gl.deleteBuffer(buffer);
+			gl.deleteTexture(videoTexture);
 		},
 	};
 }

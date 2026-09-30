@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	canAffordCnnUpscale,
 	computeCanvasSize,
+	ladderFloorScale,
 	MAX_AUTO_PIXELS,
 	MAX_SCALE,
 	MIN_AUTO_SCALE,
@@ -164,28 +165,45 @@ describe("CNN upscale target", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("renders above the display box on a capable device so the upscale stages run", () => {
+	it("clears the CNN's upscale gate when the display box is smaller than it", () => {
 		// Anime4K's presets skip their upscale stages below ~1.2x, so the canvas used to
-		// sit on the box and only the restore passes ran.
+		// sit on the box and only the restore passes ran. The gate is the floor now, not a
+		// reason to render at 2x: this box is 960x540, a quarter of the source.
 		const size = computeCanvasSize({
 			...base,
 			boxWidth: 960,
 			boxHeight: 540,
 			cnnUpscale: true,
 		});
-		expect(size).toEqual({ width: 3840, height: 2160 });
+		expect(size).toEqual({ width: 2400, height: 1350 });
+		expect(size.width / base.nativeWidth).toBeGreaterThanOrEqual(1.2);
+	});
+
+	it("follows the display box once it is past the gate", () => {
+		// A 1600x900 CSS box at dpr 2 is 3200x1800 device pixels — more than the gate, and
+		// all the screen can show. Aiming at a flat 2x here would render half again as many
+		// pixels as the display has, for no visible gain.
+		const size = computeCanvasSize({
+			...base,
+			boxWidth: 1600,
+			boxHeight: 900,
+			dpr: 2,
+			cnnUpscale: true,
+		});
+		expect(size).toEqual({ width: 3200, height: 1800 });
 	});
 
 	it("keeps the pixel budget as the ceiling", () => {
 		const size = computeCanvasSize({
 			...base,
-			nativeWidth: 2560,
-			nativeHeight: 1440,
-			boxWidth: 1280,
-			boxHeight: 720,
+			nativeWidth: 3840,
+			nativeHeight: 2160,
+			boxWidth: 1920,
+			boxHeight: 1080,
+			dpr: 2,
 			cnnUpscale: true,
 		});
-		// 2x a 1440p source would be 5120x2880; the budget settles for 1.5x.
+		// 1.25x a 4K source would be 4800x2700, past the budget; the budget settles for 1x.
 		expect(size).toEqual({ width: 3840, height: 2160 });
 		expect(size.width * size.height).toBeLessThanOrEqual(MAX_AUTO_PIXELS);
 	});
@@ -224,5 +242,35 @@ describe("CNN upscale target", () => {
 	it("treats an environment without media queries as a pointer device", () => {
 		vi.stubGlobal("matchMedia", undefined);
 		expect(canAffordCnnUpscale()).toBe(false);
+	});
+});
+
+describe("auto-degrade floor", () => {
+	it("never steps below the source resolution on a desktop display", () => {
+		// 1130x686 CSS at dpr 2 is 2260x1372 device pixels: more than the 1080p source, so
+		// there is no pixel the screen cannot show that shrinking the canvas would save.
+		expect(
+			ladderFloorScale({
+				nativeWidth: 1920,
+				nativeHeight: 1080,
+				boxWidth: 1130,
+				boxHeight: 686,
+				dpr: 2,
+			}),
+		).toBe(1);
+	});
+
+	it("still allows shrinking on a phone, where the box is smaller than the source", () => {
+		// A 390x219 box at dpr 2 is 780x438 device pixels; a 0.5x canvas is still above it,
+		// so the ladder may go there without showing the viewer anything less than the box.
+		expect(
+			ladderFloorScale({
+				nativeWidth: 1920,
+				nativeHeight: 1080,
+				boxWidth: 390,
+				boxHeight: 219,
+				dpr: 2,
+			}),
+		).toBeCloseTo(0.406, 2);
 	});
 });

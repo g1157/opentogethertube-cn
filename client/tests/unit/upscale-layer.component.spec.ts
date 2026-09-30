@@ -109,25 +109,29 @@ describe("enhancement layer lifecycle", () => {
 		vi.clearAllMocks();
 	});
 
-	it("gives every renderer a canvas of its own", async () => {
-		// A canvas keeps the context type it was first asked for and the sharpen pass
-		// loses its WebGL context on stop, so a reused canvas cannot host a second
-		// renderer: switching tiers or reloading the media would fail to get a context.
+	it("keeps one canvas per context kind so a rebuild can reuse its programs", async () => {
+		// A canvas keeps the context type it was first asked for, so WebGL2 and WebGPU need a
+		// canvas each — but rebuilding on the same one preserves its context and the programs
+		// linked on it, which is what stops every tier switch from re-linking the chain.
 		const first = fakeVideo();
 		const { wrapper } = mountComponent(UpscaleLayer, {
 			props: { video: first.video, mode: "sharpen" },
 		});
 		await settle();
-		const originalCanvas = wrapper.find("canvas").element;
-		expect(originalCanvas).toBeDefined();
+		const sharpCanvas = wrapper.find("canvas").element;
+		expect(sharpCanvas).toBeDefined();
 
-		await wrapper.setProps({ video: fakeVideo().video });
+		// Another WebGL2 tier rebuilds onto the same canvas rather than a fresh one.
+		await wrapper.setProps({ mode: "film" });
 		await settle();
+		expect(wrapper.find("canvas").element).toBe(sharpCanvas);
 
-		const replacement = wrapper.find("canvas").element;
-		expect(replacement).not.toBe(originalCanvas);
-		expect(document.body.contains(replacement)).toBe(true);
-		expect(document.body.contains(originalCanvas)).toBe(false);
+		// The AI tiers take the WebGPU canvas, which must not be the WebGL2 one.
+		await wrapper.setProps({ mode: "anime4k" });
+		await settle();
+		const webgpuCanvas = drivers.anime4k.mock.calls[0][1] as HTMLCanvasElement;
+		expect(webgpuCanvas).not.toBe(sharpCanvas);
+		expect(wrapper.find("canvas").element).toBe(webgpuCanvas);
 	});
 
 	it("discards a slow start instead of letting it displace the live renderer", async () => {
@@ -255,7 +259,9 @@ describe("enhancement layer lifecycle", () => {
 		});
 		await settle();
 
-		for (let i = 0; i < 80; i++) {
+		// The window that begins at a rebuild is skipped by design, so a step needs two windows
+		// of sustained slowness (the second one is the first that is judged).
+		for (let i = 0; i < 200; i++) {
 			fire(100);
 		}
 
@@ -294,7 +300,7 @@ describe("enhancement layer lifecycle", () => {
 		const { store } = mountComponent(UpscaleLayer, { props: { video, mode: "film" } });
 		await settle();
 
-		for (let i = 0; i < 80; i++) {
+		for (let i = 0; i < 200; i++) {
 			fire(100);
 		}
 
@@ -310,6 +316,27 @@ describe("enhancement layer lifecycle", () => {
 		expect(drivers.sharpen).not.toHaveBeenCalled();
 	});
 
+	it("does not step down on the window that spans the rebuild", async () => {
+		// A rebuild's own cost — linking the chain, the first frame, the layout settling —
+		// lands in the window that begins with it, and judging that window would make the
+		// ladder step down on a cost it just paid.
+		const { video, fire } = fakeVideo();
+		const { store } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "sharpen" },
+		});
+		// The ladder writes the store, so it has to start from the tier under test.
+		store.commit("settings/UPDATE", { upscaleMode: "sharpen" });
+		await settle();
+
+		// One window (6s) of 10fps, which the ladder skips because it began at a rebuild.
+		for (let i = 0; i < 70; i++) {
+			fire(100);
+		}
+
+		expect(store.state.settings.upscaleMode).toBe("sharpen");
+		expect(store.state.settings.upscaleScale).toBe("auto");
+	});
+
 	it("still steps down when playback is genuinely slow", async () => {
 		const { video, fire } = fakeVideo();
 		const { store } = mountComponent(UpscaleLayer, {
@@ -317,14 +344,35 @@ describe("enhancement layer lifecycle", () => {
 		});
 		await settle();
 
-		// 10fps for longer than one window: real, sustained slowness with no stall in it.
-		for (let i = 0; i < 80; i++) {
+		// 10fps for longer than two windows: real, sustained slowness with no stall in it.
+		for (let i = 0; i < 200; i++) {
 			fire(100);
 		}
 
-		// The canvas is sized to the source resolution (auto no longer undersamples),
-		// so the next rung under 1x is 0.75.
+		// The canvas is at the source resolution, and this box (1280x720 at dpr 1) is below
+		// it, so one rung down is still above what the screen can show and the ladder may take
+		// it. The floor itself is covered by the next test.
 		expect(store.state.settings.upscaleScale).toBe(0.75);
+	});
+
+	it("ends the ladder at the display box instead of rendering below the source", async () => {
+		// A canvas below both the source and the display box is softer than the plain video —
+		// the shader's single tap filtering loses to the browser's multi-tap scaler — so the
+		// last rung is to turn the enhancement off, not to keep shrinking.
+		const { video, fire } = fakeVideo();
+		// A box larger than the 1080p source: nothing below 1x can be justified here.
+		resizeVideo(video, 2560, 1440);
+		const { store } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "sharpen" },
+		});
+		await settle();
+
+		for (let i = 0; i < 400; i++) {
+			fire(100);
+		}
+
+		expect(store.state.settings.upscaleMode).toBe("off");
+		expect(store.state.settings.upscaleScale).toBe(1);
 	});
 
 	it("leaves the tier alone when the viewer turned auto-degrade off", async () => {
@@ -363,6 +411,8 @@ describe("enhancement layer lifecycle", () => {
 		await settle();
 		expect(drivers.anime4k).toHaveBeenCalledTimes(1);
 		const firstCanvas = drivers.anime4k.mock.calls[0][1] as HTMLCanvasElement;
+		// The rebuild reuses this canvas, so its size has to be read now rather than later.
+		const firstSize = [firstCanvas.width, firstCanvas.height];
 
 		// Entering fullscreen (or a wider window) draws the same source much larger, and the
 		// Anime4K pipeline captures its target size when it is built: without a rebuild the
@@ -377,8 +427,10 @@ describe("enhancement layer lifecycle", () => {
 		await settle();
 		expect(drivers.anime4k).toHaveBeenCalledTimes(2);
 		const secondCanvas = drivers.anime4k.mock.calls[1][1] as HTMLCanvasElement;
-		expect(secondCanvas.width).toBeGreaterThan(firstCanvas.width);
-		expect(secondCanvas.height).toBeGreaterThan(firstCanvas.height);
+		// The same canvas, resized for the new box.
+		expect(secondCanvas).toBe(firstCanvas);
+		expect(secondCanvas.width).toBeGreaterThan(firstSize[0]);
+		expect(secondCanvas.height).toBeGreaterThan(firstSize[1]);
 	});
 
 	it("resizes the sharpen canvas in place instead of restarting the pass", async () => {

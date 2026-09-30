@@ -240,7 +240,34 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string): WebG
 	return shader;
 }
 
+/**
+ * Linked programs, cached per context. The layer rebuilds on a tier switch, a scale step and
+ * entering fullscreen, and it keeps the canvas (and therefore the context) across those
+ * rebuilds — so linking the same chain again would be pure waste. Linking is also the most
+ * visible part of a rebuild: the heavy chain is 55 programs.
+ *
+ * The context is held by identity, so the entries go away with it. A context loss clears them:
+ * every program linked on it is dead, and a restored context must compile its own.
+ */
+const programCache = new WeakMap<WebGL2RenderingContext, Map<string, WebGLProgram>>();
+
+function programsOf(gl: WebGL2RenderingContext): Map<string, WebGLProgram> {
+	let cached = programCache.get(gl);
+	if (!cached) {
+		const programs = new Map<string, WebGLProgram>();
+		programCache.set(gl, programs);
+		gl.canvas?.addEventListener("webglcontextlost", () => programs.clear());
+		cached = programs;
+	}
+	return cached;
+}
+
 export function link(gl: WebGL2RenderingContext, fragmentSource: string): WebGLProgram {
+	const programs = programsOf(gl);
+	const cached = programs.get(fragmentSource);
+	if (cached) {
+		return cached;
+	}
 	const program = gl.createProgram();
 	if (!program) {
 		throw new Error("Unable to create program");
@@ -251,6 +278,7 @@ export function link(gl: WebGL2RenderingContext, fragmentSource: string): WebGLP
 	if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
 		throw new Error(`Program link failed: ${gl.getProgramInfoLog(program) ?? "unknown"}`);
 	}
+	programs.set(fragmentSource, program);
 	return program;
 }
 
@@ -544,7 +572,12 @@ export function startSharpenRenderer(
 				releaseRenderTarget(gl, stage);
 				stage = null;
 			}
-			gl.getExtension("WEBGL_lose_context")?.loseContext();
+			// The context outlives this renderer (the layer keeps the canvas so a rebuild can
+			// reuse its context and linked programs), so what this instance allocated has to be
+			// deleted rather than left to a context loss.
+			gl.deleteVertexArray(vao);
+			gl.deleteBuffer(buffer);
+			gl.deleteTexture(videoTexture);
 		},
 	};
 }

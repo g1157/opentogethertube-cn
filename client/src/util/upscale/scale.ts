@@ -34,14 +34,18 @@ export const MAX_AUTO_PIXELS = 3840 * 2160;
 export const MAX_DPR = 3;
 
 /**
- * Minimum target the CNN tiers aim for when the device can afford it. Anime4K's
- * presets only run their upscale stages when the target is clearly larger than the
- * source (the library checks for >1.2x), and its design point is a 2x upscale that the
- * display then downsamples. Sizing the canvas to the display box left those stages
- * switched off — only the restore passes ran — which is what made the top tier look
- * softer than a desktop player running the same shader chain.
+ * Minimum target the CNN tiers aim for. Anime4K's presets only run their upscale stages
+ * when the target is clearly larger than the source (the library checks for >1.2x), so
+ * the canvas has to clear that gate or the top tier silently drops to its restore passes,
+ * which is what made it look softer than a desktop player running the same chain.
+ *
+ * It is a floor, not the target: past the gate the display box decides, because pixels
+ * beyond what the screen can show only cost frame time and heat. On a Retina laptop the
+ * box alone is 1.2-1.8x of a 1080p source; aiming at a flat 2x there rendered roughly
+ * twice the pixels the screen could show, which is what put the AI tiers under the
+ * auto-degrade threshold on an 8-core fanless GPU.
  */
-export const CNN_UPSCALE_SCALE = 2;
+export const CNN_MIN_UPSCALE = 1.25;
 
 /**
  * Whether this device should render above the display box to feed the CNN. Touch devices
@@ -64,7 +68,7 @@ export interface CanvasSizeInput {
 	dpr: number;
 	/** Explicit multiplier from settings, or "auto" to fit the displayed box. */
 	requestedScale: number | "auto";
-	/** Let "auto" supersample so the CNN's upscale stages run (see CNN_UPSCALE_SCALE). */
+	/** Let "auto" supersample so the CNN's upscale stages run (see CNN_MIN_UPSCALE). */
 	cnnUpscale?: boolean;
 }
 
@@ -73,22 +77,40 @@ export interface CanvasSize {
 	height: number;
 }
 
+/** The multiplier at which the canvas exactly covers the box the video is displayed in. */
+export function fitScale(input: Omit<CanvasSizeInput, "requestedScale" | "cnnUpscale">): number {
+	// The canvas uses object-fit: contain, so the displayed video is limited by whichever
+	// axis runs out of box first: the smaller ratio is the one that covers the picture
+	// without over-rendering the other axis.
+	const ratioX = (Math.max(input.boxWidth, 1) * input.dpr) / Math.max(1, input.nativeWidth);
+	const ratioY = (Math.max(input.boxHeight, 1) * input.dpr) / Math.max(1, input.nativeHeight);
+	return Math.min(ratioX, ratioY);
+}
+
+/**
+ * The lowest multiplier the auto-degrade ladder may step to: the source resolution, or the
+ * display box when that is smaller. Below both, the shader's single-tap filtering starts
+ * deciding how much source detail survives, and it loses that comparison against the
+ * browser's multi-tap scaler — the picture comes out softer than the plain video, so the
+ * ladder turns the enhancement off rather than leaving the viewer with that.
+ */
+export function ladderFloorScale(
+	input: Omit<CanvasSizeInput, "requestedScale" | "cnnUpscale">,
+): number {
+	return Math.min(MIN_AUTO_SCALE, fitScale(input));
+}
+
 export function computeCanvasSize(input: CanvasSizeInput): CanvasSize {
 	const nativeWidth = Math.max(1, Math.floor(input.nativeWidth) || 1);
 	const nativeHeight = Math.max(1, Math.floor(input.nativeHeight) || 1);
 
 	let scale: number;
 	if (input.requestedScale === "auto") {
-		// The canvas uses object-fit: contain, so the displayed video is limited by
-		// whichever axis runs out of box first: the smaller ratio is the one that
-		// covers the picture without over-rendering the other axis.
-		const ratioX = (Math.max(input.boxWidth, 1) * input.dpr) / nativeWidth;
-		const ratioY = (Math.max(input.boxHeight, 1) * input.dpr) / nativeHeight;
-		scale = Math.min(ratioX, ratioY);
+		scale = fitScale({ ...input, nativeWidth, nativeHeight });
 		if (input.cnnUpscale) {
-			// The display box is the floor, not the target: the CNN only upscales above
-			// 1.2x, so aiming at the box silently reduced the top tier to its restore passes.
-			scale = Math.max(scale, CNN_UPSCALE_SCALE);
+			// Past the library's upscale gate the display box is the target; below it the CNN
+			// would drop to its restore passes, so the floor is what has to give way.
+			scale = Math.max(scale, CNN_MIN_UPSCALE);
 		}
 		scale = Math.min(MAX_SCALE, Math.max(MIN_AUTO_SCALE, scale));
 		// The budget only binds when the target itself would exceed it, so it caps

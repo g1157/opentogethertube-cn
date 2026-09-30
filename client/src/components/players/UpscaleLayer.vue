@@ -11,7 +11,12 @@ import { i18n } from "@/i18n";
 import { ToastStyle } from "@/models/toast";
 import { useStore } from "@/store";
 import type { SettingsState } from "@/stores/settings";
-import { canAffordCnnUpscale, computeCanvasSize, MAX_DPR } from "@/util/upscale/scale";
+import {
+	canAffordCnnUpscale,
+	computeCanvasSize,
+	ladderFloorScale,
+	MAX_DPR,
+} from "@/util/upscale/scale";
 import type { UpscaleRenderer } from "@/util/upscale/upscale-renderer";
 import { reportEnhancementError, reportEnhancementTarget } from "@/util/upscale/status";
 import toast from "@/util/toast";
@@ -44,22 +49,36 @@ let monitorFrames = 0;
 // Negative infinity rather than 0, so "no frame yet" cannot be confused with a clock
 // that legitimately reads 0.
 let lastFrameAt = Number.NEGATIVE_INFINITY;
+// A rebuild pays for itself in shader linking and a first frame, so the monitoring window
+// that starts with one is not evidence about the device and is thrown away unread.
+let monitorSkipWindow = false;
 
 /**
- * A canvas keeps whatever context type it was first asked for, and the sharpen renderer
- * deliberately loses its WebGL context when it stops, so a canvas that has hosted one
- * renderer can never host another — switching tiers or reloading the media would just
- * fail to get a context. Every start therefore gets a canvas of its own.
+ * A canvas keeps whatever context type it was first asked for, so WebGL2 and WebGPU each get a
+ * canvas of their own — and each of those is kept for the life of the layer, because rebuilding
+ * on the same canvas preserves its context and the programs linked on it (see the program cache
+ * in cas.ts). Linking the heavy chain's 55 shaders again on every tier switch, scale step and
+ * fullscreen toggle was the most visible part of those rebuilds.
  */
-function createCanvas(): HTMLCanvasElement | null {
+type CanvasKind = "webgl2" | "webgpu";
+const canvases: Record<CanvasKind, HTMLCanvasElement | null> = { webgl2: null, webgpu: null };
+
+function acquireCanvas(kind: CanvasKind): HTMLCanvasElement | null {
 	const host = canvasHost.value;
 	if (!host) {
 		return null;
 	}
-	const element = document.createElement("canvas");
-	element.className = "upscale-canvas";
-	element.setAttribute("aria-hidden", "true");
-	host.replaceChildren(element);
+	let element = canvases[kind];
+	if (!element) {
+		element = document.createElement("canvas");
+		element.className = "upscale-canvas";
+		element.setAttribute("aria-hidden", "true");
+		canvases[kind] = element;
+	}
+	// Only one canvas may be on screen: whichever tier is not running must not show through.
+	if (host.firstElementChild !== element || host.childElementCount !== 1) {
+		host.replaceChildren(element);
+	}
 	return element;
 }
 
@@ -139,6 +158,12 @@ function monitorPerformance() {
 	const frames = monitorFrames;
 	monitorWindowStart = now;
 	monitorFrames = 0;
+	if (monitorSkipWindow) {
+		// The window began at a rebuild, so its first frames were the rebuild itself. Judge the
+		// window after this one rather than stepping down on a cost that has already been paid.
+		monitorSkipWindow = false;
+		return;
+	}
 	if (frames < 24) {
 		return;
 	}
@@ -186,7 +211,17 @@ function pickDegradeStep(
 	// The canvas may already sit below 1x when "auto" sized it to the displayed box,
 	// so step down from what is actually rendered rather than from the named tier.
 	const currentScale = target.width / Math.max(1, video.videoWidth);
-	const scaleStep = SCALE_STEPS.find(step => step < currentScale - 0.01);
+	// Below the display box the shader's own filtering decides the picture and the result is
+	// softer than the plain video, so the ladder ends there instead of stepping past it.
+	const box = video.getBoundingClientRect();
+	const floor = ladderFloorScale({
+		nativeWidth: video.videoWidth,
+		nativeHeight: video.videoHeight,
+		boxWidth: box.width,
+		boxHeight: box.height,
+		dpr: Math.min(window.devicePixelRatio || 1, MAX_DPR),
+	});
+	const scaleStep = SCALE_STEPS.find(step => step < currentScale - 0.01 && step >= floor - 0.01);
 	if (scaleStep !== undefined) {
 		// Store an explicit multiplier so the ladder and "auto" cannot fight over it.
 		return { upscaleScale: scaleStep };
@@ -306,7 +341,10 @@ function fallBackFromFailure(): void {
 async function start() {
 	stopRenderers();
 	const video = props.video;
-	let element = createCanvas();
+	// The WebGPU attempt needs a canvas that has never handed out a WebGL2 context, so the
+	// tier's family decides which one is taken first; a WebGL2 fallback takes its own below.
+	const aiTier = props.mode === "anime4k" || props.mode === "anime4k-quality";
+	let element = acquireCanvas(aiTier ? "webgpu" : "webgl2");
 	if (!video || !element) {
 		return;
 	}
@@ -360,9 +398,9 @@ async function start() {
 				if (current !== generation) {
 					return;
 				}
-				// A canvas keeps the context type it was first asked for, so the WebGL2 attempt
-				// gets a canvas of its own rather than the one the failed start may have claimed.
-				const webglCanvas = createCanvas();
+				// The WebGPU attempt may have claimed its own canvas, and a canvas only ever hands
+				// out one context type, so the WebGL2 chain takes the WebGL2 one.
+				const webglCanvas = acquireCanvas("webgl2");
 				if (!webglCanvas) {
 					return;
 				}
@@ -422,6 +460,7 @@ async function start() {
 	captionTimer = setInterval(updateCaptions, 250);
 	monitorWindowStart = 0;
 	monitorFrames = 0;
+	monitorSkipWindow = true;
 	monitorFrame = video.requestVideoFrameCallback(monitorPerformance);
 }
 

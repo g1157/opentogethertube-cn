@@ -445,7 +445,11 @@ export function startAnime4KWebGLRenderer(
 			}
 			buffers.clear();
 			pool.dispose();
-			gl.getExtension("WEBGL_lose_context")?.loseContext();
+			// The layer keeps the canvas across rebuilds so the chain does not have to be linked
+			// again, which means this instance is responsible for the objects it created.
+			gl.deleteVertexArray(vao);
+			gl.deleteBuffer(buffer);
+			gl.deleteTexture(videoTexture);
 		},
 	};
 }

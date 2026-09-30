@@ -298,6 +298,11 @@ export function usePlayerStats(
 	let fpsFrame = 0;
 	let fpsCount = 0;
 	let fpsStart = 0;
+	// One second of frames is far too noisy to report as "the frame rate": a shader link, a seek
+	// or a rebuffer turns that second into a 1-3 fps reading and the recovery into a 25-26 one.
+	// The panel averages the last few seconds, which is closer to what a viewer perceives.
+	const FPS_SAMPLES = 4;
+	let fpsSamples: number[] = [];
 	let measuredFps: number | null = null;
 	let gpuName: string | null = null;
 
@@ -362,10 +367,22 @@ export function usePlayerStats(
 	}
 
 	function refresh() {
-		if (fpsStart > 0) {
+		const video = getVideo();
+		if (video?.paused) {
+			// A paused video presents no frames, and a stale number would only mislead.
+			fpsSamples = [];
+		} else if (fpsStart > 0 && fpsCount > 0) {
 			const elapsed = performance.now() - fpsStart;
-			measuredFps = fpsCount > 0 && elapsed > 0 ? (fpsCount * 1000) / elapsed : null;
+			if (elapsed > 0) {
+				fpsSamples.push((fpsCount * 1000) / elapsed);
+				if (fpsSamples.length > FPS_SAMPLES) {
+					fpsSamples.shift();
+				}
+			}
 		}
+		measuredFps = fpsSamples.length
+			? fpsSamples.reduce((total, sample) => total + sample, 0) / fpsSamples.length
+			: null;
 		sections.value = collectPlayerStats(input());
 	}
 
@@ -375,6 +392,7 @@ export function usePlayerStats(
 			timer = undefined;
 		}
 		stopFpsWindow();
+		fpsSamples = [];
 		measuredFps = null;
 	}
 
