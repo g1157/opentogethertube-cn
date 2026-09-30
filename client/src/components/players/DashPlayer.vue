@@ -19,6 +19,7 @@
 			@stalled="onStalled"
 			@loadstart="onBuffering"
 			@progress="onProgress"
+			@ended="onEnd"
 			@error="onNativeError"
 		></video>
 		<UpscaleLayer
@@ -76,6 +77,7 @@ const emit = defineEmits<{
 	"playing": [];
 	"paused": [];
 	"buffering": [];
+	"end": [];
 	"error": [error: MediaPlayerError];
 	"buffer-progress": [progress: number];
 	"buffer-spans": [spans: TimeRanges];
@@ -499,6 +501,10 @@ function onStalled() {
 	if (videoElem.value && !videoElem.value.paused && videoElem.value.readyState < 3) {
 		onBuffering();
 	}
+}
+
+function onEnd() {
+	emit("end");
 }
 
 function onNativeError() {

@@ -109,6 +109,7 @@ describe("Account Recovery", () => {
 			newPassword: "test5678",
 		};
 
+		const oldToken = token;
 		const resp = await request(app)
 			.post("/api/user/recover/verify")
 			.set("Authorization", `Bearer ${token}`)
@@ -117,6 +118,13 @@ describe("Account Recovery", () => {
 		expect(resp.body).toMatchObject({
 			success: true,
 		});
+
+		// The reset rotates the token on privilege change (session fixation), so the client
+		// has to adopt the new one and the old one stops working.
+		expect(resp.body.token).toBeTruthy();
+		expect(resp.body.token).not.toBe(oldToken);
+		await request(app).get("/api/user").set("Authorization", `Bearer ${oldToken}`).expect(401);
+		token = resp.body.token;
 	});
 
 	it.each([

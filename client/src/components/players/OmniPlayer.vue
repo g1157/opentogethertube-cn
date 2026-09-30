@@ -105,6 +105,7 @@
 				@buffer-progress="onBufferProgress"
 				@buffer-spans="onBufferSpans"
 				@loading-state="onLoadingState"
+				@end="onEnd"
 			/>
 			<DashPlayer
 				v-else-if="!!source && source.service === 'dash'"
@@ -121,6 +122,7 @@
 				@buffer-progress="onBufferProgress"
 				@buffer-spans="onBufferSpans"
 				@loading-state="onLoadingState"
+				@end="onEnd"
 			/>
 			<DirectPlayer
 				v-else-if="

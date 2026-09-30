@@ -78,6 +78,7 @@ export async function main() {
 
 	process.on("SIGINT", shutdown);
 	process.on("SIGTERM", shutdown);
+	installUnhandledRejectionLogger();
 
 	app.use(metricsMiddleware);
 	installSecurityHeaders(app, conf.get("base_url"));
@@ -244,6 +245,24 @@ export async function main() {
 	return {
 		app,
 	};
+}
+
+let unhandledRejectionLoggerInstalled = false;
+
+/**
+ * A rejection nobody handled would otherwise take the process down with only Node's default
+ * report. Log it through the app logger instead, so a background failure (a Redis blip, a
+ * stray timer) shows up in the same stream as everything else instead of a crash loop.
+ */
+function installUnhandledRejectionLogger() {
+	if (unhandledRejectionLoggerInstalled) {
+		return;
+	}
+	unhandledRejectionLoggerInstalled = true;
+	process.on("unhandledRejection", reason => {
+		const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+		getLogger("app").error(`Unhandled promise rejection: ${detail}`);
+	});
 }
 
 async function shutdown() {

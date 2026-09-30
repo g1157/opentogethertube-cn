@@ -15,6 +15,16 @@ const NON_MEDIA_CONTENT_TYPE = /^(?:image|text)\/|^application\/(?:json|xml|java
 /** Statuses that refuse this request rather than report a missing or broken file. */
 const ACCESS_DENIED = new Set([401, 403, 410, 451]);
 
+/**
+ * Whether this response is the one the browser would end up on. The probe never follows
+ * redirects, and the headers of a 3xx describe the redirect itself: reading a CORS or
+ * Referer verdict from them would say nothing about the address that actually serves the
+ * media.
+ */
+function isFinalMediaResponse(status: number): boolean {
+	return status >= 200 && status < 300;
+}
+
 export interface MediaAccessProbe {
 	mediaAccess?: MediaAccess;
 	cors?: boolean;
@@ -73,7 +83,7 @@ async function probeHeaders(link: string, referer?: string): Promise<ProbeRespon
  */
 export async function probeMediaAccess(link: string, appOrigin: string): Promise<MediaAccessProbe> {
 	const asBrowser = await probeHeaders(link, `${appOrigin}/`);
-	if (asBrowser && asBrowser.status < 400) {
+	if (asBrowser && isFinalMediaResponse(asBrowser.status)) {
 		const mediaAccess = diagnostics(asBrowser.headers);
 		return {
 			cors: corsFromHeaders(asBrowser.headers),
@@ -81,7 +91,7 @@ export async function probeMediaAccess(link: string, appOrigin: string): Promise
 		};
 	}
 	const withoutReferer = await probeHeaders(link);
-	if (withoutReferer && withoutReferer.status < 400) {
+	if (withoutReferer && isFinalMediaResponse(withoutReferer.status)) {
 		return {
 			cors: corsFromHeaders(withoutReferer.headers),
 			mediaAccess: {

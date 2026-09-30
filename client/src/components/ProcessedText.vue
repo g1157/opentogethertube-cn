@@ -32,7 +32,7 @@ interface ContentItem {
 const props = withDefaults(
 	defineProps<{
 		text: string;
-		showAddQueueTooltip: boolean;
+		showAddQueueTooltip?: boolean;
 	}>(),
 	{
 		showAddQueueTooltip: true,

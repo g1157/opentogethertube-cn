@@ -349,15 +349,18 @@ export default {
 				.split("\n")
 				.filter(line => this.isURL(line));
 
-			const videoIds = lines.map(line => {
+			const videoIds: VideoId[] = [];
+			for (const line of lines) {
 				const adapter = forceAdapter
 					? this.getServiceAdapter(forceAdapter)
 					: this.getServiceAdapterForURL(line);
-				return {
+				// Short links (b23.tv) carry no id; the adapter has to follow them first.
+				const canonical = await adapter.resolveShortLink(line);
+				videoIds.push({
 					service: adapter.serviceId,
-					id: adapter.getVideoId(line),
-				};
-			});
+					id: adapter.getVideoId(canonical),
+				});
+			}
 
 			results = await this.getManyVideoInfo(videoIds);
 		} else if (this.isURL(query)) {
@@ -374,8 +377,9 @@ export default {
 			}
 
 			if (!adapter.isCollectionURL(query)) {
+				const canonical = await adapter.resolveShortLink(query);
 				const videos = [
-					await this.getVideoInfo(adapter.serviceId, adapter.getVideoId(query)),
+					await this.getVideoInfo(adapter.serviceId, adapter.getVideoId(canonical)),
 				];
 				return new AddPreview(videos, cacheDuration);
 			}
@@ -393,9 +397,10 @@ export default {
 							if (adapter.isCollectionURL(video.url)) {
 								continue;
 							}
+							const canonical = await adapter.resolveShortLink(video.url);
 							resolvedResults.push({
 								service: adapter.serviceId,
-								id: adapter.getVideoId(video.url),
+								id: adapter.getVideoId(canonical),
 							});
 						} catch (e) {
 							log.warn(`Failed to resolve video URL ${video.url}: ${e.message}`);

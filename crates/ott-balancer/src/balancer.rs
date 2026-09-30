@@ -430,9 +430,8 @@ impl BalancerContext {
 
     /// Prioritizes monoliths in the same region
     pub fn filter_monoliths(&self) -> Vec<&BalancerMonolith> {
-        let in_region = self
-            .monoliths_by_region
-            .get(BalancerConfig::get().region.as_str());
+        let region = BalancerConfig::get().region.get();
+        let in_region = self.monoliths_by_region.get(region.as_str());
         if let Some(in_region) = in_region {
             return in_region
                 .iter()
@@ -496,7 +495,7 @@ impl BalancerContext {
 
         BalancerState {
             id: *BALANCER_ID,
-            region: BalancerConfig::get().region.clone(),
+            region: BalancerConfig::get().region.get(),
             monoliths,
         }
     }

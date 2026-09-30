@@ -60,10 +60,9 @@
 					<p>{{ $t("landing.intro.text2") }}</p>
 					<p>
 						{{ $t(isEdgePreview ? "edge-preview.intro-text3" : "landing.intro.text3") }}
-						<a
-							href="https://github.com/dyc3/opentogethertube/labels/service%20support%20request"
-							>{{ $t("landing.intro.link") }}</a
-						>
+						<a href="https://github.com/g1157/opentogethertube-cn/issues">{{
+							$t("landing.intro.link")
+						}}</a>
 					</p>
 				</div>
 			</section>

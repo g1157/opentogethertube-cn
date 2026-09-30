@@ -1,4 +1,4 @@
-import { computed, inject, onMounted, type Ref, ref, shallowRef, watch } from "vue";
+import { computed, effectScope, inject, onMounted, type Ref, ref, shallowRef, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
 import { useStore } from "@/store";
 
@@ -13,34 +13,40 @@ const duckFactor = ref(1);
 
 // The volume refs are module-level singletons; their persistence watchers must be
 // singletons too, otherwise every useVolume() caller commits the same UPDATE once
-// per tick of the slider.
+// per tick of the slider. They also have to outlive whichever component bound them
+// first: a watcher created inside a component's setup is stopped when that component
+// unmounts, which silently stopped persisting the volume after leaving one room.
+// A detached scope keeps them alive for the lifetime of the page.
 let volumeWatchersBound = false;
+const volumeWatchersScope = effectScope(true);
 function bindVolumeWatchers(store: ReturnType<typeof useStore>) {
 	if (volumeWatchersBound) {
 		return;
 	}
 	volumeWatchersBound = true;
-	watch(volume, () => {
-		// If user drags the volume slider while muted, automatically unmute
-		if (isMuted.value && volume.value > 0) {
-			isMuted.value = false;
-		}
-		// Save volume to settings only when not muted and volume is greater than 0
-		// This prevents saving volume = 0 when the user is muted
-		if (!isMuted.value && volume.value > 0) {
-			store.commit("settings/UPDATE", { volume: volume.value });
-		}
-	});
-	watch(isMuted, () => {
-		if (isMuted.value) {
-			// When muting: save current volume if it's > 0, otherwise keep the previous saved volume
-			// This prevents losing the previous non-zero volume if user had manually set volume to 0
-			prevVolume.value = volume.value > 0 ? volume.value : prevVolume.value;
-			volume.value = 0;
-		} else {
-			volume.value = prevVolume.value;
-		}
-		store.commit("settings/UPDATE", { muted: isMuted.value });
+	volumeWatchersScope.run(() => {
+		watch(volume, () => {
+			// If user drags the volume slider while muted, automatically unmute
+			if (isMuted.value && volume.value > 0) {
+				isMuted.value = false;
+			}
+			// Save volume to settings only when not muted and volume is greater than 0
+			// This prevents saving volume = 0 when the user is muted
+			if (!isMuted.value && volume.value > 0) {
+				store.commit("settings/UPDATE", { volume: volume.value });
+			}
+		});
+		watch(isMuted, () => {
+			if (isMuted.value) {
+				// When muting: save current volume if it's > 0, otherwise keep the previous saved volume
+				// This prevents losing the previous non-zero volume if user had manually set volume to 0
+				prevVolume.value = volume.value > 0 ? volume.value : prevVolume.value;
+				volume.value = 0;
+			} else {
+				volume.value = prevVolume.value;
+			}
+			store.commit("settings/UPDATE", { muted: isMuted.value });
+		});
 	});
 }
 

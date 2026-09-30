@@ -124,8 +124,8 @@ withDefaults(
 	defineProps<{
 		sliderPosition: number;
 		truePosition: number;
-		controlsVisible: boolean;
-		mode: "in-video" | "outside-video";
+		controlsVisible?: boolean;
+		mode?: "in-video" | "outside-video";
 	}>(),
 	{
 		controlsVisible: false,

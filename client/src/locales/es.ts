@@ -398,7 +398,7 @@ export default {
 	},
 	player: {
 		"buffer-warn": {
-			spans: "Aún no has almacenado suficiente cantidad del vídeo. Intervalos de tiempo actuales almacenados en búfer: {range}",
+			spans: "Aún no has almacenado suficiente cantidad del vídeo. Intervalos de tiempo actuales almacenados en búfer: {ranges}",
 		},
 	},
 };

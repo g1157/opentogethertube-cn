@@ -57,8 +57,17 @@ describe("message sound playback", () => {
 	});
 
 	it("applies the configured message sound volume to its own gain", async () => {
+		await sound.loadSfx();
 		sound.volume.value = 0.23;
 		await nextTick();
 		expect(gain.gain.value).toBe(0.23);
+	});
+
+	it("does not open an audio device until a sound is actually needed", () => {
+		const contexts = vi.fn();
+		vi.stubGlobal("AudioContext", contexts);
+		const unused = new OttSfx();
+		expect(unused).toBeDefined();
+		expect(contexts).not.toHaveBeenCalled();
 	});
 });

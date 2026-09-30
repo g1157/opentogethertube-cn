@@ -123,4 +123,31 @@ describe("BilibiliAdapter", () => {
 			);
 		});
 	});
+
+	describe("resolveShortLink", () => {
+		it("follows a b23.tv redirect to the canonical video URL", async () => {
+			mockAxiosGet.mockResolvedValue({
+				status: 302,
+				headers: { location: "https://www.bilibili.com/video/BV1GJ411x7h7" },
+			});
+
+			await expect(adapter.resolveShortLink("https://b23.tv/abc123")).resolves.toBe(
+				"https://www.bilibili.com/video/BV1GJ411x7h7",
+			);
+			expect(mockAxiosGet).toHaveBeenCalledWith(
+				"https://b23.tv/abc123",
+				expect.objectContaining({ maxRedirects: 0 }),
+			);
+			// The canonical form is what the id is read from, so the add flow gets a video.
+			expect(adapter.getVideoId("https://www.bilibili.com/video/BV1GJ411x7h7")).toBe(
+				"BV1GJ411x7h7",
+			);
+		});
+
+		it("leaves links that already carry an id untouched", async () => {
+			const url = "https://www.bilibili.com/video/BV1GJ411x7h7";
+			await expect(adapter.resolveShortLink(url)).resolves.toBe(url);
+			expect(mockAxiosGet).not.toHaveBeenCalled();
+		});
+	});
 });

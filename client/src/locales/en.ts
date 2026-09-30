@@ -245,7 +245,7 @@ export default {
 			"intro-anime4k":
 				"AI upscale (Anime4K): a neural network rebuilds lines, best on anime. A discrete GPU has plenty of headroom; integrated graphics and phones may struggle. WebGPU is used when available; without it (Firefox outside Windows, for example) the same network runs on WebGL2 at the S variant.",
 			"intro-anime4k-quality":
-				"AI upscale (quality): stacks a second restore-and-upscale pass on the fast preset (A+A). The highest perceptual quality at roughly double the GPU cost — expect heat and fan noise on a laptop, and use it at 2x or above. Without WebGPU the same A+A chain runs on WebGL2.",
+				"AI upscale (quality): stacks a second restore-and-upscale pass on the fast preset (A+A). The highest perceptual quality at roughly double the GPU cost — expect heat and fan noise on a laptop. Leave the render scale on Auto so it follows the display; rendering above that only adds pixels the screen cannot show. Without WebGPU the same A+A chain runs on WebGL2.",
 			"intro-anime4k-ultra":
 				'AI upscale (ultra): the same chain mpv runs as "Mode A+A (HQ)" — VL restore and upscale, M restore and upscale, plus Clamp Highlights, about 55 passes — offered only where WebGPU is unavailable. The first start compiles the shaders and pauses briefly; expect heat on a laptop, and pair it with a 1080p source at 2x.',
 			"intro-note":
@@ -253,9 +253,10 @@ export default {
 			advanced: "Advanced",
 			strength: "Sharpen strength",
 			scale: "Render scale",
-			"scale-auto": "Auto (2× source on a pointer device, display-fit on touch)",
+			"scale-auto":
+				"Auto (follows the display; AI tiers stay at 1.25× source or more on a pointer device)",
 			"scale-hint":
-				"Auto never renders below the source. On a pointer device it renders at 2× the source and lets the screen downscale, which is what makes the AI upscale stage do its work. Higher multipliers are sharper on large screens and more demanding; lower values save a lot on slow devices.",
+				"Auto follows the size the video is displayed at: never below the source resolution, and never more pixels than the screen can show. On a pointer device the AI tiers are raised to at least 1.25× the source so Anime4K's upscale stages actually run; touch devices skip that to save power. Higher multipliers are sharper on large screens and more demanding; lower values save a lot on slow devices.",
 			"auto-degrade": "Reduce automatically when performance drops",
 			"auto-degrade-hint": "Turn off to keep these settings even if the video stutters.",
 		},
@@ -354,7 +355,7 @@ export default {
 		},
 		enhance: {
 			title: "Video enhancement",
-			text: '"Sharpen" upscales with an edge-adaptive filter and sharpens on the GPU, and its automatic scale never renders below the source. "AI upscale (Anime4K)" needs WebGPU. It steps down automatically on slow devices, and cannot run when the source does not allow CORS or the browser has no WebGPU support.',
+			text: '"Sharpen" upscales with an edge-adaptive filter and sharpens on the GPU, and its automatic scale never renders below the source. "AI upscale (Anime4K)" prefers WebGPU and falls back to WebGL2 running the same network where WebGPU is unavailable. It steps down automatically on slow devices, and cannot run when the source does not allow CORS.',
 		},
 		shortcuts: {
 			title: "Shortcuts and gestures",

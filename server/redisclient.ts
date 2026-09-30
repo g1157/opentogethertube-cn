@@ -4,6 +4,19 @@ import { conf } from "./ott-config.js";
 import { getLogger } from "./logger.js";
 const log = getLogger("redisclient");
 
+/**
+ * How long a connection attempt may take before it fails. Without this a Redis host that
+ * drops packets holds the connect (and every request waiting behind it) until the OS
+ * gives up, minutes later.
+ */
+const REDIS_CONNECT_TIMEOUT_MS = 5000;
+
+/**
+ * Upper bound for a single command. node-redis v4 has no global command timeout, so a
+ * server that accepts connections but never answers would pin everything that awaits it.
+ */
+const REDIS_COMMAND_TIMEOUT_MS = 5000;
+
 function buildOptions(): RedisClientOptions<redis.RedisDefaultModules> {
 	const heroku = conf.get("heroku");
 	const redisUrl = conf.get("redis.url");
@@ -16,20 +29,59 @@ function buildOptions(): RedisClientOptions<redis.RedisDefaultModules> {
 					? {
 							tls: true,
 							rejectUnauthorized: !heroku,
+							connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
 						}
-					: {},
+					: { connectTimeout: REDIS_CONNECT_TIMEOUT_MS },
 				database: db,
 			}
 		: {
 				socket: {
 					port: conf.get("redis.port") ?? undefined,
 					host: conf.get("redis.host") ?? undefined,
+					connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
 				},
 				username: conf.get("redis.username") ?? undefined,
 				password: conf.get("redis.password") ?? undefined,
 				database: conf.get("redis.db") ?? undefined,
 			};
+	// While the client is reconnecting, queueing commands only piles up work that is
+	// stale by the time Redis comes back; reject them and let callers retry or fail fast.
+	redisOptions.disableOfflineQueue = true;
+	redisOptions.commandsQueueMaxLength = 1000;
 	return redisOptions;
+}
+
+function applyCommandTimeout(client: RedisClientType<redis.RedisDefaultModules>): void {
+	// The generated command methods go through sendCommand, so wrapping it here gives every
+	// command the same deadline. Subscribers are duplicated clients and are not wrapped:
+	// their subscriptions stay open for the process's lifetime by design.
+	const sendCommand = client.sendCommand?.bind(client);
+	if (typeof sendCommand !== "function") {
+		// Unit tests replace the driver with a mock that exposes commands directly.
+		return;
+	}
+	client.sendCommand = (async (args: never, options?: never) => {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			return await Promise.race([
+				sendCommand(args, options),
+				new Promise((_resolve, reject) => {
+					timer = setTimeout(() => {
+						reject(
+							new Error(
+								`Redis command timed out after ${REDIS_COMMAND_TIMEOUT_MS}ms`,
+							),
+						);
+					}, REDIS_COMMAND_TIMEOUT_MS);
+					timer.unref();
+				}),
+			]);
+		} finally {
+			if (timer) {
+				clearTimeout(timer);
+			}
+		}
+	}) as unknown as typeof client.sendCommand;
 }
 
 export let redisClient: RedisClientType<redis.RedisDefaultModules>;
@@ -38,6 +90,7 @@ export let redisClientAsync: RedisClientType<redis.RedisDefaultModules>;
 export async function buildClients(): Promise<void> {
 	log.info("Building redis clients");
 	redisClient = redis.createClient(buildOptions()) as RedisClientType<redis.RedisDefaultModules>;
+	applyCommandTimeout(redisClient);
 	redisClient.on("error", errorLogger("main"));
 	redisClientAsync = redisClient;
 	await redisClient.connect();

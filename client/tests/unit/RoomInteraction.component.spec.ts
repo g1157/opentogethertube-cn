@@ -781,6 +781,73 @@ describe("room player interactions", () => {
 		});
 	});
 
+	it("seeks backward with J and forward with L", async () => {
+		installPlayer();
+		page.store.commit("settings/UPDATE", { seekSeconds: 10 });
+		page.store.commit("room/SYNC", {
+			currentSource: { service: "direct", id: "https://example.test/source", length: 600 },
+			isPlaying: false,
+		});
+		await nextTick();
+		page.connection.sent.length = 0;
+		const before = page.wrapper.vm.truePosition as number;
+
+		key("KeyJ");
+		await nextTick();
+
+		expect(page.connection.sent).toContainEqual({
+			action: "req",
+			request: { type: RoomRequestType.SeekRequest, value: before - 10 },
+		});
+	});
+
+	it("seeks forward with L", async () => {
+		installPlayer();
+		page.store.commit("settings/UPDATE", { seekSeconds: 10 });
+		page.store.commit("room/SYNC", {
+			currentSource: { service: "direct", id: "https://example.test/source", length: 600 },
+			isPlaying: false,
+		});
+		await nextTick();
+		page.connection.sent.length = 0;
+		const before = page.wrapper.vm.truePosition as number;
+
+		key("KeyL");
+		await nextTick();
+
+		expect(page.connection.sent).toContainEqual({
+			action: "req",
+			request: { type: RoomRequestType.SeekRequest, value: before + 10 },
+		});
+	});
+
+	it("seeks once per tap even when the key auto-repeats", async () => {
+		installPlayer();
+		page.store.commit("settings/UPDATE", { seekSeconds: 10 });
+		page.store.commit("room/SYNC", {
+			currentSource: { service: "direct", id: "https://example.test/source", length: 600 },
+			isPlaying: false,
+		});
+		await nextTick();
+		page.connection.sent.length = 0;
+		const before = page.wrapper.vm.truePosition as number;
+
+		key("ArrowRight");
+		await nextTick();
+		key("ArrowRight", document.body, { repeat: true });
+		await nextTick();
+
+		const seeks = page.connection.sent.filter(
+			(m: any) => m?.request?.type === RoomRequestType.SeekRequest,
+		);
+		expect(seeks).toEqual([
+			{
+				action: "req",
+				request: { type: RoomRequestType.SeekRequest, value: before + 10 },
+			},
+		]);
+	});
+
 	it("plays fast while the right arrow is held and restores on release", async () => {
 		installPlayer();
 		// The gesture is only offered where the player can actually bend the rate.

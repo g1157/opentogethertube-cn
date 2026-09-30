@@ -359,8 +359,81 @@ async function joinAuthenticatedClient(client: Client, token: AuthToken, session
 	}
 }
 
+/**
+ * Per-connection message budget. Websocket messages never pass through the REST rate
+ * limiter, so without this one connected client could spam chat and room requests as fast
+ * as the socket accepts writes. Chat gets its own, much smaller bucket: people send a line
+ * at a time, and a chat flood costs every viewer in the room.
+ */
+const MESSAGE_BUCKET_CAPACITY = 40;
+const MESSAGE_BUCKET_REFILL_PER_SEC = 10;
+const CHAT_BUCKET_CAPACITY = 5;
+const CHAT_BUCKET_REFILL_PER_SEC = 0.5;
+
+interface TokenBucket {
+	tokens: number;
+	updatedAt: number;
+}
+
+const messageBuckets = new WeakMap<Client, { general: TokenBucket; chat: TokenBucket }>();
+
+function takeToken(bucket: TokenBucket, capacity: number, refillPerSec: number): boolean {
+	const now = Date.now();
+	const elapsedSec = Math.max(0, now - bucket.updatedAt) / 1000;
+	bucket.tokens = Math.min(capacity, bucket.tokens + elapsedSec * refillPerSec);
+	bucket.updatedAt = now;
+	if (bucket.tokens < 1) {
+		return false;
+	}
+	bucket.tokens -= 1;
+	return true;
+}
+
+/** @returns false when this connection is over its message budget. */
+function consumeMessageBudget(client: Client, msg: ClientMessage): boolean {
+	let buckets = messageBuckets.get(client);
+	if (!buckets) {
+		const now = Date.now();
+		buckets = {
+			general: { tokens: MESSAGE_BUCKET_CAPACITY, updatedAt: now },
+			chat: { tokens: CHAT_BUCKET_CAPACITY, updatedAt: now },
+		};
+		messageBuckets.set(client, buckets);
+	}
+	if (!takeToken(buckets.general, MESSAGE_BUCKET_CAPACITY, MESSAGE_BUCKET_REFILL_PER_SEC)) {
+		return false;
+	}
+	if (msg.action === "req" && msg.request?.type === RoomRequestType.ChatRequest) {
+		return takeToken(buckets.chat, CHAT_BUCKET_CAPACITY, CHAT_BUCKET_REFILL_PER_SEC);
+	}
+	return true;
+}
+
+function sendClientError(client: Client, error: ServerMessageError): void {
+	try {
+		client.send(error);
+	} catch (sendError) {
+		log.error(`Failed to report a request error to client ${client.id}: ${sendError}`);
+	}
+}
+
 async function onClientMessage(client: Client, msg: ClientMessage) {
 	try {
+		if (!consumeMessageBudget(client, msg)) {
+			log.warn(`Client ${client.id} is over its message budget`);
+			sendClientError(client, {
+				action: "error",
+				name: "TooManyRequests",
+				message: "Too many requests. Slow down.",
+			});
+			return;
+		}
+		if (msg.action === "ping") {
+			// DirectClient answers latency probes in onData; a probe that arrives through the
+			// balancer lands here instead, and without a reply the client never gets a sample.
+			client.send({ action: "pong", t0: msg.t0 });
+			return;
+		}
 		if (msg.action === "kickme") {
 			client.kick(msg.reason ?? OttWebsocketError.UNKNOWN);
 			return;
@@ -441,11 +514,7 @@ async function onClientMessage(client: Client, msg: ClientMessage) {
 			name: err instanceof Error ? err.name : "UnknownError",
 			message: err instanceof Error ? err.message : String(err),
 		};
-		try {
-			client.send(errorMsg);
-		} catch (sendError) {
-			log.error(`Failed to report a request error to client ${client.id}: ${sendError}`);
-		}
+		sendClientError(client, errorMsg);
 	}
 }
 

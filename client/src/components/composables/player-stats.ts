@@ -2,7 +2,13 @@ import { onBeforeUnmount, ref, watch, type Ref } from "vue";
 import { calculateCurrentPosition } from "ott-common/timestamp";
 import { useStore } from "@/store";
 import type { UpscaleMode } from "@/stores/settings";
-import { canAffordCnnUpscale, computeCanvasSize, MAX_DPR, MAX_SCALE } from "@/util/upscale/scale";
+import {
+	canAffordCnnUpscale,
+	computeCanvasSize,
+	isCnnUpscaleTier,
+	MAX_DPR,
+	MAX_SCALE,
+} from "@/util/upscale/scale";
 import { enhancementTarget, lastEnhancementError } from "@/util/upscale/status";
 
 export interface PlayerStatsRow {
@@ -133,7 +139,8 @@ export function collectPlayerStats(input: PlayerStatsInput): PlayerStatsSection[
 					boxHeight: video.getBoundingClientRect().height,
 					dpr: Math.min(input.device.dpr || 1, MAX_DPR),
 					requestedScale: input.settings.upscaleScale,
-					cnnUpscale: canAffordCnnUpscale(),
+					cnnUpscale:
+						isCnnUpscaleTier(input.settings.upscaleMode) && canAffordCnnUpscale(),
 				})
 			: null;
 	const scale = canvas && width > 0 ? canvas.width / width : null;

@@ -367,7 +367,7 @@
 								:min="MIN_UPSCALE_STRENGTH"
 								:max="MAX_UPSCALE_STRENGTH"
 								:step="0.05"
-								:disabled="store.state.settings.upscaleMode !== 'sharpen'"
+								:disabled="!SLIDER_STRENGTH_MODES.includes(upscaleMode)"
 								density="compact"
 								thumb-label
 								data-cy="upscale-strength"
@@ -481,6 +481,8 @@ const upscaleOptions = computed(() => {
 	}
 	return options;
 });
+/** The tiers whose shader actually reads `upscaleStrength`; the CNN tiers replace it wholesale. */
+const SLIDER_STRENGTH_MODES: UpscaleMode[] = ["sharpen", "film"];
 const upscaleMode = computed({
 	get: () => store.state.settings.upscaleMode as UpscaleMode,
 	set: value => store.commit("settings/UPDATE", { upscaleMode: value }),

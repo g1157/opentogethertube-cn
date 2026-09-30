@@ -139,8 +139,11 @@ router.get("/grant", async (req, res) => {
 router.get(
 	"/discord",
 	async (req, res, next) => {
-		// @ts-expect-error ts really doesn't like express's query type
-		(req.session as MySession).postLoginRedirect = req.query.redirect ?? "/";
+		// A repeated query parameter (?redirect=a&redirect=b) arrives as an array; only a
+		// plain string can be a redirect target.
+		const requestedRedirect: unknown = req.query.redirect;
+		(req.session as MySession).postLoginRedirect =
+			typeof requestedRedirect === "string" ? requestedRedirect : "/";
 		next();
 	},
 	passport.authenticate("discord", { keepSessionInfo: true }),
@@ -188,9 +191,12 @@ router.get(
 			secure: !conf.get("force_insecure_cookies"),
 		});
 		log.info(`${req.user.username} logged in via social login.`);
-		// Only follow same-site relative redirects; anything else is a fishing hop.
-		let redirect = (req.session as MySession).postLoginRedirect ?? "/";
-		if (!redirect.startsWith("/") || redirect.startsWith("//")) {
+		// Only follow same-site relative redirects; anything else is a fishing hop. Checking
+		// for a leading backslash matters too: browsers normalize "\" to "/", so "/\evil.com"
+		// would leave the site, and a repeated query parameter arrives as an array.
+		const requestedRedirect = (req.session as MySession).postLoginRedirect;
+		let redirect = typeof requestedRedirect === "string" ? requestedRedirect : "/";
+		if (!redirect.startsWith("/") || redirect.startsWith("//") || redirect.includes("\\")) {
 			redirect = "/";
 		}
 		log.debug(`redirecting to ${redirect}`);

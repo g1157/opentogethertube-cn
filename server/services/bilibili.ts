@@ -112,9 +112,15 @@ export default class BilibiliAdapter extends ServiceAdapter {
 
 	/**
 	 * b23.tv short links redirect to the canonical video URL. Follow the first hop
-	 * manually so every target is SSRF-checked before we actually request it.
+	 * manually so every target is SSRF-checked before we actually request it. Links that
+	 * already carry a video id are returned untouched, so the extractor can call this for
+	 * every link it accepts.
 	 */
 	async resolveShortLink(link: string): Promise<string> {
+		const url = new URL(link);
+		if (url.hostname !== "b23.tv") {
+			return link;
+		}
 		await assertPublicMediaUrl(link);
 		const resp = await this.api.get(link, { maxRedirects: 0, validateStatus: () => true });
 		const location = resp.headers?.location;

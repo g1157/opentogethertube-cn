@@ -1,6 +1,4 @@
 import { getLogger } from "../logger.js";
-import { safeCompareApiKey } from "../admin.js";
-import { conf } from "../ott-config.js";
 import express, { type RequestHandler } from "express";
 import { redisClient } from "../redisclient.js";
 import { ANNOUNCEMENT_CHANNEL } from "ott-common/constants.js";
@@ -16,18 +14,9 @@ const announce: RequestHandler<unknown, OttResponseBody, { text: string }> = asy
 	res,
 	next,
 ) => {
-	if (req.get("apikey")) {
-		if (!safeCompareApiKey(req.get("apikey"))) {
-			res.status(400).json({
-				success: false,
-				error: {
-					name: "InvalidApiKey",
-					message: "apikey is invalid",
-				},
-			});
-			return;
-		}
-	} else {
+	if (!req.get("apikey")) {
+		// A supplied key was already checked by authTokenMiddleware; only the missing case
+		// belongs to this handler.
 		res.status(400).json({
 			success: false,
 			error: {

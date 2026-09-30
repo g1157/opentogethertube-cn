@@ -14,6 +14,7 @@ import type { SettingsState } from "@/stores/settings";
 import {
 	canAffordCnnUpscale,
 	computeCanvasSize,
+	isCnnUpscaleTier,
 	ladderFloorScale,
 	MAX_DPR,
 } from "@/util/upscale/scale";
@@ -91,7 +92,7 @@ function sizeCanvas(video: HTMLVideoElement, target: HTMLCanvasElement) {
 		boxHeight: box.height,
 		dpr: Math.min(window.devicePixelRatio || 1, MAX_DPR),
 		requestedScale: store.state.settings.upscaleScale,
-		cnnUpscale: canAffordCnnUpscale(),
+		cnnUpscale: isCnnUpscaleTier(props.mode) && canAffordCnnUpscale(),
 	});
 	target.width = size.width;
 	target.height = size.height;
@@ -239,7 +240,10 @@ function degradeOneStep(video: HTMLVideoElement | undefined, target: HTMLCanvasE
 		content: i18n.global.t("room.upscale.degraded"),
 		duration: 6000,
 	});
-	store.commit("settings/UPDATE", step);
+	// Transient on purpose: the ladder reacts to this device and this moment (another tab on
+	// the GPU, a heavy scene), and persisting it would quietly replace the tier the user
+	// picked with the tier their slowest minute produced.
+	store.commit("settings/UPDATE_TRANSIENT", step);
 	// Give the new setting a full window to prove itself before stepping again,
 	// whichever watcher it woke.
 	monitorWindowStart = 0;
@@ -340,6 +344,9 @@ function fallBackFromFailure(): void {
 
 async function start() {
 	stopRenderers();
+	// Whatever the previous tier reported is stale from here on; the renderer about to be
+	// built reports its own target once it has drawn its first frame.
+	reportEnhancementTarget(null);
 	const video = props.video;
 	// The WebGPU attempt needs a canvas that has never handed out a WebGL2 context, so the
 	// tier's family decides which one is taken first; a WebGL2 fallback takes its own below.
@@ -453,9 +460,9 @@ async function start() {
 	renderer = created;
 	canvas = element;
 	// A tier that started cleanly clears the last failure; the panel shows whichever
-	// cause is still current.
+	// cause is still current. The target label is not cleared here: the renderers report it
+	// on their first drawn frame, and start() has already drawn that frame by now.
 	reportEnhancementError(null);
-	reportEnhancementTarget(null);
 	updateCaptions();
 	captionTimer = setInterval(updateCaptions, 250);
 	monitorWindowStart = 0;
@@ -501,12 +508,12 @@ watch(
 		if (!video || !canvas) {
 			return;
 		}
-		if (props.mode === "anime4k") {
-			// The Anime4K pipeline captures its target size when it is built.
+		if (props.mode === "anime4k" || props.mode === "anime4k-quality") {
+			// Both WebGPU presets capture their target size when the pipeline is built.
 			void start();
 			return;
 		}
-		// The sharpen pass reads the canvas size every frame, so a resize is enough.
+		// The sharpen/film passes read the canvas size every frame, so a resize is enough.
 		sizeCanvas(video, canvas);
 	},
 );
@@ -523,6 +530,8 @@ onBeforeUnmount(() => {
 	document.removeEventListener("fullscreenchange", handleViewportChange);
 	detachVideo(props.video);
 	stopRenderers();
+	// The panel would otherwise keep showing the last tier's target after the layer is gone.
+	reportEnhancementTarget(null);
 });
 </script>
 

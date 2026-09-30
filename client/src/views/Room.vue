@@ -241,7 +241,7 @@
 							>
 								<v-icon :icon="mdiChevronDoubleRight" />
 								<v-tooltip activator="parent" location="left">
-									{{ $t("room.notes-collapse") }}
+									{{ $t("player.notes-collapse") }}
 								</v-tooltip>
 							</v-btn>
 						</div>
@@ -261,7 +261,7 @@
 				>
 					<v-icon :icon="mdiNoteTextOutline" />
 					<v-tooltip activator="parent" location="left">
-						{{ $t("room.notes-expand") }}
+						{{ $t("player.notes-expand") }}
 					</v-tooltip>
 				</v-btn>
 				<Teleport v-if="chatTarget" :to="chatTarget">
@@ -1618,9 +1618,10 @@ export default defineComponent({
 				togglePlayback();
 			}
 		});
-		shortcuts.bind({ code: "ArrowRight", repeat: true }, () => {
-			// While the hold is already playing fast, repeats must not also seek.
-			if (arrowHoldPlaying) {
+		shortcuts.bind({ code: "ArrowRight", repeat: true }, (e: KeyboardEvent) => {
+			// Auto-repeat before the hold threshold would fire one room seek per repeat, all
+			// to roughly the same target. A tap seeks once; holding is the speed gesture.
+			if (e.repeat) {
 				return;
 			}
 			if (granted("playback.seek")) {
@@ -1632,8 +1633,11 @@ export default defineComponent({
 			["ArrowLeft", "KeyJ", "KeyL"].map(code => ({ code, repeat: true })),
 			(e: KeyboardEvent) => {
 				if (granted("playback.seek")) {
+					// J seeks backward and L forward, matching the player habits the shortcut
+					// dialog advertises; ArrowLeft is the keyboard's own version of J.
+					const backward = e.code === "ArrowLeft" || e.code === "KeyJ";
 					const step = store.state.settings.seekSeconds;
-					seekDelta(e.code === "ArrowLeft" ? -step : step);
+					seekDelta(backward ? -step : step);
 				}
 			},
 		);

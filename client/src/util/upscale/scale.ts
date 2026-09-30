@@ -48,6 +48,18 @@ export const MAX_DPR = 3;
 export const CNN_MIN_UPSCALE = 1.25;
 
 /**
+ * The tiers whose upscale stages are gated by Anime4K's own >1.2x check, and therefore the
+ * only ones the floor above is for. The sharpen and film passes filter at whatever size they
+ * are given, so raising their target past the display box would only cost pixels.
+ */
+const CNN_UPSCALE_TIERS = new Set(["anime4k", "anime4k-quality", "anime4k-ultra"]);
+
+/** Whether this tier runs the CNN chain (and so cares about CNN_MIN_UPSCALE). */
+export function isCnnUpscaleTier(mode: string): boolean {
+	return CNN_UPSCALE_TIERS.has(mode);
+}
+
+/**
  * Whether this device should render above the display box to feed the CNN. Touch devices
  * pay for those pixels in heat and battery without a big picture to show for it, so they
  * keep the box-fitted target; the auto-degrade ladder steps down either way.

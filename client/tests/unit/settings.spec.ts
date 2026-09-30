@@ -233,6 +233,33 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.locale).toBe("en");
 	});
 
+	it("keeps a transient update out of the saved settings", async () => {
+		const firstVisit = newStore();
+		await firstVisit.dispatch("settings/load");
+		firstVisit.commit("settings/UPDATE", { upscaleMode: "anime4k-quality" });
+		expect(JSON.parse(saved.get("settings")!)).toMatchObject({
+			upscaleMode: "anime4k-quality",
+		});
+
+		// The auto-degrade ladder commits this way: the correction applies to this session,
+		// and the user's own choice is what the next visit starts from.
+		firstVisit.commit("settings/UPDATE_TRANSIENT", {
+			upscaleMode: "sharpen",
+			upscaleScale: 1.5,
+		});
+		expect(firstVisit.state.settings.upscaleMode).toBe("sharpen");
+		expect(firstVisit.state.settings.upscaleScale).toBe(1.5);
+		expect(JSON.parse(saved.get("settings")!)).toMatchObject({
+			upscaleMode: "anime4k-quality",
+			upscaleScale: "auto",
+		});
+
+		const nextVisit = newStore();
+		await nextVisit.dispatch("settings/load");
+		expect(nextVisit.state.settings.upscaleMode).toBe("anime4k-quality");
+		expect(nextVisit.state.settings.upscaleScale).toBe("auto");
+	});
+
 	it("does not mark a migration saved if storage rejects the settings write", async () => {
 		saved.set("settings", JSON.stringify({ locale: "en", volume: 37 }));
 		storage.setItem.mockImplementation(() => {

@@ -109,6 +109,72 @@ function isPhoneLayout(): boolean {
 	return window.matchMedia(PHONE_MAX_QUERY).matches;
 }
 
+/** Keeps whatever a caller wrote inside the ranges this release understands. */
+function normalizeSettings(state: SettingsState) {
+	if (typeof state.sfxEnabled !== "boolean") {
+		state.sfxEnabled = false;
+	}
+	if (!Number.isFinite(state.sfxVolume) || state.sfxVolume < 0 || state.sfxVolume > 1) {
+		state.sfxVolume = 0.8;
+	}
+	if (![5, 10, 30].includes(state.seekSeconds)) {
+		state.seekSeconds = 10;
+	}
+	if (!CHAT_OVERLAY_SECONDS_OPTIONS.includes(state.chatOverlaySeconds)) {
+		state.chatOverlaySeconds = 5;
+	}
+	if (!ROOM_NOTICE_SECONDS_OPTIONS.includes(state.presenceNoticeSeconds)) {
+		state.presenceNoticeSeconds = 3;
+	}
+	if (!ROOM_NOTICE_SECONDS_OPTIONS.includes(state.seekNoticeSeconds)) {
+		state.seekNoticeSeconds = 3;
+	}
+	if (!CONTROLS_HIDE_SECONDS_OPTIONS.includes(state.controlsHideSeconds)) {
+		state.controlsHideSeconds = 3;
+	}
+	if (!HLS_BUFFER_SECONDS_OPTIONS.includes(state.hlsBufferSeconds)) {
+		state.hlsBufferSeconds = DEFAULT_HLS_BUFFER_SECONDS;
+	}
+	if (!UPSCALE_MODES.includes(state.upscaleMode)) {
+		state.upscaleMode = "off";
+	}
+	if (
+		!Number.isFinite(state.upscaleStrength) ||
+		state.upscaleStrength < MIN_UPSCALE_STRENGTH ||
+		state.upscaleStrength > MAX_UPSCALE_STRENGTH
+	) {
+		state.upscaleStrength = DEFAULT_UPSCALE_STRENGTH;
+	}
+	if (!UPSCALE_SCALES.includes(state.upscaleScale)) {
+		state.upscaleScale = "auto";
+	}
+	if (typeof state.upscaleAutoDegrade !== "boolean") {
+		state.upscaleAutoDegrade = true;
+	}
+	if (typeof state.notesPanelOpen !== "boolean") {
+		state.notesPanelOpen = true;
+	}
+}
+
+function persistSettings(state: SettingsState) {
+	try {
+		// Save defaults and their migration markers together so they cannot diverge.
+		// Kept synchronous on purpose: tests and the update checker read it right
+		// after an UPDATE, and repeated writes are already de-duplicated at the
+		// media-player layer (a single shared volume watcher instead of one per caller).
+		localStorage.setItem(
+			"settings",
+			JSON.stringify({
+				...state,
+				defaultLocaleVersion: DEFAULT_LOCALE_VERSION,
+				defaultSfxVersion: DEFAULT_SFX_VERSION,
+			}),
+		);
+	} catch {
+		// Private browsing or storage limits must not prevent settings from working in memory.
+	}
+}
+
 export const settingsModule: Module<SettingsState, unknown> = {
 	namespaced: true,
 	state: () => ({
@@ -136,65 +202,8 @@ export const settingsModule: Module<SettingsState, unknown> = {
 	mutations: {
 		UPDATE(state, settings: Partial<SettingsState>) {
 			Object.assign(state, settings);
-			if (typeof state.sfxEnabled !== "boolean") {
-				state.sfxEnabled = false;
-			}
-			if (!Number.isFinite(state.sfxVolume) || state.sfxVolume < 0 || state.sfxVolume > 1) {
-				state.sfxVolume = 0.8;
-			}
-			if (![5, 10, 30].includes(state.seekSeconds)) {
-				state.seekSeconds = 10;
-			}
-			if (!CHAT_OVERLAY_SECONDS_OPTIONS.includes(state.chatOverlaySeconds)) {
-				state.chatOverlaySeconds = 5;
-			}
-			if (!ROOM_NOTICE_SECONDS_OPTIONS.includes(state.presenceNoticeSeconds)) {
-				state.presenceNoticeSeconds = 3;
-			}
-			if (!ROOM_NOTICE_SECONDS_OPTIONS.includes(state.seekNoticeSeconds)) {
-				state.seekNoticeSeconds = 3;
-			}
-			if (!CONTROLS_HIDE_SECONDS_OPTIONS.includes(state.controlsHideSeconds)) {
-				state.controlsHideSeconds = 3;
-			}
-			if (!HLS_BUFFER_SECONDS_OPTIONS.includes(state.hlsBufferSeconds)) {
-				state.hlsBufferSeconds = DEFAULT_HLS_BUFFER_SECONDS;
-			}
-			if (!UPSCALE_MODES.includes(state.upscaleMode)) {
-				state.upscaleMode = "off";
-			}
-			if (
-				!Number.isFinite(state.upscaleStrength) ||
-				state.upscaleStrength < MIN_UPSCALE_STRENGTH ||
-				state.upscaleStrength > MAX_UPSCALE_STRENGTH
-			) {
-				state.upscaleStrength = DEFAULT_UPSCALE_STRENGTH;
-			}
-			if (!UPSCALE_SCALES.includes(state.upscaleScale)) {
-				state.upscaleScale = "auto";
-			}
-			if (typeof state.upscaleAutoDegrade !== "boolean") {
-				state.upscaleAutoDegrade = true;
-			}
-			if (typeof state.notesPanelOpen !== "boolean") {
-				state.notesPanelOpen = true;
-			}
-			try {
-				// Save defaults and their migration markers together so they cannot diverge.
-				// Kept synchronous on purpose: tests and the update checker read it right
-				// after an UPDATE, and repeated writes are already de-duplicated at the
-				// media-player layer (a single shared volume watcher instead of one per caller).
-				localStorage.setItem(
-					"settings",
-					JSON.stringify({
-						...state,
-						defaultLocaleVersion: DEFAULT_LOCALE_VERSION,
-						defaultSfxVersion: DEFAULT_SFX_VERSION,
-					}),
-				);
-			} catch {
-				// Private browsing or storage limits must not prevent settings from working in memory.
-			}
+			normalizeSettings(state);
+			persistSettings(state);
 
 			// apply some global settings
 			if (settings.theme !== undefined) {
@@ -207,6 +216,15 @@ export const settingsModule: Module<SettingsState, unknown> = {
 					vuetify.theme.global.name.value = Theme.dark;
 				}
 			}
+		},
+		/**
+		 * Same as UPDATE, but nothing is written to localStorage. Session-only corrections —
+		 * the auto-degrade ladder, for one — use this so a decision the device forced does not
+		 * replace the setting the user picked on their next visit.
+		 */
+		UPDATE_TRANSIENT(state, settings: Partial<SettingsState>) {
+			Object.assign(state, settings);
+			normalizeSettings(state);
 		},
 	},
 	actions: {

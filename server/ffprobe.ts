@@ -1,7 +1,7 @@
 import ffprobeInstaller from "@ffprobe-installer/ffprobe";
 import { getLogger } from "./logger.js";
 import childProcess from "node:child_process";
-import axios from "axios";
+import axios, { type AxiosResponse } from "axios";
 import type { Stream } from "node:stream";
 import type { Readable } from "node:stream";
 import fs from "node:fs/promises";
@@ -97,6 +97,59 @@ export async function assertPublicMediaUrl(uri: string): Promise<void> {
 		if (isPrivateAddress(address)) {
 			throw new Error("Media URL resolves to a private or local address");
 		}
+	}
+}
+
+/** How many redirect hops a media download may take before we give up. */
+const MAX_MEDIA_REDIRECTS = 5;
+
+interface MediaDownloadOptions {
+	signal: InstanceType<typeof AbortController>["signal"];
+	httpAgent: http.Agent;
+	httpsAgent: https.Agent;
+}
+
+/**
+ * Downloads a user supplied media URL, following redirects by hand so that every hop is
+ * checked against the SSRF guard. Letting axios follow them would let one public URL turn
+ * into a request to whatever address the redirect names (a metadata service, for example).
+ */
+async function safeMediaDownload(
+	uri: string,
+	options: MediaDownloadOptions,
+): Promise<AxiosResponse<Stream>> {
+	let current = uri;
+	for (let hop = 0; ; hop++) {
+		await assertPublicMediaUrl(current);
+		const response = await axios.get<Stream>(current, {
+			responseType: "stream",
+			maxRedirects: 0,
+			validateStatus: () => true,
+			httpAgent: options.httpAgent,
+			httpsAgent: options.httpsAgent,
+			signal: options.signal,
+		});
+		const releaseBody = () => (response.data as Readable | undefined)?.destroy?.();
+		if (response.status >= 300 && response.status < 400) {
+			// The body of a redirect is not the media; release it before the next request.
+			releaseBody();
+			const location = response.headers?.location;
+			if (typeof location !== "string" || !location) {
+				throw new Error(
+					`Media URL redirected without a location (HTTP ${response.status})`,
+				);
+			}
+			if (hop >= MAX_MEDIA_REDIRECTS) {
+				throw new Error("Too many redirects while downloading media");
+			}
+			current = new URL(location, current).href;
+			continue;
+		}
+		if (response.status >= 400) {
+			releaseBody();
+			throw new Error(`Media URL responded with HTTP ${response.status}`);
+		}
+		return response;
 	}
 }
 
@@ -389,8 +442,7 @@ export class OnDiskPreviewFfprobe extends FfprobeStrategy {
 		const httpAgent = new http.Agent({ keepAlive: false });
 		const httpsAgent = new https.Agent({ keepAlive: false });
 		const controller = new AbortController();
-		const resp = await axios.get<Stream>(uri, {
-			responseType: "stream",
+		const resp = await safeMediaDownload(uri, {
 			signal: controller.signal,
 			httpAgent,
 			httpsAgent,
@@ -505,8 +557,7 @@ export class StreamFfprobe extends FfprobeStrategy {
 		const httpAgent = new http.Agent({ keepAlive: false });
 		const httpsAgent = new https.Agent({ keepAlive: false });
 		const controller = new AbortController();
-		const resp = await axios.get<Stream>(uri, {
-			responseType: "stream",
+		const resp = await safeMediaDownload(uri, {
 			signal: controller.signal,
 			httpAgent,
 			httpsAgent,

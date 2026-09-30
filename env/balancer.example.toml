@@ -1,0 +1,26 @@
+# Example configuration for the load balancer (crates/ott-balancer-bin).
+#
+# Copy this to env/balancer.toml (which is gitignored, like base.toml) and adjust it:
+#     cp env/balancer.example.toml env/balancer.toml
+#     cargo run -p ott-balancer-bin -- --config env/balancer.toml
+#
+# Every value can also be supplied with a BALANCER_ prefixed environment variable,
+# e.g. BALANCER_PORT or BALANCER_REGION.
+
+# Port the balancer listens on for HTTP and websocket traffic.
+port = 8081
+
+# The region this instance serves. Clients are sent to a monolith in their own region
+# when one is available. FLY_REGION overrides this when set.
+region = "local"
+
+# Key for the balancer's restricted endpoints. Generate your own, >= 40 characters.
+api_key = ""
+
+[discovery]
+# How the balancer finds monoliths: "manual", "dns", "fly" or "harness".
+method = "manual"
+
+[[discovery.monoliths]]
+host = "127.0.0.1"
+port = 3000

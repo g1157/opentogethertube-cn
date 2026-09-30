@@ -10,7 +10,7 @@ import {
 	RoomNotFoundException,
 } from "./exceptions.js";
 import type { ServerMessage } from "ott-common/models/messages.js";
-import { Gauge } from "prom-client";
+import { Counter, Gauge, Histogram } from "prom-client";
 import { EventEmitter } from "node:events";
 import { type Result, ok, err } from "ott-common/result.js";
 import { Grants } from "ott-common/permissions.js";
@@ -44,11 +44,34 @@ async function addRoom(room: Room) {
 	bus.emit("load", room.name);
 }
 
+let updaterRunning = false;
 let updaterInterval: ReturnType<typeof setInterval> | null = null;
 export async function start() {
 	log.info("Starting room manager");
 
-	updaterInterval = setInterval(update, 1000);
+	updaterInterval = setInterval(() => {
+		void runUpdate();
+	}, 1000);
+}
+
+/**
+ * One sweep at a time. A sweep that runs longer than the interval (a slow database write, a
+ * SponsorBlock request, Redis lag) used to have the next tick walk into it and pile up, which
+ * stretched every room's heartbeat further; skipping the tick keeps the delay bounded.
+ */
+async function runUpdate(): Promise<void> {
+	if (updaterRunning) {
+		counterUpdateSkipped.inc();
+		return;
+	}
+	updaterRunning = true;
+	const endTimer = histUpdateDuration.startTimer();
+	try {
+		await update();
+	} finally {
+		endTimer();
+		updaterRunning = false;
+	}
 }
 
 export async function shutdown() {
@@ -254,6 +277,18 @@ export function command(roomName: string, cmd: ClientManagerCommand) {
 export function on<E extends RoomManagerEvents>(event: E, listener: RoomManagerEventHandlers<E>) {
 	bus.on(event, listener);
 }
+
+/** How long one room sweep takes. A sweep near the 1s interval is what the skip counter warns about. */
+const histUpdateDuration = new Histogram({
+	name: "ott_room_manager_update_duration_seconds",
+	help: "How long a full pass over the loaded rooms takes",
+	buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
+});
+
+const counterUpdateSkipped = new Counter({
+	name: "ott_room_manager_update_skipped_total",
+	help: "Sweeps skipped because the previous one had not finished yet",
+});
 
 // biome-ignore lint/correctness/noUnusedVariables: biome migration
 const gaugeRoomCount = new Gauge({

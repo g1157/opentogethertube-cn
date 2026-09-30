@@ -1085,7 +1085,15 @@ export class Room implements RoomState {
 		});
 	}
 
-	saveStateToRedisDebounced = _.debounce(this.saveStateToRedis, 5000);
+	saveStateToRedisDebounced = _.debounce(
+		() =>
+			// eslint-disable-next-line promise/prefer-await-to-then -- A timer-triggered save has nobody to hand its rejection to.
+			this.saveStateToRedis().catch(error => {
+				// The dirty set was already cleared, so the next markDirty retries the save.
+				this.log.error(`Background room state save failed: ${error}`);
+			}),
+		5000,
+	);
 
 	/** Save the current item with its position, followed by the remaining queue. */
 	public queueSnapshot(): QueueItem[] | null {

@@ -23,15 +23,32 @@ export class OttSfx {
 	private loaded: boolean = false;
 
 	private assets: Map<string, AudioBuffer> = new Map();
-	private context: AudioContext = new AudioContext();
-	private gain: GainNode = this.context.createGain();
+	/**
+	 * Created on first use rather than in the field initializers: a page that never plays a
+	 * sound should not open an audio device, and an AudioContext built before any user
+	 * gesture is also what browsers warn about.
+	 */
+	private context: AudioContext | null = null;
+	private gain: GainNode | null = null;
 
 	constructor() {
-		this.gain.connect(this.context.destination);
-
 		watch(this.volume, () => {
-			this.gain.gain.value = this.volume.value;
+			if (this.gain) {
+				this.gain.gain.value = this.volume.value;
+			}
 		});
+	}
+
+	private ensureContext(): { context: AudioContext; gain: GainNode } {
+		if (!this.context || !this.gain) {
+			const context = new AudioContext();
+			const gain = context.createGain();
+			gain.gain.value = this.volume.value;
+			gain.connect(context.destination);
+			this.context = context;
+			this.gain = gain;
+		}
+		return { context: this.context, gain: this.gain };
 	}
 
 	async loadSfx() {
@@ -42,8 +59,9 @@ export class OttSfx {
 
 	private async registerBlob(name: string, blob: Blob) {
 		const buf = await blob.arrayBuffer();
+		const { context } = this.ensureContext();
 		const buffer = new Promise<AudioBuffer>((resolve, reject) => {
-			this.context.decodeAudioData(
+			context.decodeAudioData(
 				buf,
 				buffer => {
 					resolve(buffer);
@@ -65,9 +83,15 @@ export class OttSfx {
 		if (!asset) {
 			return;
 		}
-		const source = this.context.createBufferSource();
+		const { context, gain } = this.ensureContext();
+		if (context.state === "suspended") {
+			// A context that was built before any user gesture starts suspended; without this
+			// the very first sound of the session is silently dropped.
+			await context.resume().catch(() => undefined);
+		}
+		const source = context.createBufferSource();
 		source.buffer = asset;
-		source.connect(this.gain);
+		source.connect(gain);
 		source.start(0);
 	}
 }

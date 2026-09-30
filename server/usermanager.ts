@@ -213,6 +213,35 @@ router.post("/", nocache(), async (req, res) => {
 	onUserModified(req.token!);
 });
 
+/**
+ * Record a failed login attempt against both counters. `consume` rejects once a budget is
+ * exhausted — which is exactly the state the check in /login is looking for — so a rejection
+ * here is expected and only means the counter is already over its limit.
+ */
+async function recordFailedLogin(usernameIPkey: string, ipAddr: string): Promise<void> {
+	try {
+		await Promise.all([
+			limiterConsecutiveFailsByUsernameAndIP.consume(usernameIPkey),
+			limiterSlowBruteByIP.consume(ipAddr),
+		]);
+	} catch {
+		// Already at/over the limit; the counters were still incremented.
+	}
+}
+
+/**
+ * A successful login clears the username+IP counter (so a user who mistyped a few times is
+ * not locked out), but leaves the per-IP counter alone: a distributed guess against many
+ * usernames must still trip the daily budget.
+ */
+async function clearUsernameFailurePoints(usernameIPkey: string): Promise<void> {
+	try {
+		await limiterConsecutiveFailsByUsernameAndIP.delete(usernameIPkey);
+	} catch (e) {
+		log.warn(`Failed to clear the login failure counter for a successful login: ${e}`);
+	}
+}
+
 router.post("/login", async (req, res, next) => {
 	const ipAddr = req.ip;
 	const usernameIPkey = `${req.body.user ?? req.body.email ?? req.body.username}_${ipAddr}`;
@@ -252,6 +281,9 @@ router.post("/login", async (req, res, next) => {
 
 	passport.authenticate("local", (err, user: User) => {
 		if (err) {
+			if (conf.get("rate_limit.enabled")) {
+				void recordFailedLogin(usernameIPkey, ipAddr);
+			}
 			res.status(401).json({
 				success: false,
 				error: {
@@ -261,6 +293,9 @@ router.post("/login", async (req, res, next) => {
 			return;
 		}
 		if (user) {
+			if (conf.get("rate_limit.enabled")) {
+				void clearUsernameFailurePoints(usernameIPkey);
+			}
 			req.login(user, async err => {
 				if (err) {
 					log.error("Unknown error when logging in");
@@ -301,6 +336,9 @@ router.post("/login", async (req, res, next) => {
 				});
 			});
 		} else {
+			if (conf.get("rate_limit.enabled")) {
+				void recordFailedLogin(usernameIPkey, ipAddr);
+			}
 			res.status(401).json({
 				success: false,
 				error: {
@@ -493,13 +531,13 @@ async function authCallback(emailOrUser: string, password: string, done) {
 			done(new Error("Email or password is incorrect."));
 		} else {
 			log.error(`Auth callback failed: ${err}`);
-			done(new Error("An unknown error occurred. This is a bug."));
+			done(new Error("An unknown error occurred. Please try again later."));
 		}
 		return;
 	}
 	if (!user.hash || !user.salt) {
 		log.error(`User ${user.username} (${user.id}) has no hash or salt, so no password is set.`);
-		done(new Error("An unknown error occurred. This is a bug."));
+		done(new Error("An unknown error occurred. Please try again later."));
 		return;
 	}
 	try {
@@ -522,7 +560,7 @@ async function authCallback(emailOrUser: string, password: string, done) {
 		}
 	} catch (error) {
 		log.error(`User ${user.username} (${user.id}): Error verifying hash: ${error.message}`);
-		done(new Error("An unknown error occurred. This is a bug."));
+		done(new Error("An unknown error occurred. Please try again later."));
 	}
 }
 
@@ -878,8 +916,19 @@ const accountRecoveryVerify: RequestHandler<
 
 	await redisClient.del(`accountrecovery:${body.verifyKey}`);
 
+	let rotatedToken: AuthToken | undefined;
 	if (req.token) {
-		await tokens.setSessionInfo(req.token, { isLoggedIn: true, user_id: user.id });
+		// Rotate the token on privilege change, exactly like /login: a password reset must not
+		// elevate a token that was planted in the browser before it (session fixation).
+		rotatedToken = await tokens.mint();
+		await tokens.setSessionInfo(rotatedToken, { isLoggedIn: true, user_id: user.id });
+		await tokens.revoke(req.token);
+		req.token = rotatedToken;
+		res.cookie(conf.get("auth_cookie_name"), rotatedToken, {
+			httpOnly: true,
+			sameSite: "lax",
+			secure: !conf.get("force_insecure_cookies"),
+		});
 	}
 
 	if (conf.get("rate_limit.enabled")) {
@@ -889,6 +938,8 @@ const accountRecoveryVerify: RequestHandler<
 
 	res.json({
 		success: true,
+		// The old token no longer works, so the client has to adopt this one.
+		...(rotatedToken ? { token: rotatedToken } : {}),
 	});
 };
 

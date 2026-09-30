@@ -27,7 +27,6 @@ describe("Announcements API", () => {
 	let validateSpy: MockInstance<[AuthToken], Promise<boolean>>;
 
 	beforeAll(async () => {
-		setApiKey(TEST_API_KEY);
 		getSessionInfoSpy = vi.spyOn(tokens, "getSessionInfo").mockResolvedValue({
 			isLoggedIn: false,
 			username: "test",
@@ -35,6 +34,10 @@ describe("Announcements API", () => {
 		validateSpy = vi.spyOn(tokens, "validate").mockResolvedValue(true);
 
 		app = (await main()).app;
+
+		// After main(): it loads the config files, and a local env/base.toml would otherwise
+		// overwrite the key with its empty default (the repo does not track base.toml).
+		setApiKey(TEST_API_KEY);
 	});
 
 	beforeEach(() => {

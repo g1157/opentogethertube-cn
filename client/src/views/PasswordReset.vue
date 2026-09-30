@@ -73,7 +73,7 @@ async function submitPasswordReset() {
 
 	isLoading.value = true;
 	try {
-		const resp = await API.post<OttResponseBody>("/user/recover/verify", {
+		const resp = await API.post<OttResponseBody<{ token?: string }>>("/user/recover/verify", {
 			verifyKey: verifyKey.value,
 			newPassword: password.value,
 		});
@@ -84,6 +84,11 @@ async function submitPasswordReset() {
 				content: i18n.t("login-form.change-password.success"),
 				duration: 4000,
 			});
+			// The server rotates the token when the reset grants a login, so the client has
+			// to adopt the new one before asking for the user.
+			if (resp.data.token) {
+				store.commit("users/SET_AUTH_TOKEN", resp.data.token);
+			}
 			const resp = await API.get("/user");
 			if (resp.data.loggedIn) {
 				const user = resp.data;

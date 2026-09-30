@@ -1,4 +1,7 @@
-use std::{cell::UnsafeCell, path::PathBuf};
+use std::{
+    path::PathBuf,
+    sync::{OnceLock, RwLock},
+};
 
 use clap::{Parser, ValueEnum};
 use figment::providers::Format;
@@ -9,36 +12,38 @@ use ott_common::discovery::DiscoveryConfig;
 
 use crate::selection::MonolithSelectionConfig;
 
-/// The config is written once during single-threaded startup (or by tests and benchmarks
-/// before any reader exists) and read concurrently afterwards. Writing it through a shared
-/// reference is what this type documents; the previous `&T`-to-`&mut T` cast did the same
-/// thing implicitly, which current rustc rejects as undefined behaviour.
-struct ConfigCell(UnsafeCell<Option<BalancerConfig>>);
+/// The config is written once during startup (or by a test before any reader exists) and read
+/// concurrently afterwards. `OnceLock` is what makes the first write win without a data race:
+/// tests run in parallel in one process and each calls `init_default`.
+static CONFIG: OnceLock<BalancerConfig> = OnceLock::new();
 
-// SAFETY: the value is only written before readers run (startup, or a test's setup phase),
-// and never mutated once `get()` has handed out a reference.
-unsafe impl Sync for ConfigCell {}
+/// The region is the one setting that is changed while readers exist (the benchmarks vary it),
+/// so it lives behind its own lock instead of being mutated through a shared reference.
+#[derive(Debug, Deserialize)]
+#[serde(from = "Region")]
+pub struct RegionSetting(RwLock<Region>);
 
-static CONFIG: ConfigCell = ConfigCell(UnsafeCell::new(None));
+impl Default for RegionSetting {
+    fn default() -> Self {
+        Self(RwLock::new(Region::default()))
+    }
+}
 
-impl ConfigCell {
-    fn set(&self, config: BalancerConfig) {
-        // SAFETY: single-threaded startup; see the type comment.
-        let slot = unsafe { &mut *self.0.get() };
-        // A second load keeps the first winner, matching the previous Once semantics.
-        if slot.is_none() {
-            *slot = Some(config);
-        }
+impl From<Region> for RegionSetting {
+    fn from(region: Region) -> Self {
+        Self(RwLock::new(region))
+    }
+}
+
+impl RegionSetting {
+    pub fn get(&self) -> Region {
+        let region = self.0.read().unwrap_or_else(|err| err.into_inner());
+        region.clone()
     }
 
-    fn get(&self) -> Option<&'static BalancerConfig> {
-        // SAFETY: the slot lives for the program's lifetime and is never written again.
-        unsafe { (*self.0.get()).as_ref() }
-    }
-
-    fn get_mut(&self) -> Option<&'static mut BalancerConfig> {
-        // SAFETY: only reachable in single-threaded setup; see the type comment.
-        unsafe { (*self.0.get()).as_mut() }
+    pub fn set(&self, region: Region) {
+        let mut current = self.0.write().unwrap_or_else(|err| err.into_inner());
+        *current = region;
     }
 }
 
@@ -48,7 +53,7 @@ pub struct BalancerConfig {
     /// The port to listen on for HTTP requests.
     pub port: u16,
     pub discovery: DiscoveryConfig,
-    pub region: Region,
+    pub region: RegionSetting,
     /// The API key that clients can use to access restricted endpoints.
     pub api_key: Option<String>,
     pub selection_strategy: Option<MonolithSelectionConfig>,
@@ -59,7 +64,7 @@ impl Default for BalancerConfig {
         Self {
             port: 8081,
             discovery: DiscoveryConfig::default(),
-            region: Default::default(),
+            region: RegionSetting::default(),
             api_key: None,
             selection_strategy: None,
         }
@@ -74,33 +79,21 @@ impl BalancerConfig {
             .extract()?;
 
         if let Some(region) = figment::providers::Env::var("FLY_REGION") {
-            config.region = region.into();
+            config.region.set(region.into());
         }
-        CONFIG.set(config);
+        // A second load keeps the first winner, matching the previous Once semantics.
+        let _ = CONFIG.set(config);
         Ok(())
     }
 
     /// Initialize the config with default values.
     pub fn init_default() {
-        CONFIG.set(BalancerConfig::default());
+        let _ = CONFIG.set(BalancerConfig::default());
     }
 
     pub fn get() -> &'static Self {
         debug_assert!(CONFIG.get().is_some(), "config not initialized");
         CONFIG.get().expect("config not initialized")
-    }
-
-    /// Get a mutable reference to the config. Should only be used for tests and benchmarks.
-    ///
-    /// # Safety
-    ///
-    /// Must be called before any concurrent `get()` shares the reference; benchmarks
-    /// only use this during single-threaded setup.
-    pub fn get_mut() -> &'static mut Self {
-        debug_assert!(CONFIG.get().is_some(), "config not initialized");
-        // SAFETY: see the doc comment above; the cell is only touched during single-threaded
-        // setup, before any `get()` reference is shared.
-        CONFIG.get_mut().expect("config not initialized")
     }
 }
 

@@ -129,8 +129,10 @@ const { sections } = usePlayerStats(
 
 /* On phones the title bar, subtitles and controls crowd the same corner; sit above the
    controls instead, where nothing else is drawn. The panel also narrows further, so the
-   picture keeps most of the screen even with the details open. */
-@media (max-width: 760px) {
+   picture keeps most of the screen even with the details open. Keep the width in sync with
+   PHONE_MAX_QUERY in util/breakpoints.ts: the layout switches to the mobile one there, and
+   between the two values the panel would overlap the controls it dodges. */
+@media (max-width: 800px) {
 	.player-stats {
 		top: auto;
 		bottom: calc(var(--player-controls-height, 90px) + 0.5rem);

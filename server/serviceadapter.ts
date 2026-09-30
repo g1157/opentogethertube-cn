@@ -52,6 +52,15 @@ export class ServiceAdapter {
 	}
 
 	/**
+	 * Canonicalizes a link this adapter accepts before its id is read. Adapters whose service
+	 * hands out short links (which carry no id) override this to follow them; everything else
+	 * returns the link unchanged.
+	 */
+	async resolveShortLink(link: string): Promise<string> {
+		return link;
+	}
+
+	/**
 	 * Returns the video ID from a URL.
 	 */
 	getVideoId(url: string): string {

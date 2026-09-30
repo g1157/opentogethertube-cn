@@ -24,7 +24,7 @@ import ClickToEdit from "../ClickToEdit.vue";
 
 withDefaults(
 	defineProps<{
-		currentPosition: number;
+		currentPosition?: number;
 	}>(),
 	{
 		currentPosition: 0,

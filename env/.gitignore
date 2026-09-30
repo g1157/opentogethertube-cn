@@ -1,5 +1,6 @@
 *.toml
 !example.toml
+!balancer.example.toml
 !docker.base.toml
 !heroku.base.toml
 

@@ -70,6 +70,17 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     stop_grace_period: 30s
+    healthcheck:
+      # A hung Redis wait or a wedged event loop still looks like "the process is up" to the
+      # orchestrator; asking the app for /api/status is what tells the two apart.
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:8080/api/status').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     logging: *logging
 
   postgres:
