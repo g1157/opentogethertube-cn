@@ -73,7 +73,7 @@ impl Default for BalancerConfig {
 
 impl BalancerConfig {
     pub fn load(path: &PathBuf) -> Result<(), anyhow::Error> {
-        let mut config: BalancerConfig = figment::Figment::new()
+        let config: BalancerConfig = figment::Figment::new()
             .merge(figment::providers::Toml::file(path))
             .merge(figment::providers::Env::prefixed("BALANCER_"))
             .extract()?;
