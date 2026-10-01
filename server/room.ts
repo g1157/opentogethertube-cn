@@ -944,21 +944,22 @@ export class Room implements RoomState {
 			this.currentSource = null; // sanity check
 		}
 
-		if (
-			(this.currentSource === null && this.queue.length > 0) ||
-			(this.currentSource &&
-				this.isPlaying &&
-				this.realPlaybackPosition >
-					(this.currentSource.endAt ?? this.currentSource.length ?? 0))
-		) {
-			if (
-				this.currentSource &&
-				this.isPlaying &&
-				this.realPlaybackPosition >
-					(this.currentSource.endAt ?? this.currentSource.length ?? 0)
-			) {
-				counterMediaWatched.labels({ service: this.currentSource.service }).inc();
-			}
+		const current = this.currentSource;
+		// An unknown length is not an end: live media and sources whose probe failed have
+		// none, and reading it as 0 made the next tick dequeue them right after starting.
+		const currentEnd = current?.endAt ?? current?.length;
+		const currentHasEnd =
+			typeof currentEnd === "number" && Number.isFinite(currentEnd) && currentEnd > 0;
+		const currentEnded =
+			current !== null &&
+			this.isPlaying &&
+			currentHasEnd &&
+			this.realPlaybackPosition > currentEnd;
+
+		if (current !== null && currentEnded) {
+			counterMediaWatched.labels({ service: current.service }).inc();
+		}
+		if ((current === null && this.queue.length > 0) || currentEnded) {
 			await this.dequeueNext();
 		}
 

@@ -588,6 +588,49 @@ describe("Room", () => {
 			});
 			expect(room.queue).toHaveLength(0);
 		});
+
+		it("does not treat an unknown length as the end of the video", async () => {
+			room.currentSource = { service: "direct", id: "live" };
+			room.isPlaying = true;
+			room.playbackPosition = 30;
+			await room.update();
+			expect(room.currentSource).toEqual({ service: "direct", id: "live" });
+			expect(room.queue).toHaveLength(1);
+		});
+
+		it("keeps a just-played source without a length instead of reverting to the pushed item", async () => {
+			room.currentSource = { service: "direct", id: "previous.mp4", length: 600 };
+			room.isPlaying = true;
+			room.playbackPosition = 30;
+			room._playbackStart = dayjs();
+			room.queue = new VideoQueue([{ service: "direct", id: "broken .mp4" }]);
+			await room.playNow(
+				{
+					type: RoomRequestType.PlayNowRequest,
+					video: { service: "direct", id: "broken .mp4" },
+				},
+				{ username: "test", role: Role.UnregisteredUser },
+			);
+			// The next tick used to see position 1 > length 0 and dequeue the previous video
+			// playNow had just pushed to the top of the queue, reverting the room.
+			room.playbackPosition = 1;
+			await room.update();
+			expect(room.currentSource).toEqual({ service: "direct", id: "broken .mp4" });
+		});
+
+		it("still dequeues once a known length has been passed", async () => {
+			room.currentSource = { service: "direct", id: "movie.mp4", length: 10 };
+			room.isPlaying = true;
+			room.playbackPosition = 11;
+			await room.update();
+			expect(room.currentSource).toEqual({ service: "direct", id: "video2" });
+			expect(room.queue).toHaveLength(0);
+		});
+
+		afterEach(() => {
+			room.throttledSync.cancel();
+			room.saveStateToRedisDebounced.cancel();
+		});
 	});
 
 	it("should be able to get role in unowned room", async () => {
