@@ -83,6 +83,7 @@ sudo docker compose up -d           # 自动拉取镜像、迁移数据库、启
 
 | 想了解 | 看这里 |
 | --- | --- |
+| 架构总览（组件、同步引擎、数据流） | [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md) |
 | 播放器操作、聊天与「一直缓冲」排查 | [docs/player-interactions.zh-CN.md](docs/player-interactions.zh-CN.md) |
 | 同步与速率微调 | [docs/playback-sync.zh-CN.md](docs/playback-sync.zh-CN.md) |
 | 缓冲联动（一起等待） | [docs/buffer-gate.zh-CN.md](docs/buffer-gate.zh-CN.md) |

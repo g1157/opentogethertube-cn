@@ -102,6 +102,7 @@ address. The full trade-off table is in [deployment options](docs/deployment-opt
 
 | What you need | Where to look |
 | --- | --- |
+| Architecture overview (components, sync engine, data flows) | [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md) (Chinese) |
 | Player controls, chat and “always buffering” | [docs/player-interactions.zh-CN.md](docs/player-interactions.zh-CN.md) |
 | Playback sync and rate bending | [docs/playback-sync.zh-CN.md](docs/playback-sync.zh-CN.md) |
 | “Pause while others buffer” | [docs/buffer-gate.zh-CN.md](docs/buffer-gate.zh-CN.md) |

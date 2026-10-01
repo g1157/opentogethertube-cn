@@ -1,5 +1,9 @@
 # Architecture
 
+> This upstream document is a brief, not fully up-to-date overview. For the detailed,
+> maintained architecture of this fork, see [architecture.zh-CN.md](./architecture.zh-CN.md)
+> (Chinese). For an AI-oriented quick reference, see [ai-handbook.zh-CN.md](./ai-handbook.zh-CN.md).
+
 This document is a work in progress.
 
 ## Overview
