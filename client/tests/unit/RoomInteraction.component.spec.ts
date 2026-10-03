@@ -6,7 +6,7 @@ import VideoSettings from "@/components/controls/VideoSettings.vue";
 import LayoutSwitcher from "@/components/controls/LayoutSwitcher.vue";
 import VideoProgressSlider from "@/components/controls/VideoProgressSlider.vue";
 import { usePlaybackRate, type MediaPlayerV2 } from "@/components/composables";
-import { usePlayerBrightness } from "@/util/player-brightness";
+import { usePlayerBrightness, MIN_PLAYER_BRIGHTNESS } from "@/util/player-brightness";
 import { OttSfx } from "@/plugins/sfx";
 import { RoomRequestType } from "ott-common/models/messages";
 import { PlayerStatus, Role } from "ott-common/models/types";
@@ -881,6 +881,58 @@ describe("room player interactions", () => {
 		keyUp("ArrowRight");
 		await nextTick();
 		expect(speedActions()).toEqual(["start", "stop"]);
+	});
+
+	it("keeps adjusting the fullscreen brightness after the drag passes a limit", async () => {
+		const playerBrightness = usePlayerBrightness();
+		// Start at the floor: pulling further down cannot change anything, and the pull back
+		// up has to pay off immediately instead of first undoing the overshoot. That is the
+		// difference between accumulating the reported increments and mapping the finger's
+		// absolute offset — with the absolute mapping the user would have to drag the whole
+		// way back before the picture brightened at all.
+		playerBrightness.setBrightness(MIN_PLAYER_BRIGHTNESS);
+		page.store.commit("room/SYNC", {
+			currentSource: { service: "direct", id: "https://example.test/source", length: 600 },
+			isPlaying: true,
+		});
+		page.store.commit("SET_FULLSCREEN", true);
+		await nextTick();
+
+		const surface = page.wrapper.get(".player-gesture-surface").element as HTMLElement;
+		surface.getBoundingClientRect = () =>
+			({
+				left: 0,
+				top: 0,
+				right: 400,
+				bottom: 400,
+				width: 400,
+				height: 400,
+				x: 0,
+				y: 0,
+				toJSON: () => ({}),
+			}) as DOMRect;
+		const press = (type: string, y: number) => {
+			const event = new MouseEvent(type, {
+				clientX: 100,
+				clientY: y,
+				button: 0,
+				bubbles: true,
+				cancelable: true,
+			});
+			Object.assign(event, { pointerId: 1, pointerType: "touch", isPrimary: true });
+			surface.dispatchEvent(event);
+		};
+
+		press("pointerdown", 200);
+		press("pointermove", 300);
+		await nextTick();
+		expect(playerBrightness.brightness.value).toBeCloseTo(MIN_PLAYER_BRIGHTNESS, 5);
+
+		press("pointermove", 240);
+		await nextTick();
+		expect(playerBrightness.brightness.value).toBeCloseTo(MIN_PLAYER_BRIGHTNESS + 0.15, 5);
+		press("pointerup", 240);
+		playerBrightness.setBrightness(1);
 	});
 
 	it("keeps the brightness scrim transparent until a swipe dims it", async () => {

@@ -170,22 +170,26 @@ describe("player touch and mouse gestures", () => {
 		};
 		Object.assign(options, levels);
 
-		// Right half: the drag is reported as a fraction of the surface height.
+		// Right half: the surface is 450px tall, so a 45px pull down is a tenth of the range.
 		pointer("pointerdown", 600, 100);
 		pointer("pointermove", 600, 145);
 		expect(levels.onLevelStart).toHaveBeenCalledWith("right");
-		expect(levels.onLevelMove).toHaveBeenCalledWith("right", 45 / 450);
+		expect(levels.onLevelMove).toHaveBeenCalledWith("right", -45 / 450);
 		pointer("pointerup", 600, 145);
 		expect(levels.onLevelEnd).toHaveBeenCalledWith("right");
 		expect(options.onSeek).not.toHaveBeenCalled();
 		expect(options.onTap).not.toHaveBeenCalled();
 
-		// Left half, dragging up.
+		// Left half, dragging up. Reports are incremental, so a second move carries on from
+		// the previous position rather than from where the gesture started — that is what
+		// lets the finger keep pulling (or come back) without the screen edge being a limit.
 		pointer("pointerdown", 100, 300);
 		pointer("pointermove", 100, 250);
 		expect(levels.onLevelStart).toHaveBeenLastCalledWith("left");
-		expect(levels.onLevelMove).toHaveBeenLastCalledWith("left", -50 / 450);
-		pointer("pointerup", 100, 250);
+		expect(levels.onLevelMove).toHaveBeenLastCalledWith("left", 50 / 450);
+		pointer("pointermove", 100, 200);
+		expect(levels.onLevelMove).toHaveBeenLastCalledWith("left", 50 / 450);
+		pointer("pointerup", 100, 200);
 		expect(levels.onLevelEnd).toHaveBeenLastCalledWith("left");
 	});
 

@@ -20,7 +20,11 @@ interface PlayerGestureOptions {
 	 */
 	canAdjustLevels?(): boolean;
 	onLevelStart?(side: LevelSide): void;
-	/** `delta` is the drag distance as a fraction of the player's height; down is positive. */
+	/**
+	 * `delta` is the drag since the previous report, as a fraction of the player's height;
+	 * up is positive. Reports are incremental on purpose: the caller accumulates them, so
+	 * the finger can keep pulling (or come back) without the screen edge becoming a limit.
+	 */
 	onLevelMove?(side: LevelSide, delta: number): void;
 	onLevelEnd?(side: LevelSide): void;
 }
@@ -38,8 +42,8 @@ interface Gesture {
 	doubleTap: boolean;
 	moved: boolean;
 	phase: "pending" | "swiping" | "holding" | "levels" | "cancelled";
-	/** Levels phase only: where the drag started and how tall the surface is. */
-	levelStartY?: number;
+	/** Levels phase only: the last reported Y and how tall the surface is. */
+	levelLastY?: number;
 	levelHeight?: number;
 	levelSide?: LevelSide;
 }
@@ -73,10 +77,11 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 		}
 	}
 
-	/** Drag distance in player-heights, measured from where the levels gesture started. */
+	/** Drag since the last report, in player-heights; up is positive. */
 	function levelDelta(current: Gesture, clientY: number): number {
-		const from = current.levelStartY ?? clientY;
-		return (clientY - from) / Math.max(1, current.levelHeight ?? 1);
+		const from = current.levelLastY ?? clientY;
+		current.levelLastY = clientY;
+		return (from - clientY) / Math.max(1, current.levelHeight ?? 1);
 	}
 
 	function cancel() {
@@ -184,7 +189,7 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 			if (options.canAdjustLevels?.()) {
 				const bounds = current.element.getBoundingClientRect();
 				current.phase = "levels";
-				current.levelStartY = current.y;
+				current.levelLastY = current.y;
 				current.levelHeight = Math.max(1, bounds.height);
 				current.levelSide = current.x < bounds.left + bounds.width / 2 ? "left" : "right";
 				event.preventDefault();

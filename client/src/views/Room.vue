@@ -1500,32 +1500,30 @@ export default defineComponent({
 			onRejected: () => showInteractionNotice("speed-unavailable"),
 		});
 		// Fullscreen swipe levels: the left half dims the picture, the right half moves the
-		// volume, the way phone players do it. The value the drag started from is captured
-		// once, so one gesture is one continuous adjustment and the store clamps the rest.
+		// volume, the way phone players do it. The gesture reports increments, so the finger
+		// can keep pulling in either direction without the screen edge being a limit.
 		const playerBrightness = usePlayerBrightness();
 		const levelNotice = ref("");
 		let levelTimer: ReturnType<typeof setTimeout> | null = null;
-		let levelBase = 0;
-		function onLevelStart(side: LevelSide) {
-			levelBase =
-				side === "left"
-					? playerBrightness.brightness.value
-					: store.state.settings.volume / 100;
+		function onLevelStart() {
 			if (levelTimer !== null) {
 				clearTimeout(levelTimer);
 				levelTimer = null;
 			}
 		}
 		function onLevelMove(side: LevelSide, delta: number) {
-			// Dragging up raises the value; a full-height drag covers the whole range.
-			const value = levelBase - delta;
+			// A full-height drag moves the level through its whole range; the clamp discards
+			// any overshoot instead of making the user undo it before the value comes back.
 			if (side === "left") {
-				playerBrightness.setBrightness(value);
+				playerBrightness.setBrightness(playerBrightness.brightness.value + delta);
 				levelNotice.value = t("player.interactions.level-brightness", {
 					value: Math.round(playerBrightness.brightness.value * 100),
 				});
 			} else {
-				store.commit("settings/UPDATE", { volume: Math.round(value * 100) });
+				const next = store.state.settings.volume / 100 + delta;
+				store.commit("settings/UPDATE", {
+					volume: Math.round(Math.min(1, Math.max(0, next)) * 100),
+				});
 				levelNotice.value = t("player.interactions.level-volume", {
 					value: Math.round(store.state.settings.volume),
 				});
