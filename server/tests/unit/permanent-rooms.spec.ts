@@ -189,7 +189,11 @@ describe("permanent room persistence", () => {
 		const room = await createRoom("background-failed-checkpoint");
 		await room.sync();
 		room.throttledSync.cancel();
-		vi.spyOn(storage, "updateRoom").mockResolvedValueOnce(false);
+		// Every write fails for the rest of this block: a save queued before the cancel is
+		// not cancellable, and letting a still-armed `mockResolvedValueOnce` be consumed by
+		// that earlier save is what made this test flake under CI load. The assertions below
+		// hold either way — the failure is logged and the dirty state survives.
+		const failingWrites = vi.spyOn(storage, "updateRoom").mockResolvedValue(false);
 		const logged = vi.spyOn(room.log, "error");
 		room.currentSource = { service: "direct", id: "first.mp4", length: 120 };
 		await expect(room.throttledSync.flush()).resolves.toBeUndefined();
@@ -197,6 +201,7 @@ describe("permanent room persistence", () => {
 			expect.stringContaining("Background room checkpoint failed"),
 		);
 		expect(room._dirty.has("currentSource")).toBe(true);
+		failingWrites.mockRestore();
 		await room.sync();
 		expect((await storage.getRoomByName(room.name))?.prevQueue?.[0].id).toBe("first.mp4");
 	});
