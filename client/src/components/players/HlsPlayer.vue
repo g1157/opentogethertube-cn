@@ -25,6 +25,7 @@
 			:video="videoElem"
 			:mode="enhancementLayerMode(upscaleMode)"
 		/>
+		<DanmakuLayer v-if="videoElem" :video="videoElem" :video-url="videoUrl" />
 	</div>
 </template>
 
@@ -35,6 +36,7 @@ import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
 import { useStore } from "@/store";
 import { enhancementLayerMode } from "@/stores/settings";
 import UpscaleLayer from "./UpscaleLayer.vue";
+import DanmakuLayer from "./DanmakuLayer.vue";
 import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
 import {
 	recallHlsBandwidthEstimate,

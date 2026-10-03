@@ -25,6 +25,7 @@
 				<TimestampDisplay :current-position="truePosition" data-cy="timestamp-display" />
 				<div class="grow"><!-- Spacer --></div>
 				<ClosedCaptionsSwitcher v-if="!compact" />
+				<DanmakuSwitcher v-if="!compact" />
 				<PlaybackRateSwitcher v-if="!compact" />
 				<VideoSettings
 					:compact="compact"
@@ -41,6 +42,7 @@
 <script lang="ts" setup>
 import BasicControls from "./BasicControls.vue";
 import ClosedCaptionsSwitcher from "./ClosedCaptionsSwitcher.vue";
+import DanmakuSwitcher from "./DanmakuSwitcher.vue";
 import LayoutSwitcher from "./LayoutSwitcher.vue";
 import TimestampDisplay from "./TimestampDisplay.vue";
 import VideoProgressSlider from "./VideoProgressSlider.vue";

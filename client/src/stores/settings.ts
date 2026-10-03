@@ -50,6 +50,13 @@ export const DEFAULT_UPSCALE_STRENGTH = 0.9;
 /** What phones start on, so the first run is not a stutter the guard has to undo. */
 export const PHONE_UPSCALE_STRENGTH = 0.4;
 
+/**
+ * External danmaku (bullet comments) fetched for girigiri sources. Speeds multiply the
+ * reference 8 s traverse (higher is faster), so users can calm a busy track down.
+ */
+export const DANMAKU_SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+export const DANMAKU_FONT_SIZE_OPTIONS = ["small", "medium", "large"] as const;
+
 export interface SettingsState {
 	volume: number;
 	muted: boolean;
@@ -72,6 +79,16 @@ export interface SettingsState {
 	upscaleStrength: number;
 	upscaleScale: (typeof UPSCALE_SCALES)[number];
 	upscaleAutoDegrade: boolean;
+	/** External danmaku (bullet comments) for the current source; every value applies per device. */
+	danmakuEnabled: boolean;
+	danmakuOpacity: number;
+	danmakuFontSize: (typeof DANMAKU_FONT_SIZE_OPTIONS)[number];
+	danmakuSpeed: (typeof DANMAKU_SPEED_OPTIONS)[number];
+	danmakuBlockScroll: boolean;
+	danmakuBlockTop: boolean;
+	danmakuBlockBottom: boolean;
+	danmakuBlockColored: boolean;
+	danmakuAntiCollision: boolean;
 	/** Desktop only: whether the room notes panel is expanded next to the video. */
 	notesPanelOpen: boolean;
 }
@@ -151,6 +168,34 @@ function normalizeSettings(state: SettingsState) {
 	if (typeof state.upscaleAutoDegrade !== "boolean") {
 		state.upscaleAutoDegrade = true;
 	}
+	if (typeof state.danmakuEnabled !== "boolean") {
+		state.danmakuEnabled = true;
+	}
+	if (!Number.isFinite(state.danmakuOpacity)) {
+		state.danmakuOpacity = 1;
+	}
+	state.danmakuOpacity = Math.min(1, Math.max(0.1, state.danmakuOpacity));
+	if (!DANMAKU_FONT_SIZE_OPTIONS.includes(state.danmakuFontSize)) {
+		state.danmakuFontSize = "medium";
+	}
+	if (!DANMAKU_SPEED_OPTIONS.includes(state.danmakuSpeed)) {
+		state.danmakuSpeed = 1;
+	}
+	if (typeof state.danmakuBlockScroll !== "boolean") {
+		state.danmakuBlockScroll = false;
+	}
+	if (typeof state.danmakuBlockTop !== "boolean") {
+		state.danmakuBlockTop = false;
+	}
+	if (typeof state.danmakuBlockBottom !== "boolean") {
+		state.danmakuBlockBottom = false;
+	}
+	if (typeof state.danmakuBlockColored !== "boolean") {
+		state.danmakuBlockColored = false;
+	}
+	if (typeof state.danmakuAntiCollision !== "boolean") {
+		state.danmakuAntiCollision = true;
+	}
 	if (typeof state.notesPanelOpen !== "boolean") {
 		state.notesPanelOpen = true;
 	}
@@ -197,6 +242,15 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		upscaleStrength: DEFAULT_UPSCALE_STRENGTH,
 		upscaleScale: "auto",
 		upscaleAutoDegrade: true,
+		danmakuEnabled: true,
+		danmakuOpacity: 1,
+		danmakuFontSize: "medium",
+		danmakuSpeed: 1,
+		danmakuBlockScroll: false,
+		danmakuBlockTop: false,
+		danmakuBlockBottom: false,
+		danmakuBlockColored: false,
+		danmakuAntiCollision: true,
 		notesPanelOpen: true,
 	}),
 	mutations: {

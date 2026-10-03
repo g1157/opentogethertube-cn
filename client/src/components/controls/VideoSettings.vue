@@ -70,6 +70,18 @@
 								<span class="menu-item-value">{{ upscaleLabel }}</span>
 							</div>
 						</v-list-item>
+						<v-list-item
+							link
+							class="menu-item"
+							:append-icon="mdiChevronRight"
+							:prepend-icon="mdiCommentMultipleOutline"
+							@click="navigateToMenu('danmaku')"
+						>
+							<div class="menu-item-content">
+								<span>{{ $t("room.danmaku.title") }}</span>
+								<span class="menu-item-value">{{ danmakuLabel }}</span>
+							</div>
+						</v-list-item>
 
 						<v-list-item
 							link
@@ -397,6 +409,121 @@
 							/>
 						</v-list-item>
 					</v-list>
+
+					<!-- Bullet comment submenu -->
+					<v-list
+						v-else-if="currentMenu === 'danmaku'"
+						key="danmaku"
+						class="menu-content"
+						color="primary"
+					>
+						<v-list-item
+							link
+							class="menu-header"
+							:prepend-icon="mdiChevronLeft"
+							@click="navigateToMenu('main')"
+						>
+							{{ $t("room.danmaku.title") }}
+						</v-list-item>
+						<v-list-item v-if="!danmakuAvailable">
+							<v-list-item-title class="danmaku-unavailable">
+								{{ $t("room.danmaku.unavailable") }}
+							</v-list-item-title>
+						</v-list-item>
+						<v-list-item>
+							<v-checkbox
+								v-model="danmakuEnabled"
+								:label="$t('room.danmaku.enable')"
+								density="compact"
+								hide-details
+								data-cy="danmaku-enabled"
+							/>
+						</v-list-item>
+						<v-list-item>
+							<v-slider
+								v-model="danmakuOpacity"
+								:label="$t('room.danmaku.opacity')"
+								:min="0.1"
+								:max="1"
+								:step="0.05"
+								density="compact"
+								thumb-label
+								data-cy="danmaku-opacity"
+							/>
+						</v-list-item>
+						<v-list-item>
+							<v-select
+								v-model="danmakuFontSize"
+								:label="$t('room.danmaku.font-size')"
+								:items="danmakuFontSizeOptions"
+								:menu-props="preferenceMenuProps"
+								density="compact"
+								class="my-2"
+								data-cy="danmaku-font-size"
+							/>
+						</v-list-item>
+						<v-list-item>
+							<v-select
+								v-model="danmakuSpeed"
+								:label="$t('room.danmaku.speed')"
+								:items="danmakuSpeedOptions"
+								:menu-props="preferenceMenuProps"
+								density="compact"
+								class="my-2"
+								data-cy="danmaku-speed"
+							/>
+						</v-list-item>
+						<v-list-item class="danmaku-advanced-label">
+							<v-list-item-title class="danmaku-section-title">
+								{{ $t("room.danmaku.blocking") }}
+							</v-list-item-title>
+						</v-list-item>
+						<v-list-item>
+							<v-checkbox
+								v-model="danmakuBlockScroll"
+								:label="$t('room.danmaku.block-scroll')"
+								density="compact"
+								hide-details
+								data-cy="danmaku-block-scroll"
+							/>
+						</v-list-item>
+						<v-list-item>
+							<v-checkbox
+								v-model="danmakuBlockTop"
+								:label="$t('room.danmaku.block-top')"
+								density="compact"
+								hide-details
+								data-cy="danmaku-block-top"
+							/>
+						</v-list-item>
+						<v-list-item>
+							<v-checkbox
+								v-model="danmakuBlockBottom"
+								:label="$t('room.danmaku.block-bottom')"
+								density="compact"
+								hide-details
+								data-cy="danmaku-block-bottom"
+							/>
+						</v-list-item>
+						<v-list-item>
+							<v-checkbox
+								v-model="danmakuBlockColored"
+								:label="$t('room.danmaku.block-colored')"
+								density="compact"
+								hide-details
+								data-cy="danmaku-block-colored"
+							/>
+						</v-list-item>
+						<v-list-item>
+							<v-checkbox
+								v-model="danmakuAntiCollision"
+								:label="$t('room.danmaku.anti-collision')"
+								density="compact"
+								hide-details
+								data-cy="danmaku-anti-collision"
+							/>
+						</v-list-item>
+					</v-list>
 				</div>
 			</div>
 		</v-container>
@@ -407,7 +534,7 @@
 import { ref, computed, nextTick, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useMediaQuery } from "@vueuse/core";
-import { useCaptions, useQualities } from "../composables";
+import { useCaptions, useDanmaku, useQualities } from "../composables";
 import {
 	mdiCog,
 	mdiAutoFix,
@@ -418,6 +545,7 @@ import {
 	mdiChevronRight,
 	mdiKeyboardOutline,
 	mdiInformationOutline,
+	mdiCommentMultipleOutline,
 } from "@mdi/js";
 import { getFriendlyResolutionLabel } from "@/util/misc";
 import type { VideoTrack, CaptionTrack } from "@/models/media-tracks";
@@ -426,6 +554,8 @@ import { useStore } from "@/store";
 import {
 	CHAT_OVERLAY_SECONDS_OPTIONS,
 	CONTROLS_HIDE_SECONDS_OPTIONS,
+	DANMAKU_FONT_SIZE_OPTIONS,
+	DANMAKU_SPEED_OPTIONS,
 	HLS_BUFFER_SECONDS_OPTIONS,
 	MAX_UPSCALE_STRENGTH,
 	MIN_UPSCALE_STRENGTH,
@@ -506,6 +636,64 @@ const upscaleScaleOptions = computed(() =>
 		value: option,
 	})),
 );
+const danmaku = useDanmaku();
+const danmakuAvailable = computed(() => danmaku.available.value);
+const danmakuLabel = computed(() => {
+	if (!danmakuAvailable.value) {
+		return t("player.settings.disabled");
+	}
+	return store.state.settings.danmakuEnabled ? t("common.on") : t("common.off");
+});
+const danmakuEnabled = computed({
+	get: () => store.state.settings.danmakuEnabled,
+	set: value => store.commit("settings/UPDATE", { danmakuEnabled: value }),
+});
+const danmakuOpacity = computed({
+	get: () => store.state.settings.danmakuOpacity,
+	set: value => store.commit("settings/UPDATE", { danmakuOpacity: value }),
+});
+const danmakuFontSize = computed({
+	get: () => store.state.settings.danmakuFontSize,
+	set: value => store.commit("settings/UPDATE", { danmakuFontSize: value }),
+});
+const danmakuSpeed = computed({
+	get: () => store.state.settings.danmakuSpeed,
+	set: value => store.commit("settings/UPDATE", { danmakuSpeed: value }),
+});
+const danmakuBlockScroll = computed({
+	get: () => store.state.settings.danmakuBlockScroll,
+	set: value => store.commit("settings/UPDATE", { danmakuBlockScroll: value }),
+});
+const danmakuBlockTop = computed({
+	get: () => store.state.settings.danmakuBlockTop,
+	set: value => store.commit("settings/UPDATE", { danmakuBlockTop: value }),
+});
+const danmakuBlockBottom = computed({
+	get: () => store.state.settings.danmakuBlockBottom,
+	set: value => store.commit("settings/UPDATE", { danmakuBlockBottom: value }),
+});
+const danmakuBlockColored = computed({
+	get: () => store.state.settings.danmakuBlockColored,
+	set: value => store.commit("settings/UPDATE", { danmakuBlockColored: value }),
+});
+const danmakuAntiCollision = computed({
+	get: () => store.state.settings.danmakuAntiCollision,
+	set: value => store.commit("settings/UPDATE", { danmakuAntiCollision: value }),
+});
+const danmakuFontSizeOptions = computed(() =>
+	DANMAKU_FONT_SIZE_OPTIONS.map(size => ({
+		// biome-ignore lint/nursery/noVueRefAsOperand: size values are plain strings, not Vue refs.
+		title: t(`room.danmaku.font-size-${size}`),
+		value: size,
+	})),
+);
+const danmakuSpeedOptions = computed(() =>
+	DANMAKU_SPEED_OPTIONS.map(speed => ({
+		// biome-ignore lint/nursery/noVueRefAsOperand: speed values are plain numbers, not Vue refs.
+		title: `${speed}×`,
+		value: speed,
+	})),
+);
 const canHover = useMediaQuery("(hover: hover) and (pointer: fine)");
 const menu = ref<{ updateLocation: () => void } | null>(null);
 // VMenu resets inherited defaults inside its content, including nested select menus.
@@ -564,7 +752,9 @@ const hlsBufferOptions = computed(() =>
 );
 
 // Menu types - using literal string values instead of enum due to Safari compatibility issues
-const currentMenu = ref<"main" | "quality" | "subtitle" | "preferences" | "upscale">("main");
+const currentMenu = ref<"main" | "quality" | "subtitle" | "preferences" | "upscale" | "danmaku">(
+	"main",
+);
 const isMenuOpen = ref<boolean>(false);
 usePlayerControlsActivity(isMenuOpen);
 
@@ -788,6 +978,25 @@ function selectSubtitleTrack(track: number): void {
 	min-height: 0;
 	padding-top: 4px;
 	padding-bottom: 0;
+}
+
+.danmaku-advanced-label {
+	min-height: 0;
+	padding-top: 4px;
+	padding-bottom: 0;
+}
+
+.danmaku-section-title {
+	font-size: 0.75rem;
+	font-weight: 500;
+	letter-spacing: 0.04em;
+	opacity: 0.6;
+}
+
+.danmaku-unavailable {
+	font-size: 0.8rem;
+	opacity: 0.7;
+	padding: 4px 0;
 }
 
 .upscale-section-title {

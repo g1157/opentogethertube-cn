@@ -40,6 +40,7 @@
 			:video="videoElem"
 			:mode="enhancementLayerMode(upscaleMode)"
 		/>
+		<DanmakuLayer v-if="videoElem" :video="videoElem" :video-url="videoUrl" />
 	</div>
 </template>
 
@@ -70,6 +71,7 @@ import type {
 } from "../composables";
 import { useCaptions, useMediaAudioBoost, useQualities } from "../composables";
 import UpscaleLayer from "./UpscaleLayer.vue";
+import DanmakuLayer from "./DanmakuLayer.vue";
 import { useStore } from "@/store";
 import { enhancementLayerMode } from "@/stores/settings";
 

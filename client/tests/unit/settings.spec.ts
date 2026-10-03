@@ -233,6 +233,61 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.locale).toBe("en");
 	});
 
+	it("persists danmaku preferences across visits", async () => {
+		const firstVisit = newStore();
+		await firstVisit.dispatch("settings/load");
+		firstVisit.commit("settings/UPDATE", {
+			danmakuEnabled: false,
+			danmakuOpacity: 0.5,
+			danmakuFontSize: "large",
+			danmakuSpeed: 1.5,
+			danmakuBlockScroll: true,
+			danmakuBlockColored: true,
+			danmakuAntiCollision: false,
+		});
+		const nextVisit = newStore();
+		await nextVisit.dispatch("settings/load");
+		expect(nextVisit.state.settings).toMatchObject({
+			danmakuEnabled: false,
+			danmakuOpacity: 0.5,
+			danmakuFontSize: "large",
+			danmakuSpeed: 1.5,
+			danmakuBlockScroll: true,
+			danmakuBlockTop: false,
+			danmakuBlockBottom: false,
+			danmakuBlockColored: true,
+			danmakuAntiCollision: false,
+		});
+	});
+
+	it.each([
+		[-1, 0.1],
+		[0, 0.1],
+		[99, 1],
+		["0.5", 1],
+		[0.5, 0.5],
+	])("clamps a saved danmaku opacity of %s to %s", async (stored, expected) => {
+		saved.set("settings", JSON.stringify({ danmakuOpacity: stored }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.danmakuOpacity).toBe(expected);
+	});
+
+	it.each([
+		["danmakuFontSize", "huge"],
+		["danmakuSpeed", 3],
+		["danmakuEnabled", "yes"],
+		["danmakuBlockTop", null],
+	])("repairs a damaged danmaku setting: %s", async (key, value) => {
+		saved.set("settings", JSON.stringify({ [key]: value }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.danmakuFontSize).toBe("medium");
+		expect(store.state.settings.danmakuSpeed).toBe(1);
+		expect(store.state.settings.danmakuEnabled).toBe(true);
+		expect(store.state.settings.danmakuBlockTop).toBe(false);
+	});
+
 	it("keeps a transient update out of the saved settings", async () => {
 		const firstVisit = newStore();
 		await firstVisit.dispatch("settings/load");
