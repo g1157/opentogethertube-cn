@@ -42,6 +42,20 @@ describe("danmaku layer frame loop", () => {
 	let rafNextId: number;
 	let drawCount: number;
 	let contextRequests: unknown[][];
+	let context: {
+		setTransform: ReturnType<typeof vi.fn>;
+		clearRect: ReturnType<typeof vi.fn>;
+		strokeText: ReturnType<typeof vi.fn>;
+		fillText: ReturnType<typeof vi.fn>;
+		measureText: ReturnType<typeof vi.fn>;
+		globalAlpha: number;
+		font: string;
+		textBaseline: string;
+		lineJoin: string;
+		strokeStyle: string;
+		lineWidth: number;
+		fillStyle: string;
+	};
 
 	beforeEach(() => {
 		rafCallbacks = new Map();
@@ -55,7 +69,7 @@ describe("danmaku layer frame loop", () => {
 		vi.stubGlobal("cancelAnimationFrame", (id: number) => {
 			rafCallbacks.delete(id);
 		});
-		const context = {
+		context = {
 			setTransform: vi.fn(),
 			clearRect: vi.fn(() => {
 				drawCount++;
@@ -70,14 +84,20 @@ describe("danmaku layer frame loop", () => {
 			strokeStyle: "",
 			lineWidth: 1,
 			fillStyle: "",
-		} as unknown as CanvasRenderingContext2D;
+		};
 		vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(((
 			...args: unknown[]
 		) => {
 			contextRequests.push(args);
-			return context;
+			return context as unknown as CanvasRenderingContext2D;
 		}) as unknown as typeof HTMLCanvasElement.prototype.getContext);
 	});
+
+	/** X of the last text the layer drew; NaN when nothing has been drawn. */
+	function lastDrawnX(): number {
+		const calls = context.strokeText.mock.calls as [string, number, number][];
+		return calls.length > 0 ? calls[calls.length - 1][1] : Number.NaN;
+	}
 
 	afterEach(() => {
 		vi.unstubAllGlobals();
@@ -122,16 +142,30 @@ describe("danmaku layer frame loop", () => {
 		expect(rafCallbacks.size).toBe(1);
 	});
 
-	it("does not repaint while the clock stands still", async () => {
+	it("keeps a comment moving between media frames, then stops on a stalled picture", async () => {
+		// Regression: video.currentTime steps once per presented frame (24fps anime -> 24
+		// steps a second), so comments advanced in visible jumps on a 60/120Hz screen. The
+		// clock extrapolates between anchors — and stops once its lead is capped, so a
+		// stalled video cannot keep sliding comments over a frozen picture.
+		const now = vi.spyOn(performance, "now");
 		const { state } = await mountLayer();
 		state.currentTime = 1;
+		now.mockReturnValue(10_000);
 		runFrame();
-		const afterFirst = drawCount;
+		const spawned = lastDrawnX();
 
+		now.mockReturnValue(10_016);
 		runFrame();
-		runFrame();
+		expect(lastDrawnX()).toBeLessThan(spawned);
 
-		expect(drawCount).toBe(afterFirst);
+		// Far past the cap: one paint settles on the capped clock, then nothing moves.
+		now.mockReturnValue(11_000);
+		runFrame();
+		const settled = drawCount;
+		now.mockReturnValue(12_000);
+		runFrame();
+		expect(drawCount).toBe(settled);
+		now.mockRestore();
 	});
 
 	it("stops the loop while paused and restarts on play", async () => {

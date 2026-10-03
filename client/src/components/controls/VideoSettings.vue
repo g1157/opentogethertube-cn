@@ -1,22 +1,19 @@
 <template>
-	<v-menu
+	<!-- Phones in portrait get a bottom sheet: the anchored menu opened upward over the
+	     picture, so adjusting a setting cost you sight of what you were adjusting. The sheet
+	     leaves the video visible above it; desktop and fullscreen keep the anchored menu. -->
+	<component
+		:is="asSheet ? 'v-bottom-sheet' : 'v-menu'"
 		ref="menu"
 		v-model="isMenuOpen"
-		location="top end"
-		origin="auto"
-		:offset="8"
-		:width="320"
-		:min-width="0"
-		:max-width="320"
-		:max-height="420"
-		:close-on-content-click="false"
-		scroll-strategy="reposition"
-		transition="fade-transition"
-		content-class="player-settings-overlay"
+		v-bind="asSheet ? sheetProps : menuProps"
+		:content-class="
+			asSheet ? 'player-settings-overlay player-settings-sheet' : 'player-settings-overlay'
+		"
 	>
-		<template #activator="{ props }">
+		<template v-if="!asSheet" #activator="{ props: activatorProps }">
 			<v-btn
-				v-bind="props"
+				v-bind="activatorProps"
 				variant="text"
 				icon
 				class="media-control"
@@ -611,7 +608,21 @@
 				</div>
 			</div>
 		</v-container>
-	</v-menu>
+	</component>
+	<v-btn
+		v-if="asSheet"
+		variant="text"
+		icon
+		class="media-control"
+		data-cy="player-settings-toggle"
+		:aria-label="$t('room.player-settings')"
+		@click="isMenuOpen = !isMenuOpen"
+	>
+		<v-icon :icon="mdiCog" />
+		<v-tooltip activator="parent" location="top" :disabled="!canHover || isMenuOpen">
+			{{ $t("room.player-settings") }}
+		</v-tooltip>
+	</v-btn>
 </template>
 
 <script lang="ts" setup>
@@ -669,7 +680,7 @@ import DanmakuSettingsPanel from "./DanmakuSettingsPanel.vue";
 import QualityMenuPanel from "./QualityMenuPanel.vue";
 import SubtitleMenuPanel from "./SubtitleMenuPanel.vue";
 
-defineProps<{ compact?: boolean }>();
+const props = defineProps<{ compact?: boolean }>();
 const emit = defineEmits(["show-shortcuts", "show-stats"]);
 const store = useStore();
 const { t } = useI18n();
@@ -822,7 +833,25 @@ function selectFillMode(mode: VideoFillMode): void {
 	videoFillMode.value = mode;
 }
 const canHover = useMediaQuery("(hover: hover) and (pointer: fine)");
-const menu = ref<{ updateLocation: () => void } | null>(null);
+const menu = ref<{ updateLocation?: () => void } | null>(null);
+/** Portrait phones: a sheet from the bottom instead of a menu floating over the video. */
+const asSheet = computed(() => props.compact === true);
+const menuProps = {
+	location: "top end",
+	origin: "auto",
+	offset: 8,
+	width: 320,
+	minWidth: 0,
+	maxWidth: 320,
+	maxHeight: 420,
+	closeOnContentClick: false,
+	scrollStrategy: "reposition" as const,
+	transition: "fade-transition",
+};
+const sheetProps = {
+	scrollable: true,
+	maxHeight: "62vh",
+};
 // VMenu resets inherited defaults inside its content, including nested select menus.
 const preferenceMenuProps = computed(() => ({
 	attach: store.state.fullscreen ? ".player-fullscreen" : false,
@@ -880,7 +909,7 @@ watch(isMenuOpen, open => {
 watch(currentMenu, async () => {
 	await nextTick();
 	if (isMenuOpen.value) {
-		menu.value?.updateLocation();
+		menu.value?.updateLocation?.();
 	}
 });
 // Fullscreen changes the overlay's containing block. Reopen using its new attachment.
@@ -992,6 +1021,12 @@ function closeMenu(): void {
 	box-shadow: 0 4px 20px rgba(var(--v-theme-surface), 0.3);
 	overflow-y: auto;
 	overscroll-behavior: contain;
+}
+
+/* The phone sheet hugs the bottom edge, so its panel squares off there. */
+.player-settings-sheet .settings-menu-container {
+	border-radius: 14px 14px 0 0;
+	border-bottom: 0;
 }
 
 .menu-divider {

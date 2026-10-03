@@ -124,6 +124,86 @@ const themeStrawberry: ThemeDefinition = {
 	},
 };
 
+const themeViolet: ThemeDefinition = {
+	dark: true,
+	colors: {
+		primary: "#a06bff",
+		"primary-lighten-1": "#c39bff",
+		"primary-darken-1": "#7847dd",
+		secondary: "#5ee0ff",
+		background: "#0f0a1a",
+		surface: "#181026",
+		"on-background": "#f0e9ff",
+		"on-surface": "#f0e9ff",
+		"on-primary": "#150a26",
+		success: "#7ee39a",
+		warning: "#ffc46b",
+		error: "#ff6b8a",
+		"media-control-surface": "#ffffff",
+		"media-control-background": "#000000",
+	},
+};
+
+const themeTeal: ThemeDefinition = {
+	dark: true,
+	colors: {
+		primary: "#2fd8c8",
+		"primary-lighten-1": "#6ff0e2",
+		"primary-darken-1": "#12b3a4",
+		secondary: "#ffd166",
+		background: "#04191c",
+		surface: "#08262a",
+		"on-background": "#e0faf7",
+		"on-surface": "#e0faf7",
+		"on-primary": "#032125",
+		success: "#5ce08f",
+		warning: "#ffc46b",
+		error: "#ff6b6b",
+		"media-control-surface": "#ffffff",
+		"media-control-background": "#000000",
+	},
+};
+
+const themeOled: ThemeDefinition = {
+	dark: true,
+	colors: {
+		primary: "#ffbe3d",
+		"primary-lighten-1": "#ffd271",
+		"primary-darken-1": "#e89a1c",
+		secondary: "#5ee0ff",
+		background: "#000000",
+		surface: "#0b0b0b",
+		"on-background": "#f2f2f2",
+		"on-surface": "#f2f2f2",
+		"on-primary": "#1a1206",
+		success: "#7ed957",
+		warning: "#ffb13d",
+		error: "#ff5a4d",
+		"media-control-surface": "#ffffff",
+		"media-control-background": "#000000",
+	},
+};
+
+const themeMint: ThemeDefinition = {
+	dark: false,
+	colors: {
+		primary: "#0e8f7a",
+		"primary-lighten-1": "#2ab89c",
+		"primary-darken-1": "#0a6f5f",
+		secondary: "#2f7fa8",
+		background: "#eef7f2",
+		surface: "#fbfffd",
+		"on-background": "#0d2a24",
+		"on-surface": "#0d2a24",
+		"on-primary": "#f0fffb",
+		success: "#1f8f4e",
+		warning: "#c2740a",
+		error: "#c4362a",
+		"media-control-surface": "#ffffff",
+		"media-control-background": "#000000",
+	},
+};
+
 const vuetify = createVuetify({
 	components,
 	directives,
@@ -143,6 +223,10 @@ const vuetify = createVuetify({
 			deepblue: themeDeepBlue,
 			greenslate: themeGreenSlate,
 			strawberry: themeStrawberry,
+			violet: themeViolet,
+			teal: themeTeal,
+			oled: themeOled,
+			mint: themeMint,
 		},
 	},
 });

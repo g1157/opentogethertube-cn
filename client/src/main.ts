@@ -9,6 +9,7 @@ import { i18n } from "./i18n";
 import { OttRoomConnectionPlugin } from "./plugins/connection";
 import { OttSfxPlugin } from "./plugins/sfx";
 import { installClientUpdateCheck } from "./util/client-update";
+import { installServiceWorker } from "./util/service-worker";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +24,7 @@ createApp(App)
 	.mount("#app");
 
 if (import.meta.env.PROD) {
+	installServiceWorker();
 	installClientUpdateCheck({
 		// biome-ignore lint/correctness/noUndeclaredVariables: Injected by Vite during the build.
 		revision: __COMMIT_HASH__,

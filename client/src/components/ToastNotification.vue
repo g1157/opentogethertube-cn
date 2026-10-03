@@ -174,8 +174,9 @@ $toast-content-padding: 14px 16px;
 // Phones: the 344px minimum is a 360px screen's whole width, and the room notices
 // ("X added a video", "skipped 30s") are long enough to wrap — so a single toast used
 // to cover a third of the picture. Keep the card compact and let it sit against the
-// screen edge instead. (800px is the phone breakpoint, see util/breakpoints.ts.)
-@media (max-width: 800px) {
+// screen edge instead. A coarse pointer catches the landscape case as well, where the
+// viewport is wider than the phone breakpoint but the screen is still a phone's.
+@media (max-width: 800px), (pointer: coarse) {
 	.toast {
 		min-width: 0;
 		max-width: calc(100vw - 12px);

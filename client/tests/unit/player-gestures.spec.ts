@@ -161,6 +161,46 @@ describe("player touch and mouse gestures", () => {
 		expect(options.onDoubleTap).not.toHaveBeenCalled();
 	});
 
+	it("adjusts the levels on a vertical drag once fullscreen says it may", () => {
+		const levels = {
+			canAdjustLevels: () => true,
+			onLevelStart: vi.fn(),
+			onLevelMove: vi.fn(),
+			onLevelEnd: vi.fn(),
+		};
+		Object.assign(options, levels);
+
+		// Right half: the drag is reported as a fraction of the surface height.
+		pointer("pointerdown", 600, 100);
+		pointer("pointermove", 600, 145);
+		expect(levels.onLevelStart).toHaveBeenCalledWith("right");
+		expect(levels.onLevelMove).toHaveBeenCalledWith("right", 45 / 450);
+		pointer("pointerup", 600, 145);
+		expect(levels.onLevelEnd).toHaveBeenCalledWith("right");
+		expect(options.onSeek).not.toHaveBeenCalled();
+		expect(options.onTap).not.toHaveBeenCalled();
+
+		// Left half, dragging up.
+		pointer("pointerdown", 100, 300);
+		pointer("pointermove", 100, 250);
+		expect(levels.onLevelStart).toHaveBeenLastCalledWith("left");
+		expect(levels.onLevelMove).toHaveBeenLastCalledWith("left", -50 / 450);
+		pointer("pointerup", 100, 250);
+		expect(levels.onLevelEnd).toHaveBeenLastCalledWith("left");
+	});
+
+	it("leaves a vertical drag to the page when the levels are unavailable", () => {
+		const onLevelMove = vi.fn();
+		options.canAdjustLevels = () => false;
+		options.onLevelMove = onLevelMove;
+		pointer("pointerdown", 600, 100);
+		pointer("pointermove", 600, 200);
+		pointer("pointerup", 600, 200);
+		expect(onLevelMove).not.toHaveBeenCalled();
+		expect(options.onSeek).not.toHaveBeenCalled();
+		expect(options.onTap).not.toHaveBeenCalled();
+	});
+
 	it.each([5, 10, 30])("previews a %s second jump locally and seeks once on release", step => {
 		options.getSeekStep = () => step;
 		pointer("pointerdown");

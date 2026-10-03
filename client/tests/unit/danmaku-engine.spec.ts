@@ -23,6 +23,8 @@ function makeConfig(partial: Partial<DanmakuEngineConfig> = {}): DanmakuEngineCo
 		blockTop: false,
 		blockBottom: false,
 		blockColored: false,
+		area: "full",
+		maxPerSecond: Number.POSITIVE_INFINITY,
 		...partial,
 	};
 }
@@ -41,6 +43,44 @@ function advance(engine: DanmakuEngine, from: number, to: number, step = 0.5) {
 }
 
 describe("DanmakuEngine scheduling", () => {
+	it("keeps the comments inside the selected half of the picture", () => {
+		const bottom = new DanmakuEngine(makeConfig({ area: "bottom" }), measure);
+		bottom.setItems([makeItem({ time: 0, text: "下半屏" })]);
+		const [lowered] = bottom.tick(0);
+		expect(lowered.y).toBeGreaterThanOrEqual(360);
+
+		const top = new DanmakuEngine(makeConfig({ area: "top" }), measure);
+		top.setItems([makeItem({ time: 0, text: "上半屏" })]);
+		const [raised] = top.tick(0);
+		expect(raised.y).toBeLessThanOrEqual(360);
+
+		// A fixed comment anchors to its own half too.
+		const topFixed = new DanmakuEngine(makeConfig({ area: "top" }), measure);
+		topFixed.setItems([makeItem({ time: 0, text: "顶部固定", mode: "top" })]);
+		const [fixed] = topFixed.tick(0);
+		expect(fixed.y).toBeLessThanOrEqual(360);
+	});
+
+	it("thins a burst to the density limit and leaves a calm track untouched", () => {
+		const items = Array.from({ length: 6 }, (_, i) =>
+			makeItem({ time: i * 0.05, text: `第${i}条` }),
+		);
+		const sparse = new DanmakuEngine(
+			makeConfig({ antiCollision: false, maxPerSecond: 2 }),
+			measure,
+		);
+		sparse.setItems(items);
+		expect(sparse.tick(0)).toHaveLength(1);
+		// Five more comments arrive inside the same second; the second one is the last the
+		// density limit lets through.
+		expect(sparse.tick(0.3)).toHaveLength(2);
+
+		const unlimited = new DanmakuEngine(makeConfig({ antiCollision: false }), measure);
+		unlimited.setItems(items);
+		expect(unlimited.tick(0)).toHaveLength(1);
+		expect(unlimited.tick(0.3)).toHaveLength(6);
+	});
+
 	it("spawns scroll comments at their media time and moves them left", () => {
 		const engine = new DanmakuEngine(makeConfig(), measure);
 		engine.setItems([makeItem({ time: 1, text: "第一条" })]);

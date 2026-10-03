@@ -56,6 +56,23 @@ export const PHONE_UPSCALE_STRENGTH = 0.4;
  */
 export const DANMAKU_SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 export const DANMAKU_FONT_SIZE_OPTIONS = ["small", "medium", "large"] as const;
+/**
+ * Which part of the picture the comments may use. "top"/"bottom" halve the lane band, the
+ * way Bilibili's 显示区域 does, so a half-screen of subtitles or a face stays readable.
+ */
+export const DANMAKU_AREAS = ["full", "top", "bottom"] as const;
+export type DanmakuArea = (typeof DANMAKU_AREAS)[number];
+/**
+ * How many comments are let through per second. "high" keeps the historical behavior
+ * (every comment the lanes can hold), so the default does not quietly thin a track.
+ */
+export const DANMAKU_DENSITY_OPTIONS = ["low", "medium", "high"] as const;
+export type DanmakuDensity = (typeof DANMAKU_DENSITY_OPTIONS)[number];
+export const DANMAKU_MAX_PER_SECOND: Record<DanmakuDensity, number> = {
+	low: 3,
+	medium: 8,
+	high: Number.POSITIVE_INFINITY,
+};
 
 /**
  * Tone presets for this device's audio graph (Web Audio peaking filters over the source's
@@ -95,6 +112,10 @@ export interface SettingsState {
 	danmakuOpacity: number;
 	danmakuFontSize: (typeof DANMAKU_FONT_SIZE_OPTIONS)[number];
 	danmakuSpeed: (typeof DANMAKU_SPEED_OPTIONS)[number];
+	/** Part of the picture the comments may use. */
+	danmakuDisplayArea: DanmakuArea;
+	/** Comments per second; the excess is dropped. */
+	danmakuDensity: DanmakuDensity;
 	danmakuBlockScroll: boolean;
 	danmakuBlockTop: boolean;
 	danmakuBlockBottom: boolean;
@@ -123,14 +144,22 @@ export enum Theme {
 	deepblue = "deepblue",
 	greenslate = "greenslate",
 	strawberry = "strawberry",
+	violet = "violet",
+	teal = "teal",
+	oled = "oled",
+	mint = "mint",
 }
 
 export const ALL_THEMES = Object.keys(Theme).filter(key => Theme[key]);
 
+/** Themes painted on a light background; anything that adapts to the page needs this list. */
+export const LIGHT_THEMES: string[] = [Theme.light, Theme.strawberry, Theme.mint];
+
 const DEFAULT_LOCALE_VERSION = "v0.15.0-cn3";
 const DEFAULT_SFX_VERSION = "v0.15.0-cn6";
-// Bumped so sessions that already stored the first (80%) danmaku default pick up 30%.
-const DEFAULT_DANMAKU_OPACITY_VERSION = "v0.15.0-cn7";
+// Bumped so sessions that stored one of the earlier danmaku defaults (80%, then 30%)
+// pick up 40%; a deliberately chosen value is left alone.
+const DEFAULT_DANMAKU_OPACITY_VERSION = "v1.3.4";
 type StoredSettings = Partial<SettingsState> & {
 	defaultLocaleVersion?: string;
 	defaultSfxVersion?: string;
@@ -199,6 +228,12 @@ function normalizeSettings(state: SettingsState) {
 	}
 	if (!DANMAKU_SPEED_OPTIONS.includes(state.danmakuSpeed)) {
 		state.danmakuSpeed = 1;
+	}
+	if (!DANMAKU_AREAS.includes(state.danmakuDisplayArea)) {
+		state.danmakuDisplayArea = "full";
+	}
+	if (!DANMAKU_DENSITY_OPTIONS.includes(state.danmakuDensity)) {
+		state.danmakuDensity = "high";
 	}
 	if (typeof state.danmakuBlockScroll !== "boolean") {
 		state.danmakuBlockScroll = false;
@@ -272,9 +307,11 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		upscaleScale: "auto",
 		upscaleAutoDegrade: true,
 		danmakuEnabled: true,
-		danmakuOpacity: 0.3,
+		danmakuOpacity: 0.4,
 		danmakuFontSize: "medium",
 		danmakuSpeed: 1,
+		danmakuDisplayArea: "full",
+		danmakuDensity: "high",
 		danmakuBlockScroll: false,
 		danmakuBlockTop: false,
 		danmakuBlockBottom: false,
@@ -342,10 +379,11 @@ export const settingsModule: Module<SettingsState, unknown> = {
 			}
 			if (
 				defaultDanmakuOpacityVersion !== DEFAULT_DANMAKU_OPACITY_VERSION &&
-				settings.danmakuOpacity === 0.8
+				(settings.danmakuOpacity === 0.8 || settings.danmakuOpacity === 0.3)
 			) {
-				// Only the first default (80%) is moved; any other stored value is a choice.
-				settings.danmakuOpacity = 0.3;
+				// Only the two defaults we shipped (80%, then 30%) are moved; any other
+				// stored value is a choice.
+				settings.danmakuOpacity = 0.4;
 			}
 			// Phones start on the cheap tier instead of the very first enhancement being a
 			// stutter the degrade guard immediately undoes. Keyed on the stored field being

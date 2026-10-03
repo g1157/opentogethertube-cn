@@ -124,4 +124,8 @@ sudo docker compose up -d           # 自动拉取镜像、迁移数据库、启
   [Vimeo](https://github.com/vimeo/player.js) / [PeerTube](https://github.com/Chocobozzz/PeerTube)
   嵌入 SDK 等上下游库。
 
+另外特别感谢 **[girigiri](https://girigirilove.com/)**：本项目开发与日常测试使用的**视频源就来自该站**
+（`ani.girigirilove.com` 及其 `ana.` / `akua.` / `danmu.` 等子域，弹幕数据同样来自它的公开接口与文件
+命名规则）。本项目与该站无隶属关系，只做客户端兼容，内容权利归原站与版权方所有。
+
 各依赖的具体许可见各自的仓库与 `node_modules/*/LICENSE`。

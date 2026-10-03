@@ -59,10 +59,10 @@ export default {
 	},
 	landing: {
 		hero: {
-			eyebrow: "下一场观影，和朋友一起",
+			eyebrow: "OpenTogetherTube 中文分支 · 一起看、弹幕与画质增强",
 			title: "好电影，一起看。",
 			description:
-				"创建一个房间，分享一条链接。和朋友同步播放、边看边聊，把相聚留给每一个好故事。",
+				"创建一个房间，分享一条链接。和朋友同步播放、边看边聊；\n弹幕、画质增强与音效调节都只作用于你自己的设备。",
 			btns: {
 				create: "@:nav.create.title",
 				browse: "浏览房间",
@@ -70,39 +70,47 @@ export default {
 			},
 		},
 		intro: {
-			title: "远程观影派对，变得轻松多了",
-			name: "OpenTogetherTube",
-			text1: "是一个实时视频同步平台。\n使用简单，无需注册。只需创建房间、添加视频并\n邀请你的朋友。砰！你就可以和朋友一起刷视频刷到凌晨三点了。",
-			text2: "最初的 TogetherTube 因其简洁的界面而广受喜爱，\n还有立刻就能开始看视频的便捷。\nOpenTogetherTube 希望做到同样简单，并在此基础上\n进一步改进，让它变得更好。",
-			text3: "目前，你可以和朋友一起观看来自 Youtube、Vimeo、.mp4 视频直链的在线视频，以及",
-			link: "更多功能正在路上",
+			title: "远程观影派对，中文分支更好用",
+			name: "OpenTogetherTube 中文版",
+			text1: "是上游 OpenTogetherTube 的中文分支：\n保留同一套同步播放、房间与权限模型，另加弹幕（girigiri 片源自动匹配）、\n画质增强（清晰化 / 影视 / Anime4K 超分）、本地音效与手机全屏手势，界面全中文。",
+			text2: "同步引擎、播放器与整体设计都来自上游项目。\n上游由 Carson McManus（dyc3）与社区维护，以 AGPL-3.0 开源；\n本分支的改动同样开源，也欢迎回馈上游。",
+			text3: "你可以和朋友一起看 YouTube、Vimeo、Bilibili、.mp4 / .m3u8 直链等来源；问题与建议请提到",
+			link: "本分支的 Issues",
 		},
 		features: {
-			title: "核心功能",
-			"synchronized-playback": {
-				title: "同步播放",
-				text: "你按下播放，视频就会为房间里的\n每个人播放。就这么简单。",
+			title: "本分支新增",
+			danmaku: {
+				title: "弹幕",
+				text: "girigiri 等片源自动匹配弹幕；不透明度、字号、速度、密度、显示区域与按类型屏蔽都可调。",
 			},
-			"permanent-rooms": {
-				title: "永久房间",
-				text: "保存当前视频、播放进度和待播列表。离开时自动暂停，下次回到同一个房间继续看。",
+			enhancement: {
+				title: "画质增强",
+				text: "清晰化、影视（去噪去带）与 Anime4K 超分四档；手机默认清晰化，设备吃力时自动降档。",
 			},
-			"dark-theme": {
-				title: "深色主题",
-				text: "深夜看视频合集？\nOpenTogetherTube 默认采用深色主题，\n让你的眼睛不再受罪。",
+			audio: {
+				title: "本地音效",
+				text: "10 段均衡（低音增强 / 人声清晰）与音量增强，只改你这台设备的听感，不动房间播放。",
 			},
-			"room-permissions": {
-				title: "房间权限",
-				text: "厌倦了陌生人随意进入你的房间，\n往你惬意的 lo-fi 听歌时光里\n加一堆吵闹的视频？直接禁止他们添加视频就好。",
+			"sync-tuning": {
+				title: "同步与卡顿优化",
+				text: "本机小幅速率微调减少跳帧、缓冲时一起暂停、后台标签页不抢资源，弱网下也尽量对齐。",
 			},
-			"voting-system": {
-				title: "投票系统",
-				text: "决定不了接下来看什么？把队列\n切换到投票模式，让民主发挥\n它最擅长的作用。",
+			"chinese-ui": {
+				title: "全中文与国内网络",
+				text: "界面、提示与错误文案全部中文化；提供不经 CDN 的裸 IP 入口，国内网络更稳。",
 			},
-			"playlist-copying": {
-				title: "播放列表复制",
-				text: "一次性把整个播放列表或频道\n添加到队列，不必坐在那里\n一个一个地添加。这是和朋友\n一起刷新频道最好的方式。",
+			"room-extras": {
+				title: "房间便签与语音",
+				text: "房间里可以贴共享便签、开 P2P 语音；上游的房间能力一个不少。",
 			},
+		},
+		upstream: {
+			title: "上游项目",
+			text1: "本站在上游 OpenTogetherTube 之上开发：同步算法、播放器、房间与权限体系、投票与队列管理等核心能力都来自上游，本分支只做中文适配与增量功能。",
+			text2: "如果这些功能对你有用，也请给上游项目一个 star，或通过赞助支持上游开发者。",
+			repo: "上游仓库",
+			fork: "本分支仓库",
+			sponsor: "赞助上游",
 		},
 		support: {
 			title: "支持开发",
@@ -262,6 +270,14 @@ export default {
 			"font-size-medium": "中",
 			"font-size-large": "大",
 			speed: "速度",
+			area: "显示区域",
+			"area-full": "全屏",
+			"area-top": "上半屏",
+			"area-bottom": "下半屏",
+			density: "密度",
+			"density-low": "稀疏",
+			"density-medium": "适中",
+			"density-high": "密集",
 			blocking: "按类型屏蔽",
 			"block-scroll": "滚动弹幕",
 			"block-top": "顶部弹幕",
@@ -720,6 +736,10 @@ export default {
 			deepblue: "深蓝",
 			greenslate: "灰绿",
 			strawberry: "草莓红",
+			violet: "紫罗兰",
+			teal: "青碧",
+			oled: "纯黑（OLED）",
+			mint: "薄荷",
 		},
 		"playback-preferences": "观看偏好",
 		"chat-overlay-duration": "消息停留时长",
@@ -843,6 +863,8 @@ export default {
 			"speed-unavailable": "当前无法使用长按倍速",
 			holding: "2 倍速播放中，松手恢复",
 			"room-holding": "房间正在临时 2 倍速播放",
+			"level-brightness": "亮度 {value}%",
+			"level-volume": "音量 {value}%",
 		},
 		shortcuts: {
 			title: "播放手势与快捷键",

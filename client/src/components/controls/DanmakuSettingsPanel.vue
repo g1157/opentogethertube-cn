@@ -70,6 +70,46 @@
 				</v-btn>
 			</v-btn-toggle>
 		</div>
+		<div class="danmaku-row">
+			<span class="danmaku-row-label">{{ $t("room.danmaku.area") }}</span>
+			<v-btn-toggle
+				v-model="danmakuDisplayArea"
+				mandatory
+				density="compact"
+				color="primary"
+				class="danmaku-chips"
+			>
+				<v-btn
+					v-for="area in DANMAKU_AREAS"
+					:key="area"
+					:value="area"
+					size="x-small"
+					:data-cy="`danmaku-area-${area}`"
+				>
+					{{ $t(`room.danmaku.area-${area}`) }}
+				</v-btn>
+			</v-btn-toggle>
+		</div>
+		<div class="danmaku-row">
+			<span class="danmaku-row-label">{{ $t("room.danmaku.density") }}</span>
+			<v-btn-toggle
+				v-model="danmakuDensity"
+				mandatory
+				density="compact"
+				color="primary"
+				class="danmaku-chips"
+			>
+				<v-btn
+					v-for="density in DANMAKU_DENSITY_OPTIONS"
+					:key="density"
+					:value="density"
+					size="x-small"
+					:data-cy="`danmaku-density-${density}`"
+				>
+					{{ $t(`room.danmaku.density-${density}`) }}
+				</v-btn>
+			</v-btn-toggle>
+		</div>
 		<div class="danmaku-row danmaku-row-stack">
 			<span class="danmaku-row-label">{{ $t("room.danmaku.blocking") }}</span>
 			<v-btn-toggle
@@ -110,7 +150,12 @@
 <script lang="ts" setup>
 import { computed } from "vue";
 import { useStore } from "@/store";
-import { DANMAKU_FONT_SIZE_OPTIONS, DANMAKU_SPEED_OPTIONS } from "@/stores/settings";
+import {
+	DANMAKU_AREAS,
+	DANMAKU_DENSITY_OPTIONS,
+	DANMAKU_FONT_SIZE_OPTIONS,
+	DANMAKU_SPEED_OPTIONS,
+} from "@/stores/settings";
 import { useDanmaku } from "../composables";
 
 const store = useStore();
@@ -132,6 +177,14 @@ const danmakuFontSize = computed({
 const danmakuSpeed = computed({
 	get: () => store.state.settings.danmakuSpeed,
 	set: value => store.commit("settings/UPDATE", { danmakuSpeed: value }),
+});
+const danmakuDisplayArea = computed({
+	get: () => store.state.settings.danmakuDisplayArea,
+	set: value => store.commit("settings/UPDATE", { danmakuDisplayArea: value }),
+});
+const danmakuDensity = computed({
+	get: () => store.state.settings.danmakuDensity,
+	set: value => store.commit("settings/UPDATE", { danmakuDensity: value }),
 });
 const danmakuAntiCollision = computed({
 	get: () => store.state.settings.danmakuAntiCollision,

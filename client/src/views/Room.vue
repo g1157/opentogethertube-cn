@@ -143,6 +143,13 @@
 								<span>{{ connectionStatus }}</span>
 							</div>
 						</div>
+						<!-- Simulated panel brightness: the fullscreen swipe dims the picture (and the
+						     comments, like a real screen would) without touching the controls. -->
+						<div
+							class="player-dimmer"
+							:style="{ opacity: dimmerOpacity }"
+							aria-hidden="true"
+						></div>
 						<div
 							v-if="shouldJoinPlayback"
 							class="join-playback"
@@ -171,13 +178,13 @@
 							:class="{ 'controls-hidden': !controlsVisible }"
 							data-cy="player-gesture-surface"
 							aria-hidden="true"
-							@pointerdown="gestures.pointerDown"
+							@pointerdown="onSurfacePointerDown"
 							@pointermove="gestures.pointerMove"
 							@pointerup="gestures.pointerUp"
 							@pointercancel="gestures.pointerCancel"
 							@lostpointercapture="gestures.pointerCancel"
 							@pointerleave="gestures.pointerCancel"
-							@contextmenu.prevent="toggleStats"
+							@contextmenu.prevent="onSurfaceContextMenu"
 							@click.prevent
 							@dblclick.stop.prevent
 						></div>
@@ -478,7 +485,7 @@ import toast, { fullscreenNoticeHost } from "@/util/toast";
 import { ToastStyle } from "@/models/toast";
 import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 import { PlayerControlsActivityKey, usePlayerControls } from "@/util/player-controls";
-import { createPlayerGestures } from "@/util/player-gestures";
+import { createPlayerGestures, type LevelSide } from "@/util/player-gestures";
 import { createPlaybackSync } from "@/util/playback-sync";
 import { PlayerActionsKey } from "@/util/player-actions";
 import {
@@ -1491,6 +1498,46 @@ export default defineComponent({
 			send: (action, id, video) => roomapi.temporaryPlaybackRate(action, id, video),
 			onRejected: () => showInteractionNotice("speed-unavailable"),
 		});
+		// Fullscreen swipe levels: the left half dims the picture, the right half moves the
+		// volume, the way phone players do it. The value the drag started from is captured
+		// once, so one gesture is one continuous adjustment and the store clamps the rest.
+		const levelNotice = ref("");
+		let levelTimer: ReturnType<typeof setTimeout> | null = null;
+		let levelBase = 0;
+		function onLevelStart(side: LevelSide) {
+			levelBase =
+				side === "left"
+					? store.state.settings.playerBrightness
+					: store.state.settings.volume / 100;
+			if (levelTimer !== null) {
+				clearTimeout(levelTimer);
+				levelTimer = null;
+			}
+		}
+		function onLevelMove(side: LevelSide, delta: number) {
+			// Dragging up raises the value; a full-height drag covers the whole range.
+			const value = levelBase - delta;
+			if (side === "left") {
+				store.commit("settings/UPDATE_TRANSIENT", { playerBrightness: value });
+				levelNotice.value = t("player.interactions.level-brightness", {
+					value: Math.round(store.state.settings.playerBrightness * 100),
+				});
+			} else {
+				store.commit("settings/UPDATE", { volume: Math.round(value * 100) });
+				levelNotice.value = t("player.interactions.level-volume", {
+					value: Math.round(store.state.settings.volume),
+				});
+			}
+		}
+		function onLevelEnd() {
+			if (levelTimer !== null) {
+				clearTimeout(levelTimer);
+			}
+			levelTimer = setTimeout(() => {
+				levelTimer = null;
+				levelNotice.value = "";
+			}, 800);
+		}
 		const gestures = createPlayerGestures({
 			getPosition: () => truePosition.value,
 			getBounds: seekBounds,
@@ -1508,8 +1555,34 @@ export default defineComponent({
 			onSeekDenied: () => showInteractionNotice("seek-denied"),
 			onHoldStart: temporarySpeed.start,
 			onHoldEnd: temporarySpeed.stop,
+			canAdjustLevels: () => store.state.fullscreen,
+			onLevelStart,
+			onLevelMove,
+			onLevelEnd,
 		});
+		/** Black scrim over the picture standing in for the screen's own brightness. */
+		const dimmerOpacity = computed(() =>
+			Math.max(0, Math.min(1, 1 - store.state.settings.playerBrightness)),
+		);
+		// Android's long-press fires contextmenu while the hold gesture is already showing
+		// the 2x preview, and both used to run at once: the details panel opened on top of
+		// it. Touch keeps the hold gesture (the panel stays reachable from the settings
+		// menu); right-click is a mouse shortcut.
+		let surfacePointerType = "mouse";
+		function onSurfacePointerDown(event: PointerEvent) {
+			surfacePointerType = event.pointerType || "mouse";
+			gestures.pointerDown(event);
+		}
+		function onSurfaceContextMenu(event: MouseEvent) {
+			if (((event as PointerEvent).pointerType || surfacePointerType) === "touch") {
+				return;
+			}
+			toggleStats();
+		}
 		const gestureHint = computed(() => {
+			if (levelNotice.value) {
+				return levelNotice.value;
+			}
 			if (interactionNotice.value) {
 				return interactionNotice.value;
 			}
@@ -1779,6 +1852,9 @@ export default defineComponent({
 			controls,
 			gestures,
 			gestureHint,
+			dimmerOpacity,
+			onSurfacePointerDown,
+			onSurfaceContextMenu,
 			onVideoTap,
 			chat,
 			chatOpen,
@@ -1909,6 +1985,16 @@ $in-video-chat-width-small: 250px;
 	height: 100%;
 	border-radius: inherit;
 	overflow: hidden;
+}
+
+/* Simulated brightness: sits over the picture (and the comment canvas, like a real panel
+   would dim them) but under the notices, the details panel and the controls. */
+.player-dimmer {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	background: #000;
+	pointer-events: none;
 }
 
 .layout-default {

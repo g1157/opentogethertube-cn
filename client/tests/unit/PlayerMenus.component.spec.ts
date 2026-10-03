@@ -541,6 +541,8 @@ describe("player menu placement", () => {
 		// The block filters are chips now, not separate checkbox rows.
 		expect(document.querySelector('[data-cy="danmaku-block-scroll"]')).not.toBeNull();
 		expect(document.querySelector('[data-cy="danmaku-block-colored"]')).not.toBeNull();
+		expect(document.querySelector('[data-cy="danmaku-area-top"]')).not.toBeNull();
+		expect(document.querySelector('[data-cy="danmaku-density-low"]')).not.toBeNull();
 	});
 
 	it("keeps portrait controls compact, with volume and speed in settings, then expands on rotation or fullscreen", async () => {
@@ -569,9 +571,13 @@ describe("player menu placement", () => {
 		expect(
 			document.querySelector('.compact-playback-options [data-cy="playback-rate-toggle"]'),
 		).not.toBeNull();
+		// Portrait opens the settings as a bottom sheet so the video stays visible; the
+		// anchored menu would have covered the picture.
+		expect(document.querySelector(".v-bottom-sheet")).not.toBeNull();
 		page.store.commit("SET_FULLSCREEN", true);
 		await settle();
 		expect(page.wrapper.get(".video-controls").classes()).not.toContain("compact-controls");
+		expect(document.querySelector(".v-bottom-sheet")).toBeNull();
 		expect(page.wrapper.findComponent(BasicControls).findAll("button")).toHaveLength(4);
 		page.store.commit("SET_FULLSCREEN", false);
 		viewport.width = 568;

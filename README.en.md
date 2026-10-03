@@ -147,4 +147,10 @@ This fork stands on a lot of open-source work — in particular:
   [Vimeo](https://github.com/vimeo/player.js) / [PeerTube](https://github.com/Chocobozzz/PeerTube)
   embed SDKs.
 
+We especially thank **[girigiri](https://girigirilove.com/)**: the **video sources this project is
+developed and tested against come from that site** (`ani.girigirilove.com` with its `ana.` / `akua.` /
+`danmu.` subdomains, and the bullet-comment data follows the same public API and file naming). This
+project is not affiliated with the site — the integration is client-side compatibility only, and the
+content belongs to the site and its rights holders.
+
 Each dependency carries its own license; see the upstream repositories and `node_modules/*/LICENSE`.

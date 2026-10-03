@@ -66,6 +66,7 @@
 							/>
 						</v-list>
 					</v-menu>
+					<ThemeSwitcher />
 					<NavUser @login="openLogin" @logout="logout" />
 					<LocaleSelector v-if="$vuetify.display.mdAndUp" />
 					<v-menu
@@ -148,7 +149,10 @@
 			</v-list>
 			<template #append>
 				<div v-if="drawer" class="drawer-account">
-					<NavUser @login="openLogin" @logout="logout" /><LocaleSelector />
+					<ThemeSwitcher /><NavUser
+						@login="openLogin"
+						@logout="logout"
+					/><LocaleSelector />
 				</div>
 			</template>
 		</v-navigation-drawer>
@@ -215,6 +219,7 @@ import ClientUpdateNotice from "@/components/ClientUpdateNotice.vue";
 import CreateRoomForm from "@/components/CreateRoomForm.vue";
 import LogInForm from "@/components/LogInForm.vue";
 import NavUser from "@/components/navbar/NavUser.vue";
+import ThemeSwitcher from "@/components/navbar/ThemeSwitcher.vue";
 import NavCreateRoom from "@/components/navbar/NavCreateRoom.vue";
 import Notifier from "@/components/Notifier.vue";
 import { loadLanguageAsync } from "@/i18n";
@@ -250,6 +255,7 @@ const App = defineComponent({
 		CreateRoomForm,
 		LogInForm,
 		NavUser,
+		ThemeSwitcher,
 		NavCreateRoom,
 		Notifier,
 		LocaleSelector,

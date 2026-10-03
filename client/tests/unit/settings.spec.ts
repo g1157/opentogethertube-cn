@@ -34,7 +34,7 @@ describe("saved settings and default migrations", () => {
 			locale: "zh-CN",
 			defaultLocaleVersion: "v0.15.0-cn3",
 			defaultSfxVersion: "v0.15.0-cn6",
-			defaultDanmakuOpacityVersion: "v0.15.0-cn7",
+			defaultDanmakuOpacityVersion: "v1.3.4",
 			sfxEnabled: false,
 		});
 		expect(store.state.settings).not.toHaveProperty("defaultLocaleVersion");
@@ -44,7 +44,7 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.chatOverlaySeconds).toBe(5);
 		expect(store.state.settings.controlsHideSeconds).toBe(3);
 		expect(store.state.settings.hlsBufferSeconds).toBe(120);
-		expect(store.state.settings.danmakuOpacity).toBe(0.3);
+		expect(store.state.settings.danmakuOpacity).toBe(0.4);
 	});
 
 	it("mutes the old sound default once without changing language or other preferences", async () => {
@@ -107,11 +107,14 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.locale).toBe("en");
 	});
 
-	it("moves the first danmaku opacity default to 30% once", async () => {
+	it.each([
+		[0.8, 0.4],
+		[0.3, 0.4],
+	])("moves the shipped danmaku opacity default %s to %s once", async (stored, expected) => {
 		saved.set(
 			"settings",
 			JSON.stringify({
-				danmakuOpacity: 0.8,
+				danmakuOpacity: stored,
 				danmakuFontSize: "large",
 				volume: 37,
 				defaultLocaleVersion: "v0.15.0-cn3",
@@ -120,7 +123,7 @@ describe("saved settings and default migrations", () => {
 		);
 		const store = newStore();
 		await store.dispatch("settings/load");
-		expect(store.state.settings.danmakuOpacity).toBe(0.3);
+		expect(store.state.settings.danmakuOpacity).toBe(expected);
 		expect(store.state.settings.danmakuFontSize).toBe("large");
 		expect(store.state.settings.volume).toBe(37);
 	});
@@ -272,6 +275,8 @@ describe("saved settings and default migrations", () => {
 			danmakuOpacity: 0.5,
 			danmakuFontSize: "large",
 			danmakuSpeed: 1.5,
+			danmakuDisplayArea: "bottom",
+			danmakuDensity: "low",
 			danmakuBlockScroll: true,
 			danmakuBlockColored: true,
 			danmakuAntiCollision: false,
@@ -283,6 +288,8 @@ describe("saved settings and default migrations", () => {
 			danmakuOpacity: 0.5,
 			danmakuFontSize: "large",
 			danmakuSpeed: 1.5,
+			danmakuDisplayArea: "bottom",
+			danmakuDensity: "low",
 			danmakuBlockScroll: true,
 			danmakuBlockTop: false,
 			danmakuBlockBottom: false,
@@ -309,6 +316,8 @@ describe("saved settings and default migrations", () => {
 		["danmakuSpeed", 3],
 		["danmakuEnabled", "yes"],
 		["danmakuBlockTop", null],
+		["danmakuDisplayArea", "middle"],
+		["danmakuDensity", "huge"],
 	])("repairs a damaged danmaku setting: %s", async (key, value) => {
 		saved.set("settings", JSON.stringify({ [key]: value }));
 		const store = newStore();
@@ -317,6 +326,8 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.danmakuSpeed).toBe(1);
 		expect(store.state.settings.danmakuEnabled).toBe(true);
 		expect(store.state.settings.danmakuBlockTop).toBe(false);
+		expect(store.state.settings.danmakuDisplayArea).toBe("full");
+		expect(store.state.settings.danmakuDensity).toBe("high");
 	});
 
 	it("persists the audio and display preferences across visits", async () => {

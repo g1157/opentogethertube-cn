@@ -90,6 +90,52 @@
 				</div>
 			</section>
 
+			<section class="upstream-section">
+				<div>
+					<h2 class="section-title">{{ $t("landing.upstream.title") }}</h2>
+					<p class="upstream-copy">{{ $t("landing.upstream.text1") }}</p>
+					<p class="upstream-copy">{{ $t("landing.upstream.text2") }}</p>
+				</div>
+				<div class="support-actions">
+					<v-btn
+						class="home-button home-button-primary"
+						size="large"
+						variant="flat"
+						block
+						:href="upstreamUrl"
+						target="_blank"
+						rel="noopener noreferrer"
+						:prepend-icon="mdiGithub"
+					>
+						{{ $t("landing.upstream.repo") }}
+					</v-btn>
+					<v-btn
+						class="home-button home-button-outline"
+						size="large"
+						variant="outlined"
+						block
+						:href="sourceUrl"
+						target="_blank"
+						rel="noopener noreferrer"
+						:prepend-icon="mdiSourceBranch"
+					>
+						{{ $t("landing.upstream.fork") }}
+					</v-btn>
+					<v-btn
+						class="home-button home-button-signal"
+						size="large"
+						variant="outlined"
+						block
+						href="https://github.com/sponsors/dyc3"
+						target="_blank"
+						rel="noopener noreferrer"
+						:prepend-icon="mdiHeart"
+					>
+						{{ $t("landing.upstream.sponsor") }}
+					</v-btn>
+				</div>
+			</section>
+
 			<section class="support-section">
 				<div>
 					<h2 class="section-title">{{ $t("landing.support.title") }}</h2>
@@ -135,15 +181,16 @@
 
 <script lang="ts" setup>
 import {
-	mdiContentCopy,
+	mdiAutoFix,
+	mdiCommentMultiple,
 	mdiGithub,
 	mdiHeart,
-	mdiPin,
+	mdiMusicNote,
+	mdiNoteTextOutline,
 	mdiPlay,
-	mdiShieldLock,
+	mdiSourceBranch,
 	mdiSync,
-	mdiVote,
-	mdiWeatherNight,
+	mdiTranslate,
 	mdiXml,
 } from "@mdi/js";
 import {
@@ -155,11 +202,13 @@ import { computed, ref } from "vue";
 import AppFooter from "@/components/AppFooter.vue";
 import HeroShader from "@/components/HeroShader.vue";
 import { useStore } from "@/store";
+import { LIGHT_THEMES } from "@/stores/settings";
 import { isEdgePreview } from "@/edge-preview";
 import { createRoomHelper } from "@/util/roomcreator";
 
 const store = useStore();
 const sourceUrl = import.meta.env.VITE_SOURCE_URL || "https://github.com/g1157/opentogethertube-cn";
+const upstreamUrl = "https://github.com/dyc3/opentogethertube";
 const hero = ref<HTMLElement | null>(null);
 const heroVisible = ref(false);
 const documentVisibility = useDocumentVisibility();
@@ -170,7 +219,7 @@ const effectsActive = computed(
 		documentVisibility.value === "visible" &&
 		preferredMotion.value !== "reduce",
 );
-const isLightTheme = computed(() => ["light", "strawberry"].includes(store.state.settings.theme));
+const isLightTheme = computed(() => LIGHT_THEMES.includes(store.state.settings.theme));
 
 // VueUse releases the observer and visibility/media listeners when this view unmounts.
 useIntersectionObserver(hero, ([entry]) => {
@@ -178,13 +227,13 @@ useIntersectionObserver(hero, ([entry]) => {
 });
 
 const features = [
-	{ key: "synchronized-playback", icon: mdiSync },
-	{ key: "permanent-rooms", icon: mdiPin },
-	{ key: "dark-theme", icon: mdiWeatherNight },
-	{ key: "room-permissions", icon: mdiShieldLock },
-	{ key: "voting-system", icon: mdiVote },
-	{ key: "playlist-copying", icon: mdiContentCopy },
-].filter(feature => !(isEdgePreview && feature.key === "playlist-copying"));
+	{ key: "danmaku", icon: mdiCommentMultiple },
+	{ key: "enhancement", icon: mdiAutoFix },
+	{ key: "audio", icon: mdiMusicNote },
+	{ key: "sync-tuning", icon: mdiSync },
+	{ key: "chinese-ui", icon: mdiTranslate },
+	{ key: "room-extras", icon: mdiNoteTextOutline },
+];
 
 async function createTempRoom() {
 	if (store.state.misc.isLoadingCreateRoom) {

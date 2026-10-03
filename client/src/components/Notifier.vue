@@ -101,9 +101,23 @@ function closeAll() {
 
 	:deep(.toast) {
 		max-width: 320px;
+		// The base card asks for 344px minimum, which is wider than this cap — on a phone
+		// in fullscreen the two fought and the minimum won.
+		min-width: 0;
+		min-height: 0;
 		padding: 6px 10px;
+		font-size: 0.82rem;
 		background: rgb(0 0 0 / 72%);
 		opacity: 0.94;
+	}
+
+	:deep(.toast .toast-content) {
+		padding: 2px 6px;
+		line-height: 1.3;
+	}
+
+	:deep(.toast .bar) {
+		height: 2px;
 	}
 
 	.toast-more {
@@ -128,9 +142,9 @@ function closeAll() {
 }
 
 // Phones: this is a full-width material button by default, which costs a whole toast's
-// height for one tap. Keep it a small chip at the right edge. (800px is the phone
-// breakpoint, see util/breakpoints.ts.)
-@media (max-width: 800px) {
+// height for one tap. Keep it a small chip at the right edge. The coarse-pointer clause
+// covers landscape, where the viewport is wider than the phone breakpoint.
+@media (max-width: 800px), (pointer: coarse) {
 	.toast-list button.v-btn {
 		width: auto;
 		// The block variant pins both of these to the full stack width; a chip avoids it.

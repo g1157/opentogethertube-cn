@@ -60,10 +60,11 @@ export default {
 	},
 	landing: {
 		hero: {
-			eyebrow: "Your next watch party starts here",
+			eyebrow:
+				"The Chinese fork of OpenTogetherTube · watch parties, bullet comments, enhancement",
 			title: "Enjoy Together.",
 			description:
-				"Real-time synchronized playback. Optional voting system.\nDark theme. No sign up required. All Open Source.\nIt's never been easier to watch videos together.",
+				"Create a room, share one link. Play in sync and chat while you watch;\nbullet comments, picture enhancement and audio tweaks apply to your device only.",
 			btns: {
 				create: "@:nav.create.title",
 				browse: "Browse Rooms",
@@ -71,39 +72,47 @@ export default {
 			},
 		},
 		intro: {
-			title: "Remote Watch Parties Just Got a Lot Easier",
-			name: "OpenTogetherTube",
-			text1: "is a real-time video synchronization platform.\nIt's easy to use and has no sign up required. Just create a room, add videos and\ninvite your friends. BOOM! You're ready to binge videos with your friends until 3AM.",
-			text2: "The original TogetherTube was loved for it's simple interface,\nand how easy it was to start watching videos right away.\nOpenTogetherTube aims to be just as easy, and then improve on\ntop of that to make it even better.",
-			text3: "Currently, you can watch online videos with your friends from Youtube, Vimeo, direct links to .mp4 videos, and",
-			link: "more are on the way",
+			title: "Remote Watch Parties, Easier in the Chinese Fork",
+			name: "OpenTogetherTube 中文版",
+			text1: "is the Chinese fork of upstream OpenTogetherTube:\nthe same synchronized playback, rooms and permissions, plus bullet comments (auto-matched for girigiri sources),\npicture enhancement (sharpen / film / Anime4K), a local audio EQ and phone fullscreen gestures — with a fully Chinese UI.",
+			text2: "The sync engine, player and overall design come from the upstream project.\nUpstream is maintained by Carson McManus (dyc3) and contributors under AGPL-3.0;\nthis fork is open source too, and fixes are welcome upstream.",
+			text3: "You can watch YouTube, Vimeo, Bilibili, direct .mp4 / .m3u8 links and more with your friends; questions and reports go to",
+			link: "this fork's issues",
 		},
 		features: {
-			title: "Core Features",
-			"synchronized-playback": {
-				title: "Synchronized Playback",
-				text: "You hit play, and the video plays for everybody\nin the room. Simple as that.",
+			title: "What This Fork Adds",
+			danmaku: {
+				title: "Bullet Comments",
+				text: "Auto-matched for girigiri and similar sources; opacity, text size, speed, density, display area and type filters are all adjustable.",
 			},
-			"permanent-rooms": {
-				title: "Permanent Rooms",
-				text: "You and the squad come here often? Avoid the hastle\nof sending out a new link every time. Permanent\nrooms get a custom url that doesn't change.",
+			enhancement: {
+				title: "Picture Enhancement",
+				text: "Sharpen, film (denoise + deband) and Anime4K tiers; phones start on sharpen and step down automatically when the device struggles.",
 			},
-			"dark-theme": {
-				title: "Dark Theme",
-				text: "Watching Vine compilations late at night?\nOpenTogetherTube has a dark theme by default so\nyour eyes won't suffer.",
+			audio: {
+				title: "Local Audio",
+				text: "A 10-band EQ (bass boost / clear vocals) and a volume boost that change what this device hears, never the room.",
 			},
-			"room-permissions": {
-				title: "Room Permissions",
-				text: "Tired of random goofballs joining your room and\nadding lots of loud videos to your chill lofi hip-hop\nlistening session? Just block them from adding videos.",
+			"sync-tuning": {
+				title: "Sync and Stalls",
+				text: "Small local rate bends avoid skips, viewers pause together while buffering, and background tabs stop competing for the GPU.",
 			},
-			"voting-system": {
-				title: "Voting System",
-				text: "Can't decide what to watch next? Switch the queue\nto the vote system and let democracy do what it\ndoes best.",
+			"chinese-ui": {
+				title: "Chinese UI, China-friendly Hosting",
+				text: "Every string is in Chinese, and a CDN-free bare-IP entry keeps the site usable on mainland networks.",
 			},
-			"playlist-copying": {
-				title: "Playlist Copying",
-				text: "Add entire playlists or channels to the video queue\nall at once so you don't have to sit there adding\neach video to the queue one by one. It's the best\nway to binge watch that new channel with your friends.",
+			"room-extras": {
+				title: "Room Notes and Voice",
+				text: "Shared room notes and P2P voice chat on top of everything the upstream rooms already do.",
 			},
+		},
+		upstream: {
+			title: "Upstream Project",
+			text1: "This site is built on top of upstream OpenTogetherTube: the sync algorithm, the players, rooms and permissions, voting and queue management all come from upstream — this fork adds Chinese localisation and incremental features.",
+			text2: "If these features are useful to you, please star the upstream project, or support its developer with a sponsorship.",
+			repo: "Upstream repository",
+			fork: "This fork",
+			sponsor: "Sponsor upstream",
 		},
 		support: {
 			title: "Support Development",
@@ -269,6 +278,14 @@ export default {
 			"font-size-medium": "Medium",
 			"font-size-large": "Large",
 			speed: "Speed",
+			area: "Display area",
+			"area-full": "Full screen",
+			"area-top": "Top half",
+			"area-bottom": "Bottom half",
+			density: "Density",
+			"density-low": "Sparse",
+			"density-medium": "Medium",
+			"density-high": "Dense",
 			blocking: "Block by type",
 			"block-scroll": "Scrolling comments",
 			"block-top": "Top comments",
@@ -744,6 +761,10 @@ export default {
 			deepblue: "Deep blue",
 			greenslate: "Green slate",
 			strawberry: "Strawberry",
+			violet: "Violet",
+			teal: "Teal",
+			oled: "OLED black",
+			mint: "Mint",
 		},
 		"playback-preferences": "Viewing preferences",
 		"chat-overlay-duration": "Message display duration",
@@ -879,6 +900,8 @@ export default {
 			"speed-unavailable": "Hold to speed up is unavailable right now",
 			holding: "Playing at 2×, release to restore speed",
 			"room-holding": "This room is temporarily playing at 2×",
+			"level-brightness": "Brightness {value}%",
+			"level-volume": "Volume {value}%",
 		},
 		shortcuts: {
 			title: "Playback gestures and shortcuts",

@@ -1,3 +1,4 @@
+import type { DanmakuArea } from "@/stores/settings";
 import type { DanmakuItem } from "./parse";
 
 /** One on-screen comment, in CSS pixels relative to the video content box. */
@@ -24,7 +25,21 @@ export interface DanmakuEngineConfig {
 	blockTop: boolean;
 	blockBottom: boolean;
 	blockColored: boolean;
+	/** Which part of the picture the comments may use: the whole box, or one half. */
+	area: DanmakuArea;
+	/**
+	 * Comments accepted per second; the excess is dropped like a busy lane's. Infinity
+	 * keeps every comment the lanes can hold.
+	 */
+	maxPerSecond: number;
 }
+
+/** Vertical band of the picture each area uses, as [from, to] fractions of its height. */
+const AREA_BANDS: Record<DanmakuArea, readonly [number, number]> = {
+	full: [0, 1],
+	top: [0, 0.5],
+	bottom: [0.5, 1],
+};
 
 /** Fixed (top/bottom) comments hold their slot for this long, like the upstream player. */
 export const FIXED_DURATION = 5;
@@ -64,9 +79,14 @@ export class DanmakuEngine {
 	private scheduleIndex = 0;
 	private lastTime: number | null = null;
 	private laneHeight = 1;
+	/** Top edge and height of the band the lanes may use, in CSS pixels. */
+	private bandTop = 0;
+	private bandHeight = 0;
 	private scrollLanes: (ScrollOccupant | null)[] = [];
 	private topSlots: (number | null)[] = [];
 	private bottomSlots: (number | null)[] = [];
+	/** Media times of the comments accepted in the last second, for the density limit. */
+	private spawnTimes: number[] = [];
 
 	constructor(config: DanmakuEngineConfig, measure: (text: string, fontPx: number) => number) {
 		this.config = { ...config };
@@ -85,7 +105,8 @@ export class DanmakuEngine {
 		if (
 			partial.width !== undefined ||
 			partial.height !== undefined ||
-			partial.fontPx !== undefined
+			partial.fontPx !== undefined ||
+			partial.area !== undefined
 		) {
 			this.rebuildLanes();
 			this.active = [];
@@ -111,6 +132,7 @@ export class DanmakuEngine {
 		this.scrollLanes.fill(null);
 		this.topSlots.fill(null);
 		this.bottomSlots.fill(null);
+		this.spawnTimes = [];
 		this.scheduleIndex = lowerBound(this.items, now);
 		this.lastTime = now;
 	}
@@ -125,25 +147,44 @@ export class DanmakuEngine {
 	}
 
 	private rebuildLanes() {
-		const { height, fontPx } = this.config;
+		const { height, fontPx, area } = this.config;
 		this.laneHeight = Math.max(1, fontPx * LANE_HEIGHT_RATIO);
+		const [from, to] = AREA_BANDS[area] ?? AREA_BANDS.full;
+		this.bandTop = height * from;
+		// At least one lane has to fit, or a half-height picture would show nothing.
+		this.bandHeight = Math.max(this.laneHeight, height * (to - from));
 		// The first lane sits one lane-height down, matching the upstream player's layout.
-		const lanes = Math.max(1, Math.floor(height / this.laneHeight) - 1);
+		const lanes = Math.max(1, Math.floor(this.bandHeight / this.laneHeight) - 1);
 		this.scrollLanes = new Array(lanes).fill(null);
 		this.topSlots = new Array(lanes).fill(null);
 		this.bottomSlots = new Array(lanes).fill(null);
 	}
 
 	private spawn(now: number) {
-		const { maxOnScreen, blockScroll, blockTop, blockBottom, blockColored, fontPx, width } =
-			this.config;
+		const {
+			maxOnScreen,
+			blockScroll,
+			blockTop,
+			blockBottom,
+			blockColored,
+			fontPx,
+			width,
+			maxPerSecond,
+		} = this.config;
+		// Density: only the comments accepted in the last second count against the limit, so
+		// a burst thins out while a calm stretch is left untouched.
+		while (this.spawnTimes.length > 0 && now - this.spawnTimes[0] >= 1) {
+			this.spawnTimes.shift();
+		}
+		const withinDensity = () =>
+			!Number.isFinite(maxPerSecond) || this.spawnTimes.length < maxPerSecond;
 		while (this.scheduleIndex < this.items.length) {
 			const item = this.items[this.scheduleIndex];
 			if (item.time > now) {
 				break;
 			}
 			this.scheduleIndex++;
-			if (this.active.length >= maxOnScreen) {
+			if (this.active.length >= maxOnScreen || !withinDensity()) {
 				continue;
 			}
 			if (item.mode === "scroll" && blockScroll) {
@@ -192,6 +233,7 @@ export class DanmakuEngine {
 					expireAt: now + FIXED_DURATION,
 				});
 			}
+			this.spawnTimes.push(now);
 		}
 	}
 
@@ -221,12 +263,12 @@ export class DanmakuEngine {
 	}
 
 	private laneY(index: number): number {
-		return (index + 1) * this.laneHeight;
+		return this.bandTop + (index + 1) * this.laneHeight;
 	}
 
 	private slotY(mode: "top" | "bottom", index: number): number {
 		const pitch = (index + 1) * this.laneHeight;
-		return mode === "top" ? pitch : this.config.height - pitch;
+		return mode === "top" ? this.bandTop + pitch : this.bandTop + this.bandHeight - pitch;
 	}
 
 	private render(now: number): DanmakuRenderItem[] {

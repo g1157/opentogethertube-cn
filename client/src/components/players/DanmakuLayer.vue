@@ -6,6 +6,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useResizeObserver } from "@vueuse/core";
 import { useStore } from "@/store";
+import { DANMAKU_MAX_PER_SECOND } from "@/stores/settings";
 import { DanmakuEngine, type DanmakuRenderItem } from "@/util/danmaku/engine";
 import { findDanmakuProvider } from "@/util/danmaku/provider";
 import type { DanmakuItem } from "@/util/danmaku/parse";
@@ -44,6 +45,21 @@ let loadGeneration = 0;
 let frameRequest = 0;
 /** Media time of the last painted frame; an unchanged clock needs no repaint. */
 let lastDrawnTime = -1;
+// The clock the comments advance on. video.currentTime steps once per presented frame — a
+// 24fps anime steps 24 times a second — so reading it directly made scrolling comments
+// judder on a 60/120Hz screen while the picture itself stayed smooth (the decoder
+// interpolates, the property does not). Every frame that sees a new media time re-anchors
+// here and the wall clock carries the motion in between, so a seek, a pause or a playback
+// rate change corrects the clock on the next frame.
+let clockMediaTime = Number.NEGATIVE_INFINITY;
+let clockAnchoredAt = 0;
+let clockRate = 1;
+/**
+ * How far the extrapolated clock may run past the last media time it saw. Without this cap
+ * a stalled video (a rebuffer, a background tab) would let comments keep sliding over a
+ * frozen picture.
+ */
+const MAX_CLOCK_LEAD_SECONDS = 0.25;
 let running = false;
 let frameWidth = 0;
 let frameHeight = 0;
@@ -82,6 +98,8 @@ function engineConfig() {
 		blockTop: settings.danmakuBlockTop,
 		blockBottom: settings.danmakuBlockBottom,
 		blockColored: settings.danmakuBlockColored,
+		area: settings.danmakuDisplayArea,
+		maxPerSecond: DANMAKU_MAX_PER_SECOND[settings.danmakuDensity],
 	};
 }
 
@@ -171,6 +189,28 @@ function redrawCurrent() {
 }
 
 /**
+ * The media clock to lay the comments out on: the last observed media time plus the wall
+ * clock since it was observed, capped so a stalled video cannot run away from its picture.
+ */
+function smoothCurrentTime(video: HTMLVideoElement, now: number): number {
+	const mediaTime = video.currentTime;
+	if (mediaTime !== clockMediaTime) {
+		clockMediaTime = mediaTime;
+		clockAnchoredAt = now;
+		clockRate = video.playbackRate;
+		return mediaTime;
+	}
+	const rate = video.playbackRate;
+	if (rate !== clockRate) {
+		// The room or a rate bend changed the slope; the position stays where it is.
+		clockAnchoredAt = now;
+		clockRate = rate;
+	}
+	const lead = Math.min(((now - clockAnchoredAt) / 1000) * clockRate, MAX_CLOCK_LEAD_SECONDS);
+	return clockMediaTime + Math.max(0, lead);
+}
+
+/**
  * The requestAnimationFrame loop paints at the display's rate and reads the media clock
  * for the schedule itself. Driving it from requestVideoFrameCallback instead — which
  * only fires when the video presents a frame — capped the motion to the source's frame
@@ -185,9 +225,10 @@ function onFrame() {
 		// listener starts the loop again when playback resumes.
 		return;
 	}
-	if (video.currentTime !== lastDrawnTime) {
-		draw(engine.tick(video.currentTime));
-		lastDrawnTime = video.currentTime;
+	const clock = smoothCurrentTime(video, performance.now());
+	if (clock !== lastDrawnTime) {
+		draw(engine.tick(clock));
+		lastDrawnTime = clock;
 	}
 	schedule();
 }
@@ -372,6 +413,8 @@ watch(
 		store.state.settings.danmakuBlockTop,
 		store.state.settings.danmakuBlockBottom,
 		store.state.settings.danmakuBlockColored,
+		store.state.settings.danmakuDisplayArea,
+		store.state.settings.danmakuDensity,
 	],
 	() => {
 		applyConfig();

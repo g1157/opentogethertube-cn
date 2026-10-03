@@ -13,7 +13,19 @@ interface PlayerGestureOptions {
 	onSeekDenied(): void;
 	onHoldStart(): boolean;
 	onHoldEnd(): void;
+	/**
+	 * Whether a vertical drag may adjust the picture levels (brightness on the left half,
+	 * volume on the right) instead of scrolling the page. Only meaningful in fullscreen,
+	 * where there is nothing to scroll.
+	 */
+	canAdjustLevels?(): boolean;
+	onLevelStart?(side: LevelSide): void;
+	/** `delta` is the drag distance as a fraction of the player's height; down is positive. */
+	onLevelMove?(side: LevelSide, delta: number): void;
+	onLevelEnd?(side: LevelSide): void;
 }
+
+export type LevelSide = "left" | "right";
 
 interface Gesture {
 	id: number;
@@ -25,7 +37,11 @@ interface Gesture {
 	startedAt: number;
 	doubleTap: boolean;
 	moved: boolean;
-	phase: "pending" | "swiping" | "holding" | "cancelled";
+	phase: "pending" | "swiping" | "holding" | "levels" | "cancelled";
+	/** Levels phase only: where the drag started and how tall the surface is. */
+	levelStartY?: number;
+	levelHeight?: number;
+	levelSide?: LevelSide;
 }
 
 /** A single pointer owns a gesture. Only pointer-up commits a horizontal seek. */
@@ -57,6 +73,12 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 		}
 	}
 
+	/** Drag distance in player-heights, measured from where the levels gesture started. */
+	function levelDelta(current: Gesture, clientY: number): number {
+		const from = current.levelStartY ?? clientY;
+		return (clientY - from) / Math.max(1, current.levelHeight ?? 1);
+	}
+
 	function cancel() {
 		clearHoldTimer();
 		clearClickTimer();
@@ -65,6 +87,8 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 		preview.value = null;
 		if (current?.phase === "holding") {
 			options.onHoldEnd();
+		} else if (current?.phase === "levels") {
+			options.onLevelEnd?.(current.levelSide ?? "left");
 		}
 		releasePointer(current);
 	}
@@ -142,6 +166,11 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 		if (current.phase === "holding" || current.phase === "cancelled") {
 			return;
 		}
+		if (current.phase === "levels") {
+			event.preventDefault();
+			options.onLevelMove?.(current.levelSide ?? "left", levelDelta(current, event.clientY));
+			return;
+		}
 		const dx = event.clientX - current.x;
 		const dy = event.clientY - current.y;
 		if (Math.hypot(dx, dy) > 10) {
@@ -150,6 +179,19 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 			clearClickTimer();
 		}
 		if (current.phase === "pending" && Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) {
+			// Fullscreen has nothing to scroll, so a vertical drag there belongs to the
+			// levels; anywhere else it stands down and lets the page move instead.
+			if (options.canAdjustLevels?.()) {
+				const bounds = current.element.getBoundingClientRect();
+				current.phase = "levels";
+				current.levelStartY = current.y;
+				current.levelHeight = Math.max(1, bounds.height);
+				current.levelSide = current.x < bounds.left + bounds.width / 2 ? "left" : "right";
+				event.preventDefault();
+				options.onLevelStart?.(current.levelSide);
+				options.onLevelMove?.(current.levelSide, levelDelta(current, event.clientY));
+				return;
+			}
 			current.phase = "cancelled";
 			return;
 		}
@@ -189,7 +231,9 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 		gesture = null;
 		const target = preview.value;
 		preview.value = null;
-		if (current.phase === "holding") {
+		if (current.phase === "levels") {
+			options.onLevelEnd?.(current.levelSide ?? "left");
+		} else if (current.phase === "holding") {
 			options.onHoldEnd();
 		} else if (current.phase === "swiping" && target && options.canSeek()) {
 			const range = options.getBounds();
