@@ -14,6 +14,10 @@ export default defineConfig({
 				"**/tests/**",
 				"**/common/**",
 				"**/*.spec-d.ts",
+				// Compiled output of `tsc`; a stale copy used to crash the coverage
+				// conversion (its source maps point at files that no longer exist).
+				"ts-out",
+				"ts-out/**",
 			],
 		},
 		typecheck: {
