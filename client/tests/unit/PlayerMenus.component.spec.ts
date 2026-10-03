@@ -558,6 +558,9 @@ describe("player menu placement", () => {
 		expect(page.wrapper.findComponent(BasicControls).findAll("button")).toHaveLength(1);
 		expect(page.wrapper.find('[data-cy="playback-rate-toggle"]').exists()).toBe(false);
 		expect(page.wrapper.find('[data-cy="volume-slider"]').exists()).toBe(false);
+		// The danmaku on/off toggle stays reachable in portrait; only its settings move
+		// into the settings menu.
+		expect(page.wrapper.find('[data-cy="danmaku-toggle"]').exists()).toBe(true);
 		await page.wrapper.get('[data-cy="player-settings-toggle"]').trigger("click");
 		await settle();
 		expect(

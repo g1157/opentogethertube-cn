@@ -170,4 +170,37 @@ $toast-content-padding: 14px 16px;
 		animation-fill-mode: forwards;
 	}
 }
+
+// Phones: the 344px minimum is a 360px screen's whole width, and the room notices
+// ("X added a video", "skipped 30s") are long enough to wrap — so a single toast used
+// to cover a third of the picture. Keep the card compact and let it sit against the
+// screen edge instead. (800px is the phone breakpoint, see util/breakpoints.ts.)
+@media (max-width: 800px) {
+	.toast {
+		min-width: 0;
+		max-width: calc(100vw - 12px);
+		min-height: 0;
+		margin: 3px 6px;
+		font-size: 0.82rem;
+
+		.toast-icon {
+			margin-left: 8px;
+		}
+
+		.toast-content {
+			padding: 7px 10px;
+			line-height: 1.3;
+		}
+
+		.toast-actions .v-btn {
+			min-width: 0;
+			height: 28px;
+			width: 28px;
+		}
+
+		.bar {
+			height: 2px;
+		}
+	}
+}
 </style>

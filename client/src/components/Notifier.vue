@@ -126,4 +126,21 @@ function closeAll() {
 	transform: translateY(50px);
 	// bottom: -50px;
 }
+
+// Phones: this is a full-width material button by default, which costs a whole toast's
+// height for one tap. Keep it a small chip at the right edge. (800px is the phone
+// breakpoint, see util/breakpoints.ts.)
+@media (max-width: 800px) {
+	.toast-list button.v-btn {
+		width: auto;
+		// The block variant pins both of these to the full stack width; a chip avoids it.
+		min-width: 0;
+		flex: 0 0 auto;
+		height: 30px;
+		min-height: 30px;
+		margin: 2px 6px 4px 0;
+		padding: 0 12px;
+		font-size: 0.75rem;
+	}
+}
 </style>

@@ -135,9 +135,11 @@ function sizeCanvas(video: HTMLVideoElement) {
 
 function draw(rendered: DanmakuRenderItem[]) {
 	const canvas = canvasElem.value;
-	// desynchronized lets the compositor take the frame without waiting on the main
-	// thread, which keeps the overlay a touch closer to the picture it annotates.
-	const context = canvas?.getContext("2d", { desynchronized: true });
+	// The desynchronized (low-latency) hint is deliberately not used: Chromium composites a
+	// transparent canvas created with it as opaque black on some Android GPUs
+	// (crbug 450752884), which turns this overlay into a black rectangle over the video.
+	// The hint only buys latency a text overlay has no use for.
+	const context = canvas?.getContext("2d");
 	if (!canvas || !context) {
 		return;
 	}

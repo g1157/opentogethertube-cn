@@ -25,7 +25,7 @@
 				<TimestampDisplay :current-position="truePosition" data-cy="timestamp-display" />
 				<div class="grow"><!-- Spacer --></div>
 				<ClosedCaptionsSwitcher v-if="!compact" />
-				<DanmakuSwitcher v-if="!compact" />
+				<DanmakuSwitcher />
 				<DanmakuSettingsMenu v-if="!compact" />
 				<QualitySwitcher v-if="!compact" />
 				<PlaybackRateSwitcher v-if="!compact" />

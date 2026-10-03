@@ -41,11 +41,13 @@ describe("danmaku layer frame loop", () => {
 	let rafCallbacks: Map<number, FrameRequestCallback>;
 	let rafNextId: number;
 	let drawCount: number;
+	let contextRequests: unknown[][];
 
 	beforeEach(() => {
 		rafCallbacks = new Map();
 		rafNextId = 0;
 		drawCount = 0;
+		contextRequests = [];
 		vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
 			rafCallbacks.set(++rafNextId, callback);
 			return rafNextId;
@@ -69,9 +71,12 @@ describe("danmaku layer frame loop", () => {
 			lineWidth: 1,
 			fillStyle: "",
 		} as unknown as CanvasRenderingContext2D;
-		vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-			(() => context) as unknown as typeof HTMLCanvasElement.prototype.getContext,
-		);
+		vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(((
+			...args: unknown[]
+		) => {
+			contextRequests.push(args);
+			return context;
+		}) as unknown as typeof HTMLCanvasElement.prototype.getContext);
 	});
 
 	afterEach(() => {
@@ -158,5 +163,20 @@ describe("danmaku layer frame loop", () => {
 		second.video.dispatchEvent(new Event("play"));
 		expect(rafCallbacks.size).toBe(1);
 		expect(state.paused).toBe(false);
+	});
+
+	it("never asks for the low-latency 2d context", async () => {
+		// Regression: Chromium composites a transparent canvas created with
+		// { desynchronized: true } as opaque black on some Android GPUs (crbug 450752884).
+		// On a real phone that covered the whole video with a black rectangle, while the
+		// same link and the same page on a desktop browser rendered normally.
+		await mountLayer();
+
+		expect(contextRequests.length).toBeGreaterThan(0);
+		for (const args of contextRequests) {
+			expect((args[1] as { desynchronized?: boolean } | undefined)?.desynchronized).not.toBe(
+				true,
+			);
+		}
 	});
 });
