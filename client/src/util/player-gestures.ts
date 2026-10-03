@@ -158,15 +158,20 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 		if (!current || current.id !== event.pointerId) {
 			return;
 		}
-		const bounds = current.element.getBoundingClientRect();
-		if (
-			event.clientX < bounds.left ||
-			event.clientX > bounds.right ||
-			event.clientY < bounds.top ||
-			event.clientY > bounds.bottom
-		) {
-			cancel();
-			return;
+		// The levels gesture follows the finger anywhere on the screen; the other phases
+		// stand down when the pointer leaves the surface (a seek preview makes no sense off
+		// the picture). Leaving used to kill a level drag halfway through.
+		if (current.phase !== "levels") {
+			const bounds = current.element.getBoundingClientRect();
+			if (
+				event.clientX < bounds.left ||
+				event.clientX > bounds.right ||
+				event.clientY < bounds.top ||
+				event.clientY > bounds.bottom
+			) {
+				cancel();
+				return;
+			}
 		}
 		if (current.phase === "holding" || current.phase === "cancelled") {
 			return;
@@ -280,5 +285,15 @@ export function createPlayerGestures(options: PlayerGestureOptions) {
 		}
 	}
 
-	return { preview, pointerDown, pointerMove, pointerUp, pointerCancel, cancel };
+	/**
+	 * Leaving the surface ends the seek preview, but a level drag may roam: the finger can
+	 * cross the element's edge while the gesture is still the viewer's own.
+	 */
+	function pointerLeave(event: PointerEvent) {
+		if (gesture?.id === event.pointerId && gesture.phase !== "levels") {
+			cancel();
+		}
+	}
+
+	return { preview, pointerDown, pointerMove, pointerUp, pointerCancel, pointerLeave, cancel };
 }

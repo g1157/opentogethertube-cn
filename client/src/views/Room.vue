@@ -175,7 +175,10 @@
 						<div
 							v-if="currentSource?.id && store.state.playerStatus !== 'error'"
 							class="player-gesture-surface"
-							:class="{ 'controls-hidden': !controlsVisible }"
+							:class="{
+								'controls-hidden': !controlsVisible,
+								'level-gestures': store.state.fullscreen,
+							}"
 							data-cy="player-gesture-surface"
 							aria-hidden="true"
 							@pointerdown="onSurfacePointerDown"
@@ -183,7 +186,7 @@
 							@pointerup="gestures.pointerUp"
 							@pointercancel="gestures.pointerCancel"
 							@lostpointercapture="gestures.pointerCancel"
-							@pointerleave="gestures.pointerCancel"
+							@pointerleave="gestures.pointerLeave"
 							@contextmenu.prevent="onSurfaceContextMenu"
 							@click.prevent
 							@dblclick.stop.prevent
@@ -2156,6 +2159,13 @@ $in-video-chat-width-small: 250px;
 	&.controls-hidden {
 		cursor: none;
 	}
+}
+
+/* Fullscreen has nothing to scroll, so vertical drags belong to the brightness/volume
+   gestures. Without this the browser claims the pan and cancels the pointer mid-drag,
+   which reads as "the level changes once and then stops even with the finger down". */
+.player-gesture-surface.level-gestures {
+	touch-action: none;
 }
 
 .player-gesture-hint {

@@ -933,6 +933,11 @@ describe("room player interactions", () => {
 		expect(playerBrightness.brightness.value).toBeCloseTo(MIN_PLAYER_BRIGHTNESS + 0.15, 5);
 		press("pointerup", 240);
 		playerBrightness.setBrightness(1);
+
+		// Fullscreen also has to claim the vertical pan: with `touch-action: pan-y` the
+		// browser took the drag for scrolling/pull-to-refresh and cancelled the pointer
+		// mid-gesture — the level changed once and then stopped even with the finger down.
+		expect(surface.classList.contains("level-gestures")).toBe(true);
 	});
 
 	it("keeps the brightness scrim transparent until a swipe dims it", async () => {

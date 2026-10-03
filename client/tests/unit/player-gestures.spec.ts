@@ -52,6 +52,7 @@ describe("player touch and mouse gestures", () => {
 		target.addEventListener("pointerup", controls.pointerUp);
 		target.addEventListener("pointercancel", controls.pointerCancel);
 		target.addEventListener("lostpointercapture", controls.pointerCancel);
+		target.addEventListener("pointerleave", controls.pointerLeave);
 	});
 	afterEach(() => {
 		controls.cancel();
@@ -191,6 +192,27 @@ describe("player touch and mouse gestures", () => {
 		expect(levels.onLevelMove).toHaveBeenLastCalledWith("left", 50 / 450);
 		pointer("pointerup", 100, 200);
 		expect(levels.onLevelEnd).toHaveBeenLastCalledWith("left");
+	});
+
+	it("keeps a level drag alive when the pointer leaves the surface", () => {
+		const levels = {
+			canAdjustLevels: () => true,
+			onLevelStart: vi.fn(),
+			onLevelMove: vi.fn(),
+			onLevelEnd: vi.fn(),
+		};
+		Object.assign(options, levels);
+
+		pointer("pointerdown", 100, 300);
+		pointer("pointermove", 100, 250);
+		expect(levels.onLevelMove).toHaveBeenLastCalledWith("left", 50 / 450);
+		// The finger may roam past the element (and past the surface's own edge) while the
+		// viewer is still dragging: that used to end the gesture halfway through.
+		pointer("pointerleave", 100, 250);
+		pointer("pointermove", 100, 200);
+		expect(levels.onLevelMove).toHaveBeenLastCalledWith("left", 50 / 450);
+		pointer("pointerup", 100, 200);
+		expect(levels.onLevelEnd).toHaveBeenCalledOnce();
 	});
 
 	it("leaves a vertical drag to the page when the levels are unavailable", () => {
