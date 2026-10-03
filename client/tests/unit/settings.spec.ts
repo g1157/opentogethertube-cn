@@ -34,14 +34,17 @@ describe("saved settings and default migrations", () => {
 			locale: "zh-CN",
 			defaultLocaleVersion: "v0.15.0-cn3",
 			defaultSfxVersion: "v0.15.0-cn6",
+			defaultDanmakuOpacityVersion: "v0.15.0-cn7",
 			sfxEnabled: false,
 		});
 		expect(store.state.settings).not.toHaveProperty("defaultLocaleVersion");
 		expect(store.state.settings).not.toHaveProperty("defaultSfxVersion");
+		expect(store.state.settings).not.toHaveProperty("defaultDanmakuOpacityVersion");
 		expect(store.state.settings.sfxEnabled).toBe(false);
 		expect(store.state.settings.chatOverlaySeconds).toBe(5);
 		expect(store.state.settings.controlsHideSeconds).toBe(3);
 		expect(store.state.settings.hlsBufferSeconds).toBe(120);
+		expect(store.state.settings.danmakuOpacity).toBe(0.3);
 	});
 
 	it("mutes the old sound default once without changing language or other preferences", async () => {
@@ -102,6 +105,34 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.sfxEnabled).toBe(false);
 		expect(store.state.settings.sfxVolume).toBe(0.8);
 		expect(store.state.settings.locale).toBe("en");
+	});
+
+	it("moves the first danmaku opacity default to 30% once", async () => {
+		saved.set(
+			"settings",
+			JSON.stringify({
+				danmakuOpacity: 0.8,
+				danmakuFontSize: "large",
+				volume: 37,
+				defaultLocaleVersion: "v0.15.0-cn3",
+				defaultSfxVersion: "v0.15.0-cn6",
+			}),
+		);
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.danmakuOpacity).toBe(0.3);
+		expect(store.state.settings.danmakuFontSize).toBe("large");
+		expect(store.state.settings.volume).toBe(37);
+	});
+
+	it("keeps a deliberately chosen danmaku opacity across visits", async () => {
+		const firstVisit = newStore();
+		await firstVisit.dispatch("settings/load");
+		firstVisit.commit("settings/UPDATE", { danmakuOpacity: 0.55 });
+		const nextVisit = newStore();
+		await nextVisit.dispatch("settings/load");
+		await nextVisit.dispatch("settings/load");
+		expect(nextVisit.state.settings.danmakuOpacity).toBe(0.55);
 	});
 
 	it("persists viewing preferences across visits, including disabled message overlays", async () => {

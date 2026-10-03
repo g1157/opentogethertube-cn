@@ -276,6 +276,7 @@ export default {
 			"block-colored": "Colored comments",
 			"anti-collision": "Anti collision",
 			unavailable: "This source has no bullet comments.",
+			settings: "Bullet comment settings",
 		},
 		audio: {
 			title: "Audio",
@@ -288,6 +289,8 @@ export default {
 				"This source does not allow cross-origin access, so audio adjustments are unavailable.",
 			"blocked-toast":
 				"This source does not allow cross-origin access. Your choice is kept and applies automatically on the next source.",
+			"browser-unsupported":
+				"Attaching audio processing stutters playback permanently in WebKit browsers, so audio adjustments are disabled here. Chrome or Firefox can use them.",
 		},
 		display: {
 			title: "Display",
@@ -297,7 +300,8 @@ export default {
 			hint: "Changes only what this device shows; other viewers are unaffected.",
 			unavailable: "This player does not support display adjustments.",
 		},
-		"personal-preferences": "Personal",
+		"more-settings": "More settings",
+		"subtitle-off": "Turn off subtitles",
 		pip: "Picture in Picture",
 		"player-settings": "Player settings",
 		subtitles: "Subtitles/CC",
@@ -759,6 +763,8 @@ export default {
 			"Boost audio from supported non-iframe players up to 300%. Sound effects are unaffected.",
 		"audio-boost-unsupported":
 			"The current player does not support audio boost. Sound effects are unaffected.",
+		"audio-boost-browser-unsupported":
+			"Audio boost stutters playback permanently in WebKit browsers, so it is disabled here. Chrome or Firefox can use it.",
 		"sfx-enable": "New message sound",
 		"sfx-hint": "Off by default. Only affects new message sounds, not video volume.",
 		"sfx-volume": "Message sound volume",

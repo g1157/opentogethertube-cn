@@ -129,9 +129,12 @@ export const ALL_THEMES = Object.keys(Theme).filter(key => Theme[key]);
 
 const DEFAULT_LOCALE_VERSION = "v0.15.0-cn3";
 const DEFAULT_SFX_VERSION = "v0.15.0-cn6";
+// Bumped so sessions that already stored the first (80%) danmaku default pick up 30%.
+const DEFAULT_DANMAKU_OPACITY_VERSION = "v0.15.0-cn7";
 type StoredSettings = Partial<SettingsState> & {
 	defaultLocaleVersion?: string;
 	defaultSfxVersion?: string;
+	defaultDanmakuOpacityVersion?: string;
 };
 
 function isPhoneLayout(): boolean {
@@ -238,6 +241,7 @@ function persistSettings(state: SettingsState) {
 				...state,
 				defaultLocaleVersion: DEFAULT_LOCALE_VERSION,
 				defaultSfxVersion: DEFAULT_SFX_VERSION,
+				defaultDanmakuOpacityVersion: DEFAULT_DANMAKU_OPACITY_VERSION,
 			}),
 		);
 	} catch {
@@ -268,7 +272,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		upscaleScale: "auto",
 		upscaleAutoDegrade: true,
 		danmakuEnabled: true,
-		danmakuOpacity: 1,
+		danmakuOpacity: 0.3,
 		danmakuFontSize: "medium",
 		danmakuSpeed: 1,
 		danmakuBlockScroll: false,
@@ -320,7 +324,12 @@ export const settingsModule: Module<SettingsState, unknown> = {
 			} catch {
 				// Invalid or unavailable browser storage falls back to this release's defaults.
 			}
-			const { defaultLocaleVersion, defaultSfxVersion, ...settings } = loaded;
+			const {
+				defaultLocaleVersion,
+				defaultSfxVersion,
+				defaultDanmakuOpacityVersion,
+				...settings
+			} = loaded;
 			if (
 				defaultLocaleVersion !== DEFAULT_LOCALE_VERSION ||
 				typeof settings.locale !== "string" ||
@@ -330,6 +339,13 @@ export const settingsModule: Module<SettingsState, unknown> = {
 			}
 			if (defaultSfxVersion !== DEFAULT_SFX_VERSION) {
 				settings.sfxEnabled = false;
+			}
+			if (
+				defaultDanmakuOpacityVersion !== DEFAULT_DANMAKU_OPACITY_VERSION &&
+				settings.danmakuOpacity === 0.8
+			) {
+				// Only the first default (80%) is moved; any other stored value is a choice.
+				settings.danmakuOpacity = 0.3;
 			}
 			// Phones start on the cheap tier instead of the very first enhancement being a
 			// stutter the degrade guard immediately undoes. Keyed on the stored field being

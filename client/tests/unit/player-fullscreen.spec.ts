@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPlayerFullscreen, type PlayerFullscreen } from "@/util/player-fullscreen";
+import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 
 describe("player fullscreen", () => {
 	let nativeElement: Element | null;
@@ -35,7 +36,56 @@ describe("player fullscreen", () => {
 		document.documentElement.removeAttribute("style");
 		Reflect.deleteProperty(document, "fullscreenElement");
 		Reflect.deleteProperty(document, "exitFullscreen");
+		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
+	});
+
+	function stubPhoneViewport() {
+		vi.stubGlobal("matchMedia", (query: string) => ({
+			matches: query === PHONE_MAX_QUERY,
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+		}));
+	}
+
+	it("locks a phone into landscape on fullscreen and unlocks on exit", async () => {
+		const lock = vi.fn(async () => undefined);
+		const unlock = vi.fn();
+		vi.stubGlobal("screen", { orientation: { lock, unlock } });
+		stubPhoneViewport();
+		// eslint-disable-next-line vitest/prefer-spy-on -- jsdom does not provide this native API.
+		target.requestFullscreen = vi.fn(async () => {
+			nativeElement = target;
+			document.dispatchEvent(new Event("fullscreenchange"));
+		});
+
+		await controller.enter();
+		expect(lock).toHaveBeenCalledWith("landscape");
+
+		await controller.exit();
+		expect(unlock).toHaveBeenCalledOnce();
+	});
+
+	it("leaves desktop orientation alone and survives a browser without the lock", async () => {
+		const lock = vi.fn(async () => undefined);
+		vi.stubGlobal("screen", { orientation: { lock, unlock: vi.fn() } });
+		vi.stubGlobal("matchMedia", () => ({
+			matches: false,
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+		}));
+		// eslint-disable-next-line vitest/prefer-spy-on -- jsdom does not provide this native API.
+		target.requestFullscreen = vi.fn(async () => {
+			nativeElement = target;
+			document.dispatchEvent(new Event("fullscreenchange"));
+		});
+		await controller.enter();
+		expect(lock).not.toHaveBeenCalled();
+
+		// iOS ships no lock at all; entering fullscreen must still work there.
+		vi.stubGlobal("screen", {});
+		await controller.exit();
+		await expect(controller.enter()).resolves.toBe(true);
 	});
 
 	it("requests native fullscreen for the player and restores the page on browser exit", async () => {

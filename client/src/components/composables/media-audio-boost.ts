@@ -4,6 +4,7 @@ import {
 	AUDIO_EQ_BANDS_HZ,
 	AUDIO_EQ_Q,
 	canRouteMediaThroughWebAudio,
+	elementAudioRoutingSupported,
 	resolveEqBands,
 } from "@/util/audio-eq";
 
@@ -107,6 +108,12 @@ export function useMediaAudioBoost(
 		const element = mediaElement.value;
 		const audioContext = context.value;
 		if (!element || !audioContext) {
+			return false;
+		}
+		if (!elementAudioRoutingSupported()) {
+			// WebKit turns attached element audio into permanent playback stutter; the
+			// settings UI hides the feature there, and this guard keeps it from being
+			// engaged by any other caller.
 			return false;
 		}
 		if (!canRouteMediaThroughWebAudio(element, window.location.origin)) {

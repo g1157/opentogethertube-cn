@@ -26,6 +26,8 @@
 				<div class="grow"><!-- Spacer --></div>
 				<ClosedCaptionsSwitcher v-if="!compact" />
 				<DanmakuSwitcher v-if="!compact" />
+				<DanmakuSettingsMenu v-if="!compact" />
+				<QualitySwitcher v-if="!compact" />
 				<PlaybackRateSwitcher v-if="!compact" />
 				<VideoSettings
 					:compact="compact"
@@ -42,7 +44,9 @@
 <script lang="ts" setup>
 import BasicControls from "./BasicControls.vue";
 import ClosedCaptionsSwitcher from "./ClosedCaptionsSwitcher.vue";
+import DanmakuSettingsMenu from "./DanmakuSettingsMenu.vue";
 import DanmakuSwitcher from "./DanmakuSwitcher.vue";
+import QualitySwitcher from "./QualitySwitcher.vue";
 import LayoutSwitcher from "./LayoutSwitcher.vue";
 import TimestampDisplay from "./TimestampDisplay.vue";
 import VideoProgressSlider from "./VideoProgressSlider.vue";

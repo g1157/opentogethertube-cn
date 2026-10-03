@@ -527,11 +527,21 @@ watch(
 	},
 );
 
-// A fit change moves the displayed picture, which changes the size the canvas should hold;
-// the same settle-and-rebuild path as a viewport change keeps the pipeline consistent.
+// A fit change only crops the displayed picture; re-sizing is cheap for the WebGL2
+// tiers, while the CNN pipelines capture their target size at build time and a rebuild
+// would freeze playback for a moment. They keep their render target and let the CSS
+// crop do the work — the canvas shares the video's aspect, so the crop stays aligned.
 watch(
 	() => store.state.settings.videoFillMode,
-	() => handleViewportChange(),
+	() => {
+		if (isCnnUpscaleTier(props.mode)) {
+			return;
+		}
+		const video = props.video;
+		if (video && canvas) {
+			sizeCanvas(video, canvas);
+		}
+	},
 );
 
 onMounted(() => {

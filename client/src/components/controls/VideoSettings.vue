@@ -44,12 +44,31 @@
 							</div>
 						</v-list-item>
 						<v-list-item
+							v-if="compact"
+							link
+							class="menu-item"
+							:disabled="!isQualitySupported"
+							:append-icon="mdiChevronRight"
+							:prepend-icon="mdiTune"
+							@click="navigateToMenu('quality')"
+							data-cy="player-quality-toggle"
+						>
+							<div class="menu-item-content">
+								<span>{{ $t("room.quality") }}</span>
+								<span class="menu-item-value">
+									{{ currentQualityDisplay }}
+								</span>
+							</div>
+						</v-list-item>
+						<v-list-item
+							v-if="compact"
 							link
 							class="menu-item"
 							:disabled="!isCaptionsSupported"
 							:append-icon="mdiChevronRight"
 							:prepend-icon="mdiClosedCaptionOutline"
 							@click="navigateToMenu('subtitle')"
+							data-cy="player-subtitle-toggle"
 						>
 							<div class="menu-item-content">
 								<span>{{ $t("room.subtitles") }}</span>
@@ -59,43 +78,30 @@
 							</div>
 						</v-list-item>
 						<v-list-item
-							link
-							class="menu-item"
-							:append-icon="mdiChevronRight"
-							:prepend-icon="mdiAutoFix"
-							@click="navigateToMenu('upscale')"
-						>
-							<div class="menu-item-content">
-								<span>{{ $t("room.upscale.title") }}</span>
-								<span class="menu-item-value">{{ upscaleLabel }}</span>
-							</div>
-						</v-list-item>
-						<v-list-item
+							v-if="compact"
 							link
 							class="menu-item"
 							:append-icon="mdiChevronRight"
 							:prepend-icon="mdiCommentMultipleOutline"
 							@click="navigateToMenu('danmaku')"
+							data-cy="player-danmaku-toggle"
 						>
 							<div class="menu-item-content">
 								<span>{{ $t("room.danmaku.title") }}</span>
 								<span class="menu-item-value">{{ danmakuLabel }}</span>
 							</div>
 						</v-list-item>
-
 						<v-list-item
 							link
 							class="menu-item"
-							:disabled="!isQualitySupported"
 							:append-icon="mdiChevronRight"
-							:prepend-icon="mdiTune"
-							@click="navigateToMenu('quality')"
+							:prepend-icon="mdiAutoFix"
+							@click="navigateToMenu('upscale')"
+							data-cy="player-upscale-toggle"
 						>
 							<div class="menu-item-content">
-								<span>{{ $t("room.quality") }}</span>
-								<span class="menu-item-value">
-									{{ currentQualityDisplay }}
-								</span>
+								<span>{{ $t("room.upscale.title") }}</span>
+								<span class="menu-item-value">{{ upscaleLabel }}</span>
 							</div>
 						</v-list-item>
 						<v-list-item
@@ -124,6 +130,29 @@
 								<span class="menu-item-value">{{ displayLabel }}</span>
 							</div>
 						</v-list-item>
+						<v-divider class="menu-divider" />
+						<v-list-item
+							link
+							class="menu-item"
+							:append-icon="mdiChevronRight"
+							:prepend-icon="mdiDotsHorizontal"
+							@click="navigateToMenu('more')"
+							data-cy="player-more-toggle"
+						>
+							{{ $t("room.more-settings") }}
+						</v-list-item>
+					</v-list>
+
+					<!-- Everything that is set once and left alone -->
+					<v-list v-else-if="currentMenu === 'more'" key="more" class="menu-content">
+						<v-list-item
+							link
+							class="menu-header"
+							:prepend-icon="mdiChevronLeft"
+							@click="navigateToMenu('main')"
+						>
+							{{ $t("room.more-settings") }}
+						</v-list-item>
 						<v-list-item>
 							<v-list-item-title>{{
 								$t("player.interactions.seek-step")
@@ -145,9 +174,6 @@
 								</v-btn>
 							</v-btn-toggle>
 						</v-list-item>
-						<v-list-subheader class="menu-group-label">
-							{{ $t("room.personal-preferences") }}
-						</v-list-subheader>
 						<v-list-item
 							link
 							class="menu-item"
@@ -189,65 +215,117 @@
 								data-cy="chat-sound-enabled"
 							/>
 						</v-list-item>
-						<v-list-item>
-							<v-select
+						<v-list-item class="preference-row">
+							<v-list-item-title>{{
+								$t("client-settings.chat-overlay-duration")
+							}}</v-list-item-title>
+							<v-btn-toggle
 								v-model="chatOverlaySeconds"
-								:label="$t('client-settings.chat-overlay-duration')"
-								:hint="$t('client-settings.chat-overlay-hint')"
-								:items="chatOverlayOptions"
-								:menu-props="preferenceMenuProps"
-								persistent-hint
+								mandatory
 								density="compact"
-								class="my-2"
+								color="primary"
+								class="preference-chips"
 								data-cy="chat-overlay-duration"
-							/>
+							>
+								<v-btn
+									v-for="seconds in CHAT_OVERLAY_SECONDS_OPTIONS"
+									:key="seconds"
+									:value="seconds"
+									size="x-small"
+								>
+									{{ secondsLabel(seconds) }}
+								</v-btn>
+							</v-btn-toggle>
+							<div class="preference-hint">
+								{{ $t("client-settings.chat-overlay-hint") }}
+							</div>
 						</v-list-item>
-						<v-list-item>
-							<v-select
+						<v-list-item class="preference-row">
+							<v-list-item-title>{{
+								$t("client-settings.controls-hide-delay")
+							}}</v-list-item-title>
+							<v-btn-toggle
 								v-model="controlsHideSeconds"
-								:label="$t('client-settings.controls-hide-delay')"
-								:hint="$t('client-settings.controls-hide-hint')"
-								:items="controlsHideOptions"
-								:menu-props="preferenceMenuProps"
-								persistent-hint
+								mandatory
 								density="compact"
-								class="my-2"
+								color="primary"
+								class="preference-chips"
 								data-cy="controls-hide-delay"
-							/>
+							>
+								<v-btn
+									v-for="value in CONTROLS_HIDE_SECONDS_OPTIONS"
+									:key="value"
+									:value="value"
+									size="x-small"
+								>
+									{{ secondsLabel(value) }}
+								</v-btn>
+							</v-btn-toggle>
+							<div class="preference-hint">
+								{{ $t("client-settings.controls-hide-hint") }}
+							</div>
 						</v-list-item>
-						<v-list-item>
-							<v-select
+						<v-list-item class="preference-row">
+							<v-list-item-title>{{
+								$t("client-settings.hls-buffer-duration")
+							}}</v-list-item-title>
+							<v-btn-toggle
 								v-model="hlsBufferSeconds"
-								:label="$t('client-settings.hls-buffer-duration')"
-								:hint="$t('client-settings.hls-buffer-hint')"
-								:items="hlsBufferOptions"
-								:menu-props="preferenceMenuProps"
-								persistent-hint
+								mandatory
 								density="compact"
-								class="my-2"
+								color="primary"
+								class="preference-chips"
 								data-cy="hls-buffer-duration"
-							/>
+							>
+								<v-btn
+									v-for="value in HLS_BUFFER_SECONDS_OPTIONS"
+									:key="value"
+									:value="value"
+									size="x-small"
+								>
+									{{ secondsLabel(value) }}
+								</v-btn>
+							</v-btn-toggle>
+							<div class="preference-hint">
+								{{ $t("client-settings.hls-buffer-hint") }}
+							</div>
 						</v-list-item>
-						<v-list-item v-for="notice in roomNotices" :key="notice.setting">
-							<v-select
+						<v-list-item
+							v-for="notice in roomNotices"
+							:key="notice.setting"
+							class="preference-row"
+						>
+							<v-list-item-title>
+								{{ $t(`client-settings.${notice.label}`) }}
+							</v-list-item-title>
+							<v-btn-toggle
 								:model-value="store.state.settings[notice.setting]"
 								@update:model-value="
 									value =>
 										store.commit('settings/UPDATE', { [notice.setting]: value })
 								"
-								:label="$t(`client-settings.${notice.label}`)"
-								:hint="$t('client-settings.room-notice-hint')"
-								:items="roomNoticeOptions"
-								:menu-props="preferenceMenuProps"
-								persistent-hint
+								mandatory
 								density="compact"
-								class="my-2"
+								color="primary"
+								class="preference-chips"
 								:data-cy="notice.label"
-							/>
+							>
+								<v-btn
+									v-for="seconds in ROOM_NOTICE_SECONDS_OPTIONS"
+									:key="seconds"
+									:value="seconds"
+									size="x-small"
+								>
+									{{ secondsLabel(seconds) }}
+								</v-btn>
+							</v-btn-toggle>
+							<div class="preference-hint">
+								{{ $t("client-settings.room-notice-hint") }}
+							</div>
 						</v-list-item>
 					</v-list>
 
-					<!-- Quality submenu -->
+					<!-- Quality submenu; desktop reaches the same list from the control bar. -->
 					<v-list
 						v-else-if="currentMenu === 'quality'"
 						key="quality"
@@ -263,24 +341,7 @@
 							{{ $t("room.quality") }}
 						</v-list-item>
 
-						<v-list-item
-							v-if="qualities.isAutoQualitySupported.value"
-							link
-							:active="isAutoQualityActive"
-							@click="selectQuality(-1)"
-						>
-							{{ autoQualityDisplay }}
-						</v-list-item>
-
-						<v-list-item
-							v-for="(quality, idx) in qualities.videoTracks.value"
-							:key="idx"
-							link
-							:active="idx === qualities.currentVideoTrack.value"
-							@click="selectQuality(idx)"
-						>
-							{{ formatQuality(quality) }}
-						</v-list-item>
+						<QualityMenuPanel @select="closeMenu" />
 					</v-list>
 
 					<!-- Audio submenu -->
@@ -298,7 +359,14 @@
 						>
 							{{ $t("room.audio.title") }}
 						</v-list-item>
-						<template v-if="audioEqSupported">
+						<template v-if="!audioEqBrowserSupported">
+							<v-list-item>
+								<v-list-item-title class="settings-unavailable">
+									{{ $t("room.audio.browser-unsupported") }}
+								</v-list-item-title>
+							</v-list-item>
+						</template>
+						<template v-else-if="audioEqSupported">
 							<v-list-item v-if="audioEqBlocked">
 								<v-list-item-title class="settings-unavailable">
 									{{ $t("room.audio.blocked") }}
@@ -375,7 +443,7 @@
 						</v-list-item>
 					</v-list>
 
-					<!-- Subtitle submenu -->
+					<!-- Subtitle submenu; desktop reaches the same list from the control bar. -->
 					<v-list
 						v-else-if="currentMenu === 'subtitle'"
 						key="subtitle"
@@ -391,16 +459,7 @@
 							{{ $t("room.subtitles") }}
 						</v-list-item>
 
-						<v-list-item
-							v-for="(track, idx) in captions.captionsTracks.value"
-							:key="idx"
-							link
-							:active="isSubtitleTrackActive(idx)"
-							:append-icon="track.kind === 'captions' ? mdiClosedCaption : undefined"
-							@click="selectSubtitleTrack(idx)"
-						>
-							{{ formatCaption(track) }}
-						</v-list-item>
+						<SubtitleMenuPanel @select="closeMenu" />
 					</v-list>
 
 					<!-- Video enhancement submenu -->
@@ -531,7 +590,8 @@
 						</v-list-item>
 					</v-list>
 
-					<!-- Bullet comment submenu -->
+					<!-- Bullet comment submenu; desktop reaches the same panel from the
+					     control bar, next to the danmaku toggle. -->
 					<v-list
 						v-else-if="currentMenu === 'danmaku'"
 						key="danmaku"
@@ -546,104 +606,7 @@
 						>
 							{{ $t("room.danmaku.title") }}
 						</v-list-item>
-						<v-list-item v-if="!danmakuAvailable">
-							<v-list-item-title class="danmaku-unavailable">
-								{{ $t("room.danmaku.unavailable") }}
-							</v-list-item-title>
-						</v-list-item>
-						<v-list-item>
-							<v-checkbox
-								v-model="danmakuEnabled"
-								:label="$t('room.danmaku.enable')"
-								density="compact"
-								hide-details
-								data-cy="danmaku-enabled"
-							/>
-						</v-list-item>
-						<v-list-item>
-							<v-slider
-								v-model="danmakuOpacity"
-								:label="$t('room.danmaku.opacity')"
-								:min="0.1"
-								:max="1"
-								:step="0.05"
-								density="compact"
-								thumb-label
-								data-cy="danmaku-opacity"
-							/>
-						</v-list-item>
-						<v-list-item>
-							<v-select
-								v-model="danmakuFontSize"
-								:label="$t('room.danmaku.font-size')"
-								:items="danmakuFontSizeOptions"
-								:menu-props="preferenceMenuProps"
-								density="compact"
-								class="my-2"
-								data-cy="danmaku-font-size"
-							/>
-						</v-list-item>
-						<v-list-item>
-							<v-select
-								v-model="danmakuSpeed"
-								:label="$t('room.danmaku.speed')"
-								:items="danmakuSpeedOptions"
-								:menu-props="preferenceMenuProps"
-								density="compact"
-								class="my-2"
-								data-cy="danmaku-speed"
-							/>
-						</v-list-item>
-						<v-list-item class="danmaku-advanced-label">
-							<v-list-item-title class="danmaku-section-title">
-								{{ $t("room.danmaku.blocking") }}
-							</v-list-item-title>
-						</v-list-item>
-						<v-list-item>
-							<v-checkbox
-								v-model="danmakuBlockScroll"
-								:label="$t('room.danmaku.block-scroll')"
-								density="compact"
-								hide-details
-								data-cy="danmaku-block-scroll"
-							/>
-						</v-list-item>
-						<v-list-item>
-							<v-checkbox
-								v-model="danmakuBlockTop"
-								:label="$t('room.danmaku.block-top')"
-								density="compact"
-								hide-details
-								data-cy="danmaku-block-top"
-							/>
-						</v-list-item>
-						<v-list-item>
-							<v-checkbox
-								v-model="danmakuBlockBottom"
-								:label="$t('room.danmaku.block-bottom')"
-								density="compact"
-								hide-details
-								data-cy="danmaku-block-bottom"
-							/>
-						</v-list-item>
-						<v-list-item>
-							<v-checkbox
-								v-model="danmakuBlockColored"
-								:label="$t('room.danmaku.block-colored')"
-								density="compact"
-								hide-details
-								data-cy="danmaku-block-colored"
-							/>
-						</v-list-item>
-						<v-list-item>
-							<v-checkbox
-								v-model="danmakuAntiCollision"
-								:label="$t('room.danmaku.anti-collision')"
-								density="compact"
-								hide-details
-								data-cy="danmaku-anti-collision"
-							/>
-						</v-list-item>
+						<DanmakuSettingsPanel />
 					</v-list>
 				</div>
 			</div>
@@ -668,7 +631,7 @@ import {
 	mdiAutoFix,
 	mdiAspectRatio,
 	mdiClosedCaptionOutline,
-	mdiClosedCaption,
+	mdiDotsHorizontal,
 	mdiMusicNote,
 	mdiTune,
 	mdiChevronLeft,
@@ -679,6 +642,7 @@ import {
 } from "@mdi/js";
 import { getFriendlyResolutionLabel } from "@/util/misc";
 import { qualityTierFromHeight } from "@/util/quality-display";
+import { elementAudioRoutingSupported } from "@/util/audio-eq";
 import type { VideoTrack, CaptionTrack } from "@/models/media-tracks";
 import { ToastStyle } from "@/models/toast";
 import toast from "@/util/toast";
@@ -688,8 +652,6 @@ import {
 	AUDIO_EQ_PRESETS,
 	CHAT_OVERLAY_SECONDS_OPTIONS,
 	CONTROLS_HIDE_SECONDS_OPTIONS,
-	DANMAKU_FONT_SIZE_OPTIONS,
-	DANMAKU_SPEED_OPTIONS,
 	HLS_BUFFER_SECONDS_OPTIONS,
 	MAX_UPSCALE_STRENGTH,
 	MIN_UPSCALE_STRENGTH,
@@ -703,6 +665,9 @@ import {
 import { canRunWebGPUEnhancement, webgpuVideoUploadSupported } from "@/util/upscale/webgpu-probe";
 import VolumeControl from "./VolumeControl.vue";
 import PlaybackRateSwitcher from "./PlaybackRateSwitcher.vue";
+import DanmakuSettingsPanel from "./DanmakuSettingsPanel.vue";
+import QualityMenuPanel from "./QualityMenuPanel.vue";
+import SubtitleMenuPanel from "./SubtitleMenuPanel.vue";
 
 defineProps<{ compact?: boolean }>();
 const emit = defineEmits(["show-shortcuts", "show-stats"]);
@@ -781,61 +746,14 @@ const danmakuLabel = computed(() => {
 	}
 	return store.state.settings.danmakuEnabled ? t("common.on") : t("common.off");
 });
-const danmakuEnabled = computed({
-	get: () => store.state.settings.danmakuEnabled,
-	set: value => store.commit("settings/UPDATE", { danmakuEnabled: value }),
-});
-const danmakuOpacity = computed({
-	get: () => store.state.settings.danmakuOpacity,
-	set: value => store.commit("settings/UPDATE", { danmakuOpacity: value }),
-});
-const danmakuFontSize = computed({
-	get: () => store.state.settings.danmakuFontSize,
-	set: value => store.commit("settings/UPDATE", { danmakuFontSize: value }),
-});
-const danmakuSpeed = computed({
-	get: () => store.state.settings.danmakuSpeed,
-	set: value => store.commit("settings/UPDATE", { danmakuSpeed: value }),
-});
-const danmakuBlockScroll = computed({
-	get: () => store.state.settings.danmakuBlockScroll,
-	set: value => store.commit("settings/UPDATE", { danmakuBlockScroll: value }),
-});
-const danmakuBlockTop = computed({
-	get: () => store.state.settings.danmakuBlockTop,
-	set: value => store.commit("settings/UPDATE", { danmakuBlockTop: value }),
-});
-const danmakuBlockBottom = computed({
-	get: () => store.state.settings.danmakuBlockBottom,
-	set: value => store.commit("settings/UPDATE", { danmakuBlockBottom: value }),
-});
-const danmakuBlockColored = computed({
-	get: () => store.state.settings.danmakuBlockColored,
-	set: value => store.commit("settings/UPDATE", { danmakuBlockColored: value }),
-});
-const danmakuAntiCollision = computed({
-	get: () => store.state.settings.danmakuAntiCollision,
-	set: value => store.commit("settings/UPDATE", { danmakuAntiCollision: value }),
-});
-const danmakuFontSizeOptions = computed(() =>
-	DANMAKU_FONT_SIZE_OPTIONS.map(size => ({
-		// biome-ignore lint/nursery/noVueRefAsOperand: size values are plain strings, not Vue refs.
-		title: t(`room.danmaku.font-size-${size}`),
-		value: size,
-	})),
-);
-const danmakuSpeedOptions = computed(() =>
-	DANMAKU_SPEED_OPTIONS.map(speed => ({
-		// biome-ignore lint/nursery/noVueRefAsOperand: speed values are plain numbers, not Vue refs.
-		title: `${speed}×`,
-		value: speed,
-	})),
-);
 const controls = useMediaPlayer();
 
 function implementsAudioBoost(p: MediaPlayer | null): p is MediaPlayerWithAudioBoost {
 	return !!p && "setAudioBoost" in p;
 }
+
+/** WebKit would stutter on attached element audio; the feature stays off there. */
+const audioEqBrowserSupported = elementAudioRoutingSupported();
 
 /** Sound shaping and picture fitting need the media element; iframe players have none. */
 const nativeSurfaceSupported = computed(
@@ -848,12 +766,14 @@ const audioEqBlocked = computed(() => audioEqSourceBlocked.value);
 const audioEqOptions = computed(() =>
 	AUDIO_EQ_PRESETS.map(preset => ({
 		// biome-ignore lint/nursery/noVueRefAsOperand: preset values are plain strings, not Vue refs.
-		title: t(`room.audio.${preset}`),
+		text: t(`room.audio.${preset}`),
 		value: preset,
 	})),
 );
 const audioLabel = computed(() =>
-	nativeSurfaceSupported.value
+	!audioEqBrowserSupported
+		? t("player.settings.disabled")
+		: nativeSurfaceSupported.value
 		? t(`room.audio.${store.state.settings.audioEqPreset}`)
 		: t("player.settings.disabled"),
 );
@@ -888,7 +808,7 @@ const videoMirror = computed({
 const fillModeOptions = computed(() =>
 	VIDEO_FILL_MODES.map(mode => ({
 		// biome-ignore lint/nursery/noVueRefAsOperand: mode values are plain strings, not Vue refs.
-		title: t(`room.display.${mode}`),
+		text: t(`room.display.${mode}`),
 		value: mode,
 	})),
 );
@@ -927,40 +847,27 @@ const hlsBufferSeconds = computed({
 	get: () => store.state.settings.hlsBufferSeconds,
 	set: value => store.commit("settings/UPDATE", { hlsBufferSeconds: value }),
 });
-const chatOverlayOptions = computed(() =>
-	CHAT_OVERLAY_SECONDS_OPTIONS.map(seconds => ({
-		// biome-ignore lint/nursery/noVueRefAsOperand: seconds is a numeric option, not a Vue ref.
-		title: seconds > 0 ? t("player.interactions.seconds", { count: seconds }) : t("common.off"),
-		value: seconds,
-	})),
-);
-const controlsHideOptions = computed(() =>
-	CONTROLS_HIDE_SECONDS_OPTIONS.map(value => ({
-		title: t("player.interactions.seconds", { count: value }),
-		value,
-	})),
-);
 const roomNotices = [
 	{ setting: "presenceNoticeSeconds", label: "presence-notice-duration" },
 	{ setting: "seekNoticeSeconds", label: "seek-notice-duration" },
 ] as const;
-const roomNoticeOptions = computed(() =>
-	ROOM_NOTICE_SECONDS_OPTIONS.map(seconds => ({
-		// biome-ignore lint/nursery/noVueRefAsOperand: seconds is a numeric option, not a Vue ref.
-		title: seconds > 0 ? t("player.interactions.seconds", { count: seconds }) : t("common.off"),
-		value: seconds,
-	})),
-);
-const hlsBufferOptions = computed(() =>
-	HLS_BUFFER_SECONDS_OPTIONS.map(value => ({
-		title: t("player.interactions.seconds", { count: value }),
-		value,
-	})),
-);
+
+/** One label style for every duration chip row. */
+function secondsLabel(seconds: number): string {
+	return seconds > 0 ? t("player.interactions.seconds", { count: seconds }) : t("common.off");
+}
 
 // Menu types - using literal string values instead of enum due to Safari compatibility issues
 const currentMenu = ref<
-	"main" | "quality" | "subtitle" | "preferences" | "upscale" | "danmaku" | "audio" | "display"
+	| "main"
+	| "more"
+	| "quality"
+	| "subtitle"
+	| "preferences"
+	| "upscale"
+	| "danmaku"
+	| "audio"
+	| "display"
 >("main");
 const isMenuOpen = ref<boolean>(false);
 usePlayerControlsActivity(isMenuOpen);
@@ -1060,12 +967,6 @@ const currentQualityDisplay = computed(() => {
 	return "";
 });
 
-const isAutoQualityActive = computed(() => qualities.currentVideoTrack.value === -1);
-
-function isSubtitleTrackActive(track: number): boolean {
-	return captions.isCaptionsEnabled.value && track === captions.currentTrack.value;
-}
-
 function navigateToMenu(menu): void {
 	currentMenu.value = menu;
 }
@@ -1073,27 +974,6 @@ function navigateToMenu(menu): void {
 function closeMenu(): void {
 	isMenuOpen.value = false;
 	currentMenu.value = "main";
-}
-
-function selectQuality(idx: number): void {
-	qualities.currentVideoTrack.value = idx;
-	const track = idx >= 0 ? qualities.videoTracks.value[idx] : undefined;
-	toast.add({
-		style: ToastStyle.Neutral,
-		content: t("player.settings.quality-switching", {
-			quality: track ? formatQuality(track) : t("player.settings.auto"),
-		}),
-		duration: 5000,
-	});
-	closeMenu();
-}
-
-function selectSubtitleTrack(track: number): void {
-	if (!captions.isCaptionsEnabled.value) {
-		captions.isCaptionsEnabled.value = true;
-	}
-	captions.currentTrack.value = track;
-	closeMenu();
 }
 </script>
 
@@ -1103,6 +983,7 @@ function selectSubtitleTrack(track: number): void {
 
 .settings-menu-container {
 	background: media-controls.$menu-background;
+	border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
 	border-radius: media-controls.$menu-radius;
 	padding: 0;
 	width: 100%;
@@ -1113,8 +994,41 @@ function selectSubtitleTrack(track: number): void {
 	overscroll-behavior: contain;
 }
 
+.menu-divider {
+	margin: 6px 0;
+	opacity: 0.5;
+}
+
 .seek-step-options {
 	margin: 8px 0;
+}
+
+.preference-row {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	padding-top: 6px;
+	padding-bottom: 6px;
+}
+
+.preference-chips {
+	flex-wrap: wrap;
+	margin-top: 4px;
+
+	.v-btn {
+		min-width: 0;
+		padding: 0 6px;
+		font-size: 0.72rem;
+		text-transform: none;
+	}
+}
+
+.preference-hint {
+	font-size: 0.72rem;
+	opacity: 0.6;
+	line-height: 1.4;
+	margin-top: 2px;
+	white-space: normal;
 }
 
 .compact-playback-options {
@@ -1231,15 +1145,6 @@ function selectSubtitleTrack(track: number): void {
 	opacity: 0.6;
 	white-space: normal;
 	padding: 4px 0;
-}
-
-.menu-group-label {
-	font-size: 0.72rem;
-	letter-spacing: 0.06em;
-	opacity: 0.6;
-	min-height: 32px;
-	padding-top: 10px;
-	padding-bottom: 0;
 }
 
 .upscale-section-title {

@@ -2,7 +2,9 @@
 
 $video-controls-height: 90px;
 $media-control-surface: rgb(var(--v-theme-media-control-surface));
-$menu-background: rgba(var(--v-theme-surface), 0.9);
+// Solid on purpose: these menus float over bright, moving video, and a translucent
+// surface left the rows hard to read (and the panel itself nearly invisible).
+$menu-background: rgb(var(--v-theme-surface));
 $menu-radius: 10px;
 
 .media-control {

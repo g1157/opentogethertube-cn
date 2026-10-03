@@ -186,7 +186,9 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
 | 新增权限 | `common/permissions.ts`（位 + 默认授予）；需要历史房间生效则加回填迁移 |
 | 改同步算法 | `client/src/util/playback-sync.ts` + 单测 + `docs/playback-sync.zh-CN.md` 同步更新 |
 | 改画质增强 | `client/src/util/upscale/*` + `stores/settings.ts`（`UPSCALE_MODES`）+ `VideoSettings.vue` + `UpscaleLayer.vue`（选择与降档）+ `docs/video-enhancement.zh-CN.md` |
-| 改音效/画面本机偏好 | `client/src/util/audio-eq.ts`（均衡曲线与 CORS 路由判断）+ `stores/settings.ts` + `composables/media-audio-boost.ts`（Web Audio 图）+ `players/{Direct,Hls,Dash}Player.vue`（CSS 类与接线）+ `VideoSettings.vue` + en/zh-CN 文案 |
+| 改音效/画面本机偏好 | `client/src/util/audio-eq.ts`（均衡曲线、CORS 路由判断与 WebKit 熔断 `elementAudioRoutingSupported`）+ `stores/settings.ts` + `composables/media-audio-boost.ts`（Web Audio 图）+ `players/{Direct,Hls,Dash}Player.vue`（CSS 类与接线）+ `VideoSettings.vue` + `ClientSettingsDialog.vue`（音量增强）+ en/zh-CN 文案 |
+| 改播放器设置菜单/控制条按钮 | `VideoSettings.vue`（主菜单与二级页）+ `DanmakuSettingsMenu.vue`/`DanmakuSettingsPanel.vue`（弹幕面板，两处共用）+ `QualitySwitcher.vue`/`QualityMenuPanel.vue` + `ClosedCaptionsSwitcher.vue`/`SubtitleMenuPanel.vue` + `VideoControls.vue`（按钮排布）+ `tests/unit/PlayerMenus.component.spec.ts` |
+| 改播放器全屏 | `client/src/util/player-fullscreen.ts`（原生全屏、网页内回退、手机横屏锁定）+ `stores/settings.ts`（`fullscreen` 状态）+ `tests/unit/player-fullscreen.spec.ts` |
 | 数据库变更 | `server/migrations/YYYYMMDDHHMMSS-描述.js` + 模型；`yarn db:migrate`；在版本记录注明"有迁移"（大多数版本是"无数据库迁移"） |
 | 加 UI 文案 | `client/src/locales/en.ts` 与 `zh-CN.ts` 同时加 |
 | 加 API 端点 | `server/api/<组>.ts` + 挂载；如需限流调用 `consumeRateLimitPoints(res, req.ip, 点数)`；考虑更新 `docs/api.yaml` |

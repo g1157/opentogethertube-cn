@@ -207,6 +207,23 @@ describe("useMediaAudioBoost", () => {
 		expect(audioEqSourceBlocked.value).toBe(false);
 	});
 
+	it("leaves the graph alone in WebKit browsers", () => {
+		// Safari (and every iOS browser) stutters permanently once element audio is
+		// attached, so neither the boost nor a preset may build the graph there.
+		const { context } = makeContext();
+		const { api } = mountComposable(() => context);
+		const userAgent = vi.spyOn(window.navigator, "userAgent", "get");
+		userAgent.mockReturnValue(
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Safari/605.1.15",
+		);
+
+		api.setEq("bass");
+		api.setBoost(200);
+
+		expect(context.createMediaElementSource).not.toHaveBeenCalled();
+		userAgent.mockRestore();
+	});
+
 	it("rebuilds the graph for a replaced element and re-applies the remembered settings", async () => {
 		const { context, gains } = makeContext();
 		const { api, elementKey } = mountComposable(() => context);

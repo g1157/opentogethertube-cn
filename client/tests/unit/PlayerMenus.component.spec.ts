@@ -307,13 +307,12 @@ describe("player menu placement", () => {
 		const content = menuContent();
 		const previousTop = content.style.top;
 		menuHeight = 560;
-		// 0 = subtitles, 1 = video enhancement, 2 = bullet comments, 3 = quality.
-		document.querySelectorAll<HTMLElement>(".settings-menu-container .menu-item")[3].click();
+		document.querySelector<HTMLElement>('[data-cy="player-upscale-toggle"]')!.click();
 		await settle();
 		TestResizeObserver.resize(content);
 		await settle();
 
-		expect(content.textContent).toContain("1080p");
+		expect(content.textContent).toContain("清晰化");
 		expect(content.style.top).not.toBe(previousTop);
 		expectInViewport(content);
 	});
@@ -340,6 +339,53 @@ describe("player menu placement", () => {
 		await settle();
 
 		expect(store.state.settings.audioEqPreset).toBe("bass");
+	});
+
+	it("labels the option rows of the audio and display submenus", async () => {
+		// Regression: the option list was built with a `title` field while the rows read
+		// `text`, which left both submenus showing blank, apparently transparent rows.
+		const { wrapper } = await mountMenu("settings");
+		menuControls = (wrapper.vm as unknown as { controls: ReturnType<typeof useMediaPlayer> })
+			.controls;
+		menuControls.setPlayer({
+			setAudioBoost: vi.fn(),
+			setAudioEq: vi.fn(),
+		} as unknown as MediaPlayer);
+		menuControls.markApiReady();
+		await settle();
+
+		await wrapper.get(selectors.settings).trigger("click");
+		await settle();
+		document.querySelector<HTMLElement>('[data-cy="player-audio-toggle"]')!.click();
+		await settle();
+		expect(
+			document.querySelector<HTMLElement>('[data-cy="audio-eq-bass"]')!.textContent,
+		).toContain("低音增强");
+
+		document.querySelector<HTMLElement>(".settings-menu-container .menu-header")!.click();
+		await settle();
+		document.querySelector<HTMLElement>('[data-cy="player-display-toggle"]')!.click();
+		await settle();
+		expect(
+			document.querySelector<HTMLElement>('[data-cy="video-fill-cover"]')!.textContent,
+		).toContain("铺满");
+	});
+
+	it("keeps the enhancement entry in the main menu and the preferences in 更多设置", async () => {
+		const { wrapper } = await mountMenu("settings");
+		await wrapper.get(selectors.settings).trigger("click");
+		await settle();
+
+		document.querySelector<HTMLElement>('[data-cy="player-upscale-toggle"]')!.click();
+		await settle();
+		expect(document.querySelector('[data-cy="upscale-tiers"]')).not.toBeNull();
+
+		document.querySelector<HTMLElement>(".settings-menu-container .menu-header")!.click();
+		await settle();
+		expect(document.querySelector('[data-cy="player-more-toggle"]')).not.toBeNull();
+		document.querySelector<HTMLElement>('[data-cy="player-more-toggle"]')!.click();
+		await settle();
+		expect(document.querySelector('[data-cy="player-preferences-toggle"]')).not.toBeNull();
 	});
 
 	it("offers picture fitting from the player menu", async () => {
@@ -387,6 +433,8 @@ describe("player menu placement", () => {
 		await settle();
 		await wrapper.get(selectors.settings).trigger("click");
 		await settle();
+		document.querySelector<HTMLElement>('[data-cy="player-more-toggle"]')!.click();
+		await settle();
 		document.querySelector<HTMLElement>('[data-cy="player-preferences-toggle"]')!.click();
 		await settle();
 
@@ -406,53 +454,93 @@ describe("player menu placement", () => {
 		expect(store.state.settings.volume).toBe(37);
 		expect(store.state.settings.muted).toBe(true);
 		expect(wrapper.get(selectors.settings).attributes("aria-expanded")).toBe("true");
-		const chatSelect = document.querySelector<HTMLElement>(
-			'[data-cy="chat-overlay-duration"] .v-field',
-		)!;
-		chatSelect.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-		await settle();
-		const choices = Array.from(
-			document.querySelectorAll<HTMLElement>('.v-overlay--active [role="option"]'),
-		);
-		expect(choices.map(item => item.textContent?.trim())).toEqual([
-			"关",
-			"3 秒",
-			"5 秒",
-			"10 秒",
-			"20 秒",
-		]);
-		expect(choices.every(item => player.contains(item))).toBe(true);
-		choices[0].click();
+		const chatChips = document.querySelector<HTMLElement>('[data-cy="chat-overlay-duration"]')!;
+		expect(
+			[...chatChips.querySelectorAll(".v-btn")].map(btn => btn.textContent?.trim()),
+		).toEqual(["关", "3 秒", "5 秒", "10 秒", "20 秒"]);
+		expect(player.contains(chatChips)).toBe(true);
+		chatChips.querySelectorAll<HTMLElement>(".v-btn")[0].click();
 		await settle();
 		expect(store.state.settings.chatOverlaySeconds).toBe(0);
 		expect(wrapper.get(selectors.settings).attributes("aria-expanded")).toBe("true");
 
-		const controlsSelect = document.querySelector<HTMLElement>(
-			'[data-cy="controls-hide-delay"] .v-field',
+		const controlsChips = document.querySelector<HTMLElement>(
+			'[data-cy="controls-hide-delay"]',
 		)!;
-		controlsSelect.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-		await settle();
-		const controlsChoices = Array.from(
-			document.querySelectorAll<HTMLElement>('.v-overlay--active [role="option"]'),
-		);
-		controlsChoices.find(item => item.textContent?.trim() === "10 秒")!.click();
+		[...controlsChips.querySelectorAll<HTMLElement>(".v-btn")]
+			.find(btn => btn.textContent?.trim() === "10 秒")!
+			.click();
 		await settle();
 		expect(store.state.settings.controlsHideSeconds).toBe(10);
 		for (const [selector, title, setting, value] of [
 			["presence-notice-duration", "关", "presenceNoticeSeconds", 0],
 			["seek-notice-duration", "2 秒", "seekNoticeSeconds", 2],
 		] as const) {
-			document
-				.querySelector<HTMLElement>(`[data-cy="${selector}"] .v-field`)!
-				.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-			await settle();
-			const noticeChoices = Array.from(
-				document.querySelectorAll<HTMLElement>('.v-overlay--active [role="option"]'),
-			);
-			noticeChoices.find(item => item.textContent?.trim() === title)!.click();
+			const chips = document.querySelector<HTMLElement>(`[data-cy="${selector}"]`)!;
+			[...chips.querySelectorAll<HTMLElement>(".v-btn")]
+				.find(btn => btn.textContent?.trim() === title)!
+				.click();
 			await settle();
 			expect(store.state.settings[setting]).toBe(value);
 		}
+	});
+
+	it("switches quality and subtitles from the control bar", async () => {
+		viewport.width = 1280;
+		viewport.height = 720;
+		page = mountComponent(VideoControls, {
+			props: {
+				sliderPosition: 100,
+				truePosition: 100,
+				controlsVisible: true,
+				mode: "in-video",
+			},
+			global: { provide: { [PlayerFullscreenKey as symbol]: { toggle: vi.fn() } } },
+		});
+		await settle();
+
+		const quality = page.wrapper.get('[data-cy="quality-toggle"]');
+		expect(quality.text()).toContain("720p");
+		await quality.trigger("click");
+		await settle();
+		const rendition = document.querySelector<HTMLElement>('[data-cy="quality-1"]');
+		expect(rendition).not.toBeNull();
+		rendition!.click();
+		await settle();
+		expect(useQualities().currentVideoTrack.value).toBe(1);
+
+		await page.wrapper.get('[data-cy="subtitle-toggle"]').trigger("click");
+		await settle();
+		const track = document.querySelector<HTMLElement>('[data-cy="subtitle-0"]');
+		expect(track).not.toBeNull();
+		track!.click();
+		await settle();
+		expect(useCaptions().currentTrack.value).toBe(0);
+		expect(useCaptions().isCaptionsEnabled.value).toBe(true);
+	});
+
+	it("opens the danmaku settings panel from the control bar", async () => {
+		viewport.width = 1280;
+		viewport.height = 720;
+		page = mountComponent(VideoControls, {
+			props: {
+				sliderPosition: 100,
+				truePosition: 100,
+				controlsVisible: true,
+				mode: "in-video",
+			},
+			global: { provide: { [PlayerFullscreenKey as symbol]: { toggle: vi.fn() } } },
+		});
+		await settle();
+
+		await page.wrapper.get('[data-cy="danmaku-settings-toggle"]').trigger("click");
+		await settle();
+		const panel = document.querySelector<HTMLElement>(".danmaku-panel");
+		expect(panel).not.toBeNull();
+		expect(panel!.textContent).toContain("不透明度");
+		// The block filters are chips now, not separate checkbox rows.
+		expect(document.querySelector('[data-cy="danmaku-block-scroll"]')).not.toBeNull();
+		expect(document.querySelector('[data-cy="danmaku-block-colored"]')).not.toBeNull();
 	});
 
 	it("keeps portrait controls compact, with volume and speed in settings, then expands on rotation or fullscreen", async () => {

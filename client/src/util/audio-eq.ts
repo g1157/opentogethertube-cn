@@ -33,6 +33,28 @@ export function resolveEqBands(preset: AudioEqPreset): AudioEqSpec | null {
 	return AUDIO_EQ_SPECS[preset] ?? null;
 }
 
+const IOS_USER_AGENT = /iPhone|iPad|iPod/;
+const SAFARI_USER_AGENT = /Safari\//;
+const NON_SAFARI_BRAND = /(Chrome|Chromium|CriOS|Edg|EdgiOS|FxiOS|OPR)/;
+
+/**
+ * Whether this browser can route a playing video's audio through Web Audio without
+ * wrecking playback. WebKit is excluded — Safari (and every iOS browser, which is WebKit
+ * underneath): once an element's audio has been attached to a Web Audio graph there,
+ * both the picture and the sound stutter for as long as that element lives, and the
+ * routing cannot be detached, so the only honest behaviour is to leave the graph alone.
+ */
+export function elementAudioRoutingSupported(
+	userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
+): boolean {
+	if (!userAgent) {
+		return true;
+	}
+	const ios = IOS_USER_AGENT.test(userAgent);
+	const safariDesktop = SAFARI_USER_AGENT.test(userAgent) && !NON_SAFARI_BRAND.test(userAgent);
+	return !ios && !safariDesktop;
+}
+
 function isSameOrigin(source: string, pageOrigin: string): boolean {
 	try {
 		return new URL(source, pageOrigin).origin === pageOrigin;

@@ -160,6 +160,7 @@ import {
 	Theme,
 } from "@/stores/settings";
 import { enumKeys } from "@/util/misc";
+import { elementAudioRoutingSupported } from "@/util/audio-eq";
 import AutoSkipSegmentSettings from "./AutoSkipSegmentSettings.vue";
 
 type ExcludedFields = "volume" | "locale";
@@ -258,6 +259,9 @@ const themes = computed(() =>
 	})),
 );
 const isAudioBoostUnsupported = computed(() => {
+	if (!elementAudioRoutingSupported()) {
+		return true;
+	}
 	if (!controls.checkForPlayer(controls.player.value)) {
 		return false;
 	}
@@ -265,6 +269,9 @@ const isAudioBoostUnsupported = computed(() => {
 	return !implementsAudioBoost(controls.player.value);
 });
 const audioBoostHint = computed(() => {
+	if (!elementAudioRoutingSupported()) {
+		return t("client-settings.audio-boost-browser-unsupported");
+	}
 	if (isAudioBoostUnsupported.value) {
 		return t("client-settings.audio-boost-unsupported");
 	}

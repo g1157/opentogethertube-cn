@@ -28,7 +28,12 @@ const MIN_FONT_PX = 12;
 const MAX_FONT_PX = 44;
 const SCROLL_DURATION_SECONDS = 8;
 const MAX_ON_SCREEN = 100;
-const MAX_DPR = 3;
+/**
+ * Text is ~19px; two device pixels per CSS pixel is already supersampled well past what
+ * the eye resolves, and the third used to multiply the per-frame clear/fill cost for
+ * nothing on a 3x display.
+ */
+const MAX_DPR = 2;
 const FONT_FAMILY = "system-ui, sans-serif";
 const FONT_WEIGHT = 500;
 const OUTLINE_WIDTH = 1.2;
@@ -37,9 +42,8 @@ let engine: DanmakuEngine | null = null;
 let items: DanmakuItem[] | null = null;
 let loadGeneration = 0;
 let frameRequest = 0;
-let frameViaAnimation = false;
-/** The element the pending frame callback was registered on; props.video may be newer. */
-let frameElement: HTMLVideoElement | null = null;
+/** Media time of the last painted frame; an unchanged clock needs no repaint. */
+let lastDrawnTime = -1;
 let running = false;
 let frameWidth = 0;
 let frameHeight = 0;
@@ -131,7 +135,9 @@ function sizeCanvas(video: HTMLVideoElement) {
 
 function draw(rendered: DanmakuRenderItem[]) {
 	const canvas = canvasElem.value;
-	const context = canvas?.getContext("2d");
+	// desynchronized lets the compositor take the frame without waiting on the main
+	// thread, which keeps the overlay a touch closer to the picture it annotates.
+	const context = canvas?.getContext("2d", { desynchronized: true });
 	if (!canvas || !context) {
 		return;
 	}
@@ -158,21 +164,29 @@ function redrawCurrent() {
 	const video = props.video;
 	if (video && engine) {
 		draw(engine.tick(video.currentTime));
+		lastDrawnTime = video.currentTime;
 	}
 }
 
 /**
- * The schedule advances with the media clock itself, which already folds in the room
- * speed, rate bends and local seeking — there is no separate wall clock to drift.
+ * The requestAnimationFrame loop paints at the display's rate and reads the media clock
+ * for the schedule itself. Driving it from requestVideoFrameCallback instead — which
+ * only fires when the video presents a frame — capped the motion to the source's frame
+ * rate (24fps anime juddered on a 60Hz screen) for no benefit: the clock is continuous
+ * either way, and the room's speed, rate bends and local seeks already live in it.
  */
 function onFrame() {
 	frameRequest = 0;
-	frameElement = null;
 	const video = props.video;
-	if (!video || !engine) {
+	if (!video || !engine || video.paused) {
+		// A paused picture is repainted by whichever handler changes it; the play
+		// listener starts the loop again when playback resumes.
 		return;
 	}
-	draw(engine.tick(video.currentTime));
+	if (video.currentTime !== lastDrawnTime) {
+		draw(engine.tick(video.currentTime));
+		lastDrawnTime = video.currentTime;
+	}
 	schedule();
 }
 
@@ -181,39 +195,29 @@ function schedule() {
 		return;
 	}
 	const video = props.video;
-	if (!video || document.hidden) {
+	if (!video || video.paused || document.hidden) {
 		return;
 	}
-	if (typeof video.requestVideoFrameCallback === "function") {
-		frameViaAnimation = false;
-		frameRequest = video.requestVideoFrameCallback(onFrame);
-	} else {
-		// Older browsers without the frame API: rAF is close enough to the picture.
-		frameViaAnimation = true;
-		frameRequest = requestAnimationFrame(onFrame);
-	}
-	frameElement = video;
+	frameRequest = requestAnimationFrame(onFrame);
 }
 
 function cancelFrame() {
 	if (frameRequest === 0) {
 		return;
 	}
-	if (frameViaAnimation) {
-		cancelAnimationFrame(frameRequest);
-	} else {
-		// The handle belongs to the element it was requested on; after a source-driven
-		// element swap props.video would be a different one and never release the handle.
-		frameElement?.cancelVideoFrameCallback?.(frameRequest);
-	}
+	cancelAnimationFrame(frameRequest);
 	frameRequest = 0;
-	frameElement = null;
 }
 
 function updateRunning() {
 	const enabled = store.state.settings.danmakuEnabled && !!items?.length && frameWidth > 0;
 	running = enabled && !!props.video && !document.hidden;
 	if (running) {
+		if (props.video?.paused) {
+			// A paused picture cannot advance the loop; show the current moment once.
+			redrawCurrent();
+			return;
+		}
 		schedule();
 		return;
 	}
@@ -231,7 +235,13 @@ function onSeeked() {
 		return;
 	}
 	engine.seekTo(video.currentTime);
-	draw([]);
+	// Re-anchored immediately: a paused seek must show the new position without waiting
+	// for a frame, and a playing one starts from the same clock on the next frame.
+	redrawCurrent();
+	schedule();
+}
+
+function onPlay() {
 	schedule();
 }
 
@@ -251,6 +261,7 @@ function onLoadedMetadata() {
 
 function onEmptied() {
 	engine?.reset();
+	lastDrawnTime = -1;
 	draw([]);
 }
 
@@ -275,6 +286,7 @@ function attachVideo(video: HTMLVideoElement | undefined) {
 	if (!video) {
 		return;
 	}
+	video.addEventListener("play", onPlay);
 	video.addEventListener("pause", onPause);
 	video.addEventListener("seeked", onSeeked);
 	video.addEventListener("loadedmetadata", onLoadedMetadata);
@@ -285,6 +297,7 @@ function detachVideo(video: HTMLVideoElement | undefined) {
 	if (!video) {
 		return;
 	}
+	video.removeEventListener("play", onPlay);
 	video.removeEventListener("pause", onPause);
 	video.removeEventListener("seeked", onSeeked);
 	video.removeEventListener("loadedmetadata", onLoadedMetadata);

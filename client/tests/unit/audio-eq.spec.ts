@@ -3,6 +3,7 @@ import {
 	AUDIO_EQ_BANDS_HZ,
 	AUDIO_EQ_SPECS,
 	canRouteMediaThroughWebAudio,
+	elementAudioRoutingSupported,
 	resolveEqBands,
 } from "@/util/audio-eq";
 
@@ -25,6 +26,30 @@ describe("audio EQ presets", () => {
 
 	it("treats off as leaving the mix alone", () => {
 		expect(resolveEqBands("off")).toBeNull();
+	});
+});
+
+describe("WebKit element-audio routing guard", () => {
+	it("rejects every WebKit browser and accepts the Chromium and Gecko families", () => {
+		// Attaching element audio in WebKit stutters playback permanently; Safari and every
+		// iOS browser (all WebKit under the hood) must be kept away from the graph.
+		const chromeUA =
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36";
+		const firefoxUA =
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:141.0) Gecko/20100101 Firefox/141.0";
+		const safariUA =
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Safari/605.1.15";
+		const iosSafariUA =
+			"Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1";
+		const iosChromeUA =
+			"Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/154.0.0.0 Mobile/15E148 Safari/604.1";
+		expect(elementAudioRoutingSupported(chromeUA)).toBe(true);
+		expect(elementAudioRoutingSupported(firefoxUA)).toBe(true);
+		expect(elementAudioRoutingSupported(safariUA)).toBe(false);
+		expect(elementAudioRoutingSupported(iosSafariUA)).toBe(false);
+		expect(elementAudioRoutingSupported(iosChromeUA)).toBe(false);
+		// An empty user agent (an environment without one) must not disable the feature.
+		expect(elementAudioRoutingSupported("")).toBe(true);
 	});
 });
 

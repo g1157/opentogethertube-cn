@@ -753,6 +753,8 @@ describe("room player interactions", () => {
 		await settings.get("button").trigger("click");
 		await vi.advanceTimersByTimeAsync(4000);
 		expect(page.wrapper.get(".video-controls").classes()).not.toContain("hide");
+		document.querySelector<HTMLElement>('[data-cy="player-more-toggle"]')!.click();
+		await nextTick();
 		document.querySelectorAll<HTMLButtonElement>(".seek-step-options button")[2].click();
 		await nextTick();
 		expect(page.store.state.settings.seekSeconds).toBe(30);

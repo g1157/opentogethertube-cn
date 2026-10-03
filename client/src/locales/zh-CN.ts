@@ -269,6 +269,7 @@ export default {
 			"block-colored": "彩色弹幕",
 			"anti-collision": "防碰撞",
 			unavailable: "该片源暂无弹幕。",
+			settings: "弹幕设置",
 		},
 		audio: {
 			title: "音效",
@@ -279,6 +280,8 @@ export default {
 			unavailable: "当前播放器不支持音效调节。",
 			blocked: "该片源不允许跨域访问，无法启用音效调节。",
 			"blocked-toast": "该片源不允许跨域访问，音效调节已保留，换片源后自动生效。",
+			"browser-unsupported":
+				"Safari（WebKit）下接入音频处理会导致播放持续卡顿，音效调节已停用；可用 Chrome 或 Firefox。",
 		},
 		display: {
 			title: "画面",
@@ -288,7 +291,8 @@ export default {
 			hint: "仅改变你这台设备的显示；不影响其他观众。",
 			unavailable: "当前播放器不支持画面调整。",
 		},
-		"personal-preferences": "个人偏好",
+		"more-settings": "更多设置",
+		"subtitle-off": "关闭字幕",
 		pip: "画中画",
 		"player-settings": "播放器设置",
 		subtitles: "字幕/CC",
@@ -731,6 +735,8 @@ export default {
 		"audio-boost": "音频增强",
 		"audio-boost-hint": "将支持的非 iframe 播放器的音频增强至 300%。音效不受影响。",
 		"audio-boost-unsupported": "当前播放器不支持音频增强。音效不受影响。",
+		"audio-boost-browser-unsupported":
+			"Safari（WebKit）下音频增强会导致播放持续卡顿，已停用；可用 Chrome 或 Firefox。",
 		"sfx-enable": "新消息提示音",
 		"sfx-hint": "默认关闭，只影响新消息提示音，不改变视频音量。",
 		"sfx-volume": "提示音音量",

@@ -1,4 +1,5 @@
 import type { InjectionKey } from "vue";
+import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 
 export interface PlayerFullscreen {
 	/** Resolves true when native fullscreen is active (or was already); false when only the
@@ -16,6 +17,21 @@ type FullscreenDocument = Document & {
 	webkitFullscreenElement?: Element;
 	webkitExitFullscreen?: () => Promise<void> | void;
 };
+type LockableOrientation = ScreenOrientation & {
+	lock?: (orientation: string) => Promise<void>;
+};
+
+/** Phones only: a desktop window never rotates, and tablets read fine in portrait. */
+function shouldLockLandscape(): boolean {
+	if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+		return false;
+	}
+	return window.matchMedia(PHONE_MAX_QUERY).matches;
+}
+
+function getOrientation(): LockableOrientation | undefined {
+	return typeof screen === "undefined" ? undefined : (screen.orientation as LockableOrientation);
+}
 
 /** Keep native and fallback fullscreen scoped to the player, including its controls. */
 export function createPlayerFullscreen(
@@ -29,6 +45,38 @@ export function createPlayerFullscreen(
 	let disposed = false;
 	let generation = 0;
 	let restoreScroll: (() => void) | undefined;
+	let landscapeLocked = false;
+
+	/** Tapping fullscreen on a phone should fill the screen the way it is watched: wide. */
+	async function lockLandscape() {
+		if (landscapeLocked || !shouldLockLandscape()) {
+			return;
+		}
+		const orientation = getOrientation();
+		if (!orientation?.lock) {
+			// iOS exposes no orientation lock; there the user rotates, or the native
+			// player handles rotation by itself.
+			return;
+		}
+		try {
+			await orientation.lock("landscape");
+			landscapeLocked = true;
+		} catch {
+			// Chrome only honors the lock once fullscreen is fully active; a rejection is fine.
+		}
+	}
+
+	function unlockLandscape() {
+		if (!landscapeLocked) {
+			return;
+		}
+		landscapeLocked = false;
+		try {
+			getOrientation()?.unlock?.();
+		} catch {
+			// Unlock failures are harmless.
+		}
+	}
 
 	function nativeElement() {
 		return doc.fullscreenElement ?? doc.webkitFullscreenElement;
@@ -76,6 +124,7 @@ export function createPlayerFullscreen(
 		if (!target) {
 			restoreScroll?.();
 			restoreScroll = undefined;
+			unlockLandscape();
 		}
 		onChange(!!target);
 	}
@@ -118,6 +167,9 @@ export function createPlayerFullscreen(
 		try {
 			await request.call(target);
 			fallback = !nativeElement();
+			if (!fallback) {
+				await lockLandscape();
+			}
 		} catch {
 			// Keep a usable player-only fullscreen when the browser denies the API.
 			fallback = true;
