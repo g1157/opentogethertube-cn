@@ -1,5 +1,5 @@
 <template>
-	<div class="dash">
+	<div class="dash" :class="{ 'video-fill-cover': fillMode === 'cover', 'video-mirror': mirror }">
 		<video
 			id="dashplayer"
 			ref="videoElem"
@@ -50,7 +50,7 @@ import { useCaptions, useMediaAudioBoost, useQualities } from "../composables";
 import UpscaleLayer from "./UpscaleLayer.vue";
 import DanmakuLayer from "./DanmakuLayer.vue";
 import { useStore } from "@/store";
-import { enhancementLayerMode } from "@/stores/settings";
+import { enhancementLayerMode, type AudioEqPreset } from "@/stores/settings";
 
 interface Props {
 	videoUrl: string;
@@ -66,6 +66,8 @@ const captions = useCaptions();
 const qualities = useQualities();
 const store = useStore();
 const upscaleMode = computed(() => store.state.settings.upscaleMode);
+const fillMode = computed(() => store.state.settings.videoFillMode);
+const mirror = computed(() => store.state.settings.videoMirror);
 const dash = ref<MediaPlayerClass | undefined>(undefined);
 const audioBoost = useMediaAudioBoost(videoElem);
 let sourceGeneration = 0;
@@ -337,6 +339,10 @@ function setAudioBoost(boost: number): void {
 	audioBoost.setBoost(boost);
 }
 
+function setAudioEq(preset: AudioEqPreset): void {
+	audioBoost.setEq(preset);
+}
+
 function loadVideoSource(resumePosition: number | null = null) {
 	console.log("DashPlayer: loading video source:", props.videoUrl);
 	if (!videoElem.value) {
@@ -575,6 +581,7 @@ defineExpose({
 	getPlaybackRate,
 	setPlaybackRate,
 	setAudioBoost,
+	setAudioEq,
 } satisfies MediaPlayerWithCaptions & MediaPlayerWithQuality & MediaPlayerWithPlaybackRate & MediaPlayerWithAudioBoost);
 </script>
 
@@ -597,5 +604,15 @@ defineExpose({
 	height: 100%;
 	object-fit: contain;
 	object-position: 50% 50%;
+}
+
+.dash.video-fill-cover video,
+.dash.video-fill-cover .upscale-canvas {
+	object-fit: cover;
+}
+
+.dash.video-mirror video,
+.dash.video-mirror .upscale-canvas {
+	transform: scaleX(-1);
 }
 </style>

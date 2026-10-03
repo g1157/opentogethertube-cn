@@ -9,7 +9,12 @@ import { OttSfx } from "@/plugins/sfx";
 import { flush, mountComponent } from "./component-test-utils";
 
 vi.mock("@/components/composables/media-audio-boost", () => ({
-	useMediaAudioBoost: () => ({ setBoost: vi.fn(), resetFailedSetup: vi.fn() }),
+	useMediaAudioBoost: () => ({
+		setBoost: vi.fn(),
+		setEq: vi.fn(),
+		resetFailedSetup: vi.fn(),
+		hasActiveGraph: () => false,
+	}),
 }));
 
 // The guest identity now arrives over the API and the room waits for it before connecting;

@@ -530,6 +530,53 @@ describe("local media frame readiness", () => {
 		frame();
 		expect(last().phase).toBeNull();
 	});
+
+	it("moves its listeners to a replacement element when the player remounts the surface", () => {
+		// The CORS fallback replaces the <video> element (a Web Audio graph cannot be
+		// detached from the old one); the tracker is attached once, so without reattach()
+		// every loading signal would go dark on the new element.
+		const previous = video;
+		const removeListener = vi.spyOn(previous, "removeEventListener");
+
+		const replacementState = {
+			readyState: 1,
+			currentTime: 0,
+			paused: true,
+			seeking: false,
+			videoWidth: 1280,
+			videoHeight: 720,
+			buffered: ranges([]),
+			error: null as MediaError | null,
+		};
+		const replacement = document.createElement("video");
+		for (const key of Object.keys(replacementState) as (keyof typeof replacementState)[]) {
+			Object.defineProperty(replacement, key, {
+				configurable: true,
+				get: () => replacementState[key],
+			});
+		}
+		Object.defineProperties(replacement, {
+			requestVideoFrameCallback: { configurable: true, value: vi.fn(() => 1) },
+			cancelVideoFrameCallback: { configurable: true, value: vi.fn() },
+		});
+
+		video = replacement;
+		states.length = 0;
+		controller.reattach();
+
+		expect(removeListener).toHaveBeenCalledWith("loadstart", expect.any(Function));
+		expect(last().phase).toBe("buffering");
+
+		// The old element is inert now: its events no longer reach the tracker.
+		states.length = 0;
+		previous.dispatchEvent(new Event("loadeddata"));
+		expect(states).toHaveLength(0);
+
+		// The replacement drives the tracker from its own events.
+		replacementState.readyState = 4;
+		replacement.dispatchEvent(new Event("loadeddata"));
+		expect(last().phase).toBeNull();
+	});
 });
 
 describe("continuous media buffer ahead", () => {

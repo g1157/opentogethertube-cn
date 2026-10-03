@@ -1,5 +1,5 @@
 <template>
-	<div class="hls">
+	<div class="hls" :class="{ 'video-fill-cover': fillMode === 'cover', 'video-mirror': mirror }">
 		<video
 			ref="videoElem"
 			playsinline
@@ -34,7 +34,7 @@ import Hls from "hls.js";
 import { computed, onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
 import { useStore } from "@/store";
-import { enhancementLayerMode } from "@/stores/settings";
+import { enhancementLayerMode, type AudioEqPreset } from "@/stores/settings";
 import UpscaleLayer from "./UpscaleLayer.vue";
 import DanmakuLayer from "./DanmakuLayer.vue";
 import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
@@ -85,6 +85,8 @@ const qualities = useQualities();
 const audioBoost = useMediaAudioBoost(videoElem);
 const store = useStore();
 const upscaleMode = computed(() => store.state.settings.upscaleMode);
+const fillMode = computed(() => store.state.settings.videoFillMode);
+const mirror = computed(() => store.state.settings.videoMirror);
 let hls: Hls | undefined;
 let audioOnly = false;
 
@@ -305,6 +307,10 @@ async function setPlaybackRate(rate: number): Promise<void> {
 
 function setAudioBoost(boost: number): void {
 	audioBoost.setBoost(boost);
+}
+
+function setAudioEq(preset: AudioEqPreset): void {
+	audioBoost.setEq(preset);
 }
 
 function loadVideoSource() {
@@ -602,6 +608,7 @@ defineExpose({
 	getPlaybackRate,
 	setPlaybackRate,
 	setAudioBoost,
+	setAudioEq,
 	retry: recovery.retry,
 	isSeeking: recovery.isSeeking,
 	isRecovering: recovery.isRecovering,
@@ -627,5 +634,15 @@ defineExpose({
 	height: 100%;
 	object-fit: contain;
 	object-position: 50% 50%;
+}
+
+.hls.video-fill-cover video,
+.hls.video-fill-cover .upscale-canvas {
+	object-fit: cover;
+}
+
+.hls.video-mirror video,
+.hls.video-mirror .upscale-canvas {
+	transform: scaleX(-1);
 }
 </style>

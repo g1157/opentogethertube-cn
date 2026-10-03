@@ -9,7 +9,13 @@ import BasicControls from "@/components/controls/BasicControls.vue";
 import PlaybackRateSwitcher from "@/components/controls/PlaybackRateSwitcher.vue";
 import LayoutSwitcher from "@/components/controls/LayoutSwitcher.vue";
 import ClosedCaptionsSwitcher from "@/components/controls/ClosedCaptionsSwitcher.vue";
-import { useCaptions, usePlaybackRate, useQualities } from "@/components/composables";
+import {
+	useCaptions,
+	useMediaPlayer,
+	usePlaybackRate,
+	useQualities,
+} from "@/components/composables";
+import type { MediaPlayer } from "@/components/composables";
 import { useStore } from "@/store";
 import { PlayerFullscreenKey } from "@/util/player-fullscreen";
 import { mountComponent } from "./component-test-utils";
@@ -76,12 +82,13 @@ function menuHarness(kind: MenuKind) {
 		components: { VideoSettings, PlaybackRateSwitcher },
 		setup() {
 			const store = useStore();
+			const controls = useMediaPlayer();
 			const player = ref<HTMLElement | null>(null);
 			const defaults = computed(() => ({
 				VMenu: { attach: store.state.fullscreen ? player.value : false },
 				VTooltip: { attach: store.state.fullscreen ? player.value : false },
 			}));
-			return { player, defaults, store };
+			return { player, defaults, store, controls };
 		},
 		template: `<div ref="player" class="player-menu-host" :class="{ 'player-fullscreen': store.state.fullscreen }" :style="{ position: store.state.fullscreen ? 'fixed' : 'relative' }">
 			<v-defaults-provider :defaults="defaults">
@@ -93,6 +100,7 @@ function menuHarness(kind: MenuKind) {
 
 describe("player menu placement", () => {
 	let page: ReturnType<typeof mountComponent> | undefined;
+	let menuControls: ReturnType<typeof useMediaPlayer> | undefined;
 	let viewport: TestViewport;
 	let buttonRect: DOMRect;
 	let menuHeight: number;
@@ -179,6 +187,8 @@ describe("player menu placement", () => {
 	});
 
 	afterEach(() => {
+		menuControls?.setPlayer(null);
+		menuControls = undefined;
 		page?.wrapper.unmount();
 		page = undefined;
 		TestResizeObserver.instances.clear();
@@ -298,9 +308,7 @@ describe("player menu placement", () => {
 		const previousTop = content.style.top;
 		menuHeight = 560;
 		// 0 = subtitles, 1 = video enhancement, 2 = bullet comments, 3 = quality.
-		document
-			.querySelectorAll<HTMLElement>(".settings-menu-container .menu-item")[3]
-			.click();
+		document.querySelectorAll<HTMLElement>(".settings-menu-container .menu-item")[3].click();
 		await settle();
 		TestResizeObserver.resize(content);
 		await settle();
@@ -308,6 +316,55 @@ describe("player menu placement", () => {
 		expect(content.textContent).toContain("1080p");
 		expect(content.style.top).not.toBe(previousTop);
 		expectInViewport(content);
+	});
+
+	it("offers audio presets from the player menu and commits the choice", async () => {
+		const { wrapper, store } = await mountMenu("settings");
+		menuControls = (wrapper.vm as unknown as { controls: ReturnType<typeof useMediaPlayer> })
+			.controls;
+		menuControls.setPlayer({
+			setAudioBoost: vi.fn(),
+			setAudioEq: vi.fn(),
+		} as unknown as MediaPlayer);
+		menuControls.markApiReady();
+		await settle();
+
+		await wrapper.get(selectors.settings).trigger("click");
+		await settle();
+		document.querySelector<HTMLElement>('[data-cy="player-audio-toggle"]')!.click();
+		await settle();
+
+		const bass = document.querySelector<HTMLElement>('[data-cy="audio-eq-bass"]');
+		expect(bass).not.toBeNull();
+		bass!.click();
+		await settle();
+
+		expect(store.state.settings.audioEqPreset).toBe("bass");
+	});
+
+	it("offers picture fitting from the player menu", async () => {
+		const { wrapper, store } = await mountMenu("settings");
+		menuControls = (wrapper.vm as unknown as { controls: ReturnType<typeof useMediaPlayer> })
+			.controls;
+		menuControls.setPlayer({
+			setAudioBoost: vi.fn(),
+			setAudioEq: vi.fn(),
+		} as unknown as MediaPlayer);
+		menuControls.markApiReady();
+		await settle();
+
+		await wrapper.get(selectors.settings).trigger("click");
+		await settle();
+		document.querySelector<HTMLElement>('[data-cy="player-display-toggle"]')!.click();
+		await settle();
+
+		document.querySelector<HTMLElement>('[data-cy="video-fill-cover"]')!.click();
+		await settle();
+		expect(store.state.settings.videoFillMode).toBe("cover");
+
+		document.querySelector<HTMLInputElement>('[data-cy="video-mirror"] input')!.click();
+		await settle();
+		expect(store.state.settings.videoMirror).toBe(true);
 	});
 
 	it("selects playback speed once and closes the connected menu", async () => {

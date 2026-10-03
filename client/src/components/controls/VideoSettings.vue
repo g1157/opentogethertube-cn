@@ -98,6 +98,32 @@
 								</span>
 							</div>
 						</v-list-item>
+						<v-list-item
+							link
+							class="menu-item"
+							:append-icon="mdiChevronRight"
+							:prepend-icon="mdiMusicNote"
+							@click="navigateToMenu('audio')"
+							data-cy="player-audio-toggle"
+						>
+							<div class="menu-item-content">
+								<span>{{ $t("room.audio.title") }}</span>
+								<span class="menu-item-value">{{ audioLabel }}</span>
+							</div>
+						</v-list-item>
+						<v-list-item
+							link
+							class="menu-item"
+							:append-icon="mdiChevronRight"
+							:prepend-icon="mdiAspectRatio"
+							@click="navigateToMenu('display')"
+							data-cy="player-display-toggle"
+						>
+							<div class="menu-item-content">
+								<span>{{ $t("room.display.title") }}</span>
+								<span class="menu-item-value">{{ displayLabel }}</span>
+							</div>
+						</v-list-item>
 						<v-list-item>
 							<v-list-item-title>{{
 								$t("player.interactions.seek-step")
@@ -119,6 +145,9 @@
 								</v-btn>
 							</v-btn-toggle>
 						</v-list-item>
+						<v-list-subheader class="menu-group-label">
+							{{ $t("room.personal-preferences") }}
+						</v-list-subheader>
 						<v-list-item
 							link
 							class="menu-item"
@@ -251,6 +280,98 @@
 							@click="selectQuality(idx)"
 						>
 							{{ formatQuality(quality) }}
+						</v-list-item>
+					</v-list>
+
+					<!-- Audio submenu -->
+					<v-list
+						v-else-if="currentMenu === 'audio'"
+						key="audio"
+						class="menu-content"
+						color="primary"
+					>
+						<v-list-item
+							link
+							class="menu-header"
+							:prepend-icon="mdiChevronLeft"
+							@click="navigateToMenu('main')"
+						>
+							{{ $t("room.audio.title") }}
+						</v-list-item>
+						<template v-if="audioEqSupported">
+							<v-list-item v-if="audioEqBlocked">
+								<v-list-item-title class="settings-unavailable">
+									{{ $t("room.audio.blocked") }}
+								</v-list-item-title>
+							</v-list-item>
+							<v-list-item
+								v-for="option in audioEqOptions"
+								:key="option.value"
+								link
+								:active="store.state.settings.audioEqPreset === option.value"
+								:data-cy="`audio-eq-${option.value}`"
+								@click="selectAudioEq(option.value)"
+							>
+								{{ option.text }}
+							</v-list-item>
+							<v-list-item>
+								<v-list-item-subtitle class="settings-note">
+									{{ $t("room.audio.hint") }}
+								</v-list-item-subtitle>
+							</v-list-item>
+						</template>
+						<v-list-item v-else>
+							<v-list-item-title class="settings-unavailable">
+								{{ $t("room.audio.unavailable") }}
+							</v-list-item-title>
+						</v-list-item>
+					</v-list>
+
+					<!-- Display submenu -->
+					<v-list
+						v-else-if="currentMenu === 'display'"
+						key="display"
+						class="menu-content"
+						color="primary"
+					>
+						<v-list-item
+							link
+							class="menu-header"
+							:prepend-icon="mdiChevronLeft"
+							@click="navigateToMenu('main')"
+						>
+							{{ $t("room.display.title") }}
+						</v-list-item>
+						<template v-if="nativeSurfaceSupported">
+							<v-list-item
+								v-for="option in fillModeOptions"
+								:key="option.value"
+								link
+								:active="videoFillMode === option.value"
+								:data-cy="`video-fill-${option.value}`"
+								@click="selectFillMode(option.value)"
+							>
+								{{ option.text }}
+							</v-list-item>
+							<v-list-item>
+								<v-checkbox
+									v-model="videoMirror"
+									:label="$t('room.display.mirror')"
+									density="compact"
+									hide-details
+									data-cy="video-mirror"
+								/>
+							</v-list-item>
+							<v-list-item>
+								<v-list-item-subtitle class="settings-note">
+									{{ $t("room.display.hint") }}
+								</v-list-item-subtitle>
+							</v-list-item>
+						</template>
+						<v-list-item v-else>
+							<v-list-item-title class="settings-unavailable">
+								{{ $t("room.display.unavailable") }}
+							</v-list-item-title>
 						</v-list-item>
 					</v-list>
 
@@ -534,12 +655,21 @@
 import { ref, computed, nextTick, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useMediaQuery } from "@vueuse/core";
-import { useCaptions, useDanmaku, useQualities } from "../composables";
+import {
+	audioEqSourceBlocked,
+	useCaptions,
+	useDanmaku,
+	useMediaPlayer,
+	useQualities,
+} from "../composables";
+import type { MediaPlayer, MediaPlayerWithAudioBoost } from "../composables";
 import {
 	mdiCog,
 	mdiAutoFix,
+	mdiAspectRatio,
 	mdiClosedCaptionOutline,
 	mdiClosedCaption,
+	mdiMusicNote,
 	mdiTune,
 	mdiChevronLeft,
 	mdiChevronRight,
@@ -548,10 +678,14 @@ import {
 	mdiCommentMultipleOutline,
 } from "@mdi/js";
 import { getFriendlyResolutionLabel } from "@/util/misc";
+import { qualityTierFromHeight } from "@/util/quality-display";
 import type { VideoTrack, CaptionTrack } from "@/models/media-tracks";
+import { ToastStyle } from "@/models/toast";
+import toast from "@/util/toast";
 import { usePlayerControlsActivity } from "@/util/player-controls";
 import { useStore } from "@/store";
 import {
+	AUDIO_EQ_PRESETS,
 	CHAT_OVERLAY_SECONDS_OPTIONS,
 	CONTROLS_HIDE_SECONDS_OPTIONS,
 	DANMAKU_FONT_SIZE_OPTIONS,
@@ -562,6 +696,9 @@ import {
 	ROOM_NOTICE_SECONDS_OPTIONS,
 	UPSCALE_MODES,
 	UPSCALE_SCALES,
+	VIDEO_FILL_MODES,
+	type AudioEqPreset,
+	type VideoFillMode,
 } from "@/stores/settings";
 import { canRunWebGPUEnhancement, webgpuVideoUploadSupported } from "@/util/upscale/webgpu-probe";
 import VolumeControl from "./VolumeControl.vue";
@@ -694,6 +831,76 @@ const danmakuSpeedOptions = computed(() =>
 		value: speed,
 	})),
 );
+const controls = useMediaPlayer();
+
+function implementsAudioBoost(p: MediaPlayer | null): p is MediaPlayerWithAudioBoost {
+	return !!p && "setAudioBoost" in p;
+}
+
+/** Sound shaping and picture fitting need the media element; iframe players have none. */
+const nativeSurfaceSupported = computed(
+	() =>
+		controls.checkForPlayer(controls.player.value) &&
+		implementsAudioBoost(controls.player.value),
+);
+const audioEqSupported = computed(() => nativeSurfaceSupported.value);
+const audioEqBlocked = computed(() => audioEqSourceBlocked.value);
+const audioEqOptions = computed(() =>
+	AUDIO_EQ_PRESETS.map(preset => ({
+		// biome-ignore lint/nursery/noVueRefAsOperand: preset values are plain strings, not Vue refs.
+		title: t(`room.audio.${preset}`),
+		value: preset,
+	})),
+);
+const audioLabel = computed(() =>
+	nativeSurfaceSupported.value
+		? t(`room.audio.${store.state.settings.audioEqPreset}`)
+		: t("player.settings.disabled"),
+);
+
+function selectAudioEq(preset: AudioEqPreset): void {
+	store.commit("settings/UPDATE", { audioEqPreset: preset });
+	closeMenu();
+	if (preset === "off") {
+		return;
+	}
+	// The player applies the preset through a watcher; one tick later it has reported
+	// whether this source could be routed through Web Audio at all.
+	void nextTick().then(() => {
+		if (audioEqBlocked.value) {
+			toast.add({
+				style: ToastStyle.Neutral,
+				content: t("room.audio.blocked-toast"),
+				duration: 6000,
+			});
+		}
+	});
+}
+
+const videoFillMode = computed({
+	get: () => store.state.settings.videoFillMode,
+	set: value => store.commit("settings/UPDATE", { videoFillMode: value }),
+});
+const videoMirror = computed({
+	get: () => store.state.settings.videoMirror,
+	set: value => store.commit("settings/UPDATE", { videoMirror: value }),
+});
+const fillModeOptions = computed(() =>
+	VIDEO_FILL_MODES.map(mode => ({
+		// biome-ignore lint/nursery/noVueRefAsOperand: mode values are plain strings, not Vue refs.
+		title: t(`room.display.${mode}`),
+		value: mode,
+	})),
+);
+const displayLabel = computed(() =>
+	nativeSurfaceSupported.value
+		? t(`room.display.${videoFillMode.value}`)
+		: t("player.settings.disabled"),
+);
+
+function selectFillMode(mode: VideoFillMode): void {
+	videoFillMode.value = mode;
+}
 const canHover = useMediaQuery("(hover: hover) and (pointer: fine)");
 const menu = ref<{ updateLocation: () => void } | null>(null);
 // VMenu resets inherited defaults inside its content, including nested select menus.
@@ -752,9 +959,9 @@ const hlsBufferOptions = computed(() =>
 );
 
 // Menu types - using literal string values instead of enum due to Safari compatibility issues
-const currentMenu = ref<"main" | "quality" | "subtitle" | "preferences" | "upscale" | "danmaku">(
-	"main",
-);
+const currentMenu = ref<
+	"main" | "quality" | "subtitle" | "preferences" | "upscale" | "danmaku" | "audio" | "display"
+>("main");
 const isMenuOpen = ref<boolean>(false);
 usePlayerControlsActivity(isMenuOpen);
 
@@ -814,7 +1021,12 @@ function formatCaption(track: CaptionTrack): string {
 
 function formatQuality(videoTrack: VideoTrack): string {
 	const resolution = videoTrack.label ?? getFriendlyResolutionLabel(videoTrack);
-	return `${resolution}p`;
+	const resolutionText = `${resolution}p`;
+	const tier = qualityTierFromHeight(videoTrack.height);
+	if (!tier) {
+		return resolutionText;
+	}
+	return `${t(`player.settings.quality-tiers.${tier}`)} · ${resolutionText}`;
 }
 
 const autoQualityDisplay = computed(() => {
@@ -865,6 +1077,14 @@ function closeMenu(): void {
 
 function selectQuality(idx: number): void {
 	qualities.currentVideoTrack.value = idx;
+	const track = idx >= 0 ? qualities.videoTracks.value[idx] : undefined;
+	toast.add({
+		style: ToastStyle.Neutral,
+		content: t("player.settings.quality-switching", {
+			quality: track ? formatQuality(track) : t("player.settings.auto"),
+		}),
+		duration: 5000,
+	});
 	closeMenu();
 }
 
@@ -997,6 +1217,29 @@ function selectSubtitleTrack(track: number): void {
 	font-size: 0.8rem;
 	opacity: 0.7;
 	padding: 4px 0;
+}
+
+.settings-unavailable {
+	font-size: 0.8rem;
+	opacity: 0.7;
+	padding: 4px 0;
+}
+
+.settings-note {
+	font-size: 0.75rem;
+	line-height: 1.5;
+	opacity: 0.6;
+	white-space: normal;
+	padding: 4px 0;
+}
+
+.menu-group-label {
+	font-size: 0.72rem;
+	letter-spacing: 0.06em;
+	opacity: 0.6;
+	min-height: 32px;
+	padding-top: 10px;
+	padding-bottom: 0;
 }
 
 .upscale-section-title {

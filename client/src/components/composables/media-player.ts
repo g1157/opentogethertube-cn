@@ -1,5 +1,6 @@
 import { computed, effectScope, inject, onMounted, type Ref, ref, shallowRef, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
+import type { AudioEqPreset } from "@/stores/settings";
 import { useStore } from "@/store";
 
 const volume = ref(100);
@@ -98,6 +99,8 @@ export interface MediaPlayer {
 
 export interface MediaPlayerWithAudioBoost extends MediaPlayer {
 	setAudioBoost(boost: number): void;
+	/** This device's audio tone preset; local only and safe to change mid-playback. */
+	setAudioEq(preset: AudioEqPreset): void;
 }
 
 export interface MediaPlayerWithCaptions extends MediaPlayer {

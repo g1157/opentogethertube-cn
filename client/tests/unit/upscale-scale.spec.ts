@@ -245,6 +245,64 @@ describe("CNN upscale target", () => {
 	});
 });
 
+describe("cover fill", () => {
+	it("sizes the canvas to the filled picture instead of the letterboxed one", () => {
+		// A 16:9 source in a square box: contain shows 1000x563, cover fills 1778x1000
+		// (cropped horizontally). The canvas has to follow the covered size, or the extra
+		// pixels the viewer sees under "cover" would be rendered at contain resolution.
+		const box = { boxWidth: 1000, boxHeight: 1000 };
+		expect(
+			computeCanvasSize({
+				...base,
+				nativeWidth: 640,
+				nativeHeight: 360,
+				...box,
+				fillMode: "contain",
+			}),
+		).toEqual({ width: 1000, height: 563 });
+		expect(
+			computeCanvasSize({
+				...base,
+				nativeWidth: 640,
+				nativeHeight: 360,
+				...box,
+				fillMode: "cover",
+			}),
+		).toEqual({ width: 1778, height: 1000 });
+	});
+
+	it("keeps every clamp in place under cover", () => {
+		// The pixel budget still caps a huge source, cover or not.
+		const size = computeCanvasSize({
+			...base,
+			nativeWidth: 7680,
+			nativeHeight: 4320,
+			boxWidth: 390,
+			boxHeight: 219,
+			dpr: 2,
+			fillMode: "cover",
+		});
+		expect(size.width * size.height).toBeLessThanOrEqual(MAX_AUTO_PIXELS);
+	});
+});
+
+describe("auto-degrade floor under cover", () => {
+	it("follows the covered display size, not the letterboxed one", () => {
+		// A portrait box on a widescreen source: cover displays much larger than contain,
+		// so the ladder may keep more pixels before the picture would go softer than the
+		// browser's own scaling.
+		const input = {
+			nativeWidth: 1920,
+			nativeHeight: 1080,
+			boxWidth: 390,
+			boxHeight: 500,
+			dpr: 1,
+		};
+		expect(ladderFloorScale({ ...input, fillMode: "contain" })).toBeCloseTo(0.2031, 3);
+		expect(ladderFloorScale({ ...input, fillMode: "cover" })).toBeCloseTo(0.463, 3);
+	});
+});
+
 describe("auto-degrade floor", () => {
 	it("never steps below the source resolution on a desktop display", () => {
 		// 1130x686 CSS at dpr 2 is 2260x1372 device pixels: more than the 1080p source, so

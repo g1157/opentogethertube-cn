@@ -360,6 +360,14 @@ watch(
 		}
 	},
 );
+watch(
+	() => store.state.settings.audioEqPreset,
+	v => {
+		if (player.value && implementsAudioBoost(player.value)) {
+			player.value.setAudioEq(v);
+		}
+	},
+);
 // Ducking multiplies the user's volume instead of overwriting it, so voice can lower the video
 // without the slider jumping.
 const effectiveVolume = computed(() => volume.volume.value * volume.duckFactor.value);
@@ -435,6 +443,7 @@ async function onApiReady() {
 		player.value.setVolume(effectiveVolume.value);
 		if (implementsAudioBoost(player.value)) {
 			player.value.setAudioBoost(store.state.settings.audioBoost);
+			player.value.setAudioEq(store.state.settings.audioEqPreset);
 		}
 	}
 	if (implementsCaptions(player.value)) {

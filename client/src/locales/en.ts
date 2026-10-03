@@ -277,6 +277,27 @@ export default {
 			"anti-collision": "Anti collision",
 			unavailable: "This source has no bullet comments.",
 		},
+		audio: {
+			title: "Audio",
+			off: "Off (original)",
+			bass: "Bass boost",
+			vocal: "Clear vocals",
+			hint: "Changes only how this device sounds; other viewers and room playback are unaffected.",
+			unavailable: "This player does not support audio adjustments.",
+			blocked:
+				"This source does not allow cross-origin access, so audio adjustments are unavailable.",
+			"blocked-toast":
+				"This source does not allow cross-origin access. Your choice is kept and applies automatically on the next source.",
+		},
+		display: {
+			title: "Display",
+			contain: "Fit (keep letterbox)",
+			cover: "Fill (crop edges)",
+			mirror: "Mirror picture",
+			hint: "Changes only what this device shows; other viewers are unaffected.",
+			unavailable: "This player does not support display adjustments.",
+		},
+		"personal-preferences": "Personal",
 		pip: "Picture in Picture",
 		"player-settings": "Player settings",
 		subtitles: "Subtitles/CC",
@@ -825,6 +846,13 @@ export default {
 			unknown: "Unknown",
 			auto: "Auto",
 			"auto-with-value": "Auto ({value})",
+			"quality-tiers": {
+				ultra: "Ultra",
+				hd: "HD",
+				sd: "SD",
+				smooth: "Smooth",
+			},
+			"quality-switching": "Switching to {quality}",
 		},
 		"join-playback": {
 			title: "The room is playing",

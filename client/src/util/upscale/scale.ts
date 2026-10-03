@@ -82,6 +82,8 @@ export interface CanvasSizeInput {
 	requestedScale: number | "auto";
 	/** Let "auto" supersample so the CNN's upscale stages run (see CNN_MIN_UPSCALE). */
 	cnnUpscale?: boolean;
+	/** How the video is fitted into the box; "cover" crops, so it displays larger. */
+	fillMode?: "contain" | "cover";
 }
 
 export interface CanvasSize {
@@ -91,12 +93,12 @@ export interface CanvasSize {
 
 /** The multiplier at which the canvas exactly covers the box the video is displayed in. */
 export function fitScale(input: Omit<CanvasSizeInput, "requestedScale" | "cnnUpscale">): number {
-	// The canvas uses object-fit: contain, so the displayed video is limited by whichever
-	// axis runs out of box first: the smaller ratio is the one that covers the picture
-	// without over-rendering the other axis.
+	// The canvas follows the video's own fit. Under contain the displayed picture is
+	// limited by whichever axis runs out of box first (the smaller ratio); under cover it
+	// fills the box and crops the other axis, so the larger ratio is what it is shown at.
 	const ratioX = (Math.max(input.boxWidth, 1) * input.dpr) / Math.max(1, input.nativeWidth);
 	const ratioY = (Math.max(input.boxHeight, 1) * input.dpr) / Math.max(1, input.nativeHeight);
-	return Math.min(ratioX, ratioY);
+	return input.fillMode === "cover" ? Math.max(ratioX, ratioY) : Math.min(ratioX, ratioY);
 }
 
 /**

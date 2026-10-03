@@ -288,6 +288,36 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.danmakuBlockTop).toBe(false);
 	});
 
+	it("persists the audio and display preferences across visits", async () => {
+		const firstVisit = newStore();
+		await firstVisit.dispatch("settings/load");
+		firstVisit.commit("settings/UPDATE", {
+			audioEqPreset: "vocal",
+			videoFillMode: "cover",
+			videoMirror: true,
+		});
+		const nextVisit = newStore();
+		await nextVisit.dispatch("settings/load");
+		expect(nextVisit.state.settings).toMatchObject({
+			audioEqPreset: "vocal",
+			videoFillMode: "cover",
+			videoMirror: true,
+		});
+	});
+
+	it.each([
+		["audioEqPreset", "loud"],
+		["videoFillMode", "stretch"],
+		["videoMirror", "yes"],
+	])("repairs a damaged audio/display setting: %s", async (key, value) => {
+		saved.set("settings", JSON.stringify({ [key]: value }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.audioEqPreset).toBe("off");
+		expect(store.state.settings.videoFillMode).toBe("contain");
+		expect(store.state.settings.videoMirror).toBe(false);
+	});
+
 	it("keeps a transient update out of the saved settings", async () => {
 		const firstVisit = newStore();
 		await firstVisit.dispatch("settings/load");

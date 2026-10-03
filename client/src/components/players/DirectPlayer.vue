@@ -1,7 +1,11 @@
 <template>
-	<div class="direct">
+	<div
+		class="direct"
+		:class="{ 'video-fill-cover': fillMode === 'cover', 'video-mirror': mirror }"
+	>
 		<video
 			ref="videoElem"
+			:key="surfaceGeneration"
 			playsinline
 			webkit-playsinline
 			preload="auto"
@@ -73,7 +77,7 @@ import { useCaptions, useMediaAudioBoost, useQualities } from "../composables";
 import UpscaleLayer from "./UpscaleLayer.vue";
 import DanmakuLayer from "./DanmakuLayer.vue";
 import { useStore } from "@/store";
-import { enhancementLayerMode } from "@/stores/settings";
+import { enhancementLayerMode, type AudioEqPreset } from "@/stores/settings";
 
 interface Props {
 	service: string;
@@ -109,6 +113,17 @@ const sourceAllowsCors = computed(() => {
 const upscaleMode = computed(() =>
 	crossoriginEnabled.value ? store.state.settings.upscaleMode : "off",
 );
+const fillMode = computed(() => store.state.settings.videoFillMode);
+const mirror = computed(() => store.state.settings.videoMirror);
+/**
+ * A media element routed through Web Audio can never be un-routed, so a source that has
+ * to load without CORS needs a fresh element: bumping this remounts the <video>.
+ */
+const surfaceGeneration = ref(0);
+
+function setAudioEq(preset: AudioEqPreset): void {
+	audioBoost.setEq(preset);
+}
 const manifest = ref<CustomMediaManifest | null>(null);
 let activeMediaUrl = "";
 let sourceGeneration = 0;
@@ -324,7 +339,36 @@ function setAudioBoost(boost: number): void {
 	audioBoost.setBoost(boost);
 }
 
+/** Replaces the video element and waits for the new one to be bound before it is used. */
+async function remountSurface() {
+	const previous = videoElem.value;
+	if (previous) {
+		// The old element leaves the DOM but its media would keep decoding headlessly until
+		// garbage collection; tear the load down the same way unmount does.
+		previous.pause();
+		previous.removeAttribute("src");
+		previous.load();
+	}
+	surfaceGeneration.value++;
+	await nextTick();
+	if (videoElem.value) {
+		videoElem.value.referrerPolicy = referrerPolicyValue(referrerPolicy.value) ?? "";
+	}
+	// Every listener of the loading tracker lives on the element, and the tracker is
+	// attached once; without this the new element would never report any state again.
+	loadingState.reattach();
+}
+
 async function loadVideoSource() {
+	if (!videoElem.value) {
+		return;
+	}
+	// The Web Audio graph that was built for an earlier, CORS-readable source cannot be
+	// removed from this element, and a source that needs the no-CORS path would play
+	// silently through it. A fresh element starts clean.
+	if (!sourceAllowsCors.value && audioBoost.hasActiveGraph()) {
+		await remountSurface();
+	}
 	if (!videoElem.value) {
 		return;
 	}
@@ -513,7 +557,7 @@ function onEnd() {
 	emit("end");
 }
 
-function onError() {
+async function onError() {
 	const error = nativeMediaError(videoElem.value?.error ?? null);
 	if (!error) {
 		return;
@@ -530,6 +574,11 @@ function onError() {
 			rememberCors(activeMediaUrl, false);
 		}
 		sourceProbe ??= probeSourceReachability(activeMediaUrl);
+		if (audioBoost.hasActiveGraph()) {
+			// The element is permanently routed through Web Audio; the no-CORS retry would
+			// come out silent, and the graph cannot be detached from this element.
+			await remountSurface();
+		}
 		recovery.retry();
 		return;
 	}
@@ -589,6 +638,7 @@ defineExpose({
 	getPlaybackRate,
 	setPlaybackRate,
 	setAudioBoost,
+	setAudioEq,
 	retry: recovery.retry,
 	isSeeking: recovery.isSeeking,
 	isRecovering: recovery.isRecovering,
@@ -614,5 +664,15 @@ defineExpose({
 	height: 100%;
 	object-fit: contain;
 	object-position: 50% 50%;
+}
+
+.direct.video-fill-cover video,
+.direct.video-fill-cover .upscale-canvas {
+	object-fit: cover;
+}
+
+.direct.video-mirror video,
+.direct.video-mirror .upscale-canvas {
+	transform: scaleX(-1);
 }
 </style>

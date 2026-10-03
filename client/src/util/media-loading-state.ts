@@ -228,12 +228,7 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 		}
 	}
 
-	function reset() {
-		if (disposed) {
-			return;
-		}
-		cancelFrame();
-		active = true;
+	function clearTracking() {
 		metadataReady = false;
 		awaitingSeek = false;
 		waiting = false;
@@ -241,6 +236,15 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 		frameReady = false;
 		presentedPosition = undefined;
 		unmatchedFrames = 0;
+	}
+
+	function reset() {
+		if (disposed) {
+			return;
+		}
+		cancelFrame();
+		active = true;
+		clearTracking();
 		publish("preparing");
 	}
 
@@ -368,6 +372,31 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 		attached!.ownerDocument.addEventListener("visibilitychange", onVisibilityChange);
 	}
 
+	/**
+	 * Rebinds to whatever `options.media()` returns now. A player may replace its media
+	 * element mid-session (the CORS fallback needs a fresh element because a Web Audio
+	 * graph cannot be detached from the old one), and every listener here belongs to the
+	 * element rather than to this controller; without this call the new element would be
+	 * invisible to the loading signals.
+	 */
+	function reattach() {
+		if (disposed) {
+			return;
+		}
+		cancelFrame();
+		if (attached) {
+			for (const [event, handler] of Object.entries(listeners)) {
+				attached.removeEventListener(event, handler);
+			}
+			attached.ownerDocument.removeEventListener("visibilitychange", onVisibilityChange);
+			attached = undefined;
+		}
+		active = true;
+		clearTracking();
+		attach();
+		refresh();
+	}
+
 	function dispose() {
 		stop();
 		disposed = true;
@@ -378,5 +407,5 @@ export function createMediaLoadingState(options: MediaLoadingOptions) {
 		attached = undefined;
 	}
 
-	return { attach, reset, refresh, stop, dispose };
+	return { attach, reattach, reset, refresh, stop, dispose };
 }

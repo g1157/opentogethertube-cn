@@ -45,6 +45,8 @@ let canvas: HTMLCanvasElement | null = null;
 let generation = 0;
 let captionTimer: ReturnType<typeof setInterval> | undefined;
 let monitorFrame = 0;
+/** The element the pending monitor callback was registered on; props.video may be newer. */
+let monitorElement: HTMLVideoElement | null = null;
 let monitorWindowStart = 0;
 let monitorFrames = 0;
 // Negative infinity rather than 0, so "no frame yet" cannot be confused with a clock
@@ -93,6 +95,7 @@ function sizeCanvas(video: HTMLVideoElement, target: HTMLCanvasElement) {
 		dpr: Math.min(window.devicePixelRatio || 1, MAX_DPR),
 		requestedScale: store.state.settings.upscaleScale,
 		cnnUpscale: isCnnUpscaleTier(props.mode) && canAffordCnnUpscale(),
+		fillMode: store.state.settings.videoFillMode,
 	});
 	target.width = size.width;
 	target.height = size.height;
@@ -122,16 +125,21 @@ function updateCaptions() {
 }
 
 function scheduleMonitor() {
-	const video = props.video;
-	if (video && monitorFrame) {
-		video.cancelVideoFrameCallback(monitorFrame);
+	if (monitorElement && monitorFrame) {
+		// Cancelling has to happen on the element the callback was registered on; after an
+		// element switch props.video would only swallow the id on the wrong element.
+		monitorElement.cancelVideoFrameCallback(monitorFrame);
 	}
+	const video = props.video;
 	monitorFrame = video ? video.requestVideoFrameCallback(monitorPerformance) : 0;
+	monitorElement = video ?? null;
 }
 
 function monitorPerformance() {
 	const video = props.video;
-	if (!video) {
+	if (!video || video !== monitorElement) {
+		// A callback that outlived its element: the new element gets its own schedule, and
+		// this stale chain must not re-arm itself on top of it.
 		return;
 	}
 	const now = performance.now();
@@ -221,6 +229,7 @@ function pickDegradeStep(
 		boxWidth: box.width,
 		boxHeight: box.height,
 		dpr: Math.min(window.devicePixelRatio || 1, MAX_DPR),
+		fillMode: store.state.settings.videoFillMode,
 	});
 	const scaleStep = SCALE_STEPS.find(step => step < currentScale - 0.01 && step >= floor - 0.01);
 	if (scaleStep !== undefined) {
@@ -289,11 +298,11 @@ function stopRenderers() {
 		clearInterval(captionTimer);
 		captionTimer = undefined;
 	}
-	const video = props.video;
-	if (video && monitorFrame) {
-		video.cancelVideoFrameCallback(monitorFrame);
+	if (monitorElement && monitorFrame) {
+		monitorElement.cancelVideoFrameCallback(monitorFrame);
 		monitorFrame = 0;
 	}
+	monitorElement = null;
 }
 
 /**
@@ -468,7 +477,7 @@ async function start() {
 	monitorWindowStart = 0;
 	monitorFrames = 0;
 	monitorSkipWindow = true;
-	monitorFrame = video.requestVideoFrameCallback(monitorPerformance);
+	scheduleMonitor();
 }
 
 function onLoadedMetadata() {
@@ -516,6 +525,13 @@ watch(
 		// The sharpen/film passes read the canvas size every frame, so a resize is enough.
 		sizeCanvas(video, canvas);
 	},
+);
+
+// A fit change moves the displayed picture, which changes the size the canvas should hold;
+// the same settle-and-rebuild path as a viewport change keeps the pipeline consistent.
+watch(
+	() => store.state.settings.videoFillMode,
+	() => handleViewportChange(),
 );
 
 onMounted(() => {

@@ -57,6 +57,17 @@ export const PHONE_UPSCALE_STRENGTH = 0.4;
 export const DANMAKU_SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 export const DANMAKU_FONT_SIZE_OPTIONS = ["small", "medium", "large"] as const;
 
+/**
+ * Tone presets for this device's audio graph (Web Audio peaking filters over the source's
+ * own mix). "off" leaves the mix untouched; the rest are per-device listening corrections.
+ */
+export const AUDIO_EQ_PRESETS = ["off", "bass", "vocal"] as const;
+export type AudioEqPreset = (typeof AUDIO_EQ_PRESETS)[number];
+
+/** How the picture fills the player box; "cover" crops the edges instead of letterboxing. */
+export const VIDEO_FILL_MODES = ["contain", "cover"] as const;
+export type VideoFillMode = (typeof VIDEO_FILL_MODES)[number];
+
 export interface SettingsState {
 	volume: number;
 	muted: boolean;
@@ -89,6 +100,11 @@ export interface SettingsState {
 	danmakuBlockBottom: boolean;
 	danmakuBlockColored: boolean;
 	danmakuAntiCollision: boolean;
+	/** Audio tone preset for this device; applied through the player's Web Audio graph. */
+	audioEqPreset: AudioEqPreset;
+	/** How the picture fills the player box on this device. */
+	videoFillMode: VideoFillMode;
+	videoMirror: boolean;
 	/** Desktop only: whether the room notes panel is expanded next to the video. */
 	notesPanelOpen: boolean;
 }
@@ -196,6 +212,15 @@ function normalizeSettings(state: SettingsState) {
 	if (typeof state.danmakuAntiCollision !== "boolean") {
 		state.danmakuAntiCollision = true;
 	}
+	if (!AUDIO_EQ_PRESETS.includes(state.audioEqPreset)) {
+		state.audioEqPreset = "off";
+	}
+	if (!VIDEO_FILL_MODES.includes(state.videoFillMode)) {
+		state.videoFillMode = "contain";
+	}
+	if (typeof state.videoMirror !== "boolean") {
+		state.videoMirror = false;
+	}
 	if (typeof state.notesPanelOpen !== "boolean") {
 		state.notesPanelOpen = true;
 	}
@@ -251,6 +276,9 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		danmakuBlockBottom: false,
 		danmakuBlockColored: false,
 		danmakuAntiCollision: true,
+		audioEqPreset: "off",
+		videoFillMode: "contain",
+		videoMirror: false,
 		notesPanelOpen: true,
 	}),
 	mutations: {

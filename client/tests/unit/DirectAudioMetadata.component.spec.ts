@@ -6,7 +6,12 @@ import type { MediaLoadingState } from "@/util/media-loading-state";
 import { mountComponent } from "./component-test-utils";
 
 vi.mock("@/components/composables/media-audio-boost", () => ({
-	useMediaAudioBoost: () => ({ setBoost: vi.fn(), resetFailedSetup: vi.fn() }),
+	useMediaAudioBoost: () => ({
+		setBoost: vi.fn(),
+		setEq: vi.fn(),
+		resetFailedSetup: vi.fn(),
+		hasActiveGraph: () => false,
+	}),
 }));
 
 describe("direct media stream metadata", () => {

@@ -38,6 +38,8 @@ let items: DanmakuItem[] | null = null;
 let loadGeneration = 0;
 let frameRequest = 0;
 let frameViaAnimation = false;
+/** The element the pending frame callback was registered on; props.video may be newer. */
+let frameElement: HTMLVideoElement | null = null;
 let running = false;
 let frameWidth = 0;
 let frameHeight = 0;
@@ -90,7 +92,11 @@ function applyConfig() {
 	engine.configure(engineConfig());
 }
 
-/** Sizes the canvas to the picture inside the player box, letterbox bars excluded. */
+/**
+ * Sizes the canvas to the picture inside the player box. Letterbox bars are excluded, so
+ * comments do not run over them; under "cover" the picture fills the box and is cropped
+ * instead, and the frame is the whole box.
+ */
 function sizeCanvas(video: HTMLVideoElement) {
 	const canvas = canvasElem.value;
 	const box = video.getBoundingClientRect();
@@ -99,14 +105,22 @@ function sizeCanvas(video: HTMLVideoElement) {
 	}
 	let width = box.width;
 	let height = box.height;
-	if (video.videoWidth > 0 && video.videoHeight > 0) {
+	let left = 0;
+	let top = 0;
+	if (
+		store.state.settings.videoFillMode !== "cover" &&
+		video.videoWidth > 0 &&
+		video.videoHeight > 0
+	) {
 		const scale = Math.min(box.width / video.videoWidth, box.height / video.videoHeight);
 		width = video.videoWidth * scale;
 		height = video.videoHeight * scale;
+		left = (box.width - width) / 2;
+		top = (box.height - height) / 2;
 	}
 	dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
-	canvas.style.left = `${(box.width - width) / 2}px`;
-	canvas.style.top = `${(box.height - height) / 2}px`;
+	canvas.style.left = `${left}px`;
+	canvas.style.top = `${top}px`;
 	canvas.style.width = `${width}px`;
 	canvas.style.height = `${height}px`;
 	canvas.width = Math.max(1, Math.round(width * dpr));
@@ -153,6 +167,7 @@ function redrawCurrent() {
  */
 function onFrame() {
 	frameRequest = 0;
+	frameElement = null;
 	const video = props.video;
 	if (!video || !engine) {
 		return;
@@ -177,19 +192,22 @@ function schedule() {
 		frameViaAnimation = true;
 		frameRequest = requestAnimationFrame(onFrame);
 	}
+	frameElement = video;
 }
 
 function cancelFrame() {
 	if (frameRequest === 0) {
 		return;
 	}
-	const video = props.video;
 	if (frameViaAnimation) {
 		cancelAnimationFrame(frameRequest);
 	} else {
-		video?.cancelVideoFrameCallback?.(frameRequest);
+		// The handle belongs to the element it was requested on; after a source-driven
+		// element swap props.video would be a different one and never release the handle.
+		frameElement?.cancelVideoFrameCallback?.(frameRequest);
 	}
 	frameRequest = 0;
+	frameElement = null;
 }
 
 function updateRunning() {
@@ -244,6 +262,9 @@ function onViewportChange() {
 	sizeCanvas(video);
 	applyConfig();
 	redrawCurrent();
+	// A first fit is what makes the frame loop possible at all (frameWidth > 0); without
+	// this, a track that arrived before the first layout would never start drawing.
+	updateRunning();
 }
 
 function onVisibilityChange() {
@@ -302,6 +323,9 @@ watch(
 watch(
 	() => props.video,
 	(video, oldVideo) => {
+		// A pending callback belongs to the old element; release it there before the loop
+		// moves to the new one, or its stale handle would freeze scheduling forever.
+		cancelFrame();
 		detachVideo(oldVideo);
 		attachVideo(video);
 		if (video) {
@@ -344,6 +368,12 @@ watch(
 watch(
 	() => store.state.settings.danmakuOpacity,
 	() => redrawCurrent(),
+);
+
+// A different fit moves and resizes the picture area the comments are laid out over.
+watch(
+	() => store.state.settings.videoFillMode,
+	() => onViewportChange(),
 );
 
 // Layout changes reach us through the element itself (theater mode, letterboxing, the
