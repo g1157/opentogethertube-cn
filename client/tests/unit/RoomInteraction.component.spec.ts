@@ -6,6 +6,7 @@ import VideoSettings from "@/components/controls/VideoSettings.vue";
 import LayoutSwitcher from "@/components/controls/LayoutSwitcher.vue";
 import VideoProgressSlider from "@/components/controls/VideoProgressSlider.vue";
 import { usePlaybackRate, type MediaPlayerV2 } from "@/components/composables";
+import { usePlayerBrightness } from "@/util/player-brightness";
 import { OttSfx } from "@/plugins/sfx";
 import { RoomRequestType } from "ott-common/models/messages";
 import { PlayerStatus, Role } from "ott-common/models/types";
@@ -880,6 +881,23 @@ describe("room player interactions", () => {
 		keyUp("ArrowRight");
 		await nextTick();
 		expect(speedActions()).toEqual(["start", "stop"]);
+	});
+
+	it("keeps the brightness scrim transparent until a swipe dims it", async () => {
+		// Regression: the scrim read a settings field that had moved into its own module, so
+		// its opacity computed to NaN and the browser fell back to fully opaque — a black
+		// picture for every viewer on every device while the audio kept playing.
+		const playerBrightness = usePlayerBrightness();
+		const dimmer = page.wrapper.get(".player-dimmer").element as HTMLElement;
+		expect(dimmer.style.opacity).toBe("0");
+
+		playerBrightness.setBrightness(0.5);
+		await nextTick();
+		expect(dimmer.style.opacity).toBe("0.5");
+
+		playerBrightness.setBrightness(1);
+		await nextTick();
+		expect(dimmer.style.opacity).toBe("0");
 	});
 
 	it.each([

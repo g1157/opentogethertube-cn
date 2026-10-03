@@ -486,6 +486,7 @@ import { ToastStyle } from "@/models/toast";
 import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 import { PlayerControlsActivityKey, usePlayerControls } from "@/util/player-controls";
 import { createPlayerGestures, type LevelSide } from "@/util/player-gestures";
+import { usePlayerBrightness } from "@/util/player-brightness";
 import { createPlaybackSync } from "@/util/playback-sync";
 import { PlayerActionsKey } from "@/util/player-actions";
 import {
@@ -1501,13 +1502,14 @@ export default defineComponent({
 		// Fullscreen swipe levels: the left half dims the picture, the right half moves the
 		// volume, the way phone players do it. The value the drag started from is captured
 		// once, so one gesture is one continuous adjustment and the store clamps the rest.
+		const playerBrightness = usePlayerBrightness();
 		const levelNotice = ref("");
 		let levelTimer: ReturnType<typeof setTimeout> | null = null;
 		let levelBase = 0;
 		function onLevelStart(side: LevelSide) {
 			levelBase =
 				side === "left"
-					? store.state.settings.playerBrightness
+					? playerBrightness.brightness.value
 					: store.state.settings.volume / 100;
 			if (levelTimer !== null) {
 				clearTimeout(levelTimer);
@@ -1518,9 +1520,9 @@ export default defineComponent({
 			// Dragging up raises the value; a full-height drag covers the whole range.
 			const value = levelBase - delta;
 			if (side === "left") {
-				store.commit("settings/UPDATE_TRANSIENT", { playerBrightness: value });
+				playerBrightness.setBrightness(value);
 				levelNotice.value = t("player.interactions.level-brightness", {
-					value: Math.round(store.state.settings.playerBrightness * 100),
+					value: Math.round(playerBrightness.brightness.value * 100),
 				});
 			} else {
 				store.commit("settings/UPDATE", { volume: Math.round(value * 100) });
@@ -1561,9 +1563,7 @@ export default defineComponent({
 			onLevelEnd,
 		});
 		/** Black scrim over the picture standing in for the screen's own brightness. */
-		const dimmerOpacity = computed(() =>
-			Math.max(0, Math.min(1, 1 - store.state.settings.playerBrightness)),
-		);
+		const dimmerOpacity = playerBrightness.dimmerOpacity;
 		// Android's long-press fires contextmenu while the hold gesture is already showing
 		// the 2x preview, and both used to run at once: the details panel opened on top of
 		// it. Touch keeps the hold gesture (the panel stays reachable from the settings
