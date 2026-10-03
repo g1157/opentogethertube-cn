@@ -17,7 +17,8 @@
 - **技术栈**：Vue 3 + **Vuex 4（不是 Pinia）** + Vuetify；Express + **原生 `ws`（不是 socket.io）** +
   Sequelize（PG/SQLite）+ Redis；Rust balancer/collector（**生产未启用**）；Cloudflare Worker 预览版（能力子集）。
 - **Git 事实**：`origin` = `https://github.com/g1157/opentogethertube-cn.git`；主力开发分支
-  `feat/upscale-quality`（**没有配置 upstream**，`git status` 不显示 ahead/behind）；`origin/main` 是主干
+  `feat/upscale-quality`（已配置 upstream，2026-10-03 起与 `origin/main` 对齐——发布提交直推 `main`；
+  该分支上唯一的历史遗留提交已存档到 `archive/upscale-webgpu-frame-check`）；`origin/main` 是主干
   （写本文时 == HEAD）；本地 `main` 分支是停在 v1.0.0 的陈旧指针，**不要用它**。
 - **语言**：文档、审查记录、版本记录以中文为主；UI 文案 `en.ts` 与 `zh-CN.ts` 必须成对更新。
 - **版本号注意**：`package.json`/`Cargo.toml` 里写的是 `0.14.1`（上游遗留），**发布身份是 git 标签与镜像标签**
