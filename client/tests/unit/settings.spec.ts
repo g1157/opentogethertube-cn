@@ -35,13 +35,17 @@ describe("saved settings and default migrations", () => {
 			defaultLocaleVersion: "v0.15.0-cn3",
 			defaultSfxVersion: "v0.15.0-cn6",
 			defaultDanmakuOpacityVersion: "v1.3.4",
+			defaultUpscaleVersion: "v1.3.10",
+			defaultNoticeVersion: "v1.3.10",
 			sfxEnabled: false,
 		});
 		expect(store.state.settings).not.toHaveProperty("defaultLocaleVersion");
 		expect(store.state.settings).not.toHaveProperty("defaultSfxVersion");
 		expect(store.state.settings).not.toHaveProperty("defaultDanmakuOpacityVersion");
 		expect(store.state.settings.sfxEnabled).toBe(false);
-		expect(store.state.settings.chatOverlaySeconds).toBe(5);
+		expect(store.state.settings.chatOverlaySeconds).toBe(3);
+		expect(store.state.settings.presenceNoticeSeconds).toBe(1);
+		expect(store.state.settings.seekNoticeSeconds).toBe(1);
 		expect(store.state.settings.controlsHideSeconds).toBe(3);
 		expect(store.state.settings.hlsBufferSeconds).toBe(120);
 		expect(store.state.settings.danmakuOpacity).toBe(0.4);
@@ -175,11 +179,30 @@ describe("saved settings and default migrations", () => {
 		);
 		const store = newStore();
 		await store.dispatch("settings/load");
-		expect(store.state.settings.chatOverlaySeconds).toBe(5);
-		expect(store.state.settings.presenceNoticeSeconds).toBe(3);
-		expect(store.state.settings.seekNoticeSeconds).toBe(3);
+		expect(store.state.settings.chatOverlaySeconds).toBe(3);
+		expect(store.state.settings.presenceNoticeSeconds).toBe(1);
+		expect(store.state.settings.seekNoticeSeconds).toBe(1);
 		expect(store.state.settings.controlsHideSeconds).toBe(3);
 		expect(store.state.settings.hlsBufferSeconds).toBe(120);
+	});
+
+	it("moves the shipped notice durations to the shortest tier once", async () => {
+		saved.set(
+			"settings",
+			JSON.stringify({
+				chatOverlaySeconds: 5,
+				presenceNoticeSeconds: 3,
+				seekNoticeSeconds: 2,
+				controlsHideSeconds: 10,
+			}),
+		);
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.chatOverlaySeconds).toBe(3);
+		expect(store.state.settings.presenceNoticeSeconds).toBe(1);
+		// Only the exact old defaults move; a shorter or disabled choice stays.
+		expect(store.state.settings.seekNoticeSeconds).toBe(2);
+		expect(store.state.settings.controlsHideSeconds).toBe(10);
 	});
 
 	it("migrates a returning English visitor while preserving their other settings and storage", async () => {

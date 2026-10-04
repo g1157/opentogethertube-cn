@@ -87,7 +87,7 @@ export default {
 			},
 			enhancement: {
 				title: "Picture Enhancement",
-				text: "Sharpen, film (denoise + deband) and Anime4K tiers; phones start on sharpen and step down automatically when the device struggles.",
+				text: "Sharpen, film (denoise + deband) and Anime4K tiers, off by default; a tier you pick steps down automatically when the device struggles.",
 			},
 			audio: {
 				title: "Local Audio",

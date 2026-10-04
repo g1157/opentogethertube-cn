@@ -35,6 +35,8 @@ import toast, { FULLSCREEN_TOAST_LEVELS, fullscreenNoticeHost, toastLevel } from
 
 /** Two stacked notices are the most a full-screen picture should give up at once. */
 const MAX_FULLSCREEN_TOASTS = 2;
+/** A burst of room events must not grow the corner stack until it covers the page. */
+const MAX_WINDOW_TOASTS = 4;
 
 const store = useStore();
 toast.setStore(store);
@@ -44,10 +46,11 @@ const teleportTarget = computed(() => (store.state.fullscreen ? fullscreenNotice
 const visibleToasts = computed(() => {
 	const notifications = store.state.toast.notifications;
 	if (teleportTarget.value === null) {
-		return notifications;
+		// Newest first; older cards collapse into the counter instead of stacking upward.
+		return notifications.slice(-MAX_WINDOW_TOASTS);
 	}
-	// Outside the container the window-mode stack keeps its behavior; inside it only the
-	// notices that explain the picture or its playback survive, newest first.
+	// Inside the player container only the notices that explain the picture or its playback
+	// survive, newest first.
 	return notifications
 		.filter(notification => FULLSCREEN_TOAST_LEVELS.includes(toastLevel(notification)))
 		.slice(-MAX_FULLSCREEN_TOASTS);

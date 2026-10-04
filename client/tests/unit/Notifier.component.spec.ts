@@ -177,16 +177,23 @@ describe("Notifier component", () => {
 			expect(document.querySelector(".toast-more")?.textContent).toContain("2");
 		});
 
-		it("keeps every notice in the windowed layout", async () => {
+		it("caps the windowed stack instead of letting bursts pile up", async () => {
 			const { wrapper, store } = mountComponent(Notifier);
 			store.commit("toast/CLEAR_ALL_TOASTS");
-			store.commit("toast/ADD_TOAST", { content: "joined" });
-			store.commit("toast/ADD_TOAST", { content: "error", level: "critical" });
+			for (const content of ["one", "two", "three", "four", "five", "six"]) {
+				store.commit("toast/ADD_TOAST", { content });
+			}
 			await wrapper.vm.$nextTick();
 
 			expect(wrapper.find(".toast-list--fullscreen").exists()).toBe(false);
-			expect(wrapper.html()).toContain("joined");
-			expect(wrapper.html()).toContain("error");
+			// Newest first; the older cards collapse into the counter instead of stacking up.
+			const rendered = wrapper.findAll(".toast").map(node => node.text());
+			expect(rendered).toHaveLength(4);
+			expect(rendered.join(" ")).toContain("six");
+			expect(rendered.join(" ")).not.toContain("one");
+			expect(wrapper.get(".toast-more").text()).toContain("2");
+			// The hidden cards stay in the state and keep expiring on their own.
+			expect(store.state.toast.notifications).toHaveLength(6);
 		});
 	});
 });

@@ -85,7 +85,7 @@ export default {
 			},
 			enhancement: {
 				title: "画质增强",
-				text: "清晰化、影视（去噪去带）与 Anime4K 超分四档；手机默认清晰化，设备吃力时自动降档。",
+				text: "清晰化、影视（去噪去带）与 Anime4K 超分四档；默认关闭、按需开启，设备吃力时自动降档。",
 			},
 			audio: {
 				title: "本地音效",

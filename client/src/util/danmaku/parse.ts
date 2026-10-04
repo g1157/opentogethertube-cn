@@ -17,8 +17,10 @@ const COLOR_MASK = 0xffffff;
 // hold raw U+0008 backspaces). XML 1.0 forbids them, and parsers abandon the document at
 // the first one: Firefox returns a bare parsererror (no comments at all) while Chromium
 // keeps only what came before it. Stripping them first keeps every engine on the full file.
+/* eslint-disable no-control-regex -- these characters are the subject, not a mistake */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: these characters are the subject, not a mistake
 const INVALID_XML_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
+/* eslint-enable no-control-regex */
 
 /**
  * Bilibili's `p` attribute is `time,mode,fontSize,color,sendTimestamp,pool,userId,row`.

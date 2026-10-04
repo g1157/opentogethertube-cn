@@ -415,7 +415,8 @@ describe("chat overlay duration", () => {
 	}
 
 	it("expires each message five seconds after receipt and keeps the history", async () => {
-		const { wrapper, connection } = mountComponent(Chat);
+		const { wrapper, connection, store } = mountComponent(Chat);
+		store.commit("settings/UPDATE", { chatOverlaySeconds: 5 });
 		connection.mockReceive(message("first"));
 		await vi.advanceTimersByTimeAsync(2000);
 		connection.mockReceive(message("second"));

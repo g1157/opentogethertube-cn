@@ -8,18 +8,6 @@ import {
 	type SettingsState,
 	Theme,
 } from "@/stores/settings";
-import { PHONE_MAX_QUERY } from "@/util/breakpoints";
-
-function stubViewport(matches: (query: string) => boolean) {
-	vi.stubGlobal("matchMedia", (query: string) => {
-		const media = new EventTarget();
-		Object.defineProperties(media, {
-			media: { value: query },
-			matches: { get: () => matches(query) },
-		});
-		return media;
-	});
-}
 
 describe("video enhancement settings", () => {
 	let saved: Map<string, string>;
@@ -51,31 +39,38 @@ describe("video enhancement settings", () => {
 		expect(store.state.settings.upscaleAutoDegrade).toBe(true);
 	});
 
-	it("starts phones on the light tier so the first run is not a stutter", async () => {
-		stubViewport(query => query === PHONE_MAX_QUERY);
-		const store = newStore();
-		await store.dispatch("settings/load");
-		expect(store.state.settings.upscaleMode).toBe("sharpen");
-		expect(store.state.settings.upscaleStrength).toBe(PHONE_UPSCALE_STRENGTH);
-	});
-
-	it("leaves desktops off by default", async () => {
-		stubViewport(() => false);
+	it("leaves the enhancement off by default on every device", async () => {
 		const store = newStore();
 		await store.dispatch("settings/load");
 		expect(store.state.settings.upscaleMode).toBe("off");
 		expect(store.state.settings.upscaleStrength).toBe(DEFAULT_UPSCALE_STRENGTH);
 	});
 
-	it("still loads when the environment has no matchMedia", async () => {
-		// jsdom does not implement it; the module must not depend on it existing.
+	it("turns the machine-set phone default back off once", async () => {
+		// The early phone default stored exactly this pair; it was never a choice.
+		saved.set(
+			"settings",
+			JSON.stringify({
+				upscaleMode: "sharpen",
+				upscaleStrength: PHONE_UPSCALE_STRENGTH,
+			}),
+		);
 		const store = newStore();
-		await expect(store.dispatch("settings/load")).resolves.toBeUndefined();
+		await store.dispatch("settings/load");
 		expect(store.state.settings.upscaleMode).toBe("off");
+		expect(store.state.settings.upscaleStrength).toBe(DEFAULT_UPSCALE_STRENGTH);
+	});
+
+	it("keeps any tier the visitor picked, even at the old phone strength", async () => {
+		// Only the exact machine-set value is moved; everything else is a choice.
+		saved.set("settings", JSON.stringify({ upscaleMode: "sharpen", upscaleStrength: 1.1 }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.upscaleMode).toBe("sharpen");
+		expect(store.state.settings.upscaleStrength).toBe(1.1);
 	});
 
 	it("never overrides a tier the visitor already picked, including off", async () => {
-		stubViewport(query => query === PHONE_MAX_QUERY);
 		saved.set("settings", JSON.stringify({ upscaleMode: "off", upscaleStrength: 1.2 }));
 		const store = newStore();
 		await store.dispatch("settings/load");
@@ -83,15 +78,22 @@ describe("video enhancement settings", () => {
 		expect(store.state.settings.upscaleStrength).toBe(1.2);
 	});
 
-	it("does not re-apply the phone default on later visits", async () => {
-		stubViewport(query => query === PHONE_MAX_QUERY);
+	it("migrates a session only once", async () => {
+		saved.set(
+			"settings",
+			JSON.stringify({ upscaleMode: "sharpen", upscaleStrength: PHONE_UPSCALE_STRENGTH }),
+		);
 		const firstVisit = newStore();
 		await firstVisit.dispatch("settings/load");
-		expect(firstVisit.state.settings.upscaleMode).toBe("sharpen");
-		firstVisit.commit("settings/UPDATE", { upscaleMode: "off" });
+		expect(firstVisit.state.settings.upscaleMode).toBe("off");
+		// The marker is stored now, so picking the tier again at the same strength sticks.
+		firstVisit.commit("settings/UPDATE", {
+			upscaleMode: "sharpen",
+			upscaleStrength: PHONE_UPSCALE_STRENGTH,
+		});
 		const nextVisit = newStore();
 		await nextVisit.dispatch("settings/load");
-		expect(nextVisit.state.settings.upscaleMode).toBe("off");
+		expect(nextVisit.state.settings.upscaleMode).toBe("sharpen");
 	});
 
 	it("persists deliberate enhancement choices across visits", async () => {

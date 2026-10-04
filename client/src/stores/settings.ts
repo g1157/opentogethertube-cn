@@ -1,7 +1,6 @@
 import type { RoomSettings } from "ott-common";
 import type { Module } from "vuex/types";
 import vuetify from "@/plugins/vuetify";
-import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 
 export const CHAT_OVERLAY_SECONDS_OPTIONS = [0, 3, 5, 10, 20] as const;
 export const ROOM_NOTICE_SECONDS_OPTIONS = [0, 1, 2, 3, 5, 10, 20] as const;
@@ -47,7 +46,11 @@ export const MAX_UPSCALE_STRENGTH = 1.2;
  * cannot halo; the default sits high enough that the tier is actually visible.
  */
 export const DEFAULT_UPSCALE_STRENGTH = 0.9;
-/** What phones start on, so the first run is not a stutter the guard has to undo. */
+/**
+ * What the early phone default used to store. Kept as the fingerprint of that machine-set
+ * value: the one-time migration in `load` resets a session carrying exactly this strength
+ * (with the "sharpen" tier), and never a value the visitor picked.
+ */
 export const PHONE_UPSCALE_STRENGTH = 0.4;
 
 /**
@@ -162,19 +165,20 @@ const DEFAULT_SFX_VERSION = "v0.15.0-cn6";
 // Bumped so sessions that stored one of the earlier danmaku defaults (80%, then 30%)
 // pick up 40%; a deliberately chosen value is left alone.
 const DEFAULT_DANMAKU_OPACITY_VERSION = "v1.3.4";
+// Early releases started phones on the light tier by themselves; sessions carrying exactly
+// that machine-set pair are moved back to off once, and only once.
+const DEFAULT_UPSCALE_VERSION = "v1.3.10";
+// The room notices and the collapsed-chat overlay now start at the shortest tier that
+// still shows (3s overlay, 1s join/leave and seek); the longer durations earlier releases
+// shipped (5s overlay, 3s join/leave and seek) move there once.
+const DEFAULT_NOTICE_VERSION = "v1.3.10";
 type StoredSettings = Partial<SettingsState> & {
 	defaultLocaleVersion?: string;
 	defaultSfxVersion?: string;
 	defaultDanmakuOpacityVersion?: string;
+	defaultUpscaleVersion?: string;
+	defaultNoticeVersion?: string;
 };
-
-function isPhoneLayout(): boolean {
-	// jsdom does not implement matchMedia; settings must still load where it is missing.
-	if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-		return false;
-	}
-	return window.matchMedia(PHONE_MAX_QUERY).matches;
-}
 
 /** Keeps whatever a caller wrote inside the ranges this release understands. */
 function normalizeSettings(state: SettingsState) {
@@ -188,13 +192,13 @@ function normalizeSettings(state: SettingsState) {
 		state.seekSeconds = 10;
 	}
 	if (!CHAT_OVERLAY_SECONDS_OPTIONS.includes(state.chatOverlaySeconds)) {
-		state.chatOverlaySeconds = 5;
+		state.chatOverlaySeconds = 3;
 	}
 	if (!ROOM_NOTICE_SECONDS_OPTIONS.includes(state.presenceNoticeSeconds)) {
-		state.presenceNoticeSeconds = 3;
+		state.presenceNoticeSeconds = 1;
 	}
 	if (!ROOM_NOTICE_SECONDS_OPTIONS.includes(state.seekNoticeSeconds)) {
-		state.seekNoticeSeconds = 3;
+		state.seekNoticeSeconds = 1;
 	}
 	if (!CONTROLS_HIDE_SECONDS_OPTIONS.includes(state.controlsHideSeconds)) {
 		state.controlsHideSeconds = 3;
@@ -282,6 +286,8 @@ function persistSettings(state: SettingsState) {
 				defaultLocaleVersion: DEFAULT_LOCALE_VERSION,
 				defaultSfxVersion: DEFAULT_SFX_VERSION,
 				defaultDanmakuOpacityVersion: DEFAULT_DANMAKU_OPACITY_VERSION,
+				defaultUpscaleVersion: DEFAULT_UPSCALE_VERSION,
+				defaultNoticeVersion: DEFAULT_NOTICE_VERSION,
 			}),
 		);
 	} catch {
@@ -302,9 +308,9 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		sfxVolume: 0.8,
 		enableAdapterSelector: false,
 		seekSeconds: 10,
-		chatOverlaySeconds: 5,
-		presenceNoticeSeconds: 3,
-		seekNoticeSeconds: 3,
+		chatOverlaySeconds: 3,
+		presenceNoticeSeconds: 1,
+		seekNoticeSeconds: 1,
 		controlsHideSeconds: 3,
 		hlsBufferSeconds: DEFAULT_HLS_BUFFER_SECONDS,
 		upscaleMode: "off",
@@ -371,6 +377,8 @@ export const settingsModule: Module<SettingsState, unknown> = {
 				defaultLocaleVersion,
 				defaultSfxVersion,
 				defaultDanmakuOpacityVersion,
+				defaultUpscaleVersion,
+				defaultNoticeVersion,
 				...settings
 			} = loaded;
 			if (
@@ -391,13 +399,31 @@ export const settingsModule: Module<SettingsState, unknown> = {
 				// stored value is a choice.
 				settings.danmakuOpacity = 0.4;
 			}
-			// Phones start on the cheap tier instead of the very first enhancement being a
-			// stutter the degrade guard immediately undoes. Keyed on the stored field being
-			// absent, which means the user has never picked a tier, so an explicit choice
-			// (including an explicit "off") is never overridden.
-			if (!("upscaleMode" in loaded) && isPhoneLayout()) {
-				settings.upscaleMode = "sharpen";
-				settings.upscaleStrength = PHONE_UPSCALE_STRENGTH;
+			// The picture enhancement is off by default on every device. An early release
+			// started phones on the light tier by itself, so a session carrying exactly that
+			// machine-set pair moves back to off once — a tier or strength the visitor picked
+			// (anything but "sharpen" with the old phone strength) is never overridden.
+			if (
+				defaultUpscaleVersion !== DEFAULT_UPSCALE_VERSION &&
+				settings.upscaleMode === "sharpen" &&
+				settings.upscaleStrength === PHONE_UPSCALE_STRENGTH
+			) {
+				settings.upscaleMode = "off";
+				settings.upscaleStrength = DEFAULT_UPSCALE_STRENGTH;
+			}
+			// The notices open at the shortest tier that still shows now; only the exact
+			// durations shipped before (5s overlay, 3s join/leave and seek) are moved, any
+			// other stored value is a choice (including turning the notices off).
+			if (defaultNoticeVersion !== DEFAULT_NOTICE_VERSION) {
+				if (settings.chatOverlaySeconds === 5) {
+					settings.chatOverlaySeconds = 3;
+				}
+				if (settings.presenceNoticeSeconds === 3) {
+					settings.presenceNoticeSeconds = 1;
+				}
+				if (settings.seekNoticeSeconds === 3) {
+					settings.seekNoticeSeconds = 1;
+				}
 			}
 			context.commit("UPDATE", settings);
 		},
