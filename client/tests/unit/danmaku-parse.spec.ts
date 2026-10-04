@@ -45,4 +45,19 @@ describe("parseDanmakuXml", () => {
 		expect(parseDanmakuXml("<html><body>404</body></html>")).toEqual([]);
 		expect(parseDanmakuXml("")).toEqual([]);
 	});
+
+	it("keeps comments after raw control characters that XML forbids", () => {
+		const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<i>
+	<chatserver>chat.bilibili.com</chatserver>
+	<d p="1,1,25,16777215,1413000000,0,abcdef,0">先说话</d>
+	<d p="2,1,25,16777215,1413000000,0,abcdef,0">带退格\u0008的弹幕</d>
+	<d p="3,1,25,16777215,1413000000,0,abcdef,0">后面还能看到</d>
+</i>`;
+		expect(parseDanmakuXml(xml).map(item => item.text)).toEqual([
+			"先说话",
+			"带退格的弹幕",
+			"后面还能看到",
+		]);
+	});
 });

@@ -4,6 +4,14 @@
 `archive/history` 分支与 `v0.14.1` 标签。`v1.0.0` 起跳出 cn 序列，作为本分支的正式大版本，
 标签与镜像名不再带 cn 编号。
 
+-   **v1.3.8**：修复外部弹幕在 Firefox 上整集无弹幕、在 Chromium 上只显示前一半的问题。
+    **弹幕**：girigiri 的 B站转存 XML 混有裸 U+0008（退格）等 XML 1.0 非法控制字符，解析器在第一个
+    非法字符处中止整份文档——Firefox 直接得到 `parsererror`（一条弹幕都不渲染，Windows 端实测即
+    此现象），Chromium 只保留非法字符之前的内容（白箱 EP06 实测 1403/2694 条、EP01 3170/4286 条，
+    后段静默丢失）。现在解析前先剔除非法控制字符，真机浏览器实测：Firefox 157 由 0 条变为全量
+    （EP06 2694、EP01 4286），Chrome 153 同样全量。新增单测锁定「非法字符之后的弹幕仍能解析」。
+    无数据库迁移、无新增依赖。
+
 -   **v1.3.7**：修复 v1.3.6 的全屏亮度/音量手势"动一下就失效"。真机（Android Chrome）实测事件序列
     显示：`pointerdown` → 一次 `pointermove` → **`pointercancel`** → 之后所有 `touchmove` 都不再产生
     pointer 事件。原因是手势层保留着 `touch-action: pan-y pinch-zoom`（窗口模式要能滚动页面），浏览器

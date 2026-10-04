@@ -13,6 +13,13 @@ export type DanmakuMode = "scroll" | "top" | "bottom";
 const DEFAULT_COLOR = "#ffffff";
 const COLOR_MASK = 0xffffff;
 
+// Real tracks carry stray control characters in comment text (girigiri's Bilibili dumps
+// hold raw U+0008 backspaces). XML 1.0 forbids them, and parsers abandon the document at
+// the first one: Firefox returns a bare parsererror (no comments at all) while Chromium
+// keeps only what came before it. Stripping them first keeps every engine on the full file.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: these characters are the subject, not a mistake
+const INVALID_XML_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
+
 /**
  * Bilibili's `p` attribute is `time,mode,fontSize,color,sendTimestamp,pool,userId,row`.
  * Advanced (7) and code (8) comments have no equivalent here and are dropped.
@@ -34,7 +41,7 @@ function parseMode(value: number): DanmakuMode | null {
 }
 
 export function parseDanmakuXml(xml: string): DanmakuItem[] {
-	const doc = new DOMParser().parseFromString(xml, "text/xml");
+	const doc = new DOMParser().parseFromString(xml.replace(INVALID_XML_CHARS, ""), "text/xml");
 	const nodes = doc.getElementsByTagName("d");
 	const items: DanmakuItem[] = [];
 	for (const node of Array.from(nodes)) {
