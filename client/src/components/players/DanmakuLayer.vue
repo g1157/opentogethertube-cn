@@ -8,6 +8,17 @@ import { useResizeObserver } from "@vueuse/core";
 import { useStore } from "@/store";
 import { DANMAKU_MAX_PER_SECOND } from "@/stores/settings";
 import { DanmakuEngine, type DanmakuRenderItem } from "@/util/danmaku/engine";
+import {
+	autoMatch,
+	bindingsState,
+	danmuApiProvider,
+	getBinding,
+	getDanmakuApiBase,
+	looksLikeRemoteCandidate,
+	rememberBinding,
+	setDanmakuApiBase,
+	trackUrl,
+} from "@/util/danmaku/danmu-api";
 import { findDanmakuProvider } from "@/util/danmaku/provider";
 import type { DanmakuItem } from "@/util/danmaku/parse";
 import { useDanmaku } from "../composables";
@@ -18,7 +29,7 @@ const props = defineProps<{
 }>();
 
 const store = useStore();
-const { available } = useDanmaku();
+const { available, currentVideoUrl } = useDanmaku();
 const canvasElem = ref<HTMLCanvasElement | null>(null);
 
 // girigiri's measured proportions, kept so the picture reads the same: ~19.2px text on a
@@ -347,6 +358,30 @@ function detachVideo(video: HTMLVideoElement | undefined) {
 	video.removeEventListener("emptied", onEmptied);
 }
 
+/**
+ * Second source for videos the URL rules do not know — and for URL-matched tracks that
+ * turned out to be missing (a girigiri 404). The self-hosted aggregator answers with a
+ * stored binding, or with a best-effort match that is remembered for the next visit.
+ */
+async function loadFromAggregator(): Promise<DanmakuItem[] | null> {
+	let binding = getBinding(props.videoUrl);
+	const stored = binding !== null;
+	if (!binding) {
+		binding = await autoMatch(props.videoUrl);
+	}
+	if (!binding) {
+		return null;
+	}
+	const url = trackUrl(binding);
+	const loaded = url ? await danmuApiProvider.load(url) : null;
+	if (loaded !== null && !stored) {
+		// Remembered only after a track actually arrived; the reload this triggers reads
+		// the same URL back from the fetch cache.
+		rememberBinding(props.videoUrl, binding);
+	}
+	return loaded;
+}
+
 async function load() {
 	loadGeneration++;
 	const generation = loadGeneration;
@@ -354,23 +389,47 @@ async function load() {
 	engine?.setItems([]);
 	draw([]);
 	updateRunning();
-	const source = findDanmakuProvider(props.videoUrl);
-	available.value = source !== null;
-	if (!source || !store.state.settings.danmakuEnabled) {
+	const direct = findDanmakuProvider(props.videoUrl);
+	const aggregator = getDanmakuApiBase() !== "" && looksLikeRemoteCandidate(props.videoUrl);
+	available.value = direct !== null || aggregator;
+	if (!store.state.settings.danmakuEnabled) {
 		return;
 	}
-	const loaded = await source.provider.load(source.url);
+	let loaded: DanmakuItem[] | null = direct ? await direct.provider.load(direct.url) : null;
 	if (generation !== loadGeneration) {
 		return;
+	}
+	if (loaded === null && aggregator) {
+		loaded = await loadFromAggregator();
+		if (generation !== loadGeneration) {
+			return;
+		}
 	}
 	items = loaded ?? [];
 	engine?.setItems(items);
 	updateRunning();
 }
 
+// The aggregator's base lives in this device's settings; the layer mirrors it into the
+// module before the first lookup and re-resolves whenever it changes.
+watch(
+	() => store.state.settings.danmakuApiBase,
+	base => {
+		setDanmakuApiBase(base);
+		void load();
+	},
+	{ immediate: true },
+);
+
+// A manual bind (or clear) from the settings panel re-resolves the current video.
+watch(bindingsState, () => {
+	void load();
+});
+
 watch(
 	() => props.videoUrl,
-	() => {
+	url => {
+		currentVideoUrl.value = url;
 		void load();
 	},
 	{ immediate: true },

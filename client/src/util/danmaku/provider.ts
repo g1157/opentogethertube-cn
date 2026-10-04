@@ -1,3 +1,4 @@
+import { danmuApiProvider } from "./danmu-api";
 import { girigiriProvider } from "./girigiri";
 import type { DanmakuItem } from "./parse";
 
@@ -21,7 +22,7 @@ export interface DanmakuProvider {
  * here; a dead source is removed by deleting its entry, with nothing else in the
  * feature needing to know which sources exist.
  */
-const providers: DanmakuProvider[] = [girigiriProvider];
+const providers: DanmakuProvider[] = [girigiriProvider, danmuApiProvider];
 
 export interface DanmakuSource {
 	provider: DanmakuProvider;

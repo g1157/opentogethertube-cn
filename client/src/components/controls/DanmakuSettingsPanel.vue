@@ -144,11 +144,91 @@
 				data-cy="danmaku-anti-collision"
 			/>
 		</div>
+		<div class="danmaku-row danmaku-row-stack">
+			<span class="danmaku-row-label">{{ $t("room.danmaku.api-base") }}</span>
+			<v-text-field
+				v-model="danmakuApiBase"
+				density="compact"
+				variant="outlined"
+				hide-details
+				:placeholder="$t('room.danmaku.api-base-placeholder')"
+				data-cy="danmaku-api-base"
+			/>
+			<div class="danmaku-match-row">
+				<span v-if="binding" class="danmaku-match-label">
+					{{ $t("room.danmaku.bound", { title: binding.label }) }}
+				</span>
+				<span v-else class="danmaku-match-label danmaku-match-empty">
+					{{ $t("room.danmaku.not-bound") }}
+				</span>
+				<v-btn
+					v-if="binding"
+					size="x-small"
+					variant="text"
+					@click="clearBinding"
+					data-cy="danmaku-unbind"
+				>
+					{{ $t("room.danmaku.unbind") }}
+				</v-btn>
+				<v-btn
+					size="x-small"
+					variant="tonal"
+					:disabled="!danmakuApiBase || !currentVideoUrl"
+					@click="searchOpen = true"
+					data-cy="danmaku-search-open"
+				>
+					{{ $t("room.danmaku.search-danmaku") }}
+				</v-btn>
+			</div>
+		</div>
+
+		<v-dialog v-model="searchOpen" max-width="440">
+			<v-card>
+				<v-card-title class="danmaku-search-title">
+					{{ $t("room.danmaku.search-title") }}
+				</v-card-title>
+				<v-card-text>
+					<div class="danmaku-search-bar">
+						<v-text-field
+							v-model="keyword"
+							density="compact"
+							variant="outlined"
+							hide-details
+							:placeholder="$t('room.danmaku.search-placeholder')"
+							@keyup.enter="runSearch"
+						/>
+						<v-btn size="small" variant="tonal" :loading="searching" @click="runSearch">
+							{{ $t("room.danmaku.search-action") }}
+						</v-btn>
+					</div>
+					<v-list v-if="results.length" density="compact" class="danmaku-search-list">
+						<v-list-item
+							v-for="item in results"
+							:key="String(item.animeId)"
+							:title="item.title"
+							:subtitle="item.source"
+							@click="selectAnime(item)"
+						/>
+					</v-list>
+					<v-list v-if="episodes.length" density="compact" class="danmaku-search-list">
+						<v-list-item
+							v-for="episode in episodes"
+							:key="String(episode.episodeId)"
+							:title="episode.title"
+							@click="bindEpisode(episode)"
+						/>
+					</v-list>
+					<div v-if="searchEmpty && !searching" class="danmaku-search-empty">
+						{{ $t("room.danmaku.search-empty") }}
+					</div>
+				</v-card-text>
+			</v-card>
+		</v-dialog>
 	</div>
 </template>
 
 <script lang="ts" setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useStore } from "@/store";
 import {
 	DANMAKU_AREAS,
@@ -156,11 +236,21 @@ import {
 	DANMAKU_FONT_SIZE_OPTIONS,
 	DANMAKU_SPEED_OPTIONS,
 } from "@/stores/settings";
+import {
+	fetchEpisodes,
+	forgetBinding,
+	getBinding,
+	rememberBinding,
+	searchAnime,
+	type DanmakuEpisode,
+	type DanmakuSearchResult,
+} from "@/util/danmaku/danmu-api";
 import { useDanmaku } from "../composables";
 
 const store = useStore();
 const danmaku = useDanmaku();
 const danmakuAvailable = computed(() => danmaku.available.value);
+const currentVideoUrl = computed(() => danmaku.currentVideoUrl.value);
 const danmakuEnabled = computed({
 	get: () => store.state.settings.danmakuEnabled,
 	set: value => store.commit("settings/UPDATE", { danmakuEnabled: value }),
@@ -190,6 +280,62 @@ const danmakuAntiCollision = computed({
 	get: () => store.state.settings.danmakuAntiCollision,
 	set: value => store.commit("settings/UPDATE", { danmakuAntiCollision: value }),
 });
+
+/**
+ * The self-hosted aggregator (danmu_api) needs a match before it can serve a track, so the
+ * panel both carries its base URL and offers the manual match the automatic one falls back
+ * from. The binding belongs to the video the layer is currently playing.
+ */
+const danmakuApiBase = computed({
+	get: () => store.state.settings.danmakuApiBase,
+	set: value => store.commit("settings/UPDATE", { danmakuApiBase: value }),
+});
+const binding = computed(() => {
+	const url = currentVideoUrl.value;
+	return url ? getBinding(url) : null;
+});
+
+const searchOpen = ref(false);
+const keyword = ref("");
+const searching = ref(false);
+const results = ref<DanmakuSearchResult[]>([]);
+const episodes = ref<DanmakuEpisode[]>([]);
+const searchEmpty = ref(false);
+let selectedAnimeTitle = "";
+
+async function runSearch() {
+	searching.value = true;
+	try {
+		episodes.value = [];
+		results.value = await searchAnime(keyword.value);
+		searchEmpty.value = results.value.length === 0;
+	} finally {
+		searching.value = false;
+	}
+}
+
+async function selectAnime(item: DanmakuSearchResult) {
+	selectedAnimeTitle = item.title;
+	episodes.value = await fetchEpisodes(item.animeId);
+	searchEmpty.value = episodes.value.length === 0;
+}
+
+function bindEpisode(episode: DanmakuEpisode) {
+	const url = currentVideoUrl.value;
+	if (!url) {
+		return;
+	}
+	const label = [selectedAnimeTitle, episode.title].filter(Boolean).join(" · ");
+	rememberBinding(url, { episodeId: episode.episodeId, label });
+	searchOpen.value = false;
+}
+
+function clearBinding() {
+	const url = currentVideoUrl.value;
+	if (url) {
+		forgetBinding(url);
+	}
+}
 
 /** The four block switches act as one chip group. */
 const blockedTypes = computed({
@@ -294,6 +440,54 @@ const blockedTypes = computed({
 		.danmaku-chips {
 			justify-content: flex-start;
 		}
+	}
+
+	.danmaku-match-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+
+		.danmaku-match-label {
+			flex: 1 1 auto;
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			opacity: 0.9;
+		}
+
+		.danmaku-match-empty {
+			opacity: 0.55;
+		}
+	}
+
+	.danmaku-search-title {
+		font-size: 1rem;
+		padding-bottom: 4px;
+	}
+
+	.danmaku-search-bar {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+
+		.v-btn {
+			flex: 0 0 auto;
+			margin-top: 1px;
+		}
+	}
+
+	.danmaku-search-list {
+		margin-top: 8px;
+		max-height: 260px;
+		overflow-y: auto;
+		background: transparent;
+	}
+
+	.danmaku-search-empty {
+		margin-top: 10px;
+		opacity: 0.6;
 	}
 
 	.danmaku-unavailable {

@@ -121,6 +121,8 @@ export interface SettingsState {
 	danmakuBlockBottom: boolean;
 	danmakuBlockColored: boolean;
 	danmakuAntiCollision: boolean;
+	/** Base URL of a self-hosted danmu_api aggregator (with its token); empty disables it. */
+	danmakuApiBase: string;
 	/** Audio tone preset for this device; applied through the player's Web Audio graph. */
 	audioEqPreset: AudioEqPreset;
 	/** How the picture fills the player box on this device. */
@@ -250,6 +252,9 @@ function normalizeSettings(state: SettingsState) {
 	if (typeof state.danmakuAntiCollision !== "boolean") {
 		state.danmakuAntiCollision = true;
 	}
+	if (typeof state.danmakuApiBase !== "string") {
+		state.danmakuApiBase = "";
+	}
 	if (!AUDIO_EQ_PRESETS.includes(state.audioEqPreset)) {
 		state.audioEqPreset = "off";
 	}
@@ -317,6 +322,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		danmakuBlockBottom: false,
 		danmakuBlockColored: false,
 		danmakuAntiCollision: true,
+		danmakuApiBase: "",
 		audioEqPreset: "off",
 		videoFillMode: "contain",
 		videoMirror: false,
