@@ -949,12 +949,11 @@ it("owner permissions apply to HTTP and WebSocket controls without blocking unch
 	const b = await connect(t, name, guest);
 	const state = await (await request(`/room/${name}`, owner)).json();
 	assert.equal(
-		(
-			await request(`/room/${name}`, guest, "PATCH", {
-				title: "Guest title",
-				grants: state.grants,
-			})
-		).status,
+		(await request(`/room/${name}`, guest, "PATCH", { title: "Guest title" })).status,
+		403,
+	);
+	assert.equal(
+		(await request(`/room/${name}`, guest, "PATCH", { grants: state.grants })).status,
 		200,
 	);
 	assert.equal(

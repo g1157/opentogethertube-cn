@@ -9,6 +9,7 @@ import {
 	type UndoRequest,
 } from "ott-common/models/messages.js";
 import { PlayerStatus, Role } from "ott-common/models/types.js";
+import { Grants } from "ott-common/permissions.js";
 
 describe("room mutations cannot bypass grants", () => {
 	let room: Room;
@@ -114,10 +115,12 @@ describe("room mutations cannot bypass grants", () => {
 		).rejects.toThrow();
 		expect(room.prevQueue).toEqual([previous]);
 		expect(room.queue.items).toEqual([queued]);
-		room.grants.setRoleGrants(Role.UnregisteredUser, [
-			discard ? "manage-queue.remove" : "manage-queue.add",
-		]);
-		await room.processRequest({ type: RoomRequestType.RestoreQueueRequest, discard }, context);
+		const role = discard ? Role.RegisteredUser : Role.UnregisteredUser;
+		room.grants.setRoleGrants(role, [discard ? "manage-queue.remove" : "manage-queue.add"]);
+		await room.processRequest(
+			{ type: RoomRequestType.RestoreQueueRequest, discard },
+			{ ...context, role },
+		);
 		expect(room.prevQueue).toBeNull();
 		expect(room.queue.items).toEqual(discard ? [queued] : [queued, previous]);
 	});
@@ -163,5 +166,28 @@ describe("room mutations cannot bypass grants", () => {
 			);
 			expect(room.getRole(target)).toBe(role);
 		}
+	});
+
+	it("reserves queue removal for registered users under the default grants", async () => {
+		room.grants = new Grants();
+		await expect(
+			room.processRequest({ type: RoomRequestType.RemoveRequest, video: queued }, context),
+		).rejects.toThrow();
+		await room.processRequest(
+			{ type: RoomRequestType.RemoveRequest, video: queued },
+			{ ...context, role: Role.RegisteredUser },
+		);
+		expect(room.queue.items).toEqual([]);
+	});
+
+	it("reserves room configuration for registered users under the default grants", async () => {
+		room.grants = new Grants();
+		const settings: RoomRequest = {
+			type: RoomRequestType.ApplySettingsRequest,
+			settings: { title: "new title" },
+		};
+		await expect(room.processRequest(settings, context)).rejects.toThrow();
+		await room.processRequest(settings, { ...context, role: Role.RegisteredUser });
+		expect(room.title).toBe("new title");
 	});
 });

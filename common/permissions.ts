@@ -51,29 +51,29 @@ export const PERMISSIONS = [
 	new Permission({ name: "playback.skip", mask: 1 << 1, minRole: Role.UnregisteredUser }),
 	new Permission({ name: "playback.seek", mask: 1 << 2, minRole: Role.UnregisteredUser }),
 	new Permission({ name: "manage-queue.add", mask: 1 << 3, minRole: Role.UnregisteredUser }),
-	new Permission({ name: "manage-queue.remove", mask: 1 << 4, minRole: Role.UnregisteredUser }),
+	new Permission({ name: "manage-queue.remove", mask: 1 << 4, minRole: Role.RegisteredUser }),
 	new Permission({ name: "manage-queue.order", mask: 1 << 5, minRole: Role.UnregisteredUser }),
 	new Permission({ name: "manage-queue.vote", mask: 1 << 6, minRole: Role.UnregisteredUser }),
 	new Permission({ name: "chat", mask: 1 << 7, minRole: Role.UnregisteredUser }),
 	new Permission({
 		name: "configure-room.set-title",
 		mask: 1 << 8,
-		minRole: Role.UnregisteredUser,
+		minRole: Role.RegisteredUser,
 	}),
 	new Permission({
 		name: "configure-room.set-description",
 		mask: 1 << 9,
-		minRole: Role.UnregisteredUser,
+		minRole: Role.RegisteredUser,
 	}),
 	new Permission({
 		name: "configure-room.set-visibility",
 		mask: 1 << 10,
-		minRole: Role.UnregisteredUser,
+		minRole: Role.RegisteredUser,
 	}),
 	new Permission({
 		name: "configure-room.set-queue-mode",
 		mask: 1 << 11,
-		minRole: Role.UnregisteredUser,
+		minRole: Role.RegisteredUser,
 	}),
 	new Permission({
 		name: "configure-room.set-permissions.for-moderator",
@@ -130,7 +130,7 @@ export const PERMISSIONS = [
 	new Permission({
 		name: "configure-room.other",
 		mask: 1 << 22,
-		minRole: Role.UnregisteredUser,
+		minRole: Role.RegisteredUser,
 	}),
 	new Permission({
 		name: "playback.speed",
@@ -177,17 +177,23 @@ function defaultPermissions(): Grants {
 	return new Grants({
 		[Role.UnregisteredUser]: parseIntoGrantMask([
 			"playback",
-			"manage-queue",
+			"manage-queue.add",
+			"manage-queue.order",
+			"manage-queue.vote",
+			"manage-queue.play-now",
+			"manage-queue.edit",
 			"chat",
+			"configure-room.set-notes",
+			"configure-room.set-danmaku-source",
+		]),
+		[Role.RegisteredUser]: parseIntoGrantMask([
+			"manage-queue.remove",
 			"configure-room.set-title",
 			"configure-room.set-description",
 			"configure-room.set-visibility",
 			"configure-room.set-queue-mode",
 			"configure-room.other",
-			"configure-room.set-notes",
-			"configure-room.set-danmaku-source",
 		]),
-		[Role.RegisteredUser]: parseIntoGrantMask([]),
 		[Role.TrustedUser]: parseIntoGrantMask([]),
 		[Role.Moderator]: parseIntoGrantMask([
 			"manage-users.promote-trusted-user",

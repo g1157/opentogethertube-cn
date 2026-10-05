@@ -74,16 +74,32 @@ describe("Permission System", () => {
 	});
 
 	it("should get correct validation mask", () => {
-		expect(permissions.getValidationMask(0) & 0b111111111111).toEqual(0b111111111111);
-		expect(permissions.getValidationMask(0) & (1 << 22)).toEqual(1 << 22);
+		expect(permissions.getValidationMask(0) & 0b111111111111).toEqual(
+			(1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 6) | (1 << 7),
+		);
+		expect(permissions.getValidationMask(0) & (1 << 22)).toEqual(0);
+		expect(
+			permissions.getValidationMask(Role.RegisteredUser) &
+				((1 << 4) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 22)),
+		).toEqual((1 << 4) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 22));
 		expect(permissions.getValidationMask(3) & ((1 << 13) | (1 << 14) | (1 << 15))).toEqual(
 			(1 << 13) | (1 << 14) | (1 << 15),
 		);
 	});
 
+	it("keeps room configuration and queue removal for registered users", () => {
+		const grants = new Grants();
+		expect(grants.granted(Role.UnregisteredUser, "manage-queue.add")).toBe(true);
+		expect(grants.granted(Role.UnregisteredUser, "manage-queue.remove")).toBe(false);
+		expect(grants.granted(Role.UnregisteredUser, "configure-room.set-title")).toBe(false);
+		expect(grants.granted(Role.RegisteredUser, "manage-queue.remove")).toBe(true);
+		expect(grants.granted(Role.RegisteredUser, "configure-room.set-title")).toBe(true);
+		expect(grants.granted(Role.RegisteredUser, "configure-room.other")).toBe(true);
+	});
+
 	it("should guarantee that using numbers for roles works for Grants", () => {
-		const grants = new Grants({ "0": 4095 });
-		expect(grants.getMask(0)).toEqual(4095);
+		const grants = new Grants({ "0": (1 << 0) | (1 << 1) | (1 << 7) });
+		expect(grants.getMask(0)).toEqual((1 << 0) | (1 << 1) | (1 << 7));
 	});
 
 	it("should throw an error when using check", () => {

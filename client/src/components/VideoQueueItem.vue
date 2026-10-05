@@ -98,6 +98,7 @@
 					variant="flat"
 					:loading="isLoadingAdd"
 					v-if="!isPreview && store.state.room.queueMode !== QueueMode.Dj"
+					:disabled="!granted('manage-queue.remove')"
 					@click="removeFromQueue"
 					:aria-label="$t('common.remove')"
 					data-cy="btn-remove-from-queue"
@@ -180,6 +181,7 @@
 							class="button-with-icon"
 							@click="removeFromQueue"
 							v-if="!isPreview && store.state.room.queueMode === QueueMode.Dj"
+							:disabled="!granted('manage-queue.remove')"
 							data-cy="menu-btn-remove-from-queue"
 						>
 							<v-icon :icon="mdiTrashCan" />
