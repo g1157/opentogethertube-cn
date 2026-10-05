@@ -7,6 +7,9 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useResizeObserver } from "@vueuse/core";
 import { useStore } from "@/store";
 import { DANMAKU_MAX_PER_SECOND } from "@/stores/settings";
+import { i18n } from "@/i18n";
+import { ToastStyle } from "@/models/toast";
+import toast from "@/util/toast";
 import { DanmakuEngine, type DanmakuRenderItem } from "@/util/danmaku/engine";
 import {
 	autoMatch,
@@ -31,7 +34,7 @@ const props = defineProps<{
 }>();
 
 const store = useStore();
-const { available, currentVideoUrl } = useDanmaku();
+const { available, loadedCount, currentVideoUrl } = useDanmaku();
 const canvasElem = ref<HTMLCanvasElement | null>(null);
 
 // girigiri's measured proportions, kept so the picture reads the same: ~19.2px text on a
@@ -394,6 +397,7 @@ async function load() {
 	loadGeneration++;
 	const generation = loadGeneration;
 	items = null;
+	loadedCount.value = 0;
 	engine?.setItems([]);
 	draw([]);
 	updateRunning();
@@ -424,6 +428,16 @@ async function load() {
 		}
 	}
 	items = loaded === null ? [] : binding ? shiftDanmakuTime(loaded, binding.offset) : loaded;
+	loadedCount.value = items.length;
+	if (items.length > 0) {
+		// Feedback that a track actually arrived; without it the only sign was comments
+		// appearing over the picture.
+		toast.add({
+			style: ToastStyle.Neutral,
+			content: i18n.global.t("room.danmaku.loaded-toast", { count: items.length }),
+			duration: 3000,
+		});
+	}
 	engine?.setItems(items);
 	updateRunning();
 }

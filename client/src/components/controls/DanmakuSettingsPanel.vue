@@ -21,147 +21,254 @@
 			</v-btn-toggle>
 		</div>
 		<template v-if="page === 'basic'">
-			<div class="danmaku-row danmaku-row-slider">
-				<div class="danmaku-row-top">
+			<div class="danmaku-page">
+				<div class="danmaku-row danmaku-slider-row">
 					<span class="danmaku-row-label">{{ $t("room.danmaku.opacity") }}</span>
+					<v-slider
+						v-model="danmakuOpacity"
+						:min="0.1"
+						:max="1"
+						:step="0.05"
+						color="primary"
+						density="compact"
+						hide-details
+						class="danmaku-inline-slider"
+						data-cy="danmaku-opacity"
+					/>
 					<span class="danmaku-row-value">{{ opacityPercent }}%</span>
 				</div>
-				<v-slider
-					v-model="danmakuOpacity"
-					:min="0.1"
-					:max="1"
-					:step="0.05"
-					color="primary"
-					density="compact"
-					hide-details
-					data-cy="danmaku-opacity"
-				/>
-			</div>
-			<div class="danmaku-row">
-				<span class="danmaku-row-label">{{ $t("room.danmaku.font-size") }}</span>
-				<v-btn-toggle
-					v-model="danmakuFontSize"
-					mandatory
-					density="compact"
-					color="primary"
-					class="danmaku-chips"
-				>
-					<v-btn
-						v-for="size in DANMAKU_FONT_SIZE_OPTIONS"
-						:key="size"
-						:value="size"
-						size="x-small"
-						:data-cy="`danmaku-font-${size}`"
+				<div class="danmaku-row">
+					<span class="danmaku-row-label">{{ $t("room.danmaku.font-size") }}</span>
+					<v-btn-toggle
+						v-model="danmakuFontSize"
+						mandatory
+						density="compact"
+						color="primary"
+						class="danmaku-chips"
 					>
-						{{ $t(`room.danmaku.font-size-${size}`) }}
-					</v-btn>
-				</v-btn-toggle>
-			</div>
-			<div class="danmaku-row">
-				<span class="danmaku-row-label">{{ $t("room.danmaku.speed") }}</span>
-				<v-btn-toggle
-					v-model="danmakuSpeed"
-					mandatory
-					density="compact"
-					color="primary"
-					class="danmaku-chips"
-				>
-					<v-btn
-						v-for="speed in DANMAKU_SPEED_OPTIONS"
-						:key="speed"
-						:value="speed"
-						size="x-small"
-						:data-cy="`danmaku-speed-${speed}`"
+						<v-btn
+							v-for="size in DANMAKU_FONT_SIZE_OPTIONS"
+							:key="size"
+							:value="size"
+							size="x-small"
+							:data-cy="`danmaku-font-${size}`"
+						>
+							{{ $t(`room.danmaku.font-size-${size}`) }}
+						</v-btn>
+					</v-btn-toggle>
+				</div>
+				<div class="danmaku-row">
+					<span class="danmaku-row-label">{{ $t("room.danmaku.speed") }}</span>
+					<v-btn-toggle
+						v-model="danmakuSpeed"
+						mandatory
+						density="compact"
+						color="primary"
+						class="danmaku-chips"
 					>
-						{{ speed }}×
-					</v-btn>
-				</v-btn-toggle>
-			</div>
-			<div class="danmaku-row">
-				<span class="danmaku-row-label">{{ $t("room.danmaku.area") }}</span>
-				<v-btn-toggle
-					v-model="danmakuDisplayArea"
-					mandatory
-					density="compact"
-					color="primary"
-					class="danmaku-chips"
-				>
-					<v-btn
-						v-for="area in DANMAKU_AREAS"
-						:key="area"
-						:value="area"
-						size="x-small"
-						:data-cy="`danmaku-area-${area}`"
+						<v-btn
+							v-for="speed in DANMAKU_SPEED_OPTIONS"
+							:key="speed"
+							:value="speed"
+							size="x-small"
+							:data-cy="`danmaku-speed-${speed}`"
+						>
+							{{ speed }}×
+						</v-btn>
+					</v-btn-toggle>
+				</div>
+				<div class="danmaku-row">
+					<span class="danmaku-row-label">{{ $t("room.danmaku.area") }}</span>
+					<v-btn-toggle
+						v-model="danmakuDisplayArea"
+						mandatory
+						density="compact"
+						color="primary"
+						class="danmaku-chips"
 					>
-						{{ $t(`room.danmaku.area-${area}`) }}
-					</v-btn>
-				</v-btn-toggle>
-			</div>
-			<div class="danmaku-row">
-				<span class="danmaku-row-label">{{ $t("room.danmaku.density") }}</span>
-				<v-btn-toggle
-					v-model="danmakuDensity"
-					mandatory
-					density="compact"
-					color="primary"
-					class="danmaku-chips"
-				>
-					<v-btn
-						v-for="density in DANMAKU_DENSITY_OPTIONS"
-						:key="density"
-						:value="density"
-						size="x-small"
-						:data-cy="`danmaku-density-${density}`"
+						<v-btn
+							v-for="area in DANMAKU_AREAS"
+							:key="area"
+							:value="area"
+							size="x-small"
+							:data-cy="`danmaku-area-${area}`"
+						>
+							{{ $t(`room.danmaku.area-${area}`) }}
+						</v-btn>
+					</v-btn-toggle>
+				</div>
+				<div class="danmaku-row">
+					<span class="danmaku-row-label">{{ $t("room.danmaku.density") }}</span>
+					<v-btn-toggle
+						v-model="danmakuDensity"
+						mandatory
+						density="compact"
+						color="primary"
+						class="danmaku-chips"
 					>
-						{{ $t(`room.danmaku.density-${density}`) }}
-					</v-btn>
-				</v-btn-toggle>
-			</div>
-			<div class="danmaku-row danmaku-row-stack">
-				<span class="danmaku-row-label">{{ $t("room.danmaku.blocking") }}</span>
-				<v-btn-toggle
-					v-model="blockedTypes"
-					multiple
-					density="compact"
-					color="primary"
-					class="danmaku-chips"
-				>
-					<v-btn value="scroll" size="x-small" data-cy="danmaku-block-scroll">
-						{{ $t("room.danmaku.block-scroll") }}
-					</v-btn>
-					<v-btn value="top" size="x-small" data-cy="danmaku-block-top">
-						{{ $t("room.danmaku.block-top") }}
-					</v-btn>
-					<v-btn value="bottom" size="x-small" data-cy="danmaku-block-bottom">
-						{{ $t("room.danmaku.block-bottom") }}
-					</v-btn>
-					<v-btn value="colored" size="x-small" data-cy="danmaku-block-colored">
-						{{ $t("room.danmaku.block-colored") }}
-					</v-btn>
-				</v-btn-toggle>
-			</div>
-			<div class="danmaku-row">
-				<span class="danmaku-row-label">{{ $t("room.danmaku.anti-collision") }}</span>
-				<v-switch
-					v-model="danmakuAntiCollision"
-					color="primary"
-					density="compact"
-					hide-details
-					class="danmaku-switch"
-					data-cy="danmaku-anti-collision"
-				/>
+						<v-btn
+							v-for="density in DANMAKU_DENSITY_OPTIONS"
+							:key="density"
+							:value="density"
+							size="x-small"
+							:data-cy="`danmaku-density-${density}`"
+						>
+							{{ $t(`room.danmaku.density-${density}`) }}
+						</v-btn>
+					</v-btn-toggle>
+				</div>
+				<div class="danmaku-row">
+					<span class="danmaku-row-label">{{ $t("room.danmaku.blocking") }}</span>
+					<v-btn-toggle
+						v-model="blockedTypes"
+						multiple
+						density="compact"
+						color="primary"
+						class="danmaku-chips"
+					>
+						<v-btn value="scroll" size="x-small" data-cy="danmaku-block-scroll">
+							{{ $t("room.danmaku.block-scroll") }}
+						</v-btn>
+						<v-btn value="top" size="x-small" data-cy="danmaku-block-top">
+							{{ $t("room.danmaku.block-top") }}
+						</v-btn>
+						<v-btn value="bottom" size="x-small" data-cy="danmaku-block-bottom">
+							{{ $t("room.danmaku.block-bottom") }}
+						</v-btn>
+						<v-btn value="colored" size="x-small" data-cy="danmaku-block-colored">
+							{{ $t("room.danmaku.block-colored") }}
+						</v-btn>
+					</v-btn-toggle>
+				</div>
+				<div class="danmaku-row">
+					<span class="danmaku-row-label">{{ $t("room.danmaku.anti-collision") }}</span>
+					<v-switch
+						v-model="danmakuAntiCollision"
+						color="primary"
+						density="compact"
+						hide-details
+						class="danmaku-switch"
+						data-cy="danmaku-anti-collision"
+					/>
+				</div>
 			</div>
 		</template>
 		<template v-else>
-			<div class="danmaku-section">
-				<div class="danmaku-section-title">{{ $t("room.danmaku.binding-title") }}</div>
-				<div class="danmaku-match-row">
-					<span v-if="binding" class="danmaku-match-label">
-						{{ $t("room.danmaku.bound", { title: binding.label }) }}
-					</span>
+			<!-- The search drills down inside the page's fixed height: results first, then the
+			     episode list of the picked show, then back to the sources. -->
+			<div v-if="searchView" class="danmaku-page danmaku-search-view">
+				<div class="danmaku-search-view-head">
+					<v-btn
+						size="x-small"
+						variant="text"
+						@click="searchBack"
+						data-cy="danmaku-search-back"
+					>
+						{{ $t("room.danmaku.back") }}
+					</v-btn>
+					<span class="danmaku-search-view-title" :title="searchTitle">{{
+						searchTitle
+					}}</span>
+					<v-progress-circular
+						v-if="searchBusy"
+						size="14"
+						width="2"
+						indeterminate
+						color="primary"
+					/>
+				</div>
+				<div class="danmaku-search-body">
+					<template v-if="searchView.step === 'results'">
+						<v-list
+							v-if="searchView.source === 'girigiri' && girigiriResults.length"
+							density="compact"
+							class="danmaku-search-results"
+						>
+							<v-list-item
+								v-for="item in girigiriResults"
+								:key="item.id"
+								:title="item.name"
+								data-cy="danmaku-search-result"
+								@click="selectGirigiriShow(item)"
+							/>
+						</v-list>
+						<v-list
+							v-else-if="searchView.source === 'danmu' && results.length"
+							density="compact"
+							class="danmaku-search-results"
+						>
+							<v-list-item
+								v-for="item in results"
+								:key="String(item.animeId)"
+								:title="item.title"
+								:subtitle="item.source"
+								data-cy="danmaku-search-result"
+								@click="selectAnime(item)"
+							/>
+						</v-list>
+					</template>
+					<template v-else>
+						<v-list
+							v-if="searchView.source === 'danmu'"
+							density="compact"
+							class="danmaku-search-results"
+						>
+							<v-list-item
+								v-for="episode in episodes"
+								:key="String(episode.episodeId)"
+								:title="episode.title"
+								data-cy="danmaku-search-episode"
+								@click="bindEpisode(episode)"
+							/>
+						</v-list>
+						<div v-else class="danmaku-search-results danmaku-episodes">
+							<div
+								v-for="line in girigiriLines"
+								:key="line.line"
+								class="danmaku-line"
+							>
+								<div class="danmaku-line-label">
+									{{ $t("room.danmaku.girigiri-line", { n: line.line }) }}
+								</div>
+								<div class="danmaku-line-chips">
+									<v-btn
+										v-for="episode in line.episodes"
+										:key="episode.number"
+										size="x-small"
+										variant="tonal"
+										:data-cy="`danmaku-girigiri-ep-${line.line}-${episode.number}`"
+										@click="bindGirigiriEpisode(line, episode)"
+									>
+										{{
+											$t("room.danmaku.girigiri-episode", {
+												n: episode.number,
+											})
+										}}
+									</v-btn>
+								</div>
+							</div>
+						</div>
+					</template>
+					<div v-if="searchEmpty && !searchBusy" class="danmaku-search-empty">
+						{{ searchEmptyText }}
+					</div>
+				</div>
+			</div>
+			<div v-else class="danmaku-page danmaku-sources">
+				<div class="danmaku-row">
+					<span class="danmaku-row-label">{{ $t("room.danmaku.binding-title") }}</span>
+					<span v-if="binding" class="danmaku-match-label" :title="binding.label">{{
+						binding.label
+					}}</span>
 					<span v-else class="danmaku-match-label danmaku-match-empty">
 						{{ $t("room.danmaku.not-bound") }}
 					</span>
+					<span
+						class="danmaku-count"
+						:title="$t('room.danmaku.loaded')"
+						data-cy="danmaku-loaded-count"
+						>{{ $t("room.danmaku.loaded-count", { count: loadedCount }) }}</span
+					>
 					<v-btn
 						v-if="binding"
 						size="x-small"
@@ -172,11 +279,8 @@
 						{{ $t("room.danmaku.unbind") }}
 					</v-btn>
 				</div>
-				<div v-if="binding" class="danmaku-row danmaku-row-slider">
-					<div class="danmaku-row-top">
-						<span class="danmaku-row-label">{{ $t("room.danmaku.offset") }}</span>
-						<span class="danmaku-row-value">{{ offsetLabel }}</span>
-					</div>
+				<div v-if="binding" class="danmaku-row danmaku-slider-row">
+					<span class="danmaku-row-label">{{ $t("room.danmaku.offset") }}</span>
 					<v-slider
 						v-model="offsetSeconds"
 						:min="-60"
@@ -185,111 +289,26 @@
 						color="primary"
 						density="compact"
 						hide-details
+						class="danmaku-inline-slider"
 						data-cy="danmaku-offset"
 					/>
-					<div class="danmaku-row-hint">{{ $t("room.danmaku.offset-hint") }}</div>
+					<span class="danmaku-row-value">{{ offsetLabel }}</span>
 				</div>
-			</div>
-			<div class="danmaku-section">
-				<div class="danmaku-section-title">danmu_api</div>
-				<v-text-field
-					v-model="danmakuApiBase"
-					density="compact"
-					variant="outlined"
-					hide-details
-					:placeholder="$t('room.danmaku.api-base-placeholder')"
-					data-cy="danmaku-api-base"
-				/>
-				<div class="danmaku-section-hint">{{ $t("room.danmaku.aggregator-hint") }}</div>
-				<div class="danmaku-match-actions">
-					<v-btn
-						size="x-small"
-						variant="tonal"
-						:disabled="!danmakuApiBase || !currentVideoUrl"
-						@click="searchOpen = true"
-						data-cy="danmaku-search-open"
-					>
-						{{ $t("room.danmaku.search-danmaku") }}
-					</v-btn>
-				</div>
-			</div>
-			<div class="danmaku-section">
-				<div class="danmaku-section-title">girigiri</div>
-				<div class="danmaku-section-hint">{{ $t("room.danmaku.girigiri-hint") }}</div>
-				<div class="danmaku-match-actions">
-					<v-btn
-						size="x-small"
-						variant="tonal"
-						:disabled="!currentVideoUrl"
-						@click="girigiriOpen = true"
-						data-cy="danmaku-girigiri-open"
-					>
-						{{ $t("room.danmaku.girigiri-search") }}
-					</v-btn>
-				</div>
-			</div>
-		</template>
-
-		<v-dialog v-model="searchOpen" max-width="440">
-			<v-card>
-				<v-card-title class="danmaku-search-title">
-					{{ $t("room.danmaku.search-title") }}
-				</v-card-title>
-				<v-card-text>
-					<div class="danmaku-search-bar">
-						<v-text-field
-							v-model="keyword"
-							density="compact"
-							variant="outlined"
-							hide-details
-							:placeholder="$t('room.danmaku.search-placeholder')"
-							@keyup.enter="runSearch"
-						/>
-						<v-btn size="small" variant="tonal" :loading="searching" @click="runSearch">
-							{{ $t("room.danmaku.search-action") }}
-						</v-btn>
-					</div>
-					<v-list v-if="results.length" density="compact" class="danmaku-search-list">
-						<v-list-item
-							v-for="item in results"
-							:key="String(item.animeId)"
-							:title="item.title"
-							:subtitle="item.source"
-							@click="selectAnime(item)"
-						/>
-					</v-list>
-					<v-list v-if="episodes.length" density="compact" class="danmaku-search-list">
-						<v-list-item
-							v-for="episode in episodes"
-							:key="String(episode.episodeId)"
-							:title="episode.title"
-							@click="bindEpisode(episode)"
-						/>
-					</v-list>
-					<div v-if="searchEmpty && !searching" class="danmaku-search-empty">
-						{{ $t("room.danmaku.search-empty") }}
-					</div>
-				</v-card-text>
-			</v-card>
-		</v-dialog>
-
-		<v-dialog v-model="girigiriOpen" max-width="440">
-			<v-card>
-				<v-card-title class="danmaku-search-title">
-					{{ $t("room.danmaku.girigiri-title") }}
-				</v-card-title>
-				<v-card-text>
-					<div class="danmaku-search-bar">
+				<div class="danmaku-section">
+					<div class="danmaku-section-title">girigiri</div>
+					<div class="danmaku-search-inline">
 						<v-text-field
 							v-model="girigiriKeyword"
 							density="compact"
 							variant="outlined"
 							hide-details
+							class="danmaku-slim-field"
 							:placeholder="$t('room.danmaku.girigiri-placeholder')"
+							data-cy="danmaku-girigiri-input"
 							@keyup.enter="runGirigiriSearch"
 						/>
 						<v-btn
-							size="small"
+							size="x-small"
 							variant="tonal"
 							:loading="girigiriSearching"
 							@click="runGirigiriSearch"
@@ -297,48 +316,47 @@
 							{{ $t("room.danmaku.search-action") }}
 						</v-btn>
 					</div>
-					<v-list
-						v-if="girigiriResults.length"
+				</div>
+				<div class="danmaku-section">
+					<div class="danmaku-section-title">danmu_api</div>
+					<v-text-field
+						v-model="danmakuApiBase"
 						density="compact"
-						class="danmaku-search-list"
-					>
-						<v-list-item
-							v-for="item in girigiriResults"
-							:key="item.id"
-							:title="item.name"
-							@click="selectGirigiriShow(item)"
+						variant="outlined"
+						hide-details
+						class="danmaku-slim-field"
+						:placeholder="$t('room.danmaku.api-base-placeholder')"
+						data-cy="danmaku-api-base"
+					/>
+					<div class="danmaku-search-inline">
+						<v-text-field
+							v-model="keyword"
+							density="compact"
+							variant="outlined"
+							hide-details
+							class="danmaku-slim-field"
+							:placeholder="$t('room.danmaku.search-placeholder')"
+							data-cy="danmaku-search-input"
+							@keyup.enter="runSearch"
 						/>
-					</v-list>
-					<div v-if="girigiriLines.length" class="danmaku-episodes">
-						<div v-for="line in girigiriLines" :key="line.line" class="danmaku-line">
-							<div class="danmaku-line-label">
-								{{ $t("room.danmaku.girigiri-line", { n: line.line }) }}
-							</div>
-							<div class="danmaku-line-chips">
-								<v-btn
-									v-for="episode in line.episodes"
-									:key="episode.number"
-									size="x-small"
-									variant="tonal"
-									:data-cy="`danmaku-girigiri-ep-${line.line}-${episode.number}`"
-									@click="bindGirigiriEpisode(line, episode)"
-								>
-									{{ $t("room.danmaku.girigiri-episode", { n: episode.number }) }}
-								</v-btn>
-							</div>
-						</div>
+						<v-btn
+							size="x-small"
+							variant="tonal"
+							:loading="searching"
+							:disabled="!danmakuApiBase || !currentVideoUrl"
+							@click="runSearch"
+						>
+							{{ $t("room.danmaku.search-action") }}
+						</v-btn>
 					</div>
-					<div v-if="girigiriEmpty && !girigiriSearching" class="danmaku-search-empty">
-						{{ $t("room.danmaku.girigiri-empty") }}
-					</div>
-				</v-card-text>
-			</v-card>
-		</v-dialog>
+				</div>
+			</div>
+		</template>
 	</div>
 </template>
 
 <script lang="ts" setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useStore } from "@/store";
 import {
@@ -371,6 +389,8 @@ const store = useStore();
 const danmaku = useDanmaku();
 const danmakuAvailable = computed(() => danmaku.available.value);
 const currentVideoUrl = computed(() => danmaku.currentVideoUrl.value);
+/** Comments the layer actually loaded for the current video. */
+const loadedCount = computed(() => danmaku.loadedCount.value);
 /** The panel has two pages: appearance settings and the comment sources. */
 const page = ref<"basic" | "sources">("basic");
 const danmakuOpacity = computed({
@@ -402,7 +422,7 @@ const danmakuAntiCollision = computed({
 /**
  * The self-hosted aggregator (danmu_api) needs a match before it can serve a track, so the
  * panel both carries its base URL and offers the manual match the automatic one falls back
- * from. The binding belongs to the video the layer is currently playing.
+ * from; girigiri's search lives above it. The binding belongs to the current video.
  */
 const danmakuApiBase = computed({
 	get: () => store.state.settings.danmakuApiBase,
@@ -413,29 +433,112 @@ const binding = computed(() => {
 	return url ? getBinding(url) : null;
 });
 
-const searchOpen = ref(false);
+/** Which search the page is showing, drilled down inside the page's fixed height. */
+type SearchSource = "girigiri" | "danmu";
+const searchView = ref<{ source: SearchSource; step: "results" | "episodes" } | null>(null);
 const keyword = ref("");
 const searching = ref(false);
 const results = ref<DanmakuSearchResult[]>([]);
 const episodes = ref<DanmakuEpisode[]>([]);
-const searchEmpty = ref(false);
-let selectedAnimeTitle = "";
+const selectedAnimeTitle = ref("");
+const girigiriKeyword = ref("");
+const girigiriSearching = ref(false);
+const girigiriResults = ref<GirigiriSearchResult[]>([]);
+const girigiriLines = ref<GirigiriLine[]>([]);
+const girigiriShowTitle = ref("");
+
+const searchBusy = computed(() => searching.value || girigiriSearching.value);
+const searchTitle = computed(() => {
+	const view = searchView.value;
+	if (!view) {
+		return "";
+	}
+	if (view.step === "episodes") {
+		return view.source === "girigiri" ? girigiriShowTitle.value : selectedAnimeTitle.value;
+	}
+	return view.source === "girigiri" ? "girigiri" : "danmu_api";
+});
+const searchEmpty = computed(() => {
+	const view = searchView.value;
+	if (!view) {
+		return false;
+	}
+	if (view.source === "girigiri") {
+		return view.step === "results"
+			? girigiriResults.value.length === 0
+			: girigiriLines.value.length === 0;
+	}
+	return view.step === "results" ? results.value.length === 0 : episodes.value.length === 0;
+});
+const searchEmptyText = computed(() =>
+	t(
+		searchView.value?.source === "girigiri"
+			? "room.danmaku.girigiri-empty"
+			: "room.danmaku.search-empty",
+	),
+);
+
+/** One search is shown at a time; closing it restores the sources page. */
+function closeSearch() {
+	searchView.value = null;
+	results.value = [];
+	episodes.value = [];
+	selectedAnimeTitle.value = "";
+	girigiriResults.value = [];
+	girigiriLines.value = [];
+	girigiriShowTitle.value = "";
+}
+
+function searchBack() {
+	const view = searchView.value;
+	if (!view) {
+		return;
+	}
+	if (view.step === "episodes") {
+		if (view.source === "girigiri") {
+			clearGirigiriSelection();
+		} else {
+			clearAnimeSelection();
+		}
+		searchView.value = { source: view.source, step: "results" };
+		return;
+	}
+	closeSearch();
+}
+
+watch(page, value => {
+	if (value !== "sources") {
+		closeSearch();
+	}
+});
 
 async function runSearch() {
+	clearAnimeSelection();
+	results.value = [];
+	searchView.value = { source: "danmu", step: "results" };
 	searching.value = true;
 	try {
-		episodes.value = [];
 		results.value = await searchAnime(keyword.value);
-		searchEmpty.value = results.value.length === 0;
 	} finally {
 		searching.value = false;
 	}
 }
 
 async function selectAnime(item: DanmakuSearchResult) {
-	selectedAnimeTitle = item.title;
-	episodes.value = await fetchEpisodes(item.animeId);
-	searchEmpty.value = episodes.value.length === 0;
+	selectedAnimeTitle.value = item.title;
+	episodes.value = [];
+	searchView.value = { source: "danmu", step: "episodes" };
+	searching.value = true;
+	try {
+		episodes.value = await fetchEpisodes(item.animeId);
+	} finally {
+		searching.value = false;
+	}
+}
+
+function clearAnimeSelection() {
+	selectedAnimeTitle.value = "";
+	episodes.value = [];
 }
 
 function bindEpisode(episode: DanmakuEpisode) {
@@ -443,39 +546,44 @@ function bindEpisode(episode: DanmakuEpisode) {
 	if (!url) {
 		return;
 	}
-	const label = [selectedAnimeTitle, episode.title].filter(Boolean).join(" · ");
+	const label = [selectedAnimeTitle.value, episode.title].filter(Boolean).join(" · ");
 	rememberBinding(url, {
 		provider: "danmu-api",
 		episodeId: episode.episodeId,
 		label,
 		offset: binding.value?.offset ?? 0,
 	});
-	searchOpen.value = false;
+	// The panel collapses back to its compact state; the keyword stays for the next episode.
+	closeSearch();
 }
 
-const girigiriOpen = ref(false);
-const girigiriKeyword = ref("");
-const girigiriSearching = ref(false);
-const girigiriResults = ref<GirigiriSearchResult[]>([]);
-const girigiriLines = ref<GirigiriLine[]>([]);
-const girigiriEmpty = ref(false);
-let girigiriShowTitle = "";
-
 async function runGirigiriSearch() {
+	clearGirigiriSelection();
+	girigiriResults.value = [];
+	searchView.value = { source: "girigiri", step: "results" };
 	girigiriSearching.value = true;
 	try {
-		girigiriLines.value = [];
 		girigiriResults.value = await searchGirigiri(girigiriKeyword.value);
-		girigiriEmpty.value = girigiriResults.value.length === 0;
 	} finally {
 		girigiriSearching.value = false;
 	}
 }
 
 async function selectGirigiriShow(item: GirigiriSearchResult) {
-	girigiriShowTitle = item.name;
-	girigiriLines.value = await fetchGirigiriEpisodes(item.id);
-	girigiriEmpty.value = girigiriLines.value.length === 0;
+	girigiriShowTitle.value = item.name;
+	girigiriLines.value = [];
+	searchView.value = { source: "girigiri", step: "episodes" };
+	girigiriSearching.value = true;
+	try {
+		girigiriLines.value = await fetchGirigiriEpisodes(item.id);
+	} finally {
+		girigiriSearching.value = false;
+	}
+}
+
+function clearGirigiriSelection() {
+	girigiriShowTitle.value = "";
+	girigiriLines.value = [];
 }
 
 function bindGirigiriEpisode(line: GirigiriLine, episode: GirigiriEpisode) {
@@ -487,10 +595,12 @@ function bindGirigiriEpisode(line: GirigiriLine, episode: GirigiriEpisode) {
 	rememberBinding(url, {
 		provider: "girigiri",
 		page: episode.page,
-		label: [girigiriShowTitle, `线路 ${line.line}`, episodeLabel].filter(Boolean).join(" · "),
+		label: [girigiriShowTitle.value, `线路 ${line.line}`, episodeLabel]
+			.filter(Boolean)
+			.join(" · "),
 		offset: binding.value?.offset ?? 0,
 	});
-	girigiriOpen.value = false;
+	closeSearch();
 }
 
 function clearBinding() {
@@ -552,24 +662,37 @@ const blockedTypes = computed({
 .danmaku-panel {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
-	padding: 8px 12px 10px;
+	gap: 0;
+	padding: 6px 10px 8px;
 	font-size: 0.85rem;
+
+	/* Both pages share one fixed height: switching tabs never resizes the menu and the
+	   panel itself never needs a scrollbar. Long lists scroll inside their own box. */
+	.danmaku-page {
+		display: flex;
+		flex-direction: column;
+		height: 228px;
+		overflow-y: auto;
+	}
 
 	.danmaku-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 10px;
-		min-height: 34px;
+		gap: 8px;
+		min-height: 28px;
 	}
 
 	.danmaku-row-label {
+		flex: 0 0 auto;
 		white-space: nowrap;
 		opacity: 0.9;
 	}
 
 	.danmaku-row-value {
+		flex: 0 0 auto;
+		min-width: 34px;
+		text-align: right;
 		font-variant-numeric: tabular-nums;
 		opacity: 0.6;
 	}
@@ -586,98 +709,50 @@ const blockedTypes = computed({
 	.danmaku-chips {
 		flex-wrap: wrap;
 		justify-content: flex-end;
+		/* Wrapped rows of a joined toggle group overlap without a gap. */
+		gap: 4px;
 
 		.v-btn {
+			height: 24px;
 			min-width: 0;
 			padding: 0 7px;
 			text-transform: none;
 		}
 	}
 
-	.danmaku-row-slider {
-		flex-direction: column;
-		align-items: stretch;
-		gap: 0;
-
-		.danmaku-row-top {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-		}
-
-		.v-slider {
+	/* A slider that shares its row with the label and the value. */
+	.danmaku-slider-row {
+		.danmaku-inline-slider {
+			flex: 1 1 auto;
 			margin: 0;
 		}
 	}
 
-	.danmaku-row-stack {
-		flex-direction: column;
-		align-items: stretch;
-		gap: 4px;
-
-		.danmaku-chips {
-			justify-content: flex-start;
-		}
+	.danmaku-match-label {
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		text-align: right;
+		opacity: 0.9;
 	}
 
-	.danmaku-match-row {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		width: 100%;
-
-		.danmaku-match-label {
-			flex: 1 1 auto;
-			min-width: 0;
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
-			opacity: 0.9;
-		}
-
-		.danmaku-match-empty {
-			opacity: 0.55;
-		}
-	}
-
-	.danmaku-search-title {
-		font-size: 1rem;
-		padding-bottom: 4px;
-	}
-
-	.danmaku-search-bar {
-		display: flex;
-		align-items: flex-start;
-		gap: 8px;
-
-		.v-btn {
-			flex: 0 0 auto;
-			margin-top: 1px;
-		}
-	}
-
-	.danmaku-search-list {
-		margin-top: 8px;
-		max-height: 260px;
-		overflow-y: auto;
-		background: transparent;
-	}
-
-	.danmaku-search-empty {
-		margin-top: 10px;
-		opacity: 0.6;
+	.danmaku-match-empty {
+		opacity: 0.55;
 	}
 
 	.danmaku-page-switch {
 		display: flex;
 		justify-content: center;
-		padding-bottom: 6px;
+		padding-bottom: 4px;
 
 		.danmaku-pages {
 			width: 100%;
 
 			.v-btn {
 				flex: 1 1 0;
+				height: 22px;
 				min-width: 0;
 				text-transform: none;
 				letter-spacing: 0.02em;
@@ -687,51 +762,111 @@ const blockedTypes = computed({
 
 	.danmaku-section {
 		& + .danmaku-section {
-			margin-top: 8px;
-			padding-top: 8px;
+			margin-top: 6px;
+			padding-top: 6px;
 			border-top: 1px solid var(--line);
 		}
 
 		.danmaku-section-title {
-			margin: 2px 0 6px;
+			margin: 0 0 2px;
 			color: var(--signal);
 			font-family: var(--font-mono);
-			font-size: 0.7rem;
+			font-size: 0.68rem;
 			font-weight: 600;
 			letter-spacing: 0.14em;
 			opacity: 0.9;
 		}
+	}
 
-		.danmaku-section-hint {
-			margin: 6px 0 0;
-			font-size: 0.72rem;
-			line-height: 1.5;
-			opacity: 0.6;
+	.danmaku-search-inline {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+
+		.v-text-field {
+			flex: 1 1 auto;
+			min-width: 0;
+		}
+
+		.v-btn {
+			flex: 0 0 auto;
 		}
 	}
 
-	.danmaku-match-actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-		margin-top: 8px;
+	.danmaku-count {
+		flex: 0 0 auto;
+		font-size: 0.72rem;
+		font-variant-numeric: tabular-nums;
+		opacity: 0.6;
 	}
 
-	.danmaku-row-hint {
-		margin-top: 2px;
+	.danmaku-slim-field {
+		.v-field {
+			min-height: 30px;
+			font-size: 0.8rem;
+		}
+
+		.v-field__input {
+			min-height: 28px;
+			padding-top: 0;
+			padding-bottom: 0;
+		}
+	}
+
+	.danmaku-sources {
+		.danmaku-row,
+		.danmaku-search-inline {
+			margin-top: 4px;
+		}
+	}
+
+	.danmaku-search-view {
+		overflow: hidden;
+
+		.danmaku-search-view-head {
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			min-height: 26px;
+
+			.danmaku-search-view-title {
+				flex: 1 1 auto;
+				min-width: 0;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+				color: var(--signal);
+				font-family: var(--font-mono);
+				font-size: 0.7rem;
+				letter-spacing: 0.08em;
+				opacity: 0.9;
+			}
+		}
+
+		.danmaku-search-body {
+			display: flex;
+			flex-direction: column;
+			flex: 1 1 auto;
+			min-height: 0;
+		}
+
+		.danmaku-search-results {
+			flex: 1 1 auto;
+			min-height: 0;
+			overflow-y: auto;
+			background: transparent;
+		}
+	}
+
+	.danmaku-search-empty {
+		margin-top: 6px;
 		font-size: 0.75rem;
 		opacity: 0.6;
 	}
 
-	.danmaku-episodes {
-		margin-top: 10px;
-		max-height: 260px;
-		overflow-y: auto;
-	}
-
 	.danmaku-line-label {
-		margin: 6px 0 4px;
-		font-size: 0.8rem;
+		margin: 4px 0 2px;
+		font-size: 0.75rem;
 		opacity: 0.7;
 	}
 

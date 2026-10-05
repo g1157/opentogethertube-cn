@@ -69,8 +69,10 @@ describe("danmaku layer bindings", () => {
 		// The user picked this episode; nothing else may override it.
 		expect(autoMatch).not.toHaveBeenCalled();
 		expect(danmuApiLoad).not.toHaveBeenCalled();
-		// A binding alone makes the source available, even with no API base configured.
+		// A binding alone makes the source available, even with no API base configured,
+		// and the panel can show how many comments arrived.
 		expect(useDanmaku().available.value).toBe(true);
+		expect(useDanmaku().loadedCount.value).toBe(1);
 		wrapper.unmount();
 	});
 });

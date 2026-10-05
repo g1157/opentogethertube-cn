@@ -306,6 +306,10 @@ export default {
 			"page-basic": "Basics",
 			"page-sources": "Sources",
 			"binding-title": "Current match",
+			loaded: "Comments loaded",
+			"loaded-count": "{count}",
+			"loaded-toast": "Loaded {count} comments",
+			back: "Back",
 			"aggregator-hint":
 				"Self-hosted aggregator: fill in the address to auto-match, or search and bind manually.",
 			"girigiri-hint":
