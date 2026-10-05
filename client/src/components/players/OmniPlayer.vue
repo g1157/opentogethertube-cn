@@ -12,24 +12,22 @@
 			@retry="retryLocalMedia"
 		/>
 		<div class="in-player-notifs">
-			<!-- TODO: replace with v-banner when this is fixed: https://github.com/vuetifyjs/vuetify/issues/17124 -->
-			<v-sheet color="warning" density="compact" v-if="showBufferWarning">
-				<v-container fluid style="padding: 6px">
-					<div style="display: flex; align-items: center">
-						<v-progress-circular indeterminate size="16" width="2" />
-						<span>{{ $t("player.buffer-warn.spans", { ranges: renderedSpans }) }}</span>
-						<v-spacer />
-						<v-btn
-							size="x-small"
-							variant="text"
-							icon
-							@click="showBufferWarning = false"
-						>
-							<v-icon :icon="mdiClose" />
-						</v-btn>
-					</div>
-				</v-container>
-			</v-sheet>
+			<div v-if="showBufferWarning" class="buffer-warning" role="status">
+				<v-progress-circular indeterminate size="16" width="2" color="primary" />
+				<span class="buffer-warning-text">
+					{{ $t("player.buffer-warn.spans", { ranges: renderedSpans }) }}
+				</span>
+				<v-spacer />
+				<v-btn
+					size="x-small"
+					variant="text"
+					icon
+					color="primary"
+					@click="showBufferWarning = false"
+				>
+					<v-icon :icon="mdiClose" />
+				</v-btn>
+			</div>
 		</div>
 		<v-alert prominent variant="tonal" class="playback-error" v-if="showPlaybackError">
 			<div class="playback-error-text">
@@ -621,6 +619,23 @@ onBeforeUnmount(() => {
 	left: 0;
 	font-size: 12px;
 	z-index: 500;
+}
+
+/* Wears the theme instead of a fixed amber: surface glass, accent underline. */
+.buffer-warning {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 4px 4px 10px;
+	background: color-mix(in srgb, var(--card) 88%, transparent);
+	color: var(--card-foreground);
+	border-bottom: 1px solid color-mix(in srgb, var(--signal) 45%, transparent);
+}
+
+.buffer-warning-text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .playback-error {
 	color: var(--foreground);
