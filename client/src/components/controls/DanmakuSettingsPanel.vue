@@ -22,8 +22,11 @@
 		</div>
 		<template v-if="page === 'basic'">
 			<div class="danmaku-page">
-				<div class="danmaku-row danmaku-slider-row">
-					<span class="danmaku-row-label">{{ $t("room.danmaku.opacity") }}</span>
+				<div class="danmaku-row danmaku-row-slider">
+					<div class="danmaku-row-top">
+						<span class="danmaku-row-label">{{ $t("room.danmaku.opacity") }}</span>
+						<span class="danmaku-row-value">{{ opacityPercent }}%</span>
+					</div>
 					<v-slider
 						v-model="danmakuOpacity"
 						:min="0.1"
@@ -32,10 +35,8 @@
 						color="primary"
 						density="compact"
 						hide-details
-						class="danmaku-inline-slider"
 						data-cy="danmaku-opacity"
 					/>
-					<span class="danmaku-row-value">{{ opacityPercent }}%</span>
 				</div>
 				<div class="danmaku-row">
 					<span class="danmaku-row-label">{{ $t("room.danmaku.font-size") }}</span>
@@ -117,7 +118,7 @@
 						</v-btn>
 					</v-btn-toggle>
 				</div>
-				<div class="danmaku-row">
+				<div class="danmaku-row danmaku-row-stack">
 					<span class="danmaku-row-label">{{ $t("room.danmaku.blocking") }}</span>
 					<v-btn-toggle
 						v-model="blockedTypes"
@@ -671,7 +672,7 @@ const blockedTypes = computed({
 	.danmaku-page {
 		display: flex;
 		flex-direction: column;
-		height: 228px;
+		height: 288px;
 		overflow-y: auto;
 	}
 
@@ -679,8 +680,8 @@ const blockedTypes = computed({
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 8px;
-		min-height: 28px;
+		gap: 10px;
+		min-height: 34px;
 	}
 
 	.danmaku-row-label {
@@ -713,10 +714,35 @@ const blockedTypes = computed({
 		gap: 4px;
 
 		.v-btn {
-			height: 24px;
 			min-width: 0;
 			padding: 0 7px;
 			text-transform: none;
+		}
+	}
+
+	.danmaku-row-slider {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0;
+
+		.danmaku-row-top {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+
+		.v-slider {
+			margin: 0;
+		}
+	}
+
+	.danmaku-row-stack {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 4px;
+
+		.danmaku-chips {
+			justify-content: flex-start;
 		}
 	}
 
@@ -731,9 +757,6 @@ const blockedTypes = computed({
 	.danmaku-match-label {
 		flex: 1 1 auto;
 		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 		text-align: right;
 		opacity: 0.9;
 	}
@@ -814,6 +837,10 @@ const blockedTypes = computed({
 	}
 
 	.danmaku-sources {
+		.danmaku-row {
+			min-height: 28px;
+		}
+
 		.danmaku-row,
 		.danmaku-search-inline {
 			margin-top: 4px;
@@ -832,9 +859,9 @@ const blockedTypes = computed({
 			.danmaku-search-view-title {
 				flex: 1 1 auto;
 				min-width: 0;
-				overflow: hidden;
-				text-overflow: ellipsis;
-				white-space: nowrap;
+				overflow: visible;
+				white-space: normal;
+				line-height: 1.3;
 				color: var(--signal);
 				font-family: var(--font-mono);
 				font-size: 0.7rem;
@@ -855,6 +882,22 @@ const blockedTypes = computed({
 			min-height: 0;
 			overflow-y: auto;
 			background: transparent;
+
+			/* Show an anime's name in full; the list is the one place the full title
+			   matters more than a tidy single line. */
+			.v-list-item {
+				height: auto;
+				min-height: 32px;
+				padding-block: 4px;
+			}
+
+			.v-list-item-title,
+			.v-list-item-subtitle {
+				overflow: visible;
+				white-space: normal;
+				text-overflow: clip;
+				line-height: 1.35;
+			}
 		}
 	}
 
