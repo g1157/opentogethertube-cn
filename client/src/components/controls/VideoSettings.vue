@@ -850,7 +850,7 @@ const menuProps = {
 };
 const sheetProps = {
 	scrollable: true,
-	maxHeight: "52vh",
+	maxHeight: "56vh",
 };
 // VMenu resets inherited defaults inside its content, including nested select menus.
 const preferenceMenuProps = computed(() => ({

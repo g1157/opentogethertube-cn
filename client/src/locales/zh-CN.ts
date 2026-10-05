@@ -310,6 +310,7 @@ export default {
 			"girigiri-empty": "没有找到；试试中文译名或换个关键词",
 			"girigiri-line": "线路 {n}",
 			"girigiri-episode": "第 {n} 话",
+			"girigiri-binding": "{show} · 线路{n}·第{ep}话",
 			offset: "时间偏移",
 			"offset-hint": "换片源后弹幕对不上时调整：正值让弹幕更晚出现。",
 			unavailable: "该片源暂无弹幕。",

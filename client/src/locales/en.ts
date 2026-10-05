@@ -320,6 +320,7 @@ export default {
 			"girigiri-empty": "Nothing found — try the Chinese title or another keyword",
 			"girigiri-line": "Line {n}",
 			"girigiri-episode": "Episode {n}",
+			"girigiri-binding": "{show} · Line {n} · Ep {ep}",
 			offset: "Time offset",
 			"offset-hint":
 				"Use it when another source's cut is off: positive shows comments later.",

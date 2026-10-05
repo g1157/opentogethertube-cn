@@ -58,14 +58,14 @@
 						</v-btn>
 					</v-btn-toggle>
 				</div>
-				<div class="danmaku-row danmaku-row-stack">
+				<div class="danmaku-row">
 					<span class="danmaku-row-label">{{ $t("room.danmaku.speed") }}</span>
 					<v-btn-toggle
 						v-model="danmakuSpeed"
 						mandatory
 						density="compact"
 						color="primary"
-						class="danmaku-chips"
+						class="danmaku-chips danmaku-speed-chips"
 					>
 						<v-btn
 							v-for="speed in DANMAKU_SPEED_OPTIONS"
@@ -74,7 +74,7 @@
 							size="x-small"
 							:data-cy="`danmaku-speed-${speed}`"
 						>
-							{{ speed }}×
+							{{ speed }}
 						</v-btn>
 					</v-btn-toggle>
 				</div>
@@ -592,13 +592,16 @@ function bindGirigiriEpisode(line: GirigiriLine, episode: GirigiriEpisode) {
 	if (!url) {
 		return;
 	}
-	const episodeLabel = t("room.danmaku.girigiri-episode", { n: episode.number });
 	rememberBinding(url, {
 		provider: "girigiri",
 		page: episode.page,
-		label: [girigiriShowTitle.value, `线路 ${line.line}`, episodeLabel]
-			.filter(Boolean)
-			.join(" · "),
+		// A compact "show · line·episode" label: it sits in a small row and only has to
+		// identify the pick, the details live in the search itself.
+		label: t("room.danmaku.girigiri-binding", {
+			show: girigiriShowTitle.value,
+			n: line.line,
+			ep: episode.number,
+		}),
 		offset: binding.value?.offset ?? 0,
 	});
 	closeSearch();
@@ -672,7 +675,9 @@ const blockedTypes = computed({
 	.danmaku-page {
 		display: flex;
 		flex-direction: column;
-		height: 288px;
+		/* The rows keep a small gap so adjacent chip groups never look merged. */
+		gap: 4px;
+		height: 304px;
 		overflow-y: auto;
 	}
 
@@ -714,10 +719,15 @@ const blockedTypes = computed({
 		gap: 4px;
 
 		.v-btn {
-			min-width: 0;
-			padding: 0 5px;
+			min-width: 32px;
+			padding: 0 6px;
 			text-transform: none;
 		}
+	}
+
+	/* Six speed stops share one line: numbers only, equal-width blocks. */
+	.danmaku-speed-chips {
+		flex-wrap: nowrap;
 	}
 
 	.danmaku-row-slider {
@@ -758,7 +768,9 @@ const blockedTypes = computed({
 		flex: 1 1 auto;
 		min-width: 0;
 		text-align: right;
-		opacity: 0.9;
+		font-size: 0.72rem;
+		line-height: 1.35;
+		opacity: 0.75;
 	}
 
 	.danmaku-match-empty {
