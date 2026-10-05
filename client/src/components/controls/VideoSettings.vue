@@ -592,7 +592,7 @@
 					<v-list
 						v-else-if="currentMenu === 'danmaku'"
 						key="danmaku"
-						class="menu-content"
+						class="menu-content danmaku-panel-list"
 						color="primary"
 					>
 						<v-list-item

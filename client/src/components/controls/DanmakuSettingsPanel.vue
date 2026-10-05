@@ -663,6 +663,12 @@ const blockedTypes = computed({
 
 <!-- biome-ignore lint/nursery/useScopedStyles: the panel is rendered inside different menus, so its rows cannot carry a single scope id. -->
 <style lang="scss">
+/* The panel already pads itself; Vuetify's 8px top and bottom on the wrapping list pushed
+   the menu past its max height and gave the whole panel a scrollbar. */
+.danmaku-panel-list.v-list {
+	padding: 0;
+}
+
 .danmaku-panel {
 	display: flex;
 	flex-direction: column;

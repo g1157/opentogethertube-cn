@@ -29,7 +29,7 @@
 		</template>
 
 		<v-container v-if="isMenuOpen" class="danmaku-settings-menu" data-player-shortcuts="off">
-			<v-list class="menu-content" density="compact">
+			<v-list class="menu-content danmaku-panel-list" density="compact">
 				<DanmakuSettingsPanel />
 			</v-list>
 		</v-container>
