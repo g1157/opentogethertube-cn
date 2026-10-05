@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createPlayerFullscreen, type PlayerFullscreen } from "@/util/player-fullscreen";
+import {
+	createPlayerFullscreen,
+	PORTRAIT_QUERY,
+	type PlayerFullscreen,
+} from "@/util/player-fullscreen";
 import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 
 describe("player fullscreen", () => {
@@ -61,9 +65,41 @@ describe("player fullscreen", () => {
 
 		await controller.enter();
 		expect(lock).toHaveBeenCalledWith("landscape");
+		// The lock turns the screen itself; the player must not turn as well.
+		expect(target.classList.contains("player-rotated")).toBe(false);
 
 		await controller.exit();
 		expect(unlock).toHaveBeenCalledOnce();
+	});
+
+	it("turns a portrait phone's fallback fullscreen a quarter and follows the device back", async () => {
+		// iOS: no element fullscreen and no orientation lock, so the fallback is rotated to
+		// give the wide picture the moment the button is tapped.
+		let portrait = true;
+		vi.stubGlobal("matchMedia", (query: string) => ({
+			matches: query === PHONE_MAX_QUERY || (query === PORTRAIT_QUERY && portrait),
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+		}));
+		vi.stubGlobal("screen", {});
+
+		await controller.enter();
+		expect(target.classList.contains("player-rotated")).toBe(true);
+		expect(target.classList.contains("player-fullscreen")).toBe(true);
+
+		// The device really turns to landscape: the quarter turn goes, fullscreen stays.
+		portrait = false;
+		window.dispatchEvent(new Event("orientationchange"));
+		expect(target.classList.contains("player-rotated")).toBe(false);
+		expect(target.classList.contains("player-fullscreen")).toBe(true);
+
+		// Back to portrait while still fullscreen: the quarter turn returns.
+		portrait = true;
+		window.dispatchEvent(new Event("resize"));
+		expect(target.classList.contains("player-rotated")).toBe(true);
+
+		await controller.exit();
+		expect(target.classList.contains("player-rotated")).toBe(false);
 	});
 
 	it("leaves desktop orientation alone and survives a browser without the lock", async () => {

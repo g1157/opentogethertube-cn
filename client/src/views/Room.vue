@@ -2053,6 +2053,19 @@ $in-video-chat-width-small: 250px;
 		flex: 0 0 auto;
 	}
 
+	// iOS offers neither element fullscreen nor an orientation lock, so the fallback fullscreen
+	// turns the whole player (controls included) a quarter turn: the picture is wide the moment
+	// the button is tapped, and the class comes off once the device really is landscape.
+	&.player-rotated {
+		inset: auto;
+		top: 0;
+		left: 100vw;
+		width: 100dvh;
+		height: 100vw;
+		transform: rotate(90deg);
+		transform-origin: top left;
+	}
+
 	&.cursor-hidden,
 	&.cursor-hidden * {
 		cursor: none !important;
