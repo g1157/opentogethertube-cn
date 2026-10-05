@@ -14,10 +14,19 @@ import type { DanmakuProvider } from "./provider";
  * manual search when the matcher is not confident.
  */
 
+export type DanmakuBindingProvider = "danmu-api" | "girigiri";
+
 export interface DanmakuBinding {
-	episodeId: number | string;
+	/** Which upstream serves this binding; entries stored before girigiri support mean danmu-api. */
+	provider: DanmakuBindingProvider;
+	/** danmu-api: the matched episode id; absent for a girigiri binding. */
+	episodeId?: number | string;
+	/** girigiri: the play-page path (`/playGV…/`); absent for a danmu-api binding. */
+	page?: string;
 	/** Shown to the user: the matched anime and episode. */
 	label: string;
+	/** Seconds to shift the track's timeline; positive shows comments later. */
+	offset: number;
 }
 
 export interface DanmakuSearchResult {
@@ -78,11 +87,47 @@ const TRAILING_EPISODE_NUMBER = /[\s._-]*\d{1,3}\s*$/;
 const TITLE_SEPARATORS = /[._]+/g;
 const WHITESPACE = /\s+/g;
 
+/** Reads one stored entry; entries from before girigiri support carry no provider. */
+function normalizeBinding(value: unknown): DanmakuBinding | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return null;
+	}
+	const entry = value as {
+		provider?: unknown;
+		episodeId?: unknown;
+		page?: unknown;
+		label?: unknown;
+		offset?: unknown;
+	};
+	if (typeof entry.label !== "string" || entry.label === "") {
+		return null;
+	}
+	const offset =
+		typeof entry.offset === "number" && Number.isFinite(entry.offset) ? entry.offset : 0;
+	if (entry.provider === "girigiri") {
+		if (typeof entry.page !== "string" || entry.page === "") {
+			return null;
+		}
+		return { provider: "girigiri", page: entry.page, label: entry.label, offset };
+	}
+	if (typeof entry.episodeId === "number" || typeof entry.episodeId === "string") {
+		return { provider: "danmu-api", episodeId: entry.episodeId, label: entry.label, offset };
+	}
+	return null;
+}
+
 function loadBindings(): Record<string, DanmakuBinding> {
 	try {
 		const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
 		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-			return parsed as Record<string, DanmakuBinding>;
+			const bindings: Record<string, DanmakuBinding> = {};
+			for (const [url, value] of Object.entries(parsed)) {
+				const binding = normalizeBinding(value);
+				if (binding) {
+					bindings[url] = binding;
+				}
+			}
+			return bindings;
 		}
 	} catch {
 		// Unreadable storage simply starts empty; the table rebuilds by matching.
@@ -128,7 +173,13 @@ export function getBinding(videoUrl: string): DanmakuBinding | null {
 
 export function rememberBinding(videoUrl: string, binding: DanmakuBinding) {
 	const current = bindings.value[videoUrl];
-	if (current?.episodeId === binding.episodeId && current?.label === binding.label) {
+	if (
+		current?.provider === binding.provider &&
+		current?.episodeId === binding.episodeId &&
+		current?.page === binding.page &&
+		current?.label === binding.label &&
+		(current?.offset ?? 0) === (binding.offset ?? 0)
+	) {
 		return;
 	}
 	bindings.value = { ...bindings.value, [videoUrl]: binding };
@@ -155,9 +206,9 @@ export function clearBindings() {
 	}
 }
 
-/** The comment track URL for a binding, in the XML dialect parseDanmakuXml already reads. */
+/** The comment track URL for a danmu-api binding; null for any other provider. */
 export function trackUrl(binding: DanmakuBinding): string | null {
-	if (!apiBase) {
+	if (!apiBase || binding.provider !== "danmu-api" || binding.episodeId === undefined) {
 		return null;
 	}
 	return `${apiBase}/api/v2/comment/${encodeURIComponent(String(binding.episodeId))}?format=xml`;
@@ -316,7 +367,7 @@ async function runAutoMatch(videoUrl: string): Promise<DanmakuBinding | null> {
 			return null;
 		}
 		const label = [match.animeTitle, match.episodeTitle].filter(Boolean).join(" · ");
-		return { episodeId: match.episodeId, label };
+		return { provider: "danmu-api", episodeId: match.episodeId, label, offset: 0 };
 	} catch {
 		// A matching service that is down must not surface as an error.
 		return null;

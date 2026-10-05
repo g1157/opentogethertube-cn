@@ -4,6 +4,9 @@ import { ToastStyle } from "@/models/toast";
 
 const baseURL = `${(import.meta.env.OTT_BASE_URL as string | undefined) ?? ""}/api`;
 
+/** Same-origin API root, for callers that need a URL string instead of an axios call. */
+export const API_BASE_URL = baseURL;
+
 export const API = axios.create({
 	baseURL,
 	transformRequest: [

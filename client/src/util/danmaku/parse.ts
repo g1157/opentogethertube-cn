@@ -71,3 +71,15 @@ export function parseDanmakuXml(xml: string): DanmakuItem[] {
 	items.sort((a, b) => a.time - b.time);
 	return items;
 }
+
+/**
+ * Moves every comment along the timeline; positive shows comments later. Another site's
+ * copy of the same episode may start a little earlier or later than the track's source,
+ * and this is the correction the settings offer for it.
+ */
+export function shiftDanmakuTime(items: DanmakuItem[], offsetSeconds: number): DanmakuItem[] {
+	if (!Number.isFinite(offsetSeconds) || offsetSeconds === 0) {
+		return items;
+	}
+	return items.map(item => ({ ...item, time: item.time + offsetSeconds }));
+}

@@ -18,9 +18,11 @@ import {
 	rememberBinding,
 	setDanmakuApiBase,
 	trackUrl,
+	type DanmakuBinding,
 } from "@/util/danmaku/danmu-api";
+import { loadGirigiriTrack } from "@/util/danmaku/girigiri-api";
 import { findDanmakuProvider } from "@/util/danmaku/provider";
-import type { DanmakuItem } from "@/util/danmaku/parse";
+import { shiftDanmakuTime, type DanmakuItem } from "@/util/danmaku/parse";
 import { useDanmaku } from "../composables";
 
 const props = defineProps<{
@@ -358,23 +360,29 @@ function detachVideo(video: HTMLVideoElement | undefined) {
 	video.removeEventListener("emptied", onEmptied);
 }
 
+/** Loads the track a stored binding points at, whichever provider it belongs to. */
+function loadBindingTrack(binding: DanmakuBinding): Promise<DanmakuItem[] | null> {
+	if (binding.provider === "girigiri") {
+		return binding.page ? loadGirigiriTrack(binding.page) : Promise.resolve(null);
+	}
+	const url = trackUrl(binding);
+	return url ? danmuApiProvider.load(url) : Promise.resolve(null);
+}
+
 /**
  * Second source for videos the URL rules do not know — and for URL-matched tracks that
  * turned out to be missing (a girigiri 404). The self-hosted aggregator answers with a
- * stored binding, or with a best-effort match that is remembered for the next visit.
+ * best-effort match that is remembered for the next visit; an explicit binding never
+ * gets here, because the user's own choice must not be silently replaced by a match.
  */
 async function loadFromAggregator(): Promise<DanmakuItem[] | null> {
-	let binding = getBinding(props.videoUrl);
-	const stored = binding !== null;
-	if (!binding) {
-		binding = await autoMatch(props.videoUrl);
-	}
+	const binding = await autoMatch(props.videoUrl);
 	if (!binding) {
 		return null;
 	}
 	const url = trackUrl(binding);
 	const loaded = url ? await danmuApiProvider.load(url) : null;
-	if (loaded !== null && !stored) {
+	if (loaded !== null) {
 		// Remembered only after a track actually arrived; the reload this triggers reads
 		// the same URL back from the fetch cache.
 		rememberBinding(props.videoUrl, binding);
@@ -389,9 +397,10 @@ async function load() {
 	engine?.setItems([]);
 	draw([]);
 	updateRunning();
+	const binding = getBinding(props.videoUrl);
 	const direct = findDanmakuProvider(props.videoUrl);
 	const aggregator = getDanmakuApiBase() !== "" && looksLikeRemoteCandidate(props.videoUrl);
-	available.value = direct !== null || aggregator;
+	available.value = binding !== null || direct !== null || aggregator;
 	if (!store.state.settings.danmakuEnabled) {
 		return;
 	}
@@ -399,13 +408,22 @@ async function load() {
 	if (generation !== loadGeneration) {
 		return;
 	}
-	if (loaded === null && aggregator) {
+	// A binding is the user's own pick for this video (a girigiri episode on someone
+	// else's source, for one), so it is tried after the URL-derived track and, when it
+	// fails, the automatic matcher stands down instead of overriding the choice.
+	if (loaded === null && binding) {
+		loaded = await loadBindingTrack(binding);
+		if (generation !== loadGeneration) {
+			return;
+		}
+	}
+	if (loaded === null && binding === null && aggregator) {
 		loaded = await loadFromAggregator();
 		if (generation !== loadGeneration) {
 			return;
 		}
 	}
-	items = loaded ?? [];
+	items = loaded === null ? [] : binding ? shiftDanmakuTime(loaded, binding.offset) : loaded;
 	engine?.setItems(items);
 	updateRunning();
 }

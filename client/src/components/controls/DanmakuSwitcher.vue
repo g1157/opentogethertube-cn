@@ -8,7 +8,10 @@
 		:aria-label="$t('room.danmaku.title')"
 		@click="toggleDanmaku()"
 	>
-		<v-icon :icon="enabled ? mdiCommentMultiple : mdiCommentMultipleOutline" />
+		<!-- The same glyph girigiri's player uses: the character, struck through when off. -->
+		<span class="danmaku-toggle-glyph" :class="{ 'is-off': !enabled }" aria-hidden="true"
+			>弹</span
+		>
 		<v-tooltip activator="parent" location="top" :disabled="!canHover">
 			{{ $t("room.danmaku.title") }}
 		</v-tooltip>
@@ -18,7 +21,6 @@
 <script lang="ts" setup>
 import { computed } from "vue";
 import { useMediaQuery } from "@vueuse/core";
-import { mdiCommentMultiple, mdiCommentMultipleOutline } from "@mdi/js";
 import { useDanmaku } from "../composables";
 import { useStore } from "@/store";
 
@@ -36,4 +38,24 @@ function toggleDanmaku() {
 <!-- biome-ignore lint/nursery/useScopedStyles: biome migration -->
 <style lang="scss">
 @use "./media-controls.scss";
+
+.danmaku-toggle-glyph {
+	position: relative;
+	font-size: 1.05rem;
+	font-weight: 600;
+	line-height: 1;
+
+	&.is-off::after {
+		content: "";
+		position: absolute;
+		left: -3px;
+		right: -3px;
+		top: 50%;
+		height: 2px;
+		border-radius: 1px;
+		background: currentColor;
+		transform: rotate(-45deg);
+		transform-origin: center;
+	}
+}
 </style>

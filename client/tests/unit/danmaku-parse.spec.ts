@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDanmakuXml } from "@/util/danmaku/parse";
+import { parseDanmakuXml, shiftDanmakuTime } from "@/util/danmaku/parse";
 
 const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
 <i>
@@ -59,5 +59,14 @@ describe("parseDanmakuXml", () => {
 			"带退格的弹幕",
 			"后面还能看到",
 		]);
+	});
+
+	it("shifts every comment when another source's timeline is off", () => {
+		const items = parseDanmakuXml(SAMPLE);
+		const shifted = shiftDanmakuTime(items, 1.5);
+		expect(shifted.map(item => item.time)).toEqual(items.map(item => item.time + 1.5));
+		// The original list is left alone: the offset belongs to the binding, not the parse.
+		expect(items[0].time).toBe(0);
+		expect(shiftDanmakuTime(items, 0)).toBe(items);
 	});
 });

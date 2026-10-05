@@ -10,6 +10,7 @@ import playbackapi from "./api/playback.js";
 import { conf } from "./ott-config.js";
 import announceapi from "./api/announce.js";
 import dataapi from "./api/data.js";
+import danmakuapi from "./api/danmaku.js";
 
 const log = getLogger("api");
 export function buildApiRouter(): express.Router {
@@ -21,6 +22,8 @@ export function buildApiRouter(): express.Router {
 	router.use("/playback", playbackapi);
 	router.use("/auth", auth.router);
 	router.use("/data", dataapi);
+	// External danmaku search and proxying; guests watch too, so this stays outside auth.
+	router.use("/danmaku", danmakuapi);
 
 	router.use((req, res, next) => {
 		// eslint-disable-next-line no-unused-vars

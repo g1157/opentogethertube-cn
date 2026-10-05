@@ -100,21 +100,59 @@ describe("danmu-api bindings", () => {
 
 	it("stores, reads and drops a binding and survives a storage round trip", () => {
 		expect(getBinding("https://host/a.mp4")).toBeNull();
-		rememberBinding("https://host/a.mp4", { episodeId: 10007, label: "白箱 · 第6话" });
-		expect(getBinding("https://host/a.mp4")).toEqual({
+		rememberBinding("https://host/a.mp4", {
+			provider: "danmu-api",
 			episodeId: 10007,
 			label: "白箱 · 第6话",
+			offset: 0,
+		});
+		expect(getBinding("https://host/a.mp4")).toEqual({
+			provider: "danmu-api",
+			episodeId: 10007,
+			label: "白箱 · 第6话",
+			offset: 0,
 		});
 		expect(storage.getItem("danmaku-bindings")).toContain("10007");
 		forgetBinding("https://host/a.mp4");
 		expect(getBinding("https://host/a.mp4")).toBeNull();
 	});
 
+	it("reads bindings stored before the girigiri provider as danmu-api entries", async () => {
+		vi.resetModules();
+		storage.setItem(
+			"danmaku-bindings",
+			JSON.stringify({
+				"https://host/old.mp4": { episodeId: 7, label: "旧条目" },
+				"https://host/new.mp4": {
+					provider: "girigiri",
+					page: "/playGV1-1-1/",
+					label: "异国日记 · 第1话",
+					offset: 1.5,
+				},
+				"https://host/broken.mp4": 42,
+			}),
+		);
+		const fresh = await import("@/util/danmaku/danmu-api");
+		expect(fresh.getBinding("https://host/old.mp4")).toEqual({
+			provider: "danmu-api",
+			episodeId: 7,
+			label: "旧条目",
+			offset: 0,
+		});
+		expect(fresh.getBinding("https://host/new.mp4")).toEqual({
+			provider: "girigiri",
+			page: "/playGV1-1-1/",
+			label: "异国日记 · 第1话",
+			offset: 1.5,
+		});
+		expect(fresh.getBinding("https://host/broken.mp4")).toBeNull();
+	});
+
 	it("resolves the track URL only when a base and a binding are present", () => {
 		const url = "https://host/media/ep.mp4";
 		setDanmakuApiBase("");
 		expect(danmuApiProvider.resolve(url)).toBeNull();
-		rememberBinding(url, { episodeId: 42, label: "x" });
+		rememberBinding(url, { provider: "danmu-api", episodeId: 42, label: "x", offset: 0 });
 		expect(danmuApiProvider.resolve(url)).toBeNull();
 		setDanmakuApiBase(BASE);
 		expect(danmuApiProvider.resolve(url)).toBe(`${BASE}/api/v2/comment/42?format=xml`);
@@ -156,8 +194,10 @@ describe("danmu-api automatic matching", () => {
 			"https://ana.girigirilove.com/zijian/anime/2024/12/1218/SHIROBAKO/06.mp4",
 		);
 		expect(binding).toEqual({
+			provider: "danmu-api",
 			episodeId: 10007,
 			label: "白箱(2014)【TV动画】 · 【animeko】 第6话",
+			offset: 0,
 		});
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
