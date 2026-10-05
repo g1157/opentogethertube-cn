@@ -447,8 +447,8 @@ async function load() {
 	const trackKey = effective
 		? `${effective.provider}:${effective.page ?? String(effective.episodeId)}`
 		: items.length > 0
-			? props.videoUrl
-			: null;
+		? props.videoUrl
+		: null;
 	if (items.length > 0 && trackKey !== null && trackKey !== lastToastedTrack) {
 		lastToastedTrack = trackKey;
 		toast.add({
