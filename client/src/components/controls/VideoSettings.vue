@@ -843,14 +843,14 @@ const menuProps = {
 	width: 320,
 	minWidth: 0,
 	maxWidth: 320,
-	maxHeight: 420,
+	maxHeight: 360,
 	closeOnContentClick: false,
 	scrollStrategy: "reposition" as const,
 	transition: "fade-transition",
 };
 const sheetProps = {
 	scrollable: true,
-	maxHeight: "62vh",
+	maxHeight: "52vh",
 };
 // VMenu resets inherited defaults inside its content, including nested select menus.
 const preferenceMenuProps = computed(() => ({
@@ -1030,20 +1030,20 @@ function closeMenu(): void {
 }
 
 .menu-divider {
-	margin: 6px 0;
+	margin: 4px 0;
 	opacity: 0.5;
 }
 
 .seek-step-options {
-	margin: 8px 0;
+	margin: 6px 0;
 }
 
 .preference-row {
 	display: flex;
 	flex-direction: column;
 	align-items: stretch;
-	padding-top: 6px;
-	padding-bottom: 6px;
+	padding-top: 4px;
+	padding-bottom: 4px;
 }
 
 .preference-chips {
@@ -1082,6 +1082,12 @@ function closeMenu(): void {
 	width: 100%;
 	min-height: fit-content;
 	background: transparent;
+
+	/* The menus are the densest surface in the app: rows keep their labels and values on
+	   one line, so they can be shorter than Vuetify's defaults without losing anything. */
+	.v-list-item {
+		min-height: 34px;
+	}
 }
 
 .menu-item {

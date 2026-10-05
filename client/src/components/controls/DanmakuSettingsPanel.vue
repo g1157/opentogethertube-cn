@@ -552,16 +552,16 @@ const blockedTypes = computed({
 .danmaku-panel {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
-	padding: 8px 12px 10px;
-	font-size: 0.85rem;
+	gap: 0;
+	padding: 6px 10px 8px;
+	font-size: 0.8rem;
 
 	.danmaku-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 10px;
-		min-height: 34px;
+		gap: 8px;
+		min-height: 28px;
 	}
 
 	.danmaku-row-label {
@@ -589,7 +589,7 @@ const blockedTypes = computed({
 
 		.v-btn {
 			min-width: 0;
-			padding: 0 7px;
+			padding: 0 6px;
 			text-transform: none;
 		}
 	}

@@ -7,7 +7,7 @@
 		:width="300"
 		:min-width="0"
 		:max-width="300"
-		:max-height="420"
+		:max-height="360"
 		:close-on-content-click="false"
 		scroll-strategy="reposition"
 		content-class="danmaku-settings-overlay"
