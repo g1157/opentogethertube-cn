@@ -31,8 +31,10 @@ const emit = defineEmits<{
 @use "../variables.scss";
 
 .message {
-	margin: 2px 0;
-	padding: 4px;
+	margin: 1px 0;
+	padding: 2px 4px;
+	font-size: 0.85em;
+	line-height: 1.3;
 	opacity: 0;
 	transition: all 1s ease;
 
@@ -48,7 +50,7 @@ const emit = defineEmits<{
 	.from,
 	.text {
 		display: inline;
-		margin: 3px 5px;
+		margin: 0 4px;
 		word-wrap: break-word;
 		overflow-wrap: anywhere;
 	}

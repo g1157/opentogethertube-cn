@@ -394,8 +394,8 @@ onUpdated(enforceStickToBottom);
 .chat {
 	display: flex;
 	flex-direction: column;
-	margin: 4px;
-	padding: 3px;
+	margin: 2px;
+	padding: 2px;
 	transition: all 0.2 ease;
 	pointer-events: none;
 	height: 100%;
@@ -432,6 +432,11 @@ onUpdated(enforceStickToBottom);
 	flex-direction: row;
 	align-items: center;
 	border-bottom: 1px solid #666;
+
+	h4 {
+		margin: 0;
+		font-size: 0.85rem;
+	}
 }
 
 .input-box {
@@ -463,7 +468,7 @@ onUpdated(enforceStickToBottom);
 	flex-direction: column;
 	flex-basis: 0;
 
-	margin-top: 8px;
+	margin-top: 4px;
 
 	overflow: hidden;
 	pointer-events: none;
