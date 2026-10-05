@@ -117,6 +117,10 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
   **加字段必须同步加到对应列表**，否则不广播/不落盘（架构文档 §5.2）。
 - **房间请求**：`RoomRequestType` → 权限名映射在 `room.ts` 顶部；客户端可发起的类型白名单在
   `clientmanager.ts`。
+- **房间密码**（可选，房主设定）：`server/room-password.ts`（argon2 哈希 + Redis 通行证，24h）。
+  校验点：WS join（踢 `ROOM_PASSWORD_REQUIRED=4006`，在 full sync 之前）与 REST `getRoomChecked()`（401）；
+  `PATCH/POST /api/room/:name/password` 负责设置/校验；hash 只存 Postgres `Rooms.passwordHash`，
+  **绝不进 Redis 快照与 sync**（只同步布尔 `hasPassword`）。细节见 `docs/room-password.zh-CN.md`。
 - **测试**：`server/tests/unit/**`；Redis mock helper 在 `tests/unit/redisV4Mock.ts`。
 
 ### 4.2 客户端（`client/`）
@@ -143,6 +147,8 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
 - 协议唯一来源 `models/messages.ts`（服务端→客户端 13 种、客户端→服务端 8 种、房间请求 23 种）；
   客户端消息另有 Zod 校验（`server/ws-schemas.ts`）。
 - 权限 `permissions.ts`：28 个权限位、角色继承；`Grants` 始终强制 Owner/Administrator 全权限（两处 `HACK`）。
+  默认值里 `manage-queue.remove` 与 5 个 `configure-room` 设置位只给 RegisteredUser 及以上（游客不能改房间/删队列）；
+  收紧既有权限靠抬高 `minRole`（装载时 validation 自动剥离），不是回填迁移。
 - `timestamp.ts:calculateCurrentPosition` 是全系统唯一的位置外推公式，改同步逻辑从这里对表。
 - 导入约定：**服务端引用要带 `.js` 扩展名**，client 不带；`exports` 默认解析原始 TS，生产镜像
   `--conditions=lean` 用 `ts-out/`。
@@ -183,7 +189,7 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
 | 新增媒体源适配器 | `server/services/<x>.ts` 继承 `ServiceAdapter` → `server/infoextractor.ts` 注册 → `common/constants.ts` `ALL_VIDEO_SERVICES` → 配置允许列表 `info_extractor.services` → 如需嵌入播放器加 `client/src/components/players/*` 并在 `OmniPlayer.vue` 分发 → 测试 `server/tests/unit/services/` |
 | 新增 WS 消息 | `common/models/messages.ts` → 客户端消息：`server/ws-schemas.ts` + `clientmanager` 路由；服务端消息：`ServerMessageHandler.vue` 映射 + 对应 store mutation |
 | 新增房间设置 | `common/models/types.ts` + `zod-schemas.ts` → `server/room.ts`（字段/setter/投影/`applySettings`）→ `RoomSettingsForm.vue` → en+zh-CN 文案 |
-| 新增权限 | `common/permissions.ts`（位 + 默认授予）；需要历史房间生效则加回填迁移 |
+| 新增权限 | `common/permissions.ts`（位 + 默认授予）；新增位要历史房间生效则加回填迁移（`ROOM_PERMISSIONS_REVISION`）；收紧既有位改 `minRole` 即可追溯生效 |
 | 改同步算法 | `client/src/util/playback-sync.ts` + 单测 + `docs/playback-sync.zh-CN.md` 同步更新 |
 | 改画质增强 | `client/src/util/upscale/*` + `stores/settings.ts`（`UPSCALE_MODES`）+ `VideoSettings.vue` + `UpscaleLayer.vue`（选择与降档）+ `docs/video-enhancement.zh-CN.md` |
 | 改音效/画面本机偏好 | `client/src/util/audio-eq.ts`（均衡曲线、CORS 路由判断与 WebKit 熔断 `elementAudioRoutingSupported`）+ `stores/settings.ts` + `composables/media-audio-boost.ts`（Web Audio 图）+ `players/{Direct,Hls,Dash}Player.vue`（CSS 类与接线）+ `VideoSettings.vue` + `ClientSettingsDialog.vue`（音量增强）+ en/zh-CN 文案 |
@@ -238,6 +244,13 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
 16. Cypress 用例含上游英文选择器与外部媒体假设，**不在 CI**；改动 UI 别以它绿为准。
 17. `docs/` 里的日期审查文档（`*-2026-*.zh-CN.md`）是**历史记录**，不要改写结论；新发现写新文档并在
     版本记录引用。
+18. **房密 hash 不进 Redis/同步**：只存 `Rooms.passwordHash`；Redis 只放通行证
+    `room-password:<房>:<hash版本>:<token>`（24h，改密即失效）；`serializeState` 永远不包含它。
+19. **收紧默认权限别写回填迁移**：抬高 `Permission.minRole`，老房间在 `setRoleGrants` 装载时自动剥离；
+    `ROOM_PERMISSIONS_REVISION` 机制只用于"加权限"，不能用于收紧。
+20. **表达式索引只在 postgres 建**（`rooms_lower_name` 的迁移在 sqlite 上是空操作）：Sequelize sqlite 的
+    `describeTable` 遇到表达式索引会让 `removeColumn`/`changeColumn` 直接崩；Rooms 的列删除（down）改用
+    直落 SQL 绕开建表重建。
 
 ---
 
