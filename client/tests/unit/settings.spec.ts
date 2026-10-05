@@ -22,12 +22,13 @@ describe("saved settings and default migrations", () => {
 	});
 	afterEach(() => {
 		vi.unstubAllGlobals();
-		vuetify.theme.global.name.value = Theme.dark;
+		vuetify.theme.global.name.value = Theme.teal;
 	});
 
-	it("starts new visitors in Simplified Chinese and records the applied default", async () => {
+	it("starts new visitors in Simplified Chinese on the teal theme and records the defaults", async () => {
 		const store = newStore();
 		expect(store.state.settings.locale).toBe("zh-CN");
+		expect(store.state.settings.theme).toBe(Theme.teal);
 		await store.dispatch("settings/load");
 		expect(store.state.settings.locale).toBe("zh-CN");
 		expect(JSON.parse(saved.get("settings")!)).toMatchObject({
@@ -37,18 +38,42 @@ describe("saved settings and default migrations", () => {
 			defaultDanmakuOpacityVersion: "v1.3.4",
 			defaultUpscaleVersion: "v1.3.10",
 			defaultNoticeVersion: "v1.3.10",
+			defaultThemeVersion: "v1.3.11",
 			sfxEnabled: false,
 		});
 		expect(store.state.settings).not.toHaveProperty("defaultLocaleVersion");
 		expect(store.state.settings).not.toHaveProperty("defaultSfxVersion");
 		expect(store.state.settings).not.toHaveProperty("defaultDanmakuOpacityVersion");
 		expect(store.state.settings.sfxEnabled).toBe(false);
+		expect(store.state.settings.theme).toBe(Theme.teal);
 		expect(store.state.settings.chatOverlaySeconds).toBe(3);
 		expect(store.state.settings.presenceNoticeSeconds).toBe(1);
 		expect(store.state.settings.seekNoticeSeconds).toBe(1);
 		expect(store.state.settings.controlsHideSeconds).toBe(3);
 		expect(store.state.settings.hlsBufferSeconds).toBe(120);
 		expect(store.state.settings.danmakuOpacity).toBe(0.4);
+	});
+
+	it("moves the old dark default theme to teal once and keeps picked themes", async () => {
+		saved.set("settings", JSON.stringify({ theme: "dark", volume: 37 }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.theme).toBe(Theme.teal);
+		expect(store.state.settings.volume).toBe(37);
+
+		// A theme the visitor picked is not the shipped default and stays theirs.
+		saved.set("settings", JSON.stringify({ theme: "deepblue" }));
+		const picked = newStore();
+		await picked.dispatch("settings/load");
+		expect(picked.state.settings.theme).toBe(Theme.deepblue);
+
+		// Once the marker is stored, picking dark again is a choice that survives.
+		const firstVisit = newStore();
+		await firstVisit.dispatch("settings/load");
+		firstVisit.commit("settings/UPDATE", { theme: Theme.dark });
+		const nextVisit = newStore();
+		await nextVisit.dispatch("settings/load");
+		expect(nextVisit.state.settings.theme).toBe(Theme.dark);
 	});
 
 	it("mutes the old sound default once without changing language or other preferences", async () => {

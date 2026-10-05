@@ -172,12 +172,16 @@ const DEFAULT_UPSCALE_VERSION = "v1.3.10";
 // still shows (3s overlay, 1s join/leave and seek); the longer durations earlier releases
 // shipped (5s overlay, 3s join/leave and seek) move there once.
 const DEFAULT_NOTICE_VERSION = "v1.3.10";
+// The default theme moved from dark to teal; the previously shipped dark default moves
+// once, and any theme the visitor picked themselves is left alone.
+const DEFAULT_THEME_VERSION = "v1.3.11";
 type StoredSettings = Partial<SettingsState> & {
 	defaultLocaleVersion?: string;
 	defaultSfxVersion?: string;
 	defaultDanmakuOpacityVersion?: string;
 	defaultUpscaleVersion?: string;
 	defaultNoticeVersion?: string;
+	defaultThemeVersion?: string;
 };
 
 /** Keeps whatever a caller wrote inside the ranges this release understands. */
@@ -288,6 +292,7 @@ function persistSettings(state: SettingsState) {
 				defaultDanmakuOpacityVersion: DEFAULT_DANMAKU_OPACITY_VERSION,
 				defaultUpscaleVersion: DEFAULT_UPSCALE_VERSION,
 				defaultNoticeVersion: DEFAULT_NOTICE_VERSION,
+				defaultThemeVersion: DEFAULT_THEME_VERSION,
 			}),
 		);
 	} catch {
@@ -303,7 +308,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		audioBoost: 100,
 		locale: "zh-CN",
 		roomLayout: RoomLayoutMode.default,
-		theme: Theme.dark,
+		theme: Theme.teal,
 		sfxEnabled: false,
 		sfxVolume: 0.8,
 		enableAdapterSelector: false,
@@ -346,9 +351,9 @@ export const settingsModule: Module<SettingsState, unknown> = {
 					vuetify.theme.global.name.value = settings.theme;
 				} else {
 					console.warn(
-						`Can't apply invalid theme: ${settings.theme}, defaulting to dark theme`,
+						`Can't apply invalid theme: ${settings.theme}, defaulting to the teal theme`,
 					);
-					vuetify.theme.global.name.value = Theme.dark;
+					vuetify.theme.global.name.value = Theme.teal;
 				}
 			}
 		},
@@ -379,6 +384,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 				defaultDanmakuOpacityVersion,
 				defaultUpscaleVersion,
 				defaultNoticeVersion,
+				defaultThemeVersion,
 				...settings
 			} = loaded;
 			if (
@@ -424,6 +430,11 @@ export const settingsModule: Module<SettingsState, unknown> = {
 				if (settings.seekNoticeSeconds === 3) {
 					settings.seekNoticeSeconds = 1;
 				}
+			}
+			// The default theme moved from dark to teal; only the previously shipped default
+			// is moved, so a theme the visitor picked themselves stays theirs.
+			if (defaultThemeVersion !== DEFAULT_THEME_VERSION && settings.theme === Theme.dark) {
+				settings.theme = Theme.teal;
 			}
 			context.commit("UPDATE", settings);
 		},
