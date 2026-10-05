@@ -27,6 +27,7 @@ import {
 	type ClientId,
 } from "ott-common/models/types.js";
 import roommanager from "./roommanager.js";
+import { hasRoomAccess } from "./room-password.js";
 import storage from "./storage.js";
 import { ANNOUNCEMENT_CHANNEL, ROOM_NAME_REGEX } from "ott-common/constants.js";
 import tokens, { type SessionInfo } from "./auth/tokens.js";
@@ -287,6 +288,10 @@ async function joinAuthenticatedClient(client: Client, token: AuthToken, session
 		return;
 	}
 	const room = result.value;
+	if (!(await hasRoomAccess(room, token, session))) {
+		client.kick(OttWebsocketError.ROOM_PASSWORD_REQUIRED);
+		return;
+	}
 	client.room = room.name;
 	room.holdEmptyPlaybackForJoin(client.isReconnect);
 

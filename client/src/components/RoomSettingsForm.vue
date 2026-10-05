@@ -144,6 +144,78 @@
 			<div v-else>
 				{{ $t("room-settings.arent-able-to-modify-permissions") }}
 			</div>
+			<v-divider class="my-4" />
+			<div v-if="isOwner" class="room-password-settings">
+				<div class="text-subtitle-2 mb-1">{{ $t("room-password.title") }}</div>
+				<div class="text-caption text-grey mb-2">{{ $t("room-password.hint") }}</div>
+				<div class="d-flex align-center flex-wrap ga-2">
+					<span class="text-body-2">
+						{{ hasPassword ? $t("room-password.set") : $t("room-password.not-set") }}
+					</span>
+					<v-spacer />
+					<v-btn
+						size="small"
+						variant="text"
+						@click="openPasswordDialog"
+						data-cy="btn-set-password"
+					>
+						{{
+							hasPassword
+								? $t("room-password.change")
+								: $t("room-password.set-action")
+						}}
+					</v-btn>
+					<v-btn
+						v-if="hasPassword"
+						size="small"
+						variant="text"
+						color="error"
+						:loading="passwordBusy"
+						@click="clearPassword"
+						data-cy="btn-clear-password"
+					>
+						{{ $t("room-password.clear") }}
+					</v-btn>
+				</div>
+				<v-dialog v-model="passwordDialogVisible" max-width="420">
+					<v-card>
+						<v-card-title>
+							{{
+								hasPassword
+									? $t("room-password.dialog-change")
+									: $t("room-password.dialog-set")
+							}}
+						</v-card-title>
+						<v-card-text>
+							<v-text-field
+								v-model="newPassword"
+								type="password"
+								:label="$t('room-password.field-label')"
+								:hint="$t('room-password.field-hint')"
+								persistent-hint
+								autocomplete="new-password"
+								data-cy="input-room-password"
+							/>
+						</v-card-text>
+						<v-card-actions>
+							<v-spacer />
+							<v-btn variant="text" @click="passwordDialogVisible = false">
+								{{ $t("common.cancel") }}
+							</v-btn>
+							<v-btn
+								variant="text"
+								color="primary"
+								:loading="passwordBusy"
+								:disabled="newPassword.length < 4"
+								@click="savePassword"
+								data-cy="btn-save-password"
+							>
+								{{ $t("common.save") }}
+							</v-btn>
+						</v-card-actions>
+					</v-card>
+				</v-dialog>
+			</div>
 			<div class="submit">
 				<v-btn
 					size="large"
@@ -189,7 +261,7 @@ import {
 } from "ott-common/models/types";
 import { Grants } from "ott-common/permissions";
 import toast from "@/util/toast";
-import { type Ref, onMounted, reactive, ref, toRefs } from "vue";
+import { type Ref, computed, onMounted, reactive, ref, toRefs } from "vue";
 import { useStore } from "@/store";
 import { useI18n } from "vue-i18n";
 import type { OttApiResponseGetRoom } from "ott-common/models/rest-api";
@@ -327,6 +399,62 @@ async function submitRoomSettings() {
 		});
 	}
 	isLoadingRoomSettings.value = false;
+}
+
+const passwordDialogVisible = ref(false);
+const newPassword = ref("");
+const passwordBusy = ref(false);
+const isOwner = computed(() => store.getters["users/self"]?.role === Role.Owner);
+const hasPassword = computed(() => store.state.room.hasPassword === true);
+
+function openPasswordDialog() {
+	newPassword.value = "";
+	passwordDialogVisible.value = true;
+}
+
+async function savePassword() {
+	passwordBusy.value = true;
+	try {
+		await API.patch(`/room/${route.params.roomId ?? store.state.room.name}/password`, {
+			password: newPassword.value,
+		});
+		toast.add({
+			style: ToastStyle.Success,
+			content: t("room-password.applied").toString(),
+			duration: 4000,
+		});
+		passwordDialogVisible.value = false;
+	} catch (e) {
+		console.error("Failed to set the room password", e);
+		toast.add({
+			style: ToastStyle.Error,
+			content: serverErrorMessage(e.response?.data?.error),
+			duration: 6000,
+		});
+	}
+	passwordBusy.value = false;
+}
+
+async function clearPassword() {
+	passwordBusy.value = true;
+	try {
+		await API.patch(`/room/${route.params.roomId ?? store.state.room.name}/password`, {
+			password: null,
+		});
+		toast.add({
+			style: ToastStyle.Success,
+			content: t("room-password.cleared").toString(),
+			duration: 4000,
+		});
+	} catch (e) {
+		console.error("Failed to clear the room password", e);
+		toast.add({
+			style: ToastStyle.Error,
+			content: serverErrorMessage(e.response?.data?.error),
+			duration: 6000,
+		});
+	}
+	passwordBusy.value = false;
 }
 
 async function claimOwnership() {

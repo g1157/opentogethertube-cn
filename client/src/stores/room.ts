@@ -33,6 +33,7 @@ export interface RoomState {
 	playbackSpeed: number;
 	temporaryPlaybackSpeed: TemporaryPlaybackSpeed | null;
 	hasOwner: boolean;
+	hasPassword: boolean;
 	voteCounts?: Map<string, number>;
 	playbackStartTime: Dayjs | undefined;
 	videoSegments?: {
@@ -76,6 +77,7 @@ export const roomModule: Module<RoomState, FullOTTStoreState> = {
 		playbackSpeed: 1,
 		temporaryPlaybackSpeed: null,
 		hasOwner: false,
+		hasPassword: false,
 		voteCounts: undefined,
 		playbackStartTime: undefined,
 		grants: new Grants(),

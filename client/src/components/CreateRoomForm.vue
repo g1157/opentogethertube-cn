@@ -47,6 +47,15 @@
 							:rules="rules.visibility"
 							persistent-hint
 						/>
+						<v-text-field
+							:label="$t('room-password.create-label')"
+							:hint="$t('room-password.create-hint')"
+							v-model="options.password"
+							type="password"
+							autocomplete="new-password"
+							:rules="rules.password"
+							persistent-hint
+						/>
 						<v-select
 							:label="$t('create-room-form.queue-mode')"
 							:items="[
@@ -104,6 +113,7 @@ const options = reactive({
 	description: "",
 	visibility: Visibility.Public,
 	queueMode: QueueMode.Manual,
+	password: "",
 });
 
 const rules = {
@@ -133,6 +143,12 @@ const rules = {
 				)) ||
 			t("create-room-form.rules.invalid-queue"),
 	],
+	// eslint-disable-next-line array-bracket-newline
+	password: [
+		// eslint-disable-next-line array-bracket-newline
+		(v: string) => !v || v.length >= 4 || t("room-password.too-short"),
+		(v: string) => !v || v.length <= 64 || t("room-password.too-long"),
+	],
 };
 
 /** Enable submit only when every rule passes; untouched fields still show no errors. */
@@ -140,7 +156,8 @@ const isFormValid = computed(
 	() =>
 		rules.name.every(rule => rule(options.name) === true) &&
 		rules.visibility.every(rule => rule(options.visibility) === true) &&
-		rules.queueMode.every(rule => rule(options.queueMode) === true),
+		rules.queueMode.every(rule => rule(options.queueMode) === true) &&
+		rules.password.every(rule => rule(options.password) === true),
 );
 const isSubmitting = ref(false);
 const isRoomNameTaken = ref(false);
@@ -160,9 +177,11 @@ async function submit(e): Promise<void> {
 	}
 
 	try {
+		const { password, ...rest } = options;
 		const opts = {
-			...options,
+			...rest,
 			isTemporary: false,
+			...(password ? { password } : {}),
 		};
 		await createRoomHelper(store, opts);
 		console.info("Room created");
@@ -172,6 +191,7 @@ async function submit(e): Promise<void> {
 		options.description = "";
 		options.visibility = Visibility.Public;
 		options.queueMode = QueueMode.Manual;
+		options.password = "";
 	} catch (err) {
 		if (err.response) {
 			if (err.response.status === 400) {

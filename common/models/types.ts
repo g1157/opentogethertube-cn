@@ -35,6 +35,7 @@ export enum OttWebsocketError {
 	ROOM_UNLOADED = 4003,
 	MISSING_TOKEN = 4004,
 	KICKED = 4005,
+	ROOM_PASSWORD_REQUIRED = 4006,
 }
 
 export enum PlayerStatus {
@@ -107,6 +108,8 @@ export interface RoomOptions extends RoomSettings {
 	prevQueue: QueueItem[] | null;
 	/** Which round of permission additions the stored grants already know about. */
 	permissionsRevision?: number;
+	/** Argon2 hash of the room password; null when unset. Never synced or stored in Redis. */
+	passwordHash?: string | null;
 }
 
 export type RoomUserInfo = {

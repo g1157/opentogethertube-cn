@@ -411,6 +411,11 @@
 		>
 			<RoomDisconnected />
 		</v-overlay>
+		<RoomPasswordDialog
+			v-model="passwordPromptVisible"
+			:room-name="roomNameForPassword"
+			@verified="onPasswordVerified"
+		/>
 		<ServerMessageHandler />
 		<WorkaroundPlaybackStatusUpdater />
 		<WorkaroundUserStateNotifier />
@@ -460,6 +465,7 @@ import RoomNotes from "@/components/RoomNotes.vue";
 import ShareInvite from "@/components/ShareInvite.vue";
 import ClientSettingsDialog from "@/components/ClientSettingsDialog.vue";
 import RoomDisconnected from "../components/RoomDisconnected.vue";
+import RoomPasswordDialog from "@/components/RoomPasswordDialog.vue";
 import RoomConnectionNotice from "@/components/RoomConnectionNotice.vue";
 import BufferGateNotice from "@/components/BufferGateNotice.vue";
 import { useConnection } from "@/plugins/connection";
@@ -482,7 +488,7 @@ import { secondsToTimestamp } from "@/util/timestamp";
 import { useCaptions, useMediaPlayer, usePlaybackRate, useVolume } from "@/components/composables";
 import type { MediaPlayerWithPlaybackRate } from "@/components/composables/media-player";
 import { useGrants } from "@/components/composables/grants";
-import { PlayerStatus, Visibility } from "ott-common/models/types";
+import { PlayerStatus, Visibility, OttWebsocketError } from "ott-common/models/types";
 import { createPlayerFullscreen, PlayerFullscreenKey } from "@/util/player-fullscreen";
 import toast, { fullscreenNoticeHost } from "@/util/toast";
 import { ToastStyle } from "@/models/toast";
@@ -523,6 +529,7 @@ export default defineComponent({
 		ShareInvite,
 		ClientSettingsDialog,
 		RoomDisconnected,
+		RoomPasswordDialog,
 		RoomConnectionNotice,
 		BufferGateNotice,
 		ServerMessageHandler,
@@ -1004,12 +1011,28 @@ export default defineComponent({
 		const connectionStatusColor = computed(() =>
 			connection.connected.value ? "success" : "warning",
 		);
-		const showDisconnectedOverlay = computed(() => !!connection.kickReason.value);
+		const passwordPromptVisible = ref(false);
+		const roomNameForPassword = computed(
+			() => store.state.room.name || (route.params.roomId as string) || "",
+		);
+		const showDisconnectedOverlay = computed(
+			() => !!connection.kickReason.value && !passwordPromptVisible.value,
+		);
+		watch(connection.kickReason, reason => {
+			if (reason === OttWebsocketError.ROOM_PASSWORD_REQUIRED) {
+				passwordPromptVisible.value = true;
+			}
+		});
 		watch(showDisconnectedOverlay, disconnected => {
 			if (disconnected) {
 				void fullscreen.exit();
 			}
 		});
+
+		function onPasswordVerified() {
+			passwordPromptVisible.value = false;
+			connection.connect(route.params.roomId as string);
+		}
 
 		function rewriteUrlToRoomName() {
 			if (store.state.room.name.length === 0) {
@@ -1880,6 +1903,9 @@ export default defineComponent({
 			connectionStatus,
 			connectionStatusColor,
 			showDisconnectedOverlay,
+			passwordPromptVisible,
+			roomNameForPassword,
+			onPasswordVerified,
 
 			player,
 			volume,

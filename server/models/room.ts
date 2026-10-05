@@ -31,6 +31,7 @@ export interface RoomAttributes {
 	enableVoteSkip: boolean;
 	bufferGateMode: BufferGateMode;
 	danmakuSource: RoomDanmakuSource | null;
+	passwordHash?: string | null;
 }
 
 type RoomCreationAttributes = Optional<RoomAttributes, "id">;
@@ -56,6 +57,7 @@ export class Room extends Model<RoomAttributes, RoomCreationAttributes> implemen
 	declare enableVoteSkip: boolean;
 	declare bufferGateMode: BufferGateMode;
 	declare danmakuSource: RoomDanmakuSource | null;
+	declare passwordHash: string | null;
 }
 
 export const createModel = (sequelize: Sequelize) => {
@@ -139,6 +141,11 @@ export const createModel = (sequelize: Sequelize) => {
 			},
 			danmakuSource: {
 				type: DataTypes.JSONB,
+				allowNull: true,
+				defaultValue: null,
+			},
+			passwordHash: {
+				type: DataTypes.STRING,
 				allowNull: true,
 				defaultValue: null,
 			},

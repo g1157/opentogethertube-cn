@@ -18,6 +18,7 @@ const CategorySchema = z.enum([
 
 export const OttApiRequestRoomGenerateSchema = z.object({
 	autoSkipSegmentCategories: z.array(CategorySchema).optional(),
+	password: z.string().min(4).max(64).optional(),
 });
 
 export const OttApiRequestRoomCreateSchema = z
@@ -146,6 +147,14 @@ export const ClaimSchema = z.object({
 });
 
 export const OttApiRequestPatchRoomSchema = z.union([RoomSettingsSchema, ClaimSchema]);
+
+export const RoomPasswordSetSchema = z.object({
+	password: z.string().min(4).max(64).nullable(),
+});
+
+export const RoomPasswordVerifySchema = z.object({
+	password: z.string().min(1).max(64),
+});
 
 const CUSTOM_MEDIA_SOURCE_CONTENT_TYPES = [
 	"video/mp4",

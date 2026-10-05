@@ -339,8 +339,8 @@ describe("Room API", () => {
 
 		beforeAll(async () => {
 			getSessionInfoSpy = vi.spyOn(tokens, "getSessionInfo").mockResolvedValue({
-				isLoggedIn: false,
-				username: "test",
+				isLoggedIn: true,
+				user_id: owner.id,
 			});
 			validateSpy = vi.spyOn(tokens, "validate").mockResolvedValue(true);
 
@@ -564,6 +564,113 @@ describe("Room API", () => {
 			expect(resp.body.error).toMatchObject({
 				name: "ZodValidationError",
 			});
+		});
+	});
+
+	describe("room password", () => {
+		let getSessionInfoSpy: MockInstance;
+		let validateSpy: MockInstance;
+
+		beforeAll(async () => {
+			validateSpy = vi.spyOn(tokens, "validate").mockResolvedValue(true);
+			getSessionInfoSpy = vi.spyOn(tokens, "getSessionInfo").mockResolvedValue({
+				isLoggedIn: true,
+				user_id: owner.id,
+			});
+			await roommanager.createRoom({
+				name: "testpassword",
+				isTemporary: true,
+				owner,
+			});
+		});
+
+		afterAll(async () => {
+			getSessionInfoSpy.mockRestore();
+			validateSpy.mockRestore();
+			try {
+				await roommanager.unloadRoom("testpassword", UnloadReason.Admin);
+			} catch (e) {
+				if (!(e instanceof RoomNotFoundException)) {
+					throw e;
+				}
+			}
+		});
+
+		it("locks the room down and unlocks it with the password", async () => {
+			getSessionInfoSpy.mockResolvedValue({ isLoggedIn: true, user_id: owner.id });
+			await request(app)
+				.patch("/api/room/testpassword/password")
+				.auth(token, { type: "bearer" })
+				.send({ password: "hunter22" })
+				.expect(200);
+			expect((await roommanager.getRoom("testpassword")).unwrap().hasPassword).toBe(true);
+
+			// The owner does not need a grant.
+			await request(app)
+				.get("/api/room/testpassword")
+				.auth(token, { type: "bearer" })
+				.expect(200);
+
+			// Guests cannot read or write anything until they present the password.
+			getSessionInfoSpy.mockResolvedValue({ isLoggedIn: false, username: "guest" });
+			let resp = await request(app)
+				.get("/api/room/testpassword")
+				.auth(token, { type: "bearer" });
+			expect(resp.status).toBe(401);
+			expect(resp.body.error.name).toBe("RoomPasswordRequired");
+			await request(app)
+				.post("/api/room/testpassword/queue")
+				.auth(token, { type: "bearer" })
+				.send({ service: "direct", id: "sample" })
+				.expect(401);
+
+			// A guest cannot set or clear the password either.
+			resp = await request(app)
+				.patch("/api/room/testpassword/password")
+				.auth(token, { type: "bearer" })
+				.send({ password: "stolen999" });
+			expect(resp.status).toBe(400);
+			expect(resp.body.error.name).toBe("PermissionDeniedException");
+
+			// A wrong password is rejected; the right one grants this token access.
+			resp = await request(app)
+				.post("/api/room/testpassword/password")
+				.auth(token, { type: "bearer" })
+				.send({ password: "wrong-one" });
+			expect(resp.status).toBe(401);
+			expect(resp.body.error.name).toBe("InvalidRoomPassword");
+			await request(app)
+				.post("/api/room/testpassword/password")
+				.auth(token, { type: "bearer" })
+				.send({ password: "hunter22" })
+				.expect(200);
+			await request(app)
+				.get("/api/room/testpassword")
+				.auth(token, { type: "bearer" })
+				.expect(200);
+		});
+
+		it("rejects passwords shorter than the minimum", async () => {
+			getSessionInfoSpy.mockResolvedValue({ isLoggedIn: true, user_id: owner.id });
+			const resp = await request(app)
+				.patch("/api/room/testpassword/password")
+				.auth(token, { type: "bearer" })
+				.send({ password: "ab" });
+			expect(resp.status).toBe(400);
+		});
+
+		it("opens the room again when the owner clears the password", async () => {
+			getSessionInfoSpy.mockResolvedValue({ isLoggedIn: true, user_id: owner.id });
+			const cleared = await request(app)
+				.patch("/api/room/testpassword/password")
+				.auth(token, { type: "bearer" })
+				.send({ password: null });
+			expect(cleared.status).toBe(200);
+			getSessionInfoSpy.mockResolvedValue({ isLoggedIn: false, username: "guest" });
+			const read = await request(app)
+				.get("/api/room/testpassword")
+				.auth(token, { type: "bearer" });
+			expect(read.status).toBe(200);
 		});
 	});
 });

@@ -1,9 +1,11 @@
 import {
 	getRoomByName,
 	getPermanentRoomList,
+	getRoomPasswordHash,
 	isRoomNameTaken,
 	saveRoom,
 	updateRoom,
+	updateRoomPassword,
 	deleteRoom,
 } from "./storage/room.js";
 import {
@@ -18,9 +20,11 @@ import { addNote, countNotes, deleteAllNotes, deleteNote, listNotes } from "./st
 export default {
 	getRoomByName,
 	getPermanentRoomList,
+	getRoomPasswordHash,
 	isRoomNameTaken,
 	saveRoom,
 	updateRoom,
+	updateRoomPassword,
 	deleteRoom,
 	getVideoInfo,
 	getManyVideoInfo,

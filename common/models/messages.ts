@@ -64,6 +64,7 @@ export interface ServerMessageSync extends ServerMessageBase {
 	videoSegments?: Segment[];
 	restoreQueueBehavior?: BehaviorOption;
 	danmakuSource?: RoomDanmakuSource | null;
+	hasPassword?: boolean;
 }
 
 /**

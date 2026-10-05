@@ -3,8 +3,13 @@ import { getLogger } from "../logger.js";
 import roommanager from "../roommanager.js";
 import { Visibility } from "ott-common/models/types.js";
 import { consumeRateLimitPoints } from "../rate-limit.js";
-import { BadApiArgumentException, FeatureDisabledException } from "../exceptions.js";
-import { OttException } from "ott-common/exceptions.js";
+import {
+	BadApiArgumentException,
+	FeatureDisabledException,
+	InvalidRoomPassword,
+	RoomPasswordRequired,
+} from "../exceptions.js";
+import { OttException, PermissionDeniedException } from "ott-common/exceptions.js";
 import express, { type RequestHandler, type ErrorRequestHandler } from "express";
 import clientmanager from "../clientmanager.js";
 import {
@@ -42,7 +47,19 @@ import {
 	OttApiRequestUpdateQueueItemSchema,
 	OttApiRequestPatchRoomSchema,
 	OttApiRequestRoomGenerateSchema,
+	RoomPasswordSetSchema,
+	RoomPasswordVerifySchema,
 } from "ott-common/models/zod-schemas.js";
+import {
+	clearRoomPasswordFailures,
+	getRoomPasswordRetrySeconds,
+	grantRoomAccess,
+	hasRoomAccess,
+	recordFailedRoomPasswordAttempt,
+	setRoomPassword,
+	verifyRoomPassword,
+} from "../room-password.js";
+import type { Room } from "../room.js";
 import { ZodError } from "zod";
 import { fromZodError } from "zod-validation-error";
 import { UnloadReason } from "../generated.js";
@@ -163,7 +180,7 @@ const getRoom: RequestHandler<{ name: string }, OttApiResponseGetRoom, unknown> 
 	req,
 	res,
 ) => {
-	const room = (await roommanager.getRoom(req.params.name)).unwrap();
+	const room = await getRoomChecked(req);
 	const resp: OttApiResponseGetRoom = {
 		..._.cloneDeep(
 			_.pick(room, [
@@ -201,11 +218,7 @@ const patchRoom: RequestHandler<{ name: string }, unknown, OttApiRequestPatchRoo
 		throw new OttException("Missing token");
 	}
 
-	const result = await roommanager.getRoom(req.params.name);
-	if (!result.ok) {
-		throw result.value;
-	}
-	const room = result.value;
+	const room = await getRoomChecked(req);
 
 	if (isClaimRequest(body)) {
 		if (body.claim) {
@@ -290,7 +303,7 @@ const deleteRoom: RequestHandler<
 		}
 
 		// Load the room (loads from storage if needed) to validate ownership
-		const room = (await roommanager.getRoom(req.params.name)).unwrap();
+		const room = await getRoomChecked(req);
 
 		// Only permanent rooms can be permanently deleted
 		if (room.isTemporary) {
@@ -430,7 +443,7 @@ const addToQueue: RequestHandler<
 	if (!(await consumeRateLimitPoints(res, req.ip, points))) {
 		return;
 	}
-	const room = (await roommanager.getRoom(req.params.name)).unwrap();
+	const room = await getRoomChecked(req);
 
 	let roomRequest: AddRequest;
 	if ("videos" in body) {
@@ -470,7 +483,7 @@ const removeFromQueue: RequestHandler<
 	if (!(await consumeRateLimitPoints(res, req.ip, points))) {
 		return;
 	}
-	const room = (await roommanager.getRoom(req.params.name)).unwrap();
+	const room = await getRoomChecked(req);
 
 	await room.processUnauthorizedRequest(
 		{
@@ -494,7 +507,7 @@ const updateQueueItem: RequestHandler<
 	if (!(await consumeRateLimitPoints(res, req.ip, points))) {
 		return;
 	}
-	const room = (await roommanager.getRoom(req.params.name)).unwrap();
+	const room = await getRoomChecked(req);
 	const roomRequest: UpdateQueueItemRequest = {
 		type: RoomRequestType.UpdateQueueItemRequest,
 		video: { service: body.service, id: body.id },
@@ -517,6 +530,14 @@ const errorHandler: ErrorRequestHandler = (err: Error, req, res) => {
 				error: {
 					name: err.name,
 					message: "Room not found",
+				},
+			});
+		} else if (err.name === "RoomPasswordRequired" || err.name === "InvalidRoomPassword") {
+			res.status(401).json({
+				success: false,
+				error: {
+					name: err.name,
+					message: err.message,
 				},
 			});
 		} else if (
@@ -668,6 +689,68 @@ router.patch("/:name/queue", async (req, res, next) => {
 router.delete("/:name/queue", async (req, res, next) => {
 	try {
 		await removeFromQueue(req, res, next);
+	} catch (e) {
+		errorHandler(e, req, res, next);
+	}
+});
+
+async function getRoomChecked(req: express.Request<{ name: string }>): Promise<Room> {
+	const room = (await roommanager.getRoom(req.params.name)).unwrap();
+	if (
+		!safeCompareApiKey(req.get("apikey")) &&
+		!(await hasRoomAccess(room, req.token, req.ottsession))
+	) {
+		throw new RoomPasswordRequired(room.name);
+	}
+	return room;
+}
+
+const setRoomPasswordHandler: RequestHandler<{ name: string }> = async (req, res) => {
+	const body = RoomPasswordSetSchema.parse(req.body);
+	const room = (await roommanager.getRoom(req.params.name)).unwrap();
+	if (!req.user || !room.owner || room.owner.id !== req.user.id) {
+		throw new PermissionDeniedException("configure-room.password");
+	}
+	await setRoomPassword(room, body.password);
+	res.json({ success: true });
+};
+
+const verifyRoomPasswordHandler: RequestHandler<{ name: string }> = async (req, res) => {
+	const body = RoomPasswordVerifySchema.parse(req.body);
+	const room = (await roommanager.getRoom(req.params.name)).unwrap();
+	if (!room.passwordHash) {
+		res.json({ success: true });
+		return;
+	}
+	const retrySeconds = await getRoomPasswordRetrySeconds(room.name, req.ip);
+	if (retrySeconds > 0) {
+		res.set("Retry-After", String(retrySeconds));
+		res.status(429).json({
+			success: false,
+			error: { name: "TooManyRequests", message: "Too many attempts." },
+		});
+		return;
+	}
+	if (!(await verifyRoomPassword(room, body.password))) {
+		await recordFailedRoomPasswordAttempt(room.name, req.ip);
+		throw new InvalidRoomPassword();
+	}
+	await clearRoomPasswordFailures(room.name, req.ip);
+	await grantRoomAccess(room, req.token!);
+	res.json({ success: true });
+};
+
+router.patch("/:name/password", async (req, res, next) => {
+	try {
+		await setRoomPasswordHandler(req, res, next);
+	} catch (e) {
+		errorHandler(e, req, res, next);
+	}
+});
+
+router.post("/:name/password", async (req, res, next) => {
+	try {
+		await verifyRoomPasswordHandler(req, res, next);
 	} catch (e) {
 		errorHandler(e, req, res, next);
 	}

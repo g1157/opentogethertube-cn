@@ -275,6 +275,22 @@ export class RoomNotFoundException extends OttException {
 	}
 }
 
+export class RoomPasswordRequired extends OttException {
+	name = "RoomPasswordRequired";
+
+	constructor(roomName: string) {
+		super(`The room "${roomName}" requires a password.`);
+	}
+}
+
+export class InvalidRoomPassword extends OttException {
+	name = "InvalidRoomPassword";
+
+	constructor() {
+		super(`The room password is incorrect.`);
+	}
+}
+
 export class RoomAlreadyLoadedException extends OttException {
 	name = "RoomAlreadyLoadedException";
 

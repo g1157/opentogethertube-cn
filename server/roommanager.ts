@@ -4,6 +4,7 @@ import _ from "lodash";
 import { getLogger } from "./logger.js";
 import { redisClient } from "./redisclient.js";
 import storage from "./storage.js";
+import { setRoomPassword } from "./room-password.js";
 import {
 	type RoomAlreadyLoadedException,
 	RoomNameTakenException,
@@ -119,7 +120,9 @@ export async function update(): Promise<void> {
 	}
 }
 
-export async function createRoom(options: Partial<RoomOptions> & { name: string }): Promise<void> {
+export async function createRoom(
+	options: Partial<RoomOptions> & { name: string; password?: string },
+): Promise<void> {
 	for (const room of rooms) {
 		if (options.name.toLowerCase() === room.name.toLowerCase()) {
 			log.warn("can't create room, already loaded");
@@ -142,6 +145,9 @@ export async function createRoom(options: Partial<RoomOptions> & { name: string 
 			// forever; fail the create instead of admitting a doomed room.
 			throw new Error(`Failed to save room ${options.name} to storage`);
 		}
+	}
+	if (options.password) {
+		await setRoomPassword(room, options.password);
 	}
 	await room.update();
 	await room.sync();
@@ -191,6 +197,9 @@ export async function getRoom(
 		}
 	}
 	if (fixedState) {
+		if (!fixedState.isTemporary) {
+			fixedState.passwordHash = await storage.getRoomPasswordHash(fixedState.name);
+		}
 		const room = new Room(fixedState);
 		await addRoom(room);
 		return ok(room);

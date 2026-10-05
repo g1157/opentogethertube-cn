@@ -154,11 +154,41 @@ function dbToRoomArgs(db: DbRoom): RoomOptions {
 		enableVoteSkip: db.enableVoteSkip,
 		bufferGateMode: db.bufferGateMode,
 		danmakuSource: db.danmakuSource,
+		passwordHash: db.passwordHash,
 	};
 	for (let i = Role.TrustedUser; i <= 4; i++) {
 		room.userRoles.set(i, new Set(db[`role-${permissions.ROLE_NAMES[i]}`]));
 	}
 	return room;
+}
+
+export async function getRoomPasswordHash(roomName: string): Promise<string | null> {
+	try {
+		const room = await DbRoomModel.findOne({
+			where: buildFindRoomWhere(roomName),
+			attributes: ["passwordHash"],
+		});
+		return room?.passwordHash ?? null;
+	} catch (err) {
+		log.error(`Failed to read the password hash for room ${roomName}: ${err}`);
+		return null;
+	}
+}
+
+export async function updateRoomPassword(
+	roomName: string,
+	passwordHash: string | null,
+): Promise<boolean> {
+	try {
+		const [updated] = await DbRoomModel.update(
+			{ passwordHash },
+			{ where: buildFindRoomWhere(roomName) },
+		);
+		return updated > 0;
+	} catch (err) {
+		log.error(`Failed to update the password for room ${roomName}: ${err}`);
+		return false;
+	}
 }
 
 /**
