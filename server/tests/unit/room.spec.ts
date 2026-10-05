@@ -11,7 +11,7 @@ import {
 } from "vitest";
 import dayjs from "dayjs";
 import tokens, { type SessionInfo } from "../../auth/tokens.js";
-import { RoomRequestType } from "ott-common/models/messages.js";
+import { RoomRequestType, type UndoRequest } from "ott-common/models/messages.js";
 import {
 	type AuthToken,
 	BehaviorOption,
@@ -24,6 +24,7 @@ import { Room, RoomUser } from "../../room.js";
 import infoextractor from "../../infoextractor.js";
 import type { Video, VideoId } from "ott-common/models/video.js";
 import permissions, { Grants } from "ott-common/permissions.js";
+import { BadApiArgumentException } from "../../exceptions.js";
 import _ from "lodash";
 import { VideoQueue } from "../../videoqueue.js";
 import { loadModels } from "../../models/index.js";
@@ -872,6 +873,63 @@ describe("Room", () => {
 
 			expect(room.currentSource).toEqual(null);
 			expect(room.votesToSkip.size).toEqual(0);
+		});
+	});
+
+	describe("UndoRequest validation", () => {
+		let room: Room;
+		const context = { clientId: "client", username: "tester", role: Role.UnregisteredUser };
+
+		beforeEach(() => {
+			room = new Room({ name: "undo-validation" });
+			room.grants.setRoleGrants(Role.UnregisteredUser, permissions.parseIntoGrantMask(["*"]));
+			vi.spyOn(room, "publish").mockResolvedValue(undefined);
+		});
+
+		function undoRequest(event: unknown): UndoRequest {
+			return { type: RoomRequestType.UndoRequest, event } as UndoRequest;
+		}
+
+		it.each([
+			{
+				request: { type: RoomRequestType.SeekRequest },
+				additional: { prevPosition: Number.NaN },
+			},
+			{
+				request: { type: RoomRequestType.SkipRequest },
+				additional: {
+					video: { service: "evil", id: "http://example.com" },
+					prevPosition: 0,
+				},
+			},
+			{ request: { type: 9999 }, additional: {} },
+			{
+				request: { type: RoomRequestType.SkipRequest },
+				additional: {
+					video: { service: "direct", id: "x".repeat(4096) },
+					prevPosition: 0,
+				},
+			},
+		])("rejects malformed undo events: %#", async event => {
+			await expect(room.processRequest(undoRequest(event), context)).rejects.toThrowError(
+				BadApiArgumentException,
+			);
+		});
+
+		it("still accepts a well-formed undo event", async () => {
+			room.currentSource = { service: "direct", id: "current.mp4" };
+			await room.processRequest(
+				undoRequest({
+					request: { type: RoomRequestType.SkipRequest },
+					additional: {
+						video: { service: "direct", id: "previous.mp4" },
+						prevPosition: 12,
+					},
+				}),
+				context,
+			);
+			expect(room.currentSource).toEqual({ service: "direct", id: "previous.mp4" });
+			expect(room.playbackPosition).toBe(12);
 		});
 	});
 });

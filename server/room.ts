@@ -89,6 +89,7 @@ import { Counter } from "prom-client";
 import roommanager from "./roommanager.js";
 import { calculateCurrentPosition } from "ott-common/timestamp.js";
 import type { RestoreQueueRequest } from "ott-common/models/messages.js";
+import { undoEventSchema } from "./ws-schemas.js";
 import { type Result, countEligibleVoters, err, ok, voteSkipThreshold } from "ott-common";
 import type { ClientManagerCommand } from "./clientmanager.js";
 import { canKickUser } from "ott-common/userutils.js";
@@ -179,13 +180,20 @@ export type RoomStateFromRedis = Omit<RoomState, "userRoles" | "grants"> & {
 
 export interface RoomStateComputed {
 	hasOwner: boolean;
+	hasPassword: boolean;
 	voteCounts: Map<string, number>;
 }
 
 // Only these should be sent to clients, all others should be considered unsafe
 export type RoomStateSyncable = Omit<
 	RoomState,
-	"owner" | "votes" | "userRoles" | "users" | "resumeOnNextJoin" | "permissionsRevision"
+	| "owner"
+	| "passwordHash"
+	| "votes"
+	| "userRoles"
+	| "users"
+	| "resumeOnNextJoin"
+	| "permissionsRevision"
 >;
 
 // Only these should be stored in redis
@@ -216,6 +224,7 @@ const syncableProps: (keyof RoomStateSyncable)[] = [
 	"playbackPreparation",
 	"grants",
 	"hasOwner",
+	"hasPassword",
 	"voteCounts",
 	"videoSegments",
 	"autoSkipSegmentCategories",
@@ -290,6 +299,17 @@ export class Room implements RoomState {
 	_bufferGateMode = BufferGateMode.Off;
 	/** The danmaku track this room shares; null when nobody set one. */
 	_danmakuSource: RoomDanmakuSource | null = null;
+	/** Argon2 hash of the room password; null when the room has no password. Never synced. */
+	passwordHash: string | null = null;
+
+	public get hasPassword(): boolean {
+		return !!this.passwordHash;
+	}
+
+	public setPasswordHash(hash: string | null): void {
+		this.passwordHash = hash;
+		this.markDirty("hasPassword");
+	}
 	/** Which round of default-permission additions the stored grants already know about. */
 	permissionsRevision: number | undefined = undefined;
 	private bufferGate: {
@@ -368,6 +388,7 @@ export class Room implements RoomState {
 				"enableVoteSkip",
 				"bufferGateMode",
 				"danmakuSource",
+				"passwordHash",
 				"votesToSkip",
 			),
 		);
@@ -1958,6 +1979,10 @@ export class Room implements RoomState {
 	}
 
 	public async undo(request: UndoRequest, context: RoomRequestContext): Promise<void> {
+		const validation = undoEventSchema.safeParse(request.event);
+		if (!validation.success) {
+			throw new BadApiArgumentException("event", "Invalid undo event");
+		}
 		// FIXME: room event type definitions suck ass, and needs to be reworked
 		switch (request.event.request.type) {
 			case RoomRequestType.SeekRequest:

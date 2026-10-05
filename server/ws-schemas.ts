@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { PlayerStatus } from "ott-common/models/types.js";
+import { RoomRequestType } from "ott-common/models/messages.js";
+import { ALL_VIDEO_SERVICES } from "ott-common/constants.js";
 
 // Auth tokens are base64 of 512 random bytes (684 characters). A cap below that kicks
 // every client out of its room on connect.
@@ -63,3 +65,36 @@ export const clientMessageSchema = z.discriminatedUnion("action", [
 		request: z.object({ type: z.number().int().min(0).max(999) }).passthrough(),
 	}),
 ]);
+
+const undoEventVideoSchema = z
+	.object({
+		service: z.enum(ALL_VIDEO_SERVICES),
+		id: z.string().min(1).max(2048),
+	})
+	.passthrough();
+
+// Undo events echo a room event back to the server, and the room applies the fields below
+// without further checks; shape them here so a forged event cannot inject state (an
+// unknown request type, a non-finite position, or a video outside the known services).
+export const undoEventSchema = z
+	.object({
+		request: z
+			.object({
+				type: z.union([
+					z.literal(RoomRequestType.SeekRequest),
+					z.literal(RoomRequestType.SkipRequest),
+					z.literal(RoomRequestType.AddRequest),
+					z.literal(RoomRequestType.RemoveRequest),
+				]),
+				video: undoEventVideoSchema.optional(),
+			})
+			.passthrough(),
+		additional: z
+			.object({
+				video: undoEventVideoSchema.optional(),
+				prevPosition: z.number().finite().min(0).optional(),
+				queueIdx: z.number().int().min(0).optional(),
+			})
+			.passthrough(),
+	})
+	.passthrough();
