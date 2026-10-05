@@ -5,10 +5,11 @@ import { useDanmaku } from "@/components/composables";
 /** The URL rules know nothing about this video; only the stored binding does. */
 vi.mock("@/util/danmaku/provider", () => ({ findDanmakuProvider: () => null }));
 
-const { loadGirigiriTrack, autoMatch, danmuApiLoad } = vi.hoisted(() => ({
+const { loadGirigiriTrack, autoMatch, danmuApiLoad, roomSourceBinding } = vi.hoisted(() => ({
 	loadGirigiriTrack: vi.fn(),
 	autoMatch: vi.fn(),
 	danmuApiLoad: vi.fn(),
+	roomSourceBinding: vi.fn(),
 }));
 vi.mock("@/util/danmaku/girigiri-api", () => ({ loadGirigiriTrack }));
 vi.mock("@/util/danmaku/danmu-api", () => ({
@@ -24,6 +25,7 @@ vi.mock("@/util/danmaku/danmu-api", () => ({
 	getDanmakuApiBase: () => "",
 	looksLikeRemoteCandidate: () => true,
 	rememberBinding: vi.fn(),
+	roomSourceBinding,
 	setDanmakuApiBase: vi.fn(),
 	trackUrl: () => null,
 }));
@@ -49,6 +51,7 @@ function makeVideo() {
 describe("danmaku layer bindings", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		roomSourceBinding.mockReturnValue(null);
 		loadGirigiriTrack.mockResolvedValue([
 			{ time: 5, mode: "scroll", color: "#ffffff", text: "bound" },
 		]);
@@ -73,6 +76,25 @@ describe("danmaku layer bindings", () => {
 		// and the panel can show how many comments arrived.
 		expect(useDanmaku().available.value).toBe(true);
 		expect(useDanmaku().loadedCount.value).toBe(1);
+		wrapper.unmount();
+	});
+
+	it("follows the room's shared source ahead of this device's own binding", async () => {
+		roomSourceBinding.mockReturnValue({
+			provider: "girigiri",
+			page: "/playGV2-2-2/",
+			label: "房间的源",
+			offset: 0,
+		});
+		const video = makeVideo();
+		const { wrapper } = mountComponent(DanmakuLayer, {
+			props: { video, videoUrl: "https://example.com/other-site/01.mp4" },
+		});
+		await flush();
+
+		expect(loadGirigiriTrack).toHaveBeenCalledWith("/playGV2-2-2/");
+		expect(autoMatch).not.toHaveBeenCalled();
+		expect(danmuApiLoad).not.toHaveBeenCalled();
 		wrapper.unmount();
 	});
 });

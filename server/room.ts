@@ -53,6 +53,7 @@ import {
 	PlayerStatus,
 	type RoomEventContext,
 	type RoomSettings,
+	type RoomDanmakuSource,
 	type AuthToken,
 	BehaviorOption,
 	BufferGateMode,
@@ -184,7 +185,7 @@ export interface RoomStateComputed {
 // Only these should be sent to clients, all others should be considered unsafe
 export type RoomStateSyncable = Omit<
 	RoomState,
-	"owner" | "votes" | "userRoles" | "users" | "resumeOnNextJoin"
+	"owner" | "votes" | "userRoles" | "users" | "resumeOnNextJoin" | "permissionsRevision"
 >;
 
 // Only these should be stored in redis
@@ -222,6 +223,7 @@ const syncableProps: (keyof RoomStateSyncable)[] = [
 	"restoreQueueBehavior",
 	"enableVoteSkip",
 	"bufferGateMode",
+	"danmakuSource",
 	"votesToSkip",
 ];
 
@@ -248,6 +250,8 @@ const storableProps: (keyof RoomStateStorable)[] = [
 	"restoreQueueBehavior",
 	"enableVoteSkip",
 	"bufferGateMode",
+	"danmakuSource",
+	"permissionsRevision",
 ];
 
 /** Only these should be stored in persistent storage */
@@ -284,6 +288,10 @@ export class Room implements RoomState {
 	restoreQueueBehavior: BehaviorOption = BehaviorOption.Always;
 	_enableVoteSkip: boolean = false;
 	_bufferGateMode = BufferGateMode.Off;
+	/** The danmaku track this room shares; null when nobody set one. */
+	_danmakuSource: RoomDanmakuSource | null = null;
+	/** Which round of default-permission additions the stored grants already know about. */
+	permissionsRevision: number | undefined = undefined;
 	private bufferGate: {
 		startedAt: number;
 		waitingOn: ClientId[];
@@ -359,6 +367,7 @@ export class Room implements RoomState {
 				"restoreQueueBehavior",
 				"enableVoteSkip",
 				"bufferGateMode",
+				"danmakuSource",
 				"votesToSkip",
 			),
 		);
@@ -396,6 +405,15 @@ export class Room implements RoomState {
 		}
 		if (!this.grants) {
 			this.grants = new Grants();
+		}
+		// A saved room keeps the grant masks it was created with, so a permission added to
+		// the defaults afterwards would stay denied in every existing room. The revision
+		// the snapshot was saved under tells us which additions it has not seen yet.
+		this.permissionsRevision =
+			typeof options.permissionsRevision === "number" ? options.permissionsRevision : 0;
+		if (this.permissionsRevision < permissions.ROOM_PERMISSIONS_REVISION) {
+			permissions.applyPermissionAdditions(this.grants, this.permissionsRevision);
+			this.permissionsRevision = permissions.ROOM_PERMISSIONS_REVISION;
 		}
 		if (options.userRoles) {
 			if (options.userRoles instanceof Map) {
@@ -577,6 +595,15 @@ export class Room implements RoomState {
 	public set bufferGateMode(value: BufferGateMode) {
 		this._bufferGateMode = value;
 		this.markDirty("bufferGateMode");
+	}
+
+	public get danmakuSource(): RoomDanmakuSource | null {
+		return this._danmakuSource;
+	}
+
+	public set danmakuSource(value: RoomDanmakuSource | null) {
+		this._danmakuSource = value;
+		this.markDirty("danmakuSource");
 	}
 
 	public get bufferingGateHeld(): boolean {
@@ -1142,6 +1169,7 @@ export class Room implements RoomState {
 			"restoreQueueBehavior",
 			"enableVoteSkip",
 			"bufferGateMode",
+			"danmakuSource",
 		];
 		const settings: Partial<RoomStatePersistable> = _.pick(
 			this,
@@ -2126,6 +2154,7 @@ export class Room implements RoomState {
 			restoreQueueBehavior: "configure-room.other",
 			enableVoteSkip: "configure-room.other",
 			bufferGateMode: "configure-room.other",
+			danmakuSource: "configure-room.set-danmaku-source",
 		};
 		const roleToPerms: Record<Exclude<Role, Role.Owner | Role.Administrator>, string> = {
 			[Role.UnregisteredUser]: "configure-room.set-permissions.for-all-unregistered-users",

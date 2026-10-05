@@ -103,6 +103,23 @@ export const OttApiRequestAccountUpdateSchema = z
 
 const GrantSchema = z.tuple([z.nativeEnum(Role), z.number()]);
 
+/**
+ * A room's shared danmaku track. Only a structured source is accepted — the girigiri
+ * play-page path or a danmu-api episode id — so a client can never point the room at an
+ * arbitrary URL.
+ */
+export const RoomDanmakuSourceSchema = z.object({
+	videoUrl: z.string().min(1).max(2048),
+	provider: z.enum(["danmu-api", "girigiri"]),
+	label: z.string().min(1).max(200),
+	page: z
+		.string()
+		.regex(/^\/playGV\d{1,10}-\d{1,3}-\d{1,4}\/$/, "invalid play page")
+		.optional(),
+	episodeId: z.union([z.string().min(1).max(64), z.number().int()]).optional(),
+	offset: z.number().finite().min(-600).max(600),
+});
+
 export const RoomSettingsSchema = z
 	.object({
 		title: z
@@ -120,6 +137,7 @@ export const RoomSettingsSchema = z
 		restoreQueueBehavior: z.nativeEnum(BehaviorOption).optional(),
 		enableVoteSkip: z.boolean().optional(),
 		bufferGateMode: z.nativeEnum(BufferGateMode).optional(),
+		danmakuSource: RoomDanmakuSourceSchema.nullable().optional(),
 	})
 	.strict();
 

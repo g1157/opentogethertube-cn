@@ -157,6 +157,14 @@ export const PERMISSIONS = [
 		mask: 1 << 27,
 		minRole: Role.UnregisteredUser,
 	}),
+	// Everyone may point the room at a danmaku track by default (the same posture as the
+	// other "other" settings); the room owner can tighten the grants if it turns into a
+	// tug of war.
+	new Permission({
+		name: "configure-room.set-danmaku-source",
+		mask: 1 << 28,
+		minRole: Role.UnregisteredUser,
+	}),
 ];
 
 const permMaskMap = new Map(PERMISSIONS.map(p => [p.name, p.mask]));
@@ -177,6 +185,7 @@ function defaultPermissions(): Grants {
 			"configure-room.set-queue-mode",
 			"configure-room.other",
 			"configure-room.set-notes",
+			"configure-room.set-danmaku-source",
 		]),
 		[Role.RegisteredUser]: parseIntoGrantMask([]),
 		[Role.TrustedUser]: parseIntoGrantMask([]),
@@ -408,6 +417,34 @@ export class Grants {
 	}
 }
 
+/**
+ * The current round of default permissions. Rooms store their grants as masks, and a mask
+ * saved before a permission existed never contains it — the DB row and the Redis snapshot
+ * both keep whatever they were created with. Stamping a revision lets a loader re-grant
+ * exactly the bits added since the snapshot was taken, once; tightening them afterwards
+ * sticks, because the room then carries the current revision.
+ */
+export const ROOM_PERMISSIONS_REVISION = 1;
+
+/** Permission bits introduced at each revision; earlier revisions are implied. */
+const PERMISSION_ADDITIONS: Record<number, PermissionName[]> = {
+	1: ["configure-room.set-danmaku-source"],
+};
+
+/** Grants the additions between `fromRevision` (exclusive) and the current revision. */
+export function applyPermissionAdditions(grants: Grants, fromRevision: number): void {
+	for (let revision = fromRevision + 1; revision <= ROOM_PERMISSIONS_REVISION; revision++) {
+		const added = PERMISSION_ADDITIONS[revision];
+		if (!added || added.length === 0) {
+			continue;
+		}
+		// Only the baseline role needs the bits: the higher roles inherit from it, and
+		// owner/administrator are always forced to hold everything.
+		const baseline = grants.getMask(Role.UnregisteredUser) | parseIntoGrantMask(added);
+		grants.setRoleGrants(Role.UnregisteredUser, baseline);
+	}
+}
+
 const _exp = {
 	ROLE_NAMES,
 	ROLE_DISPLAY_NAMES,
@@ -416,5 +453,7 @@ const _exp = {
 	defaultPermissions,
 	parseIntoGrantMask,
 	getValidationMask,
+	ROOM_PERMISSIONS_REVISION,
+	applyPermissionAdditions,
 };
 export default _exp;

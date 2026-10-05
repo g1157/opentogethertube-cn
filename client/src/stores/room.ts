@@ -1,7 +1,12 @@
 import _ from "lodash";
 import type { Module } from "vuex/types";
 import { Grants } from "ott-common/permissions";
-import { QueueMode, Visibility, BufferGateMode } from "ott-common/models/types";
+import {
+	QueueMode,
+	Visibility,
+	BufferGateMode,
+	type RoomDanmakuSource,
+} from "ott-common/models/types";
 import type { QueueItem } from "ott-common/models/video";
 import dayjs, { type Dayjs } from "dayjs";
 import type {
@@ -40,6 +45,8 @@ export interface RoomState {
 	prevQueue: QueueItem[] | null;
 	enableVoteSkip: boolean;
 	bufferGateMode: BufferGateMode;
+	/** The danmaku track this room shares; null when nobody set one. */
+	danmakuSource: RoomDanmakuSource | null;
 	votesToSkip: Set<string>;
 }
 
@@ -75,6 +82,7 @@ export const roomModule: Module<RoomState, FullOTTStoreState> = {
 		prevQueue: null,
 		enableVoteSkip: false,
 		bufferGateMode: BufferGateMode.Off,
+		danmakuSource: null,
 		votesToSkip: new Set(),
 		videoSegments: [],
 	},

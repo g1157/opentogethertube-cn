@@ -298,6 +298,9 @@ export default {
 			"page-basic": "基础",
 			"page-sources": "弹幕源",
 			"binding-title": "当前绑定",
+			"room-source-changed": "房间弹幕源已切换：{label}",
+			"room-source-cleared": "房间弹幕源已清除",
+			"room-source-failed": "操作失败，请重试",
 			loaded: "已加载弹幕",
 			"loaded-count": "{count} 条",
 			"loaded-toast": "已加载 {count} 条弹幕",
@@ -731,6 +734,7 @@ export default {
 			"set-visibility": "修改房间可见性",
 			"set-queue-mode": "修改队列模式",
 			other: "修改其他房间设置（自动跳过、缓冲等待等）",
+			"set-danmaku-source": "设置房间弹幕源",
 			"set-permissions": {
 				"for-moderator": "设置协管员的权限",
 				"for-trusted-users": "设置受信任用户的权限",

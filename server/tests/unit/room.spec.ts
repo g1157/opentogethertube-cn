@@ -18,16 +18,19 @@ import {
 	BufferGateMode,
 	QueueMode,
 	Role,
+	type RoomDanmakuSource,
 } from "ott-common/models/types.js";
 import { Room, RoomUser } from "../../room.js";
 import infoextractor from "../../infoextractor.js";
 import type { Video, VideoId } from "ott-common/models/video.js";
-import permissions from "ott-common/permissions.js";
+import permissions, { Grants } from "ott-common/permissions.js";
 import _ from "lodash";
 import { VideoQueue } from "../../videoqueue.js";
 import { loadModels } from "../../models/index.js";
 import { buildClients } from "../../redisclient.js";
 import { redisStateToState } from "../../roommanager.js";
+
+const DANMAKU_SOURCE_PERMISSION = /set-danmaku-source/;
 
 describe("Room", () => {
 	let getSessionInfoSpy: MockInstance<[AuthToken], Promise<SessionInfo>>;
@@ -703,6 +706,106 @@ describe("Room", () => {
 			expect(restored.bufferingGateHeld).toBe(false);
 			room.throttledSync.cancel();
 			room.saveStateToRedisDebounced.cancel();
+		});
+	});
+
+	describe("danmaku source sharing", () => {
+		const source: RoomDanmakuSource = {
+			videoUrl: "https://host/a.mp4",
+			provider: "girigiri",
+			page: "/playGV1-1-1/",
+			label: "异国日记 · 线路1·第1话",
+			offset: 0,
+		};
+
+		it("lets an unregistered viewer set the source by default and restores it", async () => {
+			const room = new Room({ name: "danmaku-source", isTemporary: true });
+			expect(room.danmakuSource).toBeNull();
+			await room.applySettings(
+				{
+					type: RoomRequestType.ApplySettingsRequest,
+					settings: { danmakuSource: source },
+				},
+				{ username: "guest", role: Role.UnregisteredUser },
+			);
+			expect(room.syncableState().danmakuSource).toEqual(source);
+			const restored = new Room(redisStateToState(JSON.parse(room.serializeState())));
+			expect(restored.danmakuSource).toEqual(source);
+			room.throttledSync.cancel();
+			room.saveStateToRedisDebounced.cancel();
+		});
+
+		it("refuses the change once the owner takes the permission back", async () => {
+			const room = new Room({ name: "danmaku-source-denied", isTemporary: true });
+			const without = permissions.PERMISSIONS.find(
+				p => p.name === "configure-room.set-danmaku-source",
+			);
+			expect(without).toBeDefined();
+			const mask = room.grants.getMask(Role.UnregisteredUser) & ~without!.mask;
+			room.grants.setRoleGrants(Role.UnregisteredUser, mask);
+
+			await expect(
+				room.applySettings(
+					{
+						type: RoomRequestType.ApplySettingsRequest,
+						settings: { danmakuSource: source },
+					},
+					{ username: "guest", role: Role.UnregisteredUser },
+				),
+			).rejects.toThrow(DANMAKU_SOURCE_PERMISSION);
+			expect(room.danmakuSource).toBeNull();
+
+			// The owner keeps the bit and can still set it.
+			await room.applySettings(
+				{
+					type: RoomRequestType.ApplySettingsRequest,
+					settings: { danmakuSource: source },
+				},
+				{ username: "owner", role: Role.Owner },
+			);
+			expect(room.danmakuSource).toEqual(source);
+			room.throttledSync.cancel();
+			room.saveStateToRedisDebounced.cancel();
+		});
+
+		it("re-grants the permission when loading a snapshot saved before it existed", () => {
+			const permission = permissions.PERMISSIONS.find(
+				p => p.name === "configure-room.set-danmaku-source",
+			);
+			expect(permission).toBeDefined();
+			// A room saved before the permission was added carries masks without its bit.
+			const stale = new Grants();
+			stale.setRoleGrants(
+				Role.UnregisteredUser,
+				stale.getMask(Role.UnregisteredUser) & ~permission!.mask,
+			);
+			expect(stale.granted(Role.UnregisteredUser, permission!.name)).toBe(false);
+
+			const room = new Room({
+				name: "danmaku-source-upgrade",
+				isTemporary: true,
+				grants: stale,
+			});
+			expect(room.permissionsRevision).toBe(permissions.ROOM_PERMISSIONS_REVISION);
+			expect(room.grants.granted(Role.UnregisteredUser, permission!.name)).toBe(true);
+			expect(room.grants.granted(Role.TrustedUser, permission!.name)).toBe(true);
+
+			// Once the revision is stamped, taking the permission away sticks across loads.
+			room.grants.setRoleGrants(
+				Role.UnregisteredUser,
+				room.grants.getMask(Role.UnregisteredUser) & ~permission!.mask,
+			);
+			const restored = new Room({
+				name: "danmaku-source-upgrade",
+				isTemporary: true,
+				grants: room.grants,
+				permissionsRevision: room.permissionsRevision,
+			});
+			expect(restored.grants.granted(Role.UnregisteredUser, permission!.name)).toBe(false);
+			room.throttledSync.cancel();
+			room.saveStateToRedisDebounced.cancel();
+			restored.throttledSync.cancel();
+			restored.saveStateToRedisDebounced.cancel();
 		});
 	});
 

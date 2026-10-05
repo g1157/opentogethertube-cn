@@ -306,6 +306,9 @@ export default {
 			"page-basic": "Basics",
 			"page-sources": "Sources",
 			"binding-title": "Current match",
+			"room-source-changed": "Room danmaku source changed: {label}",
+			"room-source-cleared": "Room danmaku source cleared",
+			"room-source-failed": "Could not update the room",
 			loaded: "Comments loaded",
 			"loaded-count": "{count}",
 			"loaded-toast": "Loaded {count} comments",
@@ -759,6 +762,7 @@ export default {
 			"set-visibility": "Change room visibility",
 			"set-queue-mode": "Change the queue mode",
 			other: "Change other room settings",
+			"set-danmaku-source": "Set the room danmaku source",
 			"set-permissions": {
 				"for-moderator": "Set moderator permissions",
 				"for-trusted-users": "Set trusted user permissions",

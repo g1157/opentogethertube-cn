@@ -19,6 +19,7 @@ import {
 	getDanmakuApiBase,
 	looksLikeRemoteCandidate,
 	rememberBinding,
+	roomSourceBinding,
 	setDanmakuApiBase,
 	trackUrl,
 	type DanmakuBinding,
@@ -404,39 +405,47 @@ async function load() {
 	engine?.setItems([]);
 	draw([]);
 	updateRunning();
-	const binding = getBinding(props.videoUrl);
+	const local = getBinding(props.videoUrl);
+	// Priority: the room's shared source wins (bindings publish themselves, so everyone
+	// follows the same track), then a track the visitor picked locally, then a
+	// matcher-written local entry, then the URL-derived track and the automatic matcher.
+	const effective =
+		roomSourceBinding(props.videoUrl, store.state.room.danmakuSource) ??
+		(local && !local.auto ? local : null) ??
+		(local && local.auto ? local : null);
 	const direct = findDanmakuProvider(props.videoUrl);
 	const aggregator = getDanmakuApiBase() !== "" && looksLikeRemoteCandidate(props.videoUrl);
-	available.value = binding !== null || direct !== null || aggregator;
+	available.value = effective !== null || direct !== null || aggregator;
 	if (!store.state.settings.danmakuEnabled) {
 		return;
 	}
-	let loaded: DanmakuItem[] | null = direct ? await direct.provider.load(direct.url) : null;
-	if (generation !== loadGeneration) {
-		return;
-	}
-	// A binding is the user's own pick for this video (a girigiri episode on someone
-	// else's source, for one), so it is tried after the URL-derived track and, when it
-	// fails, the automatic matcher stands down instead of overriding the choice.
-	if (loaded === null && binding) {
-		loaded = await loadBindingTrack(binding);
+	let loaded: DanmakuItem[] | null = null;
+	if (effective) {
+		// A chosen track is final: when it fails, the matcher stands down instead of
+		// quietly replacing the choice.
+		loaded = await loadBindingTrack(effective);
 		if (generation !== loadGeneration) {
 			return;
 		}
-	}
-	if (loaded === null && binding === null && aggregator) {
-		loaded = await loadFromAggregator();
+	} else {
+		loaded = direct ? await direct.provider.load(direct.url) : null;
 		if (generation !== loadGeneration) {
 			return;
 		}
+		if (loaded === null && aggregator) {
+			loaded = await loadFromAggregator();
+			if (generation !== loadGeneration) {
+				return;
+			}
+		}
 	}
-	items = loaded === null ? [] : binding ? shiftDanmakuTime(loaded, binding.offset) : loaded;
+	items = loaded === null ? [] : effective ? shiftDanmakuTime(loaded, effective.offset) : loaded;
 	loadedCount.value = items.length;
 	// Feedback that a track actually arrived; without it the only sign was comments
 	// appearing over the picture. Announced once per track: the offset slider reloads the
 	// same track on every drag and must not repeat it.
-	const trackKey = binding
-		? `${binding.provider}:${binding.page ?? String(binding.episodeId)}`
+	const trackKey = effective
+		? `${effective.provider}:${effective.page ?? String(effective.episodeId)}`
 		: items.length > 0
 			? props.videoUrl
 			: null;
@@ -467,6 +476,27 @@ watch(
 watch(bindingsState, () => {
 	void load();
 });
+
+// The room's shared source can change under everyone; re-resolve and say what happened,
+// so a picture whose comments suddenly change has an explanation.
+watch(
+	() => store.state.room.danmakuSource,
+	(next, previous) => {
+		void load();
+		const nextApplies = next?.videoUrl === props.videoUrl;
+		const previousApplied = previous?.videoUrl === props.videoUrl;
+		if (!nextApplies && !previousApplied) {
+			return;
+		}
+		toast.add({
+			style: ToastStyle.Neutral,
+			content: nextApplies
+				? i18n.global.t("room.danmaku.room-source-changed", { label: next?.label ?? "" })
+				: i18n.global.t("room.danmaku.room-source-cleared"),
+			duration: 4000,
+		});
+	},
+);
 
 watch(
 	() => props.videoUrl,

@@ -9,6 +9,7 @@ import type {
 	Role,
 	RoomEventContext,
 	RoomSettings,
+	RoomDanmakuSource,
 	AuthToken,
 	BehaviorOption,
 	BufferGateMode,
@@ -62,6 +63,7 @@ export interface ServerMessageSync extends ServerMessageBase {
 	autoSkipSegmentCategories?: Category[];
 	videoSegments?: Segment[];
 	restoreQueueBehavior?: BehaviorOption;
+	danmakuSource?: RoomDanmakuSource | null;
 }
 
 /**

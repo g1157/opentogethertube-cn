@@ -258,8 +258,8 @@
 			<div v-else class="danmaku-page danmaku-sources">
 				<div class="danmaku-row">
 					<span class="danmaku-row-label">{{ $t("room.danmaku.binding-title") }}</span>
-					<span v-if="binding" class="danmaku-match-label" :title="binding.label">{{
-						binding.label
+					<span v-if="sourceLabel" class="danmaku-match-label" :title="sourceLabel">{{
+						sourceLabel
 					}}</span>
 					<span v-else class="danmaku-match-label danmaku-match-empty">
 						{{ $t("room.danmaku.not-bound") }}
@@ -271,7 +271,7 @@
 						>{{ $t("room.danmaku.loaded-count", { count: loadedCount }) }}</span
 					>
 					<v-btn
-						v-if="binding"
+						v-if="hasSource"
 						size="x-small"
 						variant="text"
 						@click="clearBinding"
@@ -280,7 +280,7 @@
 						{{ $t("room.danmaku.unbind") }}
 					</v-btn>
 				</div>
-				<div v-if="binding" class="danmaku-row danmaku-slider-row">
+				<div v-if="hasSource" class="danmaku-row danmaku-slider-row">
 					<span class="danmaku-row-label">{{ $t("room.danmaku.offset") }}</span>
 					<v-slider
 						v-model="offsetSeconds"
@@ -357,9 +357,13 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, ref, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import type { RoomDanmakuSource } from "ott-common/models/types";
+import { API } from "@/common-http";
+import { ToastStyle } from "@/models/toast";
 import { useStore } from "@/store";
+import toast from "@/util/toast";
 import {
 	DANMAKU_AREAS,
 	DANMAKU_DENSITY_OPTIONS,
@@ -433,6 +437,58 @@ const binding = computed(() => {
 	const url = currentVideoUrl.value;
 	return url ? getBinding(url) : null;
 });
+
+/** The room's shared source when it belongs to the video that is playing. */
+const roomSourceForVideo = computed(() => {
+	const source = store.state.room.danmakuSource;
+	if (!source || !currentVideoUrl.value || source.videoUrl !== currentVideoUrl.value) {
+		return null;
+	}
+	return source;
+});
+/** The track everyone in the room is watching: the room's pick first, then this device's. */
+const sourceLabel = computed(() => roomSourceForVideo.value?.label ?? binding.value?.label ?? "");
+const hasSource = computed(() => !!(roomSourceForVideo.value || binding.value));
+
+/**
+ * Publishing is automatic — binding a track (or clearing one) updates the room's shared
+ * source for everyone, with no separate "apply" step. The permission still governs it
+ * (default: everyone), and a failure leaves this device's own binding in effect.
+ */
+async function publishRoomSource(source: RoomDanmakuSource | null) {
+	try {
+		await API.patch(`/room/${encodeURIComponent(store.state.room.name)}`, {
+			danmakuSource: source,
+		});
+	} catch (err) {
+		console.error("Failed to update the room danmaku source", err);
+		toast.add({
+			style: ToastStyle.Error,
+			content: t("room.danmaku.room-source-failed"),
+			duration: 4000,
+		});
+	}
+}
+
+/** The slider writes the room's copy when the room owns the track, debounced. */
+const offsetDraft = reactive<{ pending: number | null }>({ pending: null });
+let offsetPublishTimer: ReturnType<typeof setTimeout> | undefined;
+
+function scheduleOffsetPublish() {
+	clearTimeout(offsetPublishTimer);
+	offsetPublishTimer = setTimeout(() => {
+		offsetPublishTimer = undefined;
+		const room = roomSourceForVideo.value;
+		const pending = offsetDraft.pending;
+		if (room && pending !== null) {
+			void publishRoomSource({ ...room, offset: pending }).finally(() => {
+				offsetDraft.pending = null;
+			});
+		} else {
+			offsetDraft.pending = null;
+		}
+	}, 500);
+}
 
 /** Which search the page is showing, drilled down inside the page's fixed height. */
 type SearchSource = "girigiri" | "danmu";
@@ -548,11 +604,20 @@ function bindEpisode(episode: DanmakuEpisode) {
 		return;
 	}
 	const label = [selectedAnimeTitle.value, episode.title].filter(Boolean).join(" · ");
+	const offset = roomSourceForVideo.value?.offset ?? binding.value?.offset ?? 0;
 	rememberBinding(url, {
 		provider: "danmu-api",
 		episodeId: episode.episodeId,
 		label,
-		offset: binding.value?.offset ?? 0,
+		offset,
+	});
+	// Binding publishes itself: the whole room follows this track.
+	void publishRoomSource({
+		videoUrl: url,
+		provider: "danmu-api",
+		episodeId: episode.episodeId,
+		label,
+		offset,
 	});
 	// The panel collapses back to its compact state; the keyword stays for the next episode.
 	closeSearch();
@@ -592,35 +657,61 @@ function bindGirigiriEpisode(line: GirigiriLine, episode: GirigiriEpisode) {
 	if (!url) {
 		return;
 	}
+	// A compact "show · line·episode" label: it sits in a small row and only has to
+	// identify the pick, the details live in the search itself.
+	const label = t("room.danmaku.girigiri-binding", {
+		show: girigiriShowTitle.value,
+		n: line.line,
+		ep: episode.number,
+	});
+	const offset = roomSourceForVideo.value?.offset ?? binding.value?.offset ?? 0;
 	rememberBinding(url, {
 		provider: "girigiri",
 		page: episode.page,
-		// A compact "show · line·episode" label: it sits in a small row and only has to
-		// identify the pick, the details live in the search itself.
-		label: t("room.danmaku.girigiri-binding", {
-			show: girigiriShowTitle.value,
-			n: line.line,
-			ep: episode.number,
-		}),
-		offset: binding.value?.offset ?? 0,
+		label,
+		offset,
+	});
+	// Binding publishes itself: the whole room follows this track.
+	void publishRoomSource({
+		videoUrl: url,
+		provider: "girigiri",
+		page: episode.page,
+		label,
+		offset,
 	});
 	closeSearch();
 }
 
 function clearBinding() {
 	const url = currentVideoUrl.value;
-	if (url) {
-		forgetBinding(url);
+	if (!url) {
+		return;
+	}
+	forgetBinding(url);
+	if (roomSourceForVideo.value) {
+		// The room owns this video's track, so clearing it is a room-wide action too.
+		void publishRoomSource(null);
 	}
 }
 
 const offsetSeconds = computed({
-	get: () => binding.value?.offset ?? 0,
-	set: value => {
+	get: () => {
+		if (offsetDraft.pending !== null) {
+			return offsetDraft.pending;
+		}
+		return roomSourceForVideo.value?.offset ?? binding.value?.offset ?? 0;
+	},
+	set: next => {
+		if (roomSourceForVideo.value) {
+			// Dragging must feel instant; the room learns about it once the drag settles.
+			offsetDraft.pending = Number(next);
+			scheduleOffsetPublish();
+			return;
+		}
 		const url = currentVideoUrl.value;
 		const current = binding.value;
 		if (url && current) {
-			rememberBinding(url, { ...current, offset: value });
+			rememberBinding(url, { ...current, offset: next });
 		}
 	},
 });
@@ -852,6 +943,13 @@ const blockedTypes = computed({
 			padding-top: 0;
 			padding-bottom: 0;
 		}
+	}
+
+	.danmaku-match-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 4px;
 	}
 
 	.danmaku-sources {

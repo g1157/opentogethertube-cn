@@ -5,6 +5,7 @@ import {
 	type Role,
 	BehaviorOption,
 	BufferGateMode,
+	type RoomDanmakuSource,
 } from "ott-common/models/types.js";
 import type { User } from "./user.js";
 import { ALL_SKIP_CATEGORIES, ROOM_NAME_REGEX } from "ott-common/constants.js";
@@ -29,6 +30,7 @@ export interface RoomAttributes {
 	restoreQueueBehavior: BehaviorOption;
 	enableVoteSkip: boolean;
 	bufferGateMode: BufferGateMode;
+	danmakuSource: RoomDanmakuSource | null;
 }
 
 type RoomCreationAttributes = Optional<RoomAttributes, "id">;
@@ -53,6 +55,7 @@ export class Room extends Model<RoomAttributes, RoomCreationAttributes> implemen
 	declare restoreQueueBehavior: BehaviorOption;
 	declare enableVoteSkip: boolean;
 	declare bufferGateMode: BufferGateMode;
+	declare danmakuSource: RoomDanmakuSource | null;
 }
 
 export const createModel = (sequelize: Sequelize) => {
@@ -133,6 +136,11 @@ export const createModel = (sequelize: Sequelize) => {
 				allowNull: false,
 				defaultValue: BufferGateMode.Off,
 				validate: { isIn: [[BufferGateMode.Off, BufferGateMode.Pause]] },
+			},
+			danmakuSource: {
+				type: DataTypes.JSONB,
+				allowNull: true,
+				defaultValue: null,
 			},
 		},
 		{

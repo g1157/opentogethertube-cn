@@ -59,6 +59,26 @@ export type ClientInfo = {
 };
 
 /**
+ * A danmaku track a room shares with everyone watching it. The structure is deliberately
+ * the same as the per-device binding: the client fetches it through its normal providers
+ * (the girigiri bridge or the danmu_api base), never from a stored, arbitrary URL.
+ */
+export interface RoomDanmakuSource {
+	/** Only this video uses the source; another video treats it as stale. */
+	videoUrl: string;
+	provider: RoomDanmakuProvider;
+	label: string;
+	/** girigiri: the play-page path (`/playGV…/`). */
+	page?: string;
+	/** danmu-api: the matched episode id. */
+	episodeId?: number | string;
+	/** Seconds to shift the track; part of the source, so the room shares it. */
+	offset: number;
+}
+
+export type RoomDanmakuProvider = "danmu-api" | "girigiri";
+
+/**
  * Settings that can be set through the "settings" UI.
  */
 export interface RoomSettings {
@@ -71,6 +91,8 @@ export interface RoomSettings {
 	restoreQueueBehavior: BehaviorOption;
 	enableVoteSkip: boolean;
 	bufferGateMode: BufferGateMode;
+	/** The shared danmaku track, if the room has one; null clears it. */
+	danmakuSource?: RoomDanmakuSource | null;
 }
 
 /**
@@ -83,6 +105,8 @@ export interface RoomOptions extends RoomSettings {
 	userRoles: Map<Role, Set<number>>;
 	/** The queue as it was when the room was last unloaded. */
 	prevQueue: QueueItem[] | null;
+	/** Which round of permission additions the stored grants already know about. */
+	permissionsRevision?: number;
 }
 
 export type RoomUserInfo = {

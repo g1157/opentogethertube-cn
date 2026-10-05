@@ -1,4 +1,5 @@
 import { shallowRef } from "vue";
+import type { RoomDanmakuSource } from "ott-common/models/types";
 import { loadDanmaku } from "./fetch";
 import type { DanmakuItem } from "./parse";
 import type { DanmakuProvider } from "./provider";
@@ -27,6 +28,11 @@ export interface DanmakuBinding {
 	label: string;
 	/** Seconds to shift the track's timeline; positive shows comments later. */
 	offset: number;
+	/**
+	 * True when the matcher wrote this entry without the viewer asking. A room's shared
+	 * source outranks an automatic match; a binding the visitor picked outranks both.
+	 */
+	auto?: boolean;
 }
 
 export interface DanmakuSearchResult {
@@ -98,20 +104,28 @@ function normalizeBinding(value: unknown): DanmakuBinding | null {
 		page?: unknown;
 		label?: unknown;
 		offset?: unknown;
+		auto?: unknown;
 	};
 	if (typeof entry.label !== "string" || entry.label === "") {
 		return null;
 	}
 	const offset =
 		typeof entry.offset === "number" && Number.isFinite(entry.offset) ? entry.offset : 0;
+	const auto = entry.auto === true ? { auto: true } : {};
 	if (entry.provider === "girigiri") {
 		if (typeof entry.page !== "string" || entry.page === "") {
 			return null;
 		}
-		return { provider: "girigiri", page: entry.page, label: entry.label, offset };
+		return { provider: "girigiri", page: entry.page, label: entry.label, offset, ...auto };
 	}
 	if (typeof entry.episodeId === "number" || typeof entry.episodeId === "string") {
-		return { provider: "danmu-api", episodeId: entry.episodeId, label: entry.label, offset };
+		return {
+			provider: "danmu-api",
+			episodeId: entry.episodeId,
+			label: entry.label,
+			offset,
+			...auto,
+		};
 	}
 	return null;
 }
@@ -171,6 +185,26 @@ export function getBinding(videoUrl: string): DanmakuBinding | null {
 	return bindings.value[videoUrl] ?? null;
 }
 
+/**
+ * The room's shared source as a binding, or null when there is none or it names a
+ * different video (a room keeps one source per video; another video ignores it as stale).
+ */
+export function roomSourceBinding(
+	videoUrl: string,
+	source: RoomDanmakuSource | null | undefined,
+): DanmakuBinding | null {
+	if (!source || source.videoUrl !== videoUrl) {
+		return null;
+	}
+	return {
+		provider: source.provider,
+		page: source.page,
+		episodeId: source.episodeId,
+		label: source.label,
+		offset: source.offset,
+	};
+}
+
 export function rememberBinding(videoUrl: string, binding: DanmakuBinding) {
 	const current = bindings.value[videoUrl];
 	if (
@@ -178,7 +212,8 @@ export function rememberBinding(videoUrl: string, binding: DanmakuBinding) {
 		current?.episodeId === binding.episodeId &&
 		current?.page === binding.page &&
 		current?.label === binding.label &&
-		(current?.offset ?? 0) === (binding.offset ?? 0)
+		(current?.offset ?? 0) === (binding.offset ?? 0) &&
+		(current?.auto ?? false) === (binding.auto ?? false)
 	) {
 		return;
 	}
@@ -367,7 +402,7 @@ async function runAutoMatch(videoUrl: string): Promise<DanmakuBinding | null> {
 			return null;
 		}
 		const label = [match.animeTitle, match.episodeTitle].filter(Boolean).join(" · ");
-		return { provider: "danmu-api", episodeId: match.episodeId, label, offset: 0 };
+		return { provider: "danmu-api", episodeId: match.episodeId, label, offset: 0, auto: true };
 	} catch {
 		// A matching service that is down must not surface as an error.
 		return null;

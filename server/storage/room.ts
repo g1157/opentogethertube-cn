@@ -153,6 +153,7 @@ function dbToRoomArgs(db: DbRoom): RoomOptions {
 		restoreQueueBehavior: db.restoreQueueBehavior,
 		enableVoteSkip: db.enableVoteSkip,
 		bufferGateMode: db.bufferGateMode,
+		danmakuSource: db.danmakuSource,
 	};
 	for (let i = Role.TrustedUser; i <= 4; i++) {
 		room.userRoles.set(i, new Set(db[`role-${permissions.ROLE_NAMES[i]}`]));
@@ -185,6 +186,7 @@ export function roomToDb(room: RoomStatePersistable): Omit<RoomAttributes, "id">
 		restoreQueueBehavior: room.restoreQueueBehavior,
 		enableVoteSkip: room.enableVoteSkip,
 		bufferGateMode: room.bufferGateMode,
+		danmakuSource: room.danmakuSource ?? null,
 	};
 	if (room.owner) {
 		db.ownerId = room.owner.id;
@@ -215,6 +217,7 @@ export function roomToDbPartial(
 			restoreQueueBehavior: room.restoreQueueBehavior,
 			enableVoteSkip: room.enableVoteSkip,
 			bufferGateMode: room.bufferGateMode,
+			danmakuSource: room.danmakuSource,
 		},
 		v => v !== undefined,
 	);

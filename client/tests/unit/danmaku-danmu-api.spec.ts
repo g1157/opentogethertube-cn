@@ -8,6 +8,7 @@ import {
 	getBinding,
 	looksLikeRemoteCandidate,
 	rememberBinding,
+	roomSourceBinding,
 	searchAnime,
 	setDanmakuApiBase,
 	synthesizeMatchQuery,
@@ -198,6 +199,8 @@ describe("danmu-api automatic matching", () => {
 			episodeId: 10007,
 			label: "白箱(2014)【TV动画】 · 【animeko】 第6话",
 			offset: 0,
+			// The marker that keeps this automatic entry from outranking a room's pick.
+			auto: true,
 		});
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
@@ -305,5 +308,30 @@ describe("danmu-api manual search", () => {
 		);
 		expect(await searchAnime("白箱")).toEqual([]);
 		expect(await fetchEpisodes(1)).toEqual([]);
+	});
+});
+
+describe("room source as a binding", () => {
+	const url = "https://host/a.mp4";
+	const source = {
+		videoUrl: url,
+		provider: "girigiri" as const,
+		page: "/playGV1-1-1/",
+		label: "异国日记 · 线路1·第1话",
+		offset: 1.5,
+	};
+
+	it("converts the room's source for the video that is playing", () => {
+		expect(roomSourceBinding(url, source)).toEqual({
+			provider: "girigiri",
+			page: "/playGV1-1-1/",
+			label: "异国日记 · 线路1·第1话",
+			offset: 1.5,
+		});
+	});
+
+	it("ignores a source that belongs to another video or no room at all", () => {
+		expect(roomSourceBinding("https://host/b.mp4", source)).toBeNull();
+		expect(roomSourceBinding(url, null)).toBeNull();
 	});
 });
