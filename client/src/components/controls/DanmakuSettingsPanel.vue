@@ -671,14 +671,14 @@ const blockedTypes = computed({
 	font-size: 0.85rem;
 
 	/* Both pages share one fixed height: switching tabs never resizes the menu and the
-	   panel itself never needs a scrollbar. Long lists scroll inside their own box. */
+	   pages themselves never scroll; only a search list scrolls inside its own box. */
 	.danmaku-page {
 		display: flex;
 		flex-direction: column;
 		/* The rows keep a small gap so adjacent chip groups never look merged. */
 		gap: 4px;
 		height: 304px;
-		overflow-y: auto;
+		overflow: hidden;
 	}
 
 	.danmaku-row {
