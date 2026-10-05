@@ -303,6 +303,13 @@ export default {
 			"search-action": "Search",
 			"search-empty": "No matching results",
 			"more-settings": "More settings",
+			"page-basic": "Basics",
+			"page-sources": "Sources",
+			"binding-title": "Current match",
+			"aggregator-hint":
+				"Self-hosted aggregator: fill in the address to auto-match, or search and bind manually.",
+			"girigiri-hint":
+				"Search girigiri shows and bind one to this video; the source can be any site, fetched through this server.",
 			"girigiri-search": "Search girigiri…",
 			"girigiri-title": "Search girigiri comments",
 			"girigiri-placeholder": "Anime title (girigiri usually lists the Chinese one)",

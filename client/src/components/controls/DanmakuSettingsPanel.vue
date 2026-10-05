@@ -3,198 +3,174 @@
 		<div v-if="!danmakuAvailable" class="danmaku-unavailable">
 			{{ $t("room.danmaku.unavailable") }}
 		</div>
-		<div class="danmaku-row danmaku-row-slider">
-			<div class="danmaku-row-top">
-				<span class="danmaku-row-label">{{ $t("room.danmaku.opacity") }}</span>
-				<span class="danmaku-row-value">{{ opacityPercent }}%</span>
+		<div class="danmaku-page-switch">
+			<v-btn-toggle
+				v-model="page"
+				mandatory
+				density="compact"
+				color="primary"
+				divided
+				class="danmaku-pages"
+			>
+				<v-btn value="basic" size="small" data-cy="danmaku-page-basic">
+					{{ $t("room.danmaku.page-basic") }}
+				</v-btn>
+				<v-btn value="sources" size="small" data-cy="danmaku-page-sources">
+					{{ $t("room.danmaku.page-sources") }}
+				</v-btn>
+			</v-btn-toggle>
+		</div>
+		<template v-if="page === 'basic'">
+			<div class="danmaku-row danmaku-row-slider">
+				<div class="danmaku-row-top">
+					<span class="danmaku-row-label">{{ $t("room.danmaku.opacity") }}</span>
+					<span class="danmaku-row-value">{{ opacityPercent }}%</span>
+				</div>
+				<v-slider
+					v-model="danmakuOpacity"
+					:min="0.1"
+					:max="1"
+					:step="0.05"
+					color="primary"
+					density="compact"
+					hide-details
+					data-cy="danmaku-opacity"
+				/>
 			</div>
-			<v-slider
-				v-model="danmakuOpacity"
-				:min="0.1"
-				:max="1"
-				:step="0.05"
-				color="primary"
-				density="compact"
-				hide-details
-				data-cy="danmaku-opacity"
-			/>
-		</div>
-		<div class="danmaku-row">
-			<span class="danmaku-row-label">{{ $t("room.danmaku.font-size") }}</span>
-			<v-btn-toggle
-				v-model="danmakuFontSize"
-				mandatory
-				density="compact"
-				color="primary"
-				class="danmaku-chips"
-			>
-				<v-btn
-					v-for="size in DANMAKU_FONT_SIZE_OPTIONS"
-					:key="size"
-					:value="size"
-					size="x-small"
-					:data-cy="`danmaku-font-${size}`"
+			<div class="danmaku-row">
+				<span class="danmaku-row-label">{{ $t("room.danmaku.font-size") }}</span>
+				<v-btn-toggle
+					v-model="danmakuFontSize"
+					mandatory
+					density="compact"
+					color="primary"
+					class="danmaku-chips"
 				>
-					{{ $t(`room.danmaku.font-size-${size}`) }}
-				</v-btn>
-			</v-btn-toggle>
-		</div>
-		<div class="danmaku-row">
-			<span class="danmaku-row-label">{{ $t("room.danmaku.speed") }}</span>
-			<v-btn-toggle
-				v-model="danmakuSpeed"
-				mandatory
-				density="compact"
-				color="primary"
-				class="danmaku-chips"
-			>
-				<v-btn
-					v-for="speed in DANMAKU_SPEED_OPTIONS"
-					:key="speed"
-					:value="speed"
-					size="x-small"
-					:data-cy="`danmaku-speed-${speed}`"
+					<v-btn
+						v-for="size in DANMAKU_FONT_SIZE_OPTIONS"
+						:key="size"
+						:value="size"
+						size="x-small"
+						:data-cy="`danmaku-font-${size}`"
+					>
+						{{ $t(`room.danmaku.font-size-${size}`) }}
+					</v-btn>
+				</v-btn-toggle>
+			</div>
+			<div class="danmaku-row">
+				<span class="danmaku-row-label">{{ $t("room.danmaku.speed") }}</span>
+				<v-btn-toggle
+					v-model="danmakuSpeed"
+					mandatory
+					density="compact"
+					color="primary"
+					class="danmaku-chips"
 				>
-					{{ speed }}×
-				</v-btn>
-			</v-btn-toggle>
-		</div>
-		<div class="danmaku-row">
-			<span class="danmaku-row-label">{{ $t("room.danmaku.area") }}</span>
-			<v-btn-toggle
-				v-model="danmakuDisplayArea"
-				mandatory
-				density="compact"
-				color="primary"
-				class="danmaku-chips"
-			>
-				<v-btn
-					v-for="area in DANMAKU_AREAS"
-					:key="area"
-					:value="area"
-					size="x-small"
-					:data-cy="`danmaku-area-${area}`"
+					<v-btn
+						v-for="speed in DANMAKU_SPEED_OPTIONS"
+						:key="speed"
+						:value="speed"
+						size="x-small"
+						:data-cy="`danmaku-speed-${speed}`"
+					>
+						{{ speed }}×
+					</v-btn>
+				</v-btn-toggle>
+			</div>
+			<div class="danmaku-row">
+				<span class="danmaku-row-label">{{ $t("room.danmaku.area") }}</span>
+				<v-btn-toggle
+					v-model="danmakuDisplayArea"
+					mandatory
+					density="compact"
+					color="primary"
+					class="danmaku-chips"
 				>
-					{{ $t(`room.danmaku.area-${area}`) }}
-				</v-btn>
-			</v-btn-toggle>
-		</div>
-		<div class="danmaku-row">
-			<span class="danmaku-row-label">{{ $t("room.danmaku.density") }}</span>
-			<v-btn-toggle
-				v-model="danmakuDensity"
-				mandatory
-				density="compact"
-				color="primary"
-				class="danmaku-chips"
-			>
-				<v-btn
-					v-for="density in DANMAKU_DENSITY_OPTIONS"
-					:key="density"
-					:value="density"
-					size="x-small"
-					:data-cy="`danmaku-density-${density}`"
+					<v-btn
+						v-for="area in DANMAKU_AREAS"
+						:key="area"
+						:value="area"
+						size="x-small"
+						:data-cy="`danmaku-area-${area}`"
+					>
+						{{ $t(`room.danmaku.area-${area}`) }}
+					</v-btn>
+				</v-btn-toggle>
+			</div>
+			<div class="danmaku-row">
+				<span class="danmaku-row-label">{{ $t("room.danmaku.density") }}</span>
+				<v-btn-toggle
+					v-model="danmakuDensity"
+					mandatory
+					density="compact"
+					color="primary"
+					class="danmaku-chips"
 				>
-					{{ $t(`room.danmaku.density-${density}`) }}
-				</v-btn>
-			</v-btn-toggle>
-		</div>
-		<div class="danmaku-row danmaku-row-stack">
-			<span class="danmaku-row-label">{{ $t("room.danmaku.blocking") }}</span>
-			<v-btn-toggle
-				v-model="blockedTypes"
-				multiple
-				density="compact"
-				color="primary"
-				class="danmaku-chips"
-			>
-				<v-btn value="scroll" size="x-small" data-cy="danmaku-block-scroll">
-					{{ $t("room.danmaku.block-scroll") }}
-				</v-btn>
-				<v-btn value="top" size="x-small" data-cy="danmaku-block-top">
-					{{ $t("room.danmaku.block-top") }}
-				</v-btn>
-				<v-btn value="bottom" size="x-small" data-cy="danmaku-block-bottom">
-					{{ $t("room.danmaku.block-bottom") }}
-				</v-btn>
-				<v-btn value="colored" size="x-small" data-cy="danmaku-block-colored">
-					{{ $t("room.danmaku.block-colored") }}
-				</v-btn>
-			</v-btn-toggle>
-		</div>
-		<div class="danmaku-row">
-			<span class="danmaku-row-label">{{ $t("room.danmaku.anti-collision") }}</span>
-			<v-switch
-				v-model="danmakuAntiCollision"
-				color="primary"
-				density="compact"
-				hide-details
-				class="danmaku-switch"
-				data-cy="danmaku-anti-collision"
-			/>
-		</div>
-		<div class="danmaku-row danmaku-more-row">
-			<v-btn
-				variant="text"
-				size="small"
-				block
-				class="danmaku-more-toggle"
-				data-cy="danmaku-more-settings"
-				@click="moreOpen = !moreOpen"
-			>
-				<v-icon :icon="moreOpen ? mdiChevronUp : mdiChevronDown" start />
-				{{ $t("room.danmaku.more-settings") }}
-			</v-btn>
-		</div>
-		<v-expand-transition>
-			<div v-show="moreOpen" ref="moreContent" class="danmaku-more">
-				<div class="danmaku-row danmaku-row-stack">
-					<span class="danmaku-row-label">{{ $t("room.danmaku.api-base") }}</span>
-					<v-text-field
-						v-model="danmakuApiBase"
-						density="compact"
-						variant="outlined"
-						hide-details
-						:placeholder="$t('room.danmaku.api-base-placeholder')"
-						data-cy="danmaku-api-base"
-					/>
-					<div class="danmaku-match-row">
-						<span v-if="binding" class="danmaku-match-label">
-							{{ $t("room.danmaku.bound", { title: binding.label }) }}
-						</span>
-						<span v-else class="danmaku-match-label danmaku-match-empty">
-							{{ $t("room.danmaku.not-bound") }}
-						</span>
-						<v-btn
-							v-if="binding"
-							size="x-small"
-							variant="text"
-							@click="clearBinding"
-							data-cy="danmaku-unbind"
-						>
-							{{ $t("room.danmaku.unbind") }}
-						</v-btn>
-					</div>
-					<div class="danmaku-match-actions">
-						<v-btn
-							size="x-small"
-							variant="tonal"
-							:disabled="!danmakuApiBase || !currentVideoUrl"
-							@click="searchOpen = true"
-							data-cy="danmaku-search-open"
-						>
-							{{ $t("room.danmaku.search-danmaku") }}
-						</v-btn>
-						<v-btn
-							size="x-small"
-							variant="tonal"
-							:disabled="!currentVideoUrl"
-							@click="girigiriOpen = true"
-							data-cy="danmaku-girigiri-open"
-						>
-							{{ $t("room.danmaku.girigiri-search") }}
-						</v-btn>
-					</div>
+					<v-btn
+						v-for="density in DANMAKU_DENSITY_OPTIONS"
+						:key="density"
+						:value="density"
+						size="x-small"
+						:data-cy="`danmaku-density-${density}`"
+					>
+						{{ $t(`room.danmaku.density-${density}`) }}
+					</v-btn>
+				</v-btn-toggle>
+			</div>
+			<div class="danmaku-row danmaku-row-stack">
+				<span class="danmaku-row-label">{{ $t("room.danmaku.blocking") }}</span>
+				<v-btn-toggle
+					v-model="blockedTypes"
+					multiple
+					density="compact"
+					color="primary"
+					class="danmaku-chips"
+				>
+					<v-btn value="scroll" size="x-small" data-cy="danmaku-block-scroll">
+						{{ $t("room.danmaku.block-scroll") }}
+					</v-btn>
+					<v-btn value="top" size="x-small" data-cy="danmaku-block-top">
+						{{ $t("room.danmaku.block-top") }}
+					</v-btn>
+					<v-btn value="bottom" size="x-small" data-cy="danmaku-block-bottom">
+						{{ $t("room.danmaku.block-bottom") }}
+					</v-btn>
+					<v-btn value="colored" size="x-small" data-cy="danmaku-block-colored">
+						{{ $t("room.danmaku.block-colored") }}
+					</v-btn>
+				</v-btn-toggle>
+			</div>
+			<div class="danmaku-row">
+				<span class="danmaku-row-label">{{ $t("room.danmaku.anti-collision") }}</span>
+				<v-switch
+					v-model="danmakuAntiCollision"
+					color="primary"
+					density="compact"
+					hide-details
+					class="danmaku-switch"
+					data-cy="danmaku-anti-collision"
+				/>
+			</div>
+		</template>
+		<template v-else>
+			<div class="danmaku-section">
+				<div class="danmaku-section-title">{{ $t("room.danmaku.binding-title") }}</div>
+				<div class="danmaku-match-row">
+					<span v-if="binding" class="danmaku-match-label">
+						{{ $t("room.danmaku.bound", { title: binding.label }) }}
+					</span>
+					<span v-else class="danmaku-match-label danmaku-match-empty">
+						{{ $t("room.danmaku.not-bound") }}
+					</span>
+					<v-btn
+						v-if="binding"
+						size="x-small"
+						variant="text"
+						@click="clearBinding"
+						data-cy="danmaku-unbind"
+					>
+						{{ $t("room.danmaku.unbind") }}
+					</v-btn>
 				</div>
 				<div v-if="binding" class="danmaku-row danmaku-row-slider">
 					<div class="danmaku-row-top">
@@ -214,7 +190,45 @@
 					<div class="danmaku-row-hint">{{ $t("room.danmaku.offset-hint") }}</div>
 				</div>
 			</div>
-		</v-expand-transition>
+			<div class="danmaku-section">
+				<div class="danmaku-section-title">danmu_api</div>
+				<v-text-field
+					v-model="danmakuApiBase"
+					density="compact"
+					variant="outlined"
+					hide-details
+					:placeholder="$t('room.danmaku.api-base-placeholder')"
+					data-cy="danmaku-api-base"
+				/>
+				<div class="danmaku-section-hint">{{ $t("room.danmaku.aggregator-hint") }}</div>
+				<div class="danmaku-match-actions">
+					<v-btn
+						size="x-small"
+						variant="tonal"
+						:disabled="!danmakuApiBase || !currentVideoUrl"
+						@click="searchOpen = true"
+						data-cy="danmaku-search-open"
+					>
+						{{ $t("room.danmaku.search-danmaku") }}
+					</v-btn>
+				</div>
+			</div>
+			<div class="danmaku-section">
+				<div class="danmaku-section-title">girigiri</div>
+				<div class="danmaku-section-hint">{{ $t("room.danmaku.girigiri-hint") }}</div>
+				<div class="danmaku-match-actions">
+					<v-btn
+						size="x-small"
+						variant="tonal"
+						:disabled="!currentVideoUrl"
+						@click="girigiriOpen = true"
+						data-cy="danmaku-girigiri-open"
+					>
+						{{ $t("room.danmaku.girigiri-search") }}
+					</v-btn>
+				</div>
+			</div>
+		</template>
 
 		<v-dialog v-model="searchOpen" max-width="440">
 			<v-card>
@@ -324,9 +338,8 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { mdiChevronDown, mdiChevronUp } from "@mdi/js";
 import { useStore } from "@/store";
 import {
 	DANMAKU_AREAS,
@@ -358,17 +371,8 @@ const store = useStore();
 const danmaku = useDanmaku();
 const danmakuAvailable = computed(() => danmaku.available.value);
 const currentVideoUrl = computed(() => danmaku.currentVideoUrl.value);
-const moreOpen = ref(false);
-const moreContent = ref<HTMLElement | null>(null);
-// The panel is usually taller than the menu's viewport, so the section has to be brought
-// into view after it expands or the tap reads as "nothing happened".
-watch(moreOpen, open => {
-	if (open) {
-		void nextTick().then(() =>
-			moreContent.value?.scrollIntoView({ block: "nearest" }),
-		);
-	}
-});
+/** The panel has two pages: appearance settings and the comment sources. */
+const page = ref<"basic" | "sources">("basic");
 const danmakuOpacity = computed({
 	get: () => store.state.settings.danmakuOpacity,
 	set: value => store.commit("settings/UPDATE", { danmakuOpacity: value }),
@@ -664,21 +668,53 @@ const blockedTypes = computed({
 		opacity: 0.6;
 	}
 
-	.danmaku-more-row {
+	.danmaku-page-switch {
+		display: flex;
 		justify-content: center;
+		padding-bottom: 6px;
+
+		.danmaku-pages {
+			width: 100%;
+
+			.v-btn {
+				flex: 1 1 0;
+				min-width: 0;
+				text-transform: none;
+				letter-spacing: 0.02em;
+			}
+		}
 	}
 
-	.danmaku-more-toggle {
-		justify-content: center;
-		text-transform: none;
-		letter-spacing: normal;
-		opacity: 0.85;
+	.danmaku-section {
+		& + .danmaku-section {
+			margin-top: 8px;
+			padding-top: 8px;
+			border-top: 1px solid var(--line);
+		}
+
+		.danmaku-section-title {
+			margin: 2px 0 6px;
+			color: var(--signal);
+			font-family: var(--font-mono);
+			font-size: 0.7rem;
+			font-weight: 600;
+			letter-spacing: 0.14em;
+			opacity: 0.9;
+		}
+
+		.danmaku-section-hint {
+			margin: 6px 0 0;
+			font-size: 0.72rem;
+			line-height: 1.5;
+			opacity: 0.6;
+		}
 	}
 
 	.danmaku-match-actions {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 6px;
+		margin-top: 8px;
 	}
 
 	.danmaku-row-hint {
