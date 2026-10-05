@@ -3,17 +3,6 @@
 		<div v-if="!danmakuAvailable" class="danmaku-unavailable">
 			{{ $t("room.danmaku.unavailable") }}
 		</div>
-		<div class="danmaku-row">
-			<span class="danmaku-row-label">{{ $t("room.danmaku.enable") }}</span>
-			<v-switch
-				v-model="danmakuEnabled"
-				color="primary"
-				density="compact"
-				hide-details
-				class="danmaku-switch"
-				data-cy="danmaku-enabled"
-			/>
-		</div>
 		<div class="danmaku-row danmaku-row-slider">
 			<div class="danmaku-row-top">
 				<span class="danmaku-row-label">{{ $t("room.danmaku.opacity") }}</span>
@@ -158,7 +147,7 @@
 			</v-btn>
 		</div>
 		<v-expand-transition>
-			<div v-show="moreOpen" class="danmaku-more">
+			<div v-show="moreOpen" ref="moreContent" class="danmaku-more">
 				<div class="danmaku-row danmaku-row-stack">
 					<span class="danmaku-row-label">{{ $t("room.danmaku.api-base") }}</span>
 					<v-text-field
@@ -335,7 +324,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { mdiChevronDown, mdiChevronUp } from "@mdi/js";
 import { useStore } from "@/store";
@@ -369,9 +358,16 @@ const store = useStore();
 const danmaku = useDanmaku();
 const danmakuAvailable = computed(() => danmaku.available.value);
 const currentVideoUrl = computed(() => danmaku.currentVideoUrl.value);
-const danmakuEnabled = computed({
-	get: () => store.state.settings.danmakuEnabled,
-	set: value => store.commit("settings/UPDATE", { danmakuEnabled: value }),
+const moreOpen = ref(false);
+const moreContent = ref<HTMLElement | null>(null);
+// The panel is usually taller than the menu's viewport, so the section has to be brought
+// into view after it expands or the tap reads as "nothing happened".
+watch(moreOpen, open => {
+	if (open) {
+		void nextTick().then(() =>
+			moreContent.value?.scrollIntoView({ block: "nearest" }),
+		);
+	}
 });
 const danmakuOpacity = computed({
 	get: () => store.state.settings.danmakuOpacity,
@@ -552,16 +548,16 @@ const blockedTypes = computed({
 .danmaku-panel {
 	display: flex;
 	flex-direction: column;
-	gap: 0;
-	padding: 6px 10px 8px;
-	font-size: 0.8rem;
+	gap: 2px;
+	padding: 8px 12px 10px;
+	font-size: 0.85rem;
 
 	.danmaku-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 8px;
-		min-height: 28px;
+		gap: 10px;
+		min-height: 34px;
 	}
 
 	.danmaku-row-label {
@@ -589,7 +585,7 @@ const blockedTypes = computed({
 
 		.v-btn {
 			min-width: 0;
-			padding: 0 6px;
+			padding: 0 7px;
 			text-transform: none;
 		}
 	}

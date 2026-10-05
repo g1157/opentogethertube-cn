@@ -4,30 +4,8 @@
 			{{ $t("footer.upstream") }}:
 			<a href="https://github.com/dyc3/opentogethertube">OpenTogetherTube</a>
 		</p>
-		<p class="footer-credit">
-			{{ new Date().getFullYear() }} —
-			<a href="https://carsonmcmanus.com/">Carson McManus</a> —
-			<template v-if="isOfficialSite()">{{ $t("footer.made-in") }} — </template>
-			{{ $t("footer.thanks-to") }} <a href="https://softe.club">SEC</a> @ Stevens
-		</p>
-		<nav class="footer-links">
-			<router-link v-if="isOfficialSite()" to="/privacypolicy">{{
-				$t("footer.privacy-policy")
-			}}</router-link>
-			<router-link to="/attribution">{{ $t("footer.attribution") }}</router-link>
-			<a :href="sourceUrl" target="_blank" rel="noopener noreferrer">{{
-				$t("landing.hero.btns.source")
-			}}</a>
-			<a href="/source-code.tar.gz" download>{{ $t("footer.download-source") }}</a>
-		</nav>
 	</footer>
 </template>
-
-<script lang="ts" setup>
-import { isOfficialSite } from "@/util/misc";
-
-const sourceUrl = import.meta.env.VITE_SOURCE_URL || "https://github.com/g1157/opentogethertube-cn";
-</script>
 
 <style scoped>
 .app-footer {
@@ -44,18 +22,6 @@ const sourceUrl = import.meta.env.VITE_SOURCE_URL || "https://github.com/g1157/o
 	margin: 0 0 0.5rem;
 	font-family: var(--font-mono);
 	letter-spacing: 0.04em;
-}
-
-.footer-credit {
-	margin: 0;
-}
-
-.footer-links {
-	display: flex;
-	flex-wrap: wrap;
-	justify-content: center;
-	gap: 0.5rem 1.5rem;
-	margin-top: 0.75rem;
 }
 
 .app-footer a {
