@@ -58,7 +58,7 @@
 						</v-btn>
 					</v-btn-toggle>
 				</div>
-				<div class="danmaku-row">
+				<div class="danmaku-row danmaku-row-stack">
 					<span class="danmaku-row-label">{{ $t("room.danmaku.speed") }}</span>
 					<v-btn-toggle
 						v-model="danmakuSpeed"
@@ -715,7 +715,7 @@ const blockedTypes = computed({
 
 		.v-btn {
 			min-width: 0;
-			padding: 0 7px;
+			padding: 0 5px;
 			text-transform: none;
 		}
 	}
@@ -887,16 +887,26 @@ const blockedTypes = computed({
 			   matters more than a tidy single line. */
 			.v-list-item {
 				height: auto;
-				min-height: 32px;
-				padding-block: 4px;
+				min-height: 34px;
+				padding: 6px 8px;
 			}
 
-			.v-list-item-title,
+			.v-list-item-title {
+				overflow: visible;
+				white-space: normal;
+				text-overflow: clip;
+				word-break: break-word;
+				font-size: 0.82rem;
+				line-height: 1.4;
+			}
+
 			.v-list-item-subtitle {
 				overflow: visible;
 				white-space: normal;
 				text-overflow: clip;
-				line-height: 1.35;
+				font-size: 0.7rem;
+				line-height: 1.3;
+				opacity: 0.65;
 			}
 		}
 	}

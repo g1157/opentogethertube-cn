@@ -61,6 +61,9 @@ let loadGeneration = 0;
 let frameRequest = 0;
 /** Media time of the last painted frame; an unchanged clock needs no repaint. */
 let lastDrawnTime = -1;
+/** Track the last "comments loaded" toast was shown for, so moving the offset (which
+ * reloads the same track) does not repeat it; a newly bound track still announces itself. */
+let lastToastedTrack: string | null = null;
 // The clock the comments advance on. video.currentTime steps once per presented frame — a
 // 24fps anime steps 24 times a second — so reading it directly made scrolling comments
 // judder on a 60/120Hz screen while the picture itself stayed smooth (the decoder
@@ -429,9 +432,16 @@ async function load() {
 	}
 	items = loaded === null ? [] : binding ? shiftDanmakuTime(loaded, binding.offset) : loaded;
 	loadedCount.value = items.length;
-	if (items.length > 0) {
-		// Feedback that a track actually arrived; without it the only sign was comments
-		// appearing over the picture.
+	// Feedback that a track actually arrived; without it the only sign was comments
+	// appearing over the picture. Announced once per track: the offset slider reloads the
+	// same track on every drag and must not repeat it.
+	const trackKey = binding
+		? `${binding.provider}:${binding.page ?? String(binding.episodeId)}`
+		: items.length > 0
+			? props.videoUrl
+			: null;
+	if (items.length > 0 && trackKey !== null && trackKey !== lastToastedTrack) {
+		lastToastedTrack = trackKey;
 		toast.add({
 			style: ToastStyle.Neutral,
 			content: i18n.global.t("room.danmaku.loaded-toast", { count: items.length }),
