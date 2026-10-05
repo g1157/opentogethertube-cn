@@ -95,6 +95,7 @@ sudo docker compose up -d           # 自动拉取镜像、迁移数据库、启
 | 部署、升级、回退与资源消耗 | [DEPLOYMENT.md](DEPLOYMENT.md) · [docs/deployment-options.zh-CN.md](docs/deployment-options.zh-CN.md) |
 | 安全响应头与 CSP | [docs/security-headers.zh-CN.md](docs/security-headers.zh-CN.md) |
 | 各版本改了什么 | [docs/version-notes.zh-CN.md](docs/version-notes.zh-CN.md) |
+| 代码审查与已知问题清单 | [docs/code-review-2026-09-30.zh-CN.md](docs/code-review-2026-09-30.zh-CN.md) |
 | 开发、测试与贡献 | [CONTRIBUTING.md](CONTRIBUTING.md) · [AGENTS.md](AGENTS.md) |
 | 上游来源与移植范围 | [UPSTREAM.md](UPSTREAM.md) |
 
