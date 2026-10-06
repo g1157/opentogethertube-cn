@@ -17,4 +17,9 @@ export default {
 			"Boosts supported non-iframe players up to 300%. Sound effects stay as they be.",
 		"audio-boost-unsupported": "This player can't be boosted. Sound effects stay as they be.",
 	},
+	permissions: {
+		"configure-room": {
+			"set-notes": "Add or remove the room's notes",
+		},
+	},
 };

@@ -438,4 +438,9 @@ export default {
 			unknown: "Video konnte nicht geladen werden.",
 		},
 	},
+	permissions: {
+		"configure-room": {
+			"set-notes": "Notizen des Raums hinzufügen oder entfernen",
+		},
+	},
 };

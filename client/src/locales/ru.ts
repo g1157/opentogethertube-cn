@@ -429,4 +429,9 @@ export default {
 			unknown: "Не удалось загрузить видео.",
 		},
 	},
+	permissions: {
+		"configure-room": {
+			"set-notes": "Добавлять и удалять заметки комнаты",
+		},
+	},
 };

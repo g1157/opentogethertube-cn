@@ -407,4 +407,9 @@ export default {
 			spans: "Você não carregou suficientemente do vídeo ainda. Carregando atualmente em intervalos de tempo de {ranges}",
 		},
 	},
+	permissions: {
+		"configure-room": {
+			"set-notes": "Adicionar ou remover notas da sala",
+		},
+	},
 };

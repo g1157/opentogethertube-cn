@@ -787,6 +787,7 @@ export default {
 			"set-queue-mode": "Change the queue mode",
 			other: "Change other room settings",
 			"set-danmaku-source": "Set the room danmaku source",
+			"set-notes": "Add or remove room notes",
 			"set-permissions": {
 				"for-moderator": "Set moderator permissions",
 				"for-trusted-users": "Set trusted user permissions",

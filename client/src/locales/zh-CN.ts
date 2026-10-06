@@ -759,6 +759,7 @@ export default {
 			"set-queue-mode": "修改队列模式",
 			other: "修改其他房间设置（自动跳过、缓冲等待等）",
 			"set-danmaku-source": "设置房间弹幕源",
+			"set-notes": "添加或删除房间便签",
 			"set-permissions": {
 				"for-moderator": "设置协管员的权限",
 				"for-trusted-users": "设置受信任用户的权限",

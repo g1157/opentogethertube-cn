@@ -328,4 +328,9 @@ export default {
 				"Il s'est passé quelque chose, mais nous ne savons pas quoi. Veuillez signaler ceci comme un bug.",
 		},
 	},
+	permissions: {
+		"configure-room": {
+			"set-notes": "Ajouter ou supprimer les notes de la salle",
+		},
+	},
 };
