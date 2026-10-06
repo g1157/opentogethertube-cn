@@ -28,7 +28,7 @@ jobs:
         run: |
           node .yarn/releases/yarn-4.1.0.cjs workspace ott-common build
           node .yarn/releases/yarn-4.1.0.cjs workspace ott-server build
-          GIT_COMMIT=$(git rev-parse HEAD) VITE_SOURCE_URL=/source-code.tar.gz \
+          GIT_COMMIT=$(git rev-parse HEAD) \
             node .yarn/releases/yarn-4.1.0.cjs workspace ott-client build
           git archive --format=tar.gz -o client/dist/source-code.tar.gz HEAD
       - name: Normalize timestamps for stable image layers

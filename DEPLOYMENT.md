@@ -81,7 +81,7 @@ cd source
 node .yarn/releases/yarn-4.1.0.cjs install --immutable
 node .yarn/releases/yarn-4.1.0.cjs workspace ott-common build
 node .yarn/releases/yarn-4.1.0.cjs workspace ott-server build
-GIT_COMMIT=$(git rev-parse HEAD) VITE_SOURCE_URL=/source-code.tar.gz node .yarn/releases/yarn-4.1.0.cjs workspace ott-client build
+GIT_COMMIT=$(git rev-parse HEAD) node .yarn/releases/yarn-4.1.0.cjs workspace ott-client build
 git archive --format=tar.gz -o client/dist/source-code.tar.gz HEAD
 docker build --platform linux/amd64 -f deploy/next.Dockerfile \
   --build-arg SOURCE_COMMIT=$(git rev-parse HEAD) \
@@ -89,8 +89,9 @@ docker build --platform linux/amd64 -f deploy/next.Dockerfile \
 cd ..
 ```
 
-`VITE_SOURCE_URL` 决定首页“查看源码”的地址；源码包必须在前端编译之后生成（编译会清空
-`client/dist`），只包含已提交的文件。把 `.env` 的 `OTT_IMAGE` 指向 `:local` 标签即可；
+首页“查看源码”默认指向本分支的 GitHub 仓库；需要指向镜像内的源码包时，再给前端构建设置
+`VITE_SOURCE_URL`（源码包必须在前端编译之后生成，编译会清空 `client/dist`，且只包含已提交的
+文件）。把 `.env` 的 `OTT_IMAGE` 指向 `:local` 标签即可；
 `--platform linux/amd64` 与发布镜像保持一致（Apple 芯片机器上必须加）。
 
 ## 备份
