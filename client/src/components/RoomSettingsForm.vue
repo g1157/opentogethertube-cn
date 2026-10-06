@@ -146,16 +146,29 @@
 			</div>
 			<v-divider class="my-4" />
 			<div v-if="isOwner" class="room-password-settings">
-				<div class="text-subtitle-2 mb-1">{{ $t("room-password.title") }}</div>
-				<div class="text-caption text-grey mb-2">{{ $t("room-password.hint") }}</div>
-				<div class="d-flex align-center flex-wrap ga-2">
-					<span class="text-body-2">
-						{{ hasPassword ? $t("room-password.set") : $t("room-password.not-set") }}
-					</span>
+				<div class="password-title-row">
+					<v-icon
+						:icon="hasPassword ? mdiLockOutline : mdiLockOpenOutline"
+						color="primary"
+						size="small"
+					/>
+					<span class="password-title">{{ $t("room-password.title") }}</span>
 					<v-spacer />
+					<v-chip
+						size="small"
+						:color="hasPassword ? 'primary' : undefined"
+						:variant="hasPassword ? 'tonal' : 'outlined'"
+					>
+						{{ hasPassword ? $t("room-password.set") : $t("room-password.not-set") }}
+					</v-chip>
+				</div>
+				<div class="password-hint">{{ $t("room-password.hint") }}</div>
+				<div class="password-actions">
 					<v-btn
 						size="small"
-						variant="text"
+						:variant="hasPassword ? 'text' : 'tonal'"
+						color="primary"
+						:prepend-icon="mdiKeyOutline"
 						@click="openPasswordDialog"
 						data-cy="btn-set-password"
 					>
@@ -170,6 +183,7 @@
 						size="small"
 						variant="text"
 						color="error"
+						:prepend-icon="mdiTrashCanOutline"
 						:loading="passwordBusy"
 						@click="clearPassword"
 						data-cy="btn-clear-password"
@@ -179,23 +193,43 @@
 				</div>
 				<v-dialog v-model="passwordDialogVisible" max-width="420">
 					<v-card>
-						<v-card-title>
-							{{
-								hasPassword
-									? $t("room-password.dialog-change")
-									: $t("room-password.dialog-set")
-							}}
+						<v-card-title class="password-dialog-title">
+							<v-icon :icon="mdiLockOutline" color="primary" />
+							<span>
+								{{
+									hasPassword
+										? $t("room-password.dialog-change")
+										: $t("room-password.dialog-set")
+								}}
+							</span>
 						</v-card-title>
 						<v-card-text>
 							<v-text-field
 								v-model="newPassword"
-								type="password"
+								:type="showPassword ? 'text' : 'password'"
 								:label="$t('room-password.field-label')"
 								:hint="$t('room-password.field-hint')"
 								persistent-hint
 								autocomplete="new-password"
 								data-cy="input-room-password"
-							/>
+							>
+								<template #append-inner>
+									<v-btn
+										:icon="showPassword ? mdiEyeOffOutline : mdiEyeOutline"
+										variant="text"
+										size="x-small"
+										:aria-label="
+											$t(
+												showPassword
+													? 'room-password.hide'
+													: 'room-password.show',
+											)
+										"
+										@click="showPassword = !showPassword"
+										data-cy="btn-toggle-password"
+									/>
+								</template>
+							</v-text-field>
 						</v-card-text>
 						<v-card-actions>
 							<v-spacer />
@@ -203,7 +237,7 @@
 								{{ $t("common.cancel") }}
 							</v-btn>
 							<v-btn
-								variant="text"
+								variant="flat"
 								color="primary"
 								:loading="passwordBusy"
 								:disabled="newPassword.length < 4"
@@ -247,6 +281,14 @@
 
 <script lang="ts" setup>
 import _ from "lodash";
+import {
+	mdiEyeOffOutline,
+	mdiEyeOutline,
+	mdiKeyOutline,
+	mdiLockOpenOutline,
+	mdiLockOutline,
+	mdiTrashCanOutline,
+} from "@mdi/js";
 import PermissionsEditor from "@/components/PermissionsEditor.vue";
 import { isEdgePreview } from "@/edge-preview";
 import { ToastStyle } from "@/models/toast";
@@ -404,11 +446,13 @@ async function submitRoomSettings() {
 const passwordDialogVisible = ref(false);
 const newPassword = ref("");
 const passwordBusy = ref(false);
+const showPassword = ref(false);
 const isOwner = computed(() => store.getters["users/self"]?.role === Role.Owner);
 const hasPassword = computed(() => store.state.room.hasPassword === true);
 
 function openPasswordDialog() {
 	newPassword.value = "";
+	showPassword.value = false;
 	passwordDialogVisible.value = true;
 }
 
@@ -496,5 +540,41 @@ defineExpose({
 	.v-btn {
 		margin: 10px 0;
 	}
+}
+
+.room-password-settings {
+	.password-title-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 4px;
+	}
+
+	.password-title {
+		font-size: 0.875rem;
+		font-weight: 500;
+		line-height: 1.375;
+	}
+
+	.password-hint {
+		font-size: 0.75rem;
+		line-height: 1.4;
+		color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+		margin-bottom: 12px;
+	}
+
+	.password-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+}
+
+// The dialog renders in a teleported overlay outside this form, so its title row
+// cannot rely on the nesting above.
+.password-dialog-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
 }
 </style>

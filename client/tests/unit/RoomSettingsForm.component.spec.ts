@@ -164,4 +164,22 @@ describe("RoomSettingsForm component", () => {
 			expect.objectContaining({ bufferGateMode: BufferGateMode.Pause }),
 		);
 	});
+
+	it("opens the password dialog and reveals the password on request", async () => {
+		const { wrapper } = mountRoomSettings();
+		await flush();
+		await flush();
+
+		await wrapper.get('[data-cy="btn-set-password"]').trigger("click");
+		await flush();
+		const input = document.querySelector<HTMLInputElement>(
+			'[data-cy="input-room-password"] input',
+		)!;
+		expect(input.type).toBe("password");
+
+		const toggle = document.querySelector<HTMLElement>('[data-cy="btn-toggle-password"]')!;
+		toggle.click();
+		await flush();
+		expect(input.type).toBe("text");
+	});
 });

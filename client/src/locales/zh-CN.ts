@@ -662,6 +662,8 @@ export default {
 		hint: "设置后，访客需要输入密码才能查看或加入房间；留空即不设密码。",
 		"field-label": "密码",
 		"field-hint": "至少 4 个字符，把它告诉你想邀请的人。",
+		show: "显示密码",
+		hide: "隐藏密码",
 		set: "已设置密码",
 		"not-set": "未设置密码",
 		"set-action": "设置密码",

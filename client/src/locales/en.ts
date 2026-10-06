@@ -685,6 +685,8 @@ export default {
 		hint: "When set, visitors must enter this password before they can see or join the room. Leave it unset for an open room.",
 		"field-label": "Password",
 		"field-hint": "At least 4 characters. Share it with the people you invite.",
+		show: "Show password",
+		hide: "Hide password",
 		set: "Password is set",
 		"not-set": "No password",
 		"set-action": "Set password",
