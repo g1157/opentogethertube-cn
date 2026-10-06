@@ -1,8 +1,39 @@
 import childProcess from "node:child_process";
+import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig, searchForWorkspaceRoot } from "vite";
 import vuetify from "vite-plugin-vuetify";
+
+const require = createRequire(import.meta.url);
+
+/**
+ * vite-plugin-vuetify rewrites components in SFC templates into imports such as
+ * `vuetify/components/VBtn`, which Vite's initial dependency scan cannot see. Left to
+ * discovery, the first render of each new component triggers a re-optimization and a full
+ * page reload — several of them per cold start, which reads as an extremely slow page load.
+ * Listing the subpaths up front moves that work to server start and keeps the session
+ * reload-free.
+ */
+function vuetifyComponentEntries() {
+	try {
+		const componentsDir = path.dirname(require.resolve("vuetify/components"));
+		return (
+			fs
+				.readdirSync(componentsDir, { withFileTypes: true })
+				.filter(entry => entry.isDirectory())
+				.map(entry => entry.name)
+				// VOverflowBtn (deprecated) imports a CSS file that no longer ships; pre-bundling
+				// it would fail the whole optimizer run.
+				.filter(name => name !== "VOverflowBtn")
+				.map(name => `vuetify/components/${name}`)
+		);
+	} catch {
+		// Vuetify is not resolvable (e.g. an install is in progress): fall back to discovery.
+		return [];
+	}
+}
 
 function gitCommit() {
 	if (process.env.GIT_COMMIT) {
@@ -90,16 +121,19 @@ export default defineConfig({
 			},
 		},
 	},
-	// optimizeDeps: {
-	// 	// this attempts to mitigate https://github.com/cypress-io/cypress/issues/25913
-	// 	entries: [
-	// 		"tests/e2e/**/*.ts",
-	// 		"client/tests/e2e/**/*.ts",
-	// 		"tests/e2e/support/component.ts",
-	// 		"client/tests/e2e/support/component.ts",
-	// 		"**/*.{js,ts,vue}",
-	// 	],
-	// },
+	// Vitest loads this config too and handles vuetify through its own deps pipeline (see
+	// test.server.deps.inline below); forcing the dev pre-bundle there breaks its module
+	// runner with raw .css imports, so keep the include list dev-only.
+	optimizeDeps: process.env.VITEST
+		? undefined
+		: {
+				include: [
+					"vuetify",
+					"vuetify/components",
+					"vuetify/directives",
+					...vuetifyComponentEntries(),
+				],
+			},
 	test: {
 		environment: "jsdom",
 		server: {
