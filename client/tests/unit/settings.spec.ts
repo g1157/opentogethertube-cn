@@ -36,16 +36,20 @@ describe("saved settings and default migrations", () => {
 			defaultLocaleVersion: "v0.15.0-cn3",
 			defaultSfxVersion: "v0.15.0-cn6",
 			defaultDanmakuOpacityVersion: "v1.3.4",
+			defaultDanmakuEnabledVersion: "v1.4.1",
 			defaultUpscaleVersion: "v1.3.10",
 			defaultNoticeVersion: "v1.3.10",
 			defaultThemeVersion: "v1.3.11",
 			sfxEnabled: false,
+			danmakuEnabled: false,
 		});
 		expect(store.state.settings).not.toHaveProperty("defaultLocaleVersion");
 		expect(store.state.settings).not.toHaveProperty("defaultSfxVersion");
 		expect(store.state.settings).not.toHaveProperty("defaultDanmakuOpacityVersion");
+		expect(store.state.settings).not.toHaveProperty("defaultDanmakuEnabledVersion");
 		expect(store.state.settings.sfxEnabled).toBe(false);
 		expect(store.state.settings.theme).toBe(Theme.teal);
+		expect(store.state.settings.danmakuEnabled).toBe(false);
 		expect(store.state.settings.chatOverlaySeconds).toBe(3);
 		expect(store.state.settings.presenceNoticeSeconds).toBe(1);
 		expect(store.state.settings.seekNoticeSeconds).toBe(1);
@@ -165,6 +169,22 @@ describe("saved settings and default migrations", () => {
 		await nextVisit.dispatch("settings/load");
 		await nextVisit.dispatch("settings/load");
 		expect(nextVisit.state.settings.danmakuOpacity).toBe(0.55);
+	});
+
+	it("moves the old danmaku-on default to off once and keeps a later choice", async () => {
+		saved.set("settings", JSON.stringify({ danmakuEnabled: true, volume: 37 }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.danmakuEnabled).toBe(false);
+		expect(store.state.settings.volume).toBe(37);
+
+		// Once the marker is stored, turning danmaku on is a choice that survives.
+		const firstVisit = newStore();
+		await firstVisit.dispatch("settings/load");
+		firstVisit.commit("settings/UPDATE", { danmakuEnabled: true });
+		const nextVisit = newStore();
+		await nextVisit.dispatch("settings/load");
+		expect(nextVisit.state.settings.danmakuEnabled).toBe(true);
 	});
 
 	it("persists viewing preferences across visits, including disabled message overlays", async () => {
@@ -372,7 +392,7 @@ describe("saved settings and default migrations", () => {
 		await store.dispatch("settings/load");
 		expect(store.state.settings.danmakuFontSize).toBe("medium");
 		expect(store.state.settings.danmakuSpeed).toBe(1);
-		expect(store.state.settings.danmakuEnabled).toBe(true);
+		expect(store.state.settings.danmakuEnabled).toBe(false);
 		expect(store.state.settings.danmakuBlockTop).toBe(false);
 		expect(store.state.settings.danmakuDisplayArea).toBe("full");
 		expect(store.state.settings.danmakuDensity).toBe("high");

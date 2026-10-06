@@ -165,6 +165,9 @@ const DEFAULT_SFX_VERSION = "v0.15.0-cn6";
 // Bumped so sessions that stored one of the earlier danmaku defaults (80%, then 30%)
 // pick up 40%; a deliberately chosen value is left alone.
 const DEFAULT_DANMAKU_OPACITY_VERSION = "v1.3.4";
+// Danmaku now starts hidden: a session carrying the old default (visible, or no value at
+// all) moves to off once; once the marker is stored, turning it on is a choice.
+const DEFAULT_DANMAKU_ENABLED_VERSION = "v1.4.1";
 // Early releases started phones on the light tier by themselves; sessions carrying exactly
 // that machine-set pair are moved back to off once, and only once.
 const DEFAULT_UPSCALE_VERSION = "v1.3.10";
@@ -179,6 +182,7 @@ type StoredSettings = Partial<SettingsState> & {
 	defaultLocaleVersion?: string;
 	defaultSfxVersion?: string;
 	defaultDanmakuOpacityVersion?: string;
+	defaultDanmakuEnabledVersion?: string;
 	defaultUpscaleVersion?: string;
 	defaultNoticeVersion?: string;
 	defaultThemeVersion?: string;
@@ -227,7 +231,7 @@ function normalizeSettings(state: SettingsState) {
 		state.upscaleAutoDegrade = true;
 	}
 	if (typeof state.danmakuEnabled !== "boolean") {
-		state.danmakuEnabled = true;
+		state.danmakuEnabled = false;
 	}
 	if (!Number.isFinite(state.danmakuOpacity)) {
 		state.danmakuOpacity = 1;
@@ -290,6 +294,7 @@ function persistSettings(state: SettingsState) {
 				defaultLocaleVersion: DEFAULT_LOCALE_VERSION,
 				defaultSfxVersion: DEFAULT_SFX_VERSION,
 				defaultDanmakuOpacityVersion: DEFAULT_DANMAKU_OPACITY_VERSION,
+				defaultDanmakuEnabledVersion: DEFAULT_DANMAKU_ENABLED_VERSION,
 				defaultUpscaleVersion: DEFAULT_UPSCALE_VERSION,
 				defaultNoticeVersion: DEFAULT_NOTICE_VERSION,
 				defaultThemeVersion: DEFAULT_THEME_VERSION,
@@ -322,7 +327,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		upscaleStrength: DEFAULT_UPSCALE_STRENGTH,
 		upscaleScale: "auto",
 		upscaleAutoDegrade: true,
-		danmakuEnabled: true,
+		danmakuEnabled: false,
 		danmakuOpacity: 0.4,
 		danmakuFontSize: "medium",
 		danmakuSpeed: 1,
@@ -382,6 +387,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 				defaultLocaleVersion,
 				defaultSfxVersion,
 				defaultDanmakuOpacityVersion,
+				defaultDanmakuEnabledVersion,
 				defaultUpscaleVersion,
 				defaultNoticeVersion,
 				defaultThemeVersion,
@@ -404,6 +410,11 @@ export const settingsModule: Module<SettingsState, unknown> = {
 				// Only the two defaults we shipped (80%, then 30%) are moved; any other
 				// stored value is a choice.
 				settings.danmakuOpacity = 0.4;
+			}
+			// Danmaku starts hidden now; the previously shipped default (visible, or no value
+			// at all) moves once. Once the marker is stored, turning it on is a choice.
+			if (defaultDanmakuEnabledVersion !== DEFAULT_DANMAKU_ENABLED_VERSION) {
+				settings.danmakuEnabled = false;
 			}
 			// The picture enhancement is off by default on every device. An early release
 			// started phones on the light tier by itself, so a session carrying exactly that

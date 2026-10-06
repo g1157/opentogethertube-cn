@@ -113,9 +113,11 @@ describe("danmaku layer frame loop", () => {
 
 	async function mountLayer() {
 		const { video, state } = makeVideo();
-		const { wrapper } = mountComponent(DanmakuLayer, {
+		const { wrapper, store } = mountComponent(DanmakuLayer, {
 			props: { video, videoUrl: "/media/ep01.mp4" },
 		});
+		// Danmaku starts off by default now; this suite is about the layer itself.
+		store.commit("settings/UPDATE_TRANSIENT", { danmakuEnabled: true });
 		await flush();
 		await nextTick();
 		// The layer sizes itself from the video's box the way a ResizeObserver delivery

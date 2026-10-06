@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { nextTick } from "vue";
 import { flush, mountComponent } from "./component-test-utils";
 import { useDanmaku } from "@/components/composables";
 
@@ -63,10 +64,13 @@ describe("danmaku layer bindings", () => {
 
 	it("plays the bound girigiri track through the bridge and stands the matcher down", async () => {
 		const video = makeVideo();
-		const { wrapper } = mountComponent(DanmakuLayer, {
+		const { wrapper, store } = mountComponent(DanmakuLayer, {
 			props: { video, videoUrl: "https://example.com/other-site/01.mp4" },
 		});
+		// Danmaku starts off by default now; enabling it is what loads a bound track.
+		store.commit("settings/UPDATE_TRANSIENT", { danmakuEnabled: true });
 		await flush();
+		await nextTick();
 
 		expect(loadGirigiriTrack).toHaveBeenCalledWith("/playGV1-1-1/");
 		// The user picked this episode; nothing else may override it.
@@ -87,10 +91,12 @@ describe("danmaku layer bindings", () => {
 			offset: 0,
 		});
 		const video = makeVideo();
-		const { wrapper } = mountComponent(DanmakuLayer, {
+		const { wrapper, store } = mountComponent(DanmakuLayer, {
 			props: { video, videoUrl: "https://example.com/other-site/01.mp4" },
 		});
+		store.commit("settings/UPDATE_TRANSIENT", { danmakuEnabled: true });
 		await flush();
+		await nextTick();
 
 		expect(loadGirigiriTrack).toHaveBeenCalledWith("/playGV2-2-2/");
 		expect(autoMatch).not.toHaveBeenCalled();

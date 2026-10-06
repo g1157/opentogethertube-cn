@@ -48,11 +48,14 @@ function toggleDanmaku() {
 	&.is-off::after {
 		content: "";
 		position: absolute;
-		left: -3px;
-		right: -3px;
-		top: 50%;
-		height: 2px;
-		border-radius: 1px;
+		left: -4px;
+		right: -4px;
+		// The strike crosses the upper part of the glyph, not its middle: at the old centre
+		// position it read as sitting under the character, and the marker has to stay
+		// obvious on a small control.
+		top: 22%;
+		height: 3px;
+		border-radius: 2px;
 		background: currentColor;
 		transform: rotate(-45deg);
 		transform-origin: center;
