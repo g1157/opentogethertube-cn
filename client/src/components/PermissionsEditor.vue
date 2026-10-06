@@ -143,8 +143,9 @@ function buildGroups(list: Permission[]): PermissionGroup[] {
 }
 
 const groups = computed<PermissionGroup[]>(() => buildGroups(permissions.value));
-// Most viewers only ever change playback or queue permissions; keep those in view.
-const openGroups = ref<number[]>([0]);
+// No group opens by default: one expanded table pushes every other group below the fold,
+// and the group headers alone already say what can be configured.
+const openGroups = ref<number[]>([]);
 
 const rolePerms = {
 	[Role.Moderator]: "configure-room.set-permissions.for-moderator",

@@ -150,6 +150,11 @@ describe("Cloudflare guest identity and room ownership", () => {
 
 		expect(store.state.user).toBeNull();
 		expect(wrapper.findComponent(PermissionsEditor).exists()).toBe(true);
+		// Panels are lazy and closed by default: open the group before touching a checkbox.
+		await wrapper
+			.get('[data-cy="perm-group-playback"] .v-expansion-panel-title')
+			.trigger("click");
+		await flushPromises();
 		const play = wrapper.get('[data-cy="perm-chk-playback.play-pause-0"] input');
 		const before = (play.element as HTMLInputElement).checked;
 		expect((play.element as HTMLInputElement).disabled).toBe(false);

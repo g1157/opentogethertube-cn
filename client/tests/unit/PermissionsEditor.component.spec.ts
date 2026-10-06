@@ -1,23 +1,34 @@
 import { describe, expect, it } from "vitest";
+import { nextTick } from "vue";
+import type { VueWrapper } from "@vue/test-utils";
 import { Role } from "ott-common";
 import { Grants } from "ott-common/permissions";
 import PermissionsEditor from "@/components/PermissionsEditor.vue";
-import { mountComponent } from "./component-test-utils";
+import { flush, mountComponent } from "./component-test-utils";
 
 function permissionCheckbox(permission: string, role: Role) {
 	return `[data-cy="perm-chk-${permission}-${role}"] input`;
 }
 
+/** Panels are lazy: a group's table only exists once the group has been opened. */
+async function openGroup(wrapper: VueWrapper, key: string) {
+	await wrapper.get(`[data-cy="perm-group-${key}"] .v-expansion-panel-title`).trigger("click");
+	await nextTick();
+	await flush();
+}
+
 describe("PermissionsEditor component", () => {
-	it("labels permissions and groups in the UI language instead of internal identifiers", () => {
+	it("labels permissions and groups in the UI language instead of internal identifiers", async () => {
 		const { wrapper } = mountComponent(PermissionsEditor, {
 			props: { modelValue: new Grants(), currentRole: 4 },
 		});
 
+		expect(wrapper.text()).toContain("用户管理");
+		expect(wrapper.text()).toContain("高级：权限委派");
+
+		await openGroup(wrapper, "playback");
 		const text = wrapper.text();
 		expect(text).toContain("播放 / 暂停");
-		expect(text).toContain("用户管理");
-		expect(text).toContain("高级：权限委派");
 		expect(text).not.toContain("playback.play-pause");
 		expect(text).not.toContain("manage-users.kick");
 	});
@@ -28,7 +39,7 @@ describe("PermissionsEditor component", () => {
 		});
 
 		expect(wrapper.find('[data-cy="perm-group-playback"]').exists()).toBe(true);
-		expect(wrapper.find('[data-cy="perm-chk-playback.play-pause-0"]').exists()).toBe(true);
+		expect(wrapper.find('[data-cy="perm-chk-playback.play-pause-0"]').exists()).toBe(false);
 		expect(wrapper.find('[data-cy="perm-chk-manage-queue.add-0"]').exists()).toBe(false);
 	});
 
@@ -39,6 +50,7 @@ describe("PermissionsEditor component", () => {
 			props: { modelValue: grants, currentRole: 4 },
 		});
 
+		await openGroup(wrapper, "playback");
 		expect(
 			(
 				wrapper.get(permissionCheckbox("playback.play-pause", Role.UnregisteredUser))
@@ -113,6 +125,7 @@ describe("PermissionsEditor component", () => {
 			props: { modelValue: grants, currentRole: 4 },
 		});
 
+		await openGroup(wrapper, "playback");
 		await wrapper
 			.get(permissionCheckbox("playback.play-pause", Role.UnregisteredUser))
 			.trigger("click");
