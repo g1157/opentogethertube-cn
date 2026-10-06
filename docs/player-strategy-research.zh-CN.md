@@ -232,9 +232,11 @@
   应调优 LoadPolicy；Shaka/dash.js 用“固定重试次数 + 指数退避 + 抖动”。
 - **本项目现状（`media-recovery.ts`）**：已自研一整套，质量很高——网络重试延迟 `[1000,3000,6000]`、
   解码错误仅 1 次（延迟 1000ms）、恢复超时 30s 兜底、不可重试码 `[400,401,403,404,410]`；
-  停用检测 `STALL_TRIGGER_MS = 8000`、间隔 1000ms；恢复阶梯：先 `onStallRefetch`（调
-  `hls.recoverMediaError()` 重新拉取同一区段）→ 再 nudge `STALL_NUDGE_SECONDS = 0.3`（在房间 0.3s
-  dead band 内，不可见）→ 最后 skip `STALL_SKIP_SECONDS = 3` 并 toast 告知；后台标签页不计卡顿。
+  停用检测 `STALL_TRIGGER_MS = 8000`、间隔 1000ms；恢复阶梯：首个触发**等待**（`stallFirstResponse:
+  "wait"`——前方无数据时重建只会用同样条件重取同一区段、还会拆掉音频 SourceBuffer，HLS 不再调
+  `recoverMediaError()`，MSE 重建只留给错误路径）→ 再 nudge `STALL_NUDGE_SECONDS = 0.3`（在房间 0.3s
+  dead band 内，不可见）→ 最后 skip `STALL_SKIP_SECONDS = 3` 并 toast 告知；无引擎级重试的源
+  （Direct）第一级仍重载；后台标签页不计卡顿。
 - **适用性判断（可直接落地的补强）**：
   1. hls.js **未设 gap 参数**，其中 `skipBufferHolePadding`/`nudgeOnVideoHole` 是**1.6.x 新增且有用**
      （对 Tizen/Xbox/旧 Edge 的取整问题）；建议保留默认，或针对报告取整设备的源把

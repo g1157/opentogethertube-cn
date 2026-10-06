@@ -187,7 +187,7 @@ YouTube / Vimeo / PeerTube / Bilibili 只能 seek。纠偏层通过 `supportsRat
 - **首帧对齐**（`playback-preparation.ts` + 服务端 `holdPlaybackForPreparation`）：换片/出队/立即播放时，
   房间先停在新视频片头，选一名有播放权限的观众 prime，客户端确认 `ready` 且位置误差 ≤1s 后才 `play()` 并启动时钟；
   从数据库恢复的房间保持"无播放意图"，进入房间不会自动开播。
-- **媒体恢复**（`media-recovery.ts`）：网络错误 1s/3s/6s 三次重试，解码错误一次；卡顿阶梯 = 重载 → +0.3s 跳转 → +3s 跳转（超时 8s 触发）。
+- **媒体恢复**（`media-recovery.ts`）：网络错误 1s/3s/6s 三次重试，解码错误一次；卡顿阶梯 = 等待（HLS 交给 hls.js 自愈，不重建 MSE；无引擎级重试的源走重载）→ +0.3s 跳转 → +3s 跳转（超时 8s 触发）；MSE 重建只发生在错误路径。
 - **seek 语义**（`media-seek.ts`）：50ms 容差，先暂停再写 `currentTime`，`readyState ≥ 2` 且位置收敛才算完成。
 
 ### 5.6 缓冲联动（房间设置，可选）

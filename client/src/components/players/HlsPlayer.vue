@@ -133,15 +133,11 @@ const recovery = createMediaRecovery({
 		loadingState.reset();
 		emit("buffering");
 	},
-	onStallRefetch: () => {
-		// hls.js flushes the media source and reloads the same region, which is what a hole
-		// in the buffer needs; startLoad alone would keep the bad range in place.
-		if (!hls) {
-			return false;
-		}
-		hls.recoverMediaError();
-		return true;
-	},
+	// hls.js watches for stalls and gaps and retries loads on its own; rebuilding the
+	// MediaSource here would re-fetch the same region under the same conditions and tear the
+	// audio pipeline down with it (see stallFirstResponse). The Safari native fallback below
+	// has no hls.js behind it, so it keeps the reload.
+	stallFirstResponse: () => (hls ? "wait" : "reload"),
 	onStallSkip: seconds => {
 		toast.add({
 			style: ToastStyle.Neutral,

@@ -35,21 +35,20 @@ describe("media error recovery", () => {
 		vi.useRealTimers();
 	});
 
-	it("re-fetches the same position when playback stops advancing", async () => {
+	it("reloads through restart() for a source with no engine-level retry", async () => {
 		// A buffered range that cannot decode never raises an error, it just stops moving.
 		Object.defineProperty(media, "paused", { configurable: true, value: false });
 		Object.defineProperty(media, "readyState", { configurable: true, value: 2 });
 		media.currentTime = 100;
 		await vi.advanceTimersByTimeAsync(9000);
 
-		// The default refetch keeps the position and reloads through the recovery path.
+		// The default first response keeps the position and reloads through the recovery path.
 		expect(restart).toHaveBeenCalledOnce();
 		expect(media.currentTime).toBe(100);
 		expect(onError).not.toHaveBeenCalled();
 	});
 
-	it("nudges inside the sync dead band, then skips and reports it", async () => {
-		const onStallRefetch = vi.fn(() => true);
+	it("waits out the first stall, then nudges inside the sync dead band and skips", async () => {
 		const onStallSkip = vi.fn();
 		recovery.dispose();
 		recovery = createMediaRecovery({
@@ -57,7 +56,7 @@ describe("media error recovery", () => {
 			restart,
 			onError,
 			onRecovering,
-			onStallRefetch,
+			stallFirstResponse: () => "wait",
 			onStallSkip,
 		});
 		recovery.canPlay();
@@ -66,23 +65,71 @@ describe("media error recovery", () => {
 		Object.defineProperty(media, "readyState", { configurable: true, value: 2 });
 		media.currentTime = 100;
 
-		// First stall: the player's own refetch handles it and nothing moves.
-		await vi.advanceTimersByTimeAsync(12000);
-		expect(onStallRefetch).toHaveBeenCalledOnce();
+		// First trigger: nothing at all. An engine that retries on its own (hls.js) gets the
+		// time, and the pipeline is never rebuilt just because a stall was noticed.
+		await vi.advanceTimersByTimeAsync(9000);
+		expect(restart).not.toHaveBeenCalled();
 		expect(media.currentTime).toBe(100);
 		expect(onStallSkip).not.toHaveBeenCalled();
 
 		// The same spot stalls again: a 0.3s nudge, which the room sync never fights over.
-		Object.defineProperty(media, "paused", { configurable: true, value: false });
-		await vi.advanceTimersByTimeAsync(12000);
+		await vi.advanceTimersByTimeAsync(8000);
 		expect(media.currentTime).toBeCloseTo(100.3, 5);
-		expect(onStallSkip).not.toHaveBeenCalled();
+		expect(restart).not.toHaveBeenCalled();
 
 		// Still stuck: the source is missing this region, so skip and tell the viewer.
-		Object.defineProperty(media, "paused", { configurable: true, value: false });
-		await vi.advanceTimersByTimeAsync(12000);
+		await vi.advanceTimersByTimeAsync(9000);
 		expect(media.currentTime).toBeCloseTo(103.3, 5);
 		expect(onStallSkip).toHaveBeenCalledWith(3);
+	});
+
+	it("keeps live playback in place when a waited-out stall resolves on its own", async () => {
+		recovery.dispose();
+		recovery = createMediaRecovery({
+			media: () => media,
+			restart,
+			onError,
+			onRecovering,
+			stallFirstResponse: () => "wait",
+		});
+		recovery.canPlay();
+
+		Object.defineProperty(media, "paused", { configurable: true, value: false });
+		Object.defineProperty(media, "readyState", { configurable: true, value: 2 });
+		media.currentTime = 100;
+		await vi.advanceTimersByTimeAsync(9000);
+		expect(restart).not.toHaveBeenCalled();
+
+		// The data arrives and the element moves on by itself. The wait must not have left a
+		// snapshot behind, or the next canPlay() would seek playback back to the stall point.
+		Object.defineProperty(media, "readyState", { configurable: true, value: 4 });
+		media.currentTime = 105;
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(recovery.canPlay()).toBe(true);
+		expect(media.currentTime).toBe(105);
+		expect(recovery.getPosition()).toBe(105);
+	});
+
+	it("reads the first response when the stall triggers, not when the player is built", async () => {
+		let response: "wait" | "reload" = "wait";
+		recovery.dispose();
+		recovery = createMediaRecovery({
+			media: () => media,
+			restart,
+			onError,
+			onRecovering,
+			stallFirstResponse: () => response,
+		});
+		recovery.canPlay();
+
+		Object.defineProperty(media, "paused", { configurable: true, value: false });
+		Object.defineProperty(media, "readyState", { configurable: true, value: 2 });
+		media.currentTime = 100;
+		// The engine behind the element can change between construction and the stall — the
+		// Safari native HLS fallback has no retry policy to lean on, hls.js does.
+		response = "reload";
+		await vi.advanceTimersByTimeAsync(9000);
+		expect(restart).toHaveBeenCalledOnce();
 	});
 
 	it("leaves a paused or still-loading video alone", async () => {

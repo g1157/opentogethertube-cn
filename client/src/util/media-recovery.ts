@@ -27,8 +27,18 @@ interface MediaRecoveryOptions {
 	restart: (error: MediaPlayerError, manual: boolean) => void | Promise<void>;
 	onRecovering: () => void;
 	onError: (error: MediaPlayerError) => void;
-	/** Re-fetch the current position when the player can do better than a full reload. */
-	onStallRefetch?: () => boolean | void;
+	/**
+	 * What the first trigger of a silent stall does, read at that moment rather than at
+	 * construction: one player can have an engine-level retry for one source and not for
+	 * another (HlsPlayer's Safari native fallback bypasses hls.js entirely).
+	 *
+	 * `"wait"` is for engines with their own stall watchdog and load retries (hls.js): nothing
+	 * is buffered ahead, so the stall is throughput or append speed, and rebuilding would
+	 * re-fetch the same region under the same conditions — for MSE it also tears down the audio
+	 * SourceBuffer, which is audible on slow machines. `"reload"` (the default) reloads through
+	 * restart(), which is what a source with no engine-level retry needs.
+	 */
+	stallFirstResponse?: () => "wait" | "reload";
 	/** Called after the ladder had to move the playhead; the UI reports the jump. */
 	onStallSkip?: (skippedSeconds: number) => void;
 }
@@ -214,9 +224,12 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 		stallAnchor = position;
 		noteStallProgress(media);
 		if (stallAttemptsAtAnchor === 1) {
-			// Nothing is skipped: the player either re-fetches this region itself or reloads.
-			capture();
-			if (options.onStallRefetch?.() !== true) {
+			// The first trigger never touches the pipeline on its own: with nothing buffered
+			// ahead, only a source whose engine cannot retry is worth reloading here. A snapshot
+			// is taken only for that reload — a waited-out stall that resolves by itself must not
+			// leave one behind, or the next canPlay() would seek back to it.
+			if ((options.stallFirstResponse?.() ?? "reload") === "reload") {
+				capture();
 				runRecovery(false);
 			}
 			return;
