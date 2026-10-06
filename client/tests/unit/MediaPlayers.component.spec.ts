@@ -7,7 +7,7 @@ import type { QueueItem } from "ott-common/models/video";
 import DirectPlayer from "@/components/players/DirectPlayer.vue";
 import HlsPlayer from "@/components/players/HlsPlayer.vue";
 import OmniPlayer from "@/components/players/OmniPlayer.vue";
-import type { MediaPlayer } from "@/components/composables/media-player";
+import type { MediaPlayer, MediaPlayerWithCaptions } from "@/components/composables/media-player";
 import { DEFAULT_HLS_BUFFER_SECONDS, HLS_BUFFER_SECONDS_OPTIONS } from "@/stores/settings";
 import { mountComponent } from "./component-test-utils";
 
@@ -69,6 +69,33 @@ vi.mock("@/components/composables/media-audio-boost", () => ({
 	}),
 }));
 
+const jassubMock = vi.hoisted(() => ({
+	created: [] as Array<{
+		opts: Record<string, unknown>;
+		destroy: ReturnType<typeof vi.fn>;
+		freeTrack: ReturnType<typeof vi.fn>;
+	}>,
+}));
+
+vi.mock("jassub", () => {
+	class MockJassub {
+		ready = Promise.resolve();
+		renderer = {
+			setTrackByUrl: vi.fn().mockResolvedValue(undefined),
+			freeTrack: vi.fn(),
+		};
+		destroy = vi.fn().mockResolvedValue(undefined);
+		constructor(opts: Record<string, unknown>) {
+			jassubMock.created.push({
+				opts,
+				destroy: this.destroy,
+				freeTrack: this.renderer.freeTrack,
+			});
+		}
+	}
+	return { default: MockJassub };
+});
+
 interface VideoState {
 	paused: boolean;
 	readyState: number;
@@ -99,6 +126,7 @@ describe("native and HLS player reliability", () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		videoStates = new WeakMap();
 		hlsMock.instances.length = 0;
+		jassubMock.created.length = 0;
 		hlsMock.supported = true;
 		vi.spyOn(console, "warn").mockImplementation(() => undefined);
 		vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(function (
@@ -256,6 +284,60 @@ describe("native and HLS player reliability", () => {
 		await flushPromises();
 		expect(wrapper.get("video").attributes("src")).toBe("https://media.example/new.mp4");
 		expect(wrapper.emitted("error")).toBeUndefined();
+	});
+
+	it("renders a manifest ASS track through jassub and frees it when captions are disabled", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(
+				new Response(
+					JSON.stringify({
+						title: "Episode",
+						duration: 1800,
+						sources: [
+							{
+								url: "https://media.example/video.mp4",
+								contentType: "video/mp4",
+								quality: 720,
+							},
+						],
+						textTracks: [
+							{
+								url: "https://media.example/subs.ass",
+								contentType: "text/x-ssa",
+								srclang: "en",
+								name: "English",
+								default: true,
+							},
+						],
+					}),
+					{ status: 200 },
+				),
+			),
+		);
+		({ wrapper } = mountComponent(DirectPlayer, {
+			props: {
+				...directProps,
+				videoUrl: "https://media.example/manifest.json",
+				videoMime: "application/json",
+			},
+		}));
+		await flushPromises();
+		const api = wrapper.vm.$.exposed as MediaPlayerWithCaptions;
+		expect(api.getCaptionsTracks()).toEqual([
+			{ kind: "subtitles", label: "English", srclang: "en", default: true },
+		]);
+		expect(api.isCaptionsEnabled()).toBe(true);
+		expect(jassubMock.created).toHaveLength(1);
+		expect(jassubMock.created[0].opts.subUrl).toBe("https://media.example/subs.ass");
+		expect(wrapper.find(".jassub-canvas-host").isVisible()).toBe(true);
+		expect(wrapper.find(".jassub-canvas").exists()).toBe(true);
+
+		api.setCaptionsEnabled(false);
+		await flushPromises();
+		expect(jassubMock.created[0].freeTrack).toHaveBeenCalled();
+		expect(api.isCaptionsEnabled()).toBe(false);
+		expect(wrapper.find(".jassub-canvas-host").isVisible()).toBe(false);
 	});
 
 	it("cancels a queued MP4 retry on source change and removes its request on unmount", async () => {

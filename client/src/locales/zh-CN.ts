@@ -580,7 +580,7 @@ export default {
 		"start-at": "从 {timestamp} 开始",
 		edit: {
 			title: "编辑视频",
-			"subtitle-url": "字幕网址 (.vtt)",
+			"subtitle-url": "字幕网址 (.vtt/.ass/.ssa)",
 			"subtitle-url-supported-services": "支持的服务：direct、googledrive",
 			tooltip: "编辑视频设置",
 		},
@@ -866,7 +866,7 @@ export default {
 		UnsupportedServiceException: "暂不支持此链接，请确认它指向受支持的视频服务或视频直链。",
 		UnsupportedMimeTypeException: "此文件的格式不受支持。",
 		UnsupportedVideoType: "暂不支持此类型的视频。",
-		UnsupportedSubtitleType: "字幕链接必须以 .vtt 结尾。",
+		UnsupportedSubtitleType: "字幕链接必须以 .vtt、.ass 或 .ssa 结尾。",
 		InvalidVideoIdException: "视频链接无效，请检查后重试。",
 		InvalidAddPreviewInputException: "请多输入几个字符，或直接粘贴视频链接。",
 		FfprobeError: "无法读取视频信息，请确认链接可公开访问后重试。",

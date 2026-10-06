@@ -600,7 +600,7 @@ export default {
 		"start-at": "Start at {timestamp}",
 		edit: {
 			title: "Edit video",
-			"subtitle-url": "Subtitle URL (.vtt)",
+			"subtitle-url": "Subtitle URL (.vtt, .ass)",
 			"subtitle-url-supported-services": "Supported services: direct, googledrive",
 			tooltip: "Edit video settings",
 		},
@@ -903,7 +903,7 @@ export default {
 			"This link is not supported. Check that it points to a supported service or a direct video link.",
 		UnsupportedMimeTypeException: "This file format is not supported.",
 		UnsupportedVideoType: "This type of video is not supported yet.",
-		UnsupportedSubtitleType: "The subtitle URL must end with .vtt.",
+		UnsupportedSubtitleType: "The subtitle URL must end with .vtt, .ass, or .ssa.",
 		InvalidVideoIdException: "That video link is not valid. Check it and try again.",
 		InvalidAddPreviewInputException: "Type more characters, or paste a video URL.",
 		FfprobeError:

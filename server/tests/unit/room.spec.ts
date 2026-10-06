@@ -294,7 +294,7 @@ describe("Room", () => {
 				});
 			});
 
-			it("should reject non-vtt subtitleUrl for PlayNowRequest", async () => {
+			it("should reject unsupported subtitleUrl for PlayNowRequest", async () => {
 				await expect(
 					room.processUnauthorizedRequest(
 						{
@@ -306,7 +306,28 @@ describe("Room", () => {
 						},
 						{ token: user.token },
 					),
-				).rejects.toThrow("Subtitle URL must end with .vtt");
+				).rejects.toThrow("Subtitle URL must end with .vtt, .ass, or .ssa");
+			});
+
+			it("should preserve .ass subtitleUrl from PlayNowRequest", async () => {
+				const subtitleUrl = "https://example.com/subtitles.ass";
+				vi.spyOn(infoextractor, "getVideoInfo").mockResolvedValue(videoToPlay);
+
+				await room.processUnauthorizedRequest(
+					{
+						type: RoomRequestType.PlayNowRequest,
+						video: {
+							...videoToPlay,
+							subtitleUrl,
+						},
+					},
+					{ token: user.token },
+				);
+
+				expect(room.currentSource).toEqual({
+					...videoToPlay,
+					subtitleUrl,
+				});
 			});
 		});
 
@@ -342,7 +363,7 @@ describe("Room", () => {
 				});
 			});
 
-			it("should reject non-vtt subtitleUrl for AddRequest", async () => {
+			it("should reject unsupported subtitleUrl for AddRequest", async () => {
 				vi.spyOn(infoextractor, "getVideoInfo").mockResolvedValue(videoToAdd);
 
 				await expect(
@@ -356,7 +377,29 @@ describe("Room", () => {
 						},
 						{ token: user.token },
 					),
-				).rejects.toThrow("Subtitle URL must end with .vtt");
+				).rejects.toThrow("Subtitle URL must end with .vtt, .ass, or .ssa");
+			});
+
+			it("should add video with .ass subtitleUrl to queue", async () => {
+				const assSubtitleUrl = "https://example.com/subtitles.ass";
+				vi.spyOn(infoextractor, "getVideoInfo").mockResolvedValue(videoToAdd);
+
+				await room.processUnauthorizedRequest(
+					{
+						type: RoomRequestType.AddRequest,
+						video: {
+							...videoToAdd,
+							subtitleUrl: assSubtitleUrl,
+						},
+					},
+					{ token: user.token },
+				);
+
+				expect(room.queue).toHaveLength(1);
+				expect(room.queue.items[0]).toEqual({
+					...videoToAdd,
+					subtitleUrl: assSubtitleUrl,
+				});
 			});
 		});
 
