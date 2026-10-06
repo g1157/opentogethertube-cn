@@ -41,6 +41,8 @@ WebGL2 跑同一套 Anime4K 网络，极致档只在那些设备上出现，「�
 - 直链 MP4 / HLS / DASH / 自定义媒体清单；添加直链后自动探测相邻集数，一键加入「同剧集」。
 - **只拦站外 Referer 的源会自动重试**：先用本应用 origin 的 Referer 探测，被拒再试不带 Referer，
   实测可用才记下策略；必须站内来源或需要 Cookie 的源会在添加时就明确提示，不再「添加成功、播放报错」。
+- **字幕**：自定义清单与直链源都支持 WebVTT 与 ASS/SSA 字幕轨（ASS 样式与特效由浏览器内的 libass
+  渲染），跨域字幕文件需带 `Access-Control-Allow-Origin`。
 - 上游平台适配器（YouTube、Bilibili、Vimeo、PeerTube、Odysee 等，取决于部署配置）。
 
 ### 一起聊、一起记、一起说

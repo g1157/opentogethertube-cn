@@ -51,6 +51,9 @@ since on WebGPU the quality tier already is that chain. All of it runs on the cl
   first, then no Referer, and only records the policy it measured. Sources that require their own
   site’s Referer or a cookie are flagged when the link is added, instead of “adds fine, fails to
   play”.
+- **Subtitles**: custom manifests and direct sources both accept WebVTT and ASS/SSA tracks (ASS
+  styling and effects are rendered by libass in the browser); cross-origin subtitle files need
+  `Access-Control-Allow-Origin`.
 - Upstream platform adapters (YouTube, Bilibili, Vimeo, PeerTube, Odysee, … depending on your
   configuration).
 
