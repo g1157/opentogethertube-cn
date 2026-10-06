@@ -49,6 +49,10 @@
 	"overrides": [
 		{
 			"files": ["*.js"],
+			"parserOptions": {
+				"ecmaVersion": 2022,
+				"sourceType": "module"
+			},
 			"rules": {
 				"@typescript-eslint/explicit-module-boundary-types": "off",
 				"@typescript-eslint/no-var-requires": "off",
