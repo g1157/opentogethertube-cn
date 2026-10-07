@@ -55,15 +55,15 @@ const MAX_ON_SCREEN = 100;
  */
 const MAX_DPR = 2;
 /**
- * girigiri (and Bilibili behind it) draw danmaku in a bold CJK UI face with a black
- * outline. The stack prefers the platform's Chinese UI font and falls back to the system
- * face, so the type looks native on Windows, macOS and the various Linux desktops alike.
+ * girigiri (and Bilibili behind it) draw danmaku in a CJK UI face with a black outline. The
+ * stack prefers the platform's Chinese UI font and falls back to the system face; weight 500
+ * keeps the strokes a step lighter than Bilibili's bold look.
  */
 const FONT_FAMILY =
 	'"Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Heiti SC", system-ui, sans-serif';
-const FONT_WEIGHT = 600;
+const FONT_WEIGHT = 500;
 /** Outline width as a fraction of the font size, so larger text keeps a readable edge. */
-const OUTLINE_WIDTH_RATIO = 0.07;
+const OUTLINE_WIDTH_RATIO = 0.06;
 
 /**
  * One source for the measuring and drawing passes; a drift between them would put text

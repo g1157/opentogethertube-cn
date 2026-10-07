@@ -35,7 +35,7 @@ describe("saved settings and default migrations", () => {
 			locale: "zh-CN",
 			defaultLocaleVersion: "v0.15.0-cn3",
 			defaultSfxVersion: "v0.15.0-cn6",
-			defaultDanmakuOpacityVersion: "v1.3.4",
+			defaultDanmakuOpacityVersion: "v1.4.3",
 			defaultDanmakuEnabledVersion: "v1.4.1",
 			defaultUpscaleVersion: "v1.3.10",
 			defaultNoticeVersion: "v1.3.10",
@@ -62,7 +62,7 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.seekNoticeSeconds).toBe(1);
 		expect(store.state.settings.controlsHideSeconds).toBe(3);
 		expect(store.state.settings.hlsBufferSeconds).toBe(120);
-		expect(store.state.settings.danmakuOpacity).toBe(0.4);
+		expect(store.state.settings.danmakuOpacity).toBe(0.6);
 	});
 
 	it("moves the old dark default theme to teal once and keeps picked themes", async () => {
@@ -148,8 +148,9 @@ describe("saved settings and default migrations", () => {
 	});
 
 	it.each([
-		[0.8, 0.4],
-		[0.3, 0.4],
+		[0.8, 0.6],
+		[0.3, 0.6],
+		[0.4, 0.6],
 	])("moves the shipped danmaku opacity default %s to %s once", async (stored, expected) => {
 		saved.set(
 			"settings",

@@ -165,9 +165,9 @@ export const LIGHT_THEMES: string[] = [Theme.light, Theme.strawberry, Theme.mint
 
 const DEFAULT_LOCALE_VERSION = "v0.15.0-cn3";
 const DEFAULT_SFX_VERSION = "v0.15.0-cn6";
-// Bumped so sessions that stored one of the earlier danmaku defaults (80%, then 30%)
-// pick up 40%; a deliberately chosen value is left alone.
-const DEFAULT_DANMAKU_OPACITY_VERSION = "v1.3.4";
+// 40% was the shipped default through v1.4.2 (80%, then 30% before it); the default is now
+// 60%, and those shipped values move once, while a deliberately chosen value is left alone.
+const DEFAULT_DANMAKU_OPACITY_VERSION = "v1.4.3";
 // Danmaku now starts hidden: a session carrying the old default (visible, or no value at
 // all) moves to off once; once the marker is stored, turning it on is a choice.
 const DEFAULT_DANMAKU_ENABLED_VERSION = "v1.4.1";
@@ -339,7 +339,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		upscaleScale: "auto",
 		upscaleAutoDegrade: true,
 		danmakuEnabled: false,
-		danmakuOpacity: 0.4,
+		danmakuOpacity: 0.6,
 		danmakuFontSize: "medium",
 		danmakuSpeed: 1,
 		danmakuDisplayArea: "full",
@@ -418,11 +418,13 @@ export const settingsModule: Module<SettingsState, unknown> = {
 			}
 			if (
 				defaultDanmakuOpacityVersion !== DEFAULT_DANMAKU_OPACITY_VERSION &&
-				(settings.danmakuOpacity === 0.8 || settings.danmakuOpacity === 0.3)
+				(settings.danmakuOpacity === 0.8 ||
+					settings.danmakuOpacity === 0.4 ||
+					settings.danmakuOpacity === 0.3)
 			) {
-				// Only the two defaults we shipped (80%, then 30%) are moved; any other
-				// stored value is a choice.
-				settings.danmakuOpacity = 0.4;
+				// Every shipped default (80%, then 30%, then 40%) moves once to 60%; any
+				// other stored value is a choice.
+				settings.danmakuOpacity = 0.6;
 			}
 			// Danmaku starts hidden now; the previously shipped default (visible, or no value
 			// at all) moves once. Once the marker is stored, turning it on is a choice.
