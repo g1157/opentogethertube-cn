@@ -65,7 +65,10 @@ const FONT_WEIGHT = 600;
 /** Outline width as a fraction of the font size, so larger text keeps a readable edge. */
 const OUTLINE_WIDTH_RATIO = 0.07;
 
-/** One source for the measuring and drawing passes; drift between them mis-lanes text. */
+/**
+ * One source for the measuring and drawing passes; a drift between them would put text
+ * in the wrong lanes.
+ */
 function fontSpec(fontPx: number): string {
 	return `${FONT_WEIGHT} ${fontPx}px ${FONT_FAMILY}`;
 }
