@@ -271,7 +271,7 @@
 						>{{ $t("room.danmaku.loaded-count", { count: loadedCount }) }}</span
 					>
 					<v-btn
-						v-if="hasSource"
+						v-if="canClear"
 						size="x-small"
 						variant="text"
 						@click="clearBinding"
@@ -293,7 +293,31 @@
 						class="danmaku-inline-slider"
 						data-cy="danmaku-offset"
 					/>
-					<span class="danmaku-row-value">{{ offsetLabel }}</span>
+					<v-text-field
+						v-model="offsetInput"
+						type="number"
+						:step="0.5"
+						:min="-60"
+						:max="60"
+						suffix="s"
+						density="compact"
+						variant="outlined"
+						hide-details
+						class="danmaku-offset-field"
+						data-cy="danmaku-offset-input"
+						@change="commitOffsetInput"
+					/>
+					<v-btn
+						icon
+						size="x-small"
+						variant="text"
+						:disabled="offsetSeconds === 0"
+						:aria-label="$t('room.danmaku.offset-reset')"
+						data-cy="danmaku-offset-reset"
+						@click="resetOffset"
+					>
+						<v-icon :icon="mdiRestore" />
+					</v-btn>
 				</div>
 				<div class="danmaku-section">
 					<div class="danmaku-section-title">girigiri</div>
@@ -359,6 +383,7 @@
 <script lang="ts" setup>
 import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { mdiRestore } from "@mdi/js";
 import type { RoomDanmakuSource } from "ott-common/models/types";
 import { API } from "@/common-http";
 import { ToastStyle } from "@/models/toast";
@@ -386,6 +411,7 @@ import {
 	type GirigiriLine,
 	type GirigiriSearchResult,
 } from "@/util/danmaku/girigiri-api";
+import { findDanmakuProvider } from "@/util/danmaku/provider";
 import { useDanmaku } from "../composables";
 
 const { t } = useI18n();
@@ -446,9 +472,40 @@ const roomSourceForVideo = computed(() => {
 	}
 	return source;
 });
-/** The track everyone in the room is watching: the room's pick first, then this device's. */
-const sourceLabel = computed(() => roomSourceForVideo.value?.label ?? binding.value?.label ?? "");
-const hasSource = computed(() => !!(roomSourceForVideo.value || binding.value));
+
+/**
+ * The URL rules' default track for this video — a girigiri direct link resolves to its
+ * mirrored comment file with no matching step. It is what actually plays when nothing is
+ * bound, so the panel shows it too; the first offset edit turns it into a local binding
+ * (see the slider below) so the shift sticks.
+ */
+const urlMatched = computed(() => {
+	const url = currentVideoUrl.value;
+	if (!url || roomSourceForVideo.value || binding.value) {
+		return null;
+	}
+	return findDanmakuProvider(url);
+});
+
+const urlMatchedLabel = computed(() => {
+	const matched = urlMatched.value;
+	if (!matched) {
+		return "";
+	}
+	try {
+		return `${matched.provider.id} · ${decodeURIComponent(new URL(matched.url).pathname)}`;
+	} catch {
+		return `${matched.provider.id} · ${matched.url}`;
+	}
+});
+
+/** The track everyone is watching: the room's pick, this device's, or the URL-matched default. */
+const sourceLabel = computed(
+	() => roomSourceForVideo.value?.label ?? binding.value?.label ?? urlMatchedLabel.value,
+);
+const hasSource = computed(() => !!(roomSourceForVideo.value || binding.value || urlMatched.value));
+/** Whether there is an explicit pick to clear; the URL-matched default is not clearable. */
+const canClear = computed(() => !!(roomSourceForVideo.value || binding.value));
 
 /**
  * Publishing is automatic — binding a track (or clearing one) updates the room's shared
@@ -709,16 +766,52 @@ const offsetSeconds = computed({
 			return;
 		}
 		const url = currentVideoUrl.value;
+		if (!url) {
+			return;
+		}
 		const current = binding.value;
-		if (url && current) {
+		if (current) {
 			rememberBinding(url, { ...current, offset: next });
+			return;
+		}
+		const matched = urlMatched.value;
+		if (matched && matched.provider.id === "girigiri") {
+			// The URL-matched default has no binding yet; storing one (locally, never
+			// published to the room) is what makes an edited offset stick.
+			rememberBinding(url, {
+				provider: "girigiri",
+				url: matched.url,
+				label: urlMatchedLabel.value,
+				offset: next,
+			});
 		}
 	},
 });
-const offsetLabel = computed(() => {
-	const value = offsetSeconds.value;
-	return `${value > 0 ? "+" : ""}${value}s`;
-});
+
+/** The exact-value side of the offset control, sharing the slider's half-second grid. */
+const offsetInput = ref("0");
+watch(
+	offsetSeconds,
+	value => {
+		offsetInput.value = String(value);
+	},
+	{ immediate: true },
+);
+
+function commitOffsetInput() {
+	const parsed = Number.parseFloat(offsetInput.value);
+	if (!Number.isFinite(parsed)) {
+		offsetInput.value = String(offsetSeconds.value);
+		return;
+	}
+	const snapped = Math.min(60, Math.max(-60, Math.round(parsed * 2) / 2));
+	offsetInput.value = String(snapped);
+	offsetSeconds.value = snapped;
+}
+
+function resetOffset() {
+	offsetSeconds.value = 0;
+}
 
 /** The four block switches act as one chip group. */
 const blockedTypes = computed({
@@ -858,6 +951,33 @@ const blockedTypes = computed({
 		.danmaku-inline-slider {
 			flex: 1 1 auto;
 			margin: 0;
+		}
+
+		/* The exact-value field beside the slider; narrow, so the slider keeps its room. */
+		.danmaku-offset-field {
+			flex: 0 0 62px;
+
+			.v-field {
+				min-height: 30px;
+				font-size: 0.78rem;
+			}
+
+			.v-field__input {
+				min-height: 28px;
+				padding-top: 0;
+				padding-bottom: 0;
+			}
+
+			input[type="number"] {
+				appearance: textfield;
+				-moz-appearance: textfield;
+			}
+
+			input[type="number"]::-webkit-inner-spin-button,
+			input[type="number"]::-webkit-outer-spin-button {
+				appearance: none;
+				margin: 0;
+			}
 		}
 	}
 

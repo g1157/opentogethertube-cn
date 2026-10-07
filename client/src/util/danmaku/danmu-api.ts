@@ -24,6 +24,12 @@ export interface DanmakuBinding {
 	episodeId?: number | string;
 	/** girigiri: the play-page path (`/playGV…/`); absent for a danmu-api binding. */
 	page?: string;
+	/**
+	 * girigiri: the track URL itself. A track the URL rules matched — the default for a
+	 * girigiri source — gets no binding until the visitor adjusts something (its offset);
+	 * this is what locates it then.
+	 */
+	url?: string;
 	/** Shown to the user: the matched anime and episode. */
 	label: string;
 	/** Seconds to shift the track's timeline; positive shows comments later. */
@@ -102,6 +108,7 @@ function normalizeBinding(value: unknown): DanmakuBinding | null {
 		provider?: unknown;
 		episodeId?: unknown;
 		page?: unknown;
+		url?: unknown;
 		label?: unknown;
 		offset?: unknown;
 		auto?: unknown;
@@ -113,10 +120,19 @@ function normalizeBinding(value: unknown): DanmakuBinding | null {
 		typeof entry.offset === "number" && Number.isFinite(entry.offset) ? entry.offset : 0;
 	const auto = entry.auto === true ? { auto: true } : {};
 	if (entry.provider === "girigiri") {
-		if (typeof entry.page !== "string" || entry.page === "") {
+		const page = typeof entry.page === "string" && entry.page !== "" ? entry.page : undefined;
+		const url = typeof entry.url === "string" && entry.url !== "" ? entry.url : undefined;
+		if (!page && !url) {
 			return null;
 		}
-		return { provider: "girigiri", page: entry.page, label: entry.label, offset, ...auto };
+		return {
+			provider: "girigiri",
+			...(page ? { page } : {}),
+			...(url ? { url } : {}),
+			label: entry.label,
+			offset,
+			...auto,
+		};
 	}
 	if (typeof entry.episodeId === "number" || typeof entry.episodeId === "string") {
 		return {
@@ -211,6 +227,7 @@ export function rememberBinding(videoUrl: string, binding: DanmakuBinding) {
 		current?.provider === binding.provider &&
 		current?.episodeId === binding.episodeId &&
 		current?.page === binding.page &&
+		current?.url === binding.url &&
 		current?.label === binding.label &&
 		(current?.offset ?? 0) === (binding.offset ?? 0) &&
 		(current?.auto ?? false) === (binding.auto ?? false)

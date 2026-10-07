@@ -149,6 +149,34 @@ describe("danmu-api bindings", () => {
 		expect(fresh.getBinding("https://host/broken.mp4")).toBeNull();
 	});
 
+	it("keeps a girigiri binding located by its track URL", async () => {
+		vi.resetModules();
+		storage.setItem(
+			"danmaku-bindings",
+			JSON.stringify({
+				"https://host/url.mp4": {
+					provider: "girigiri",
+					url: "https://danmu.example/other/01.xml",
+					label: "girigiri · /other/01.xml",
+					offset: -1.5,
+				},
+				"https://host/empty.mp4": {
+					provider: "girigiri",
+					label: "没有定位",
+				},
+			}),
+		);
+		const fresh = await import("@/util/danmaku/danmu-api");
+		expect(fresh.getBinding("https://host/url.mp4")).toEqual({
+			provider: "girigiri",
+			url: "https://danmu.example/other/01.xml",
+			label: "girigiri · /other/01.xml",
+			offset: -1.5,
+		});
+		// A girigiri entry with neither a page nor a URL cannot locate a track.
+		expect(fresh.getBinding("https://host/empty.mp4")).toBeNull();
+	});
+
 	it("resolves the track URL only when a base and a binding are present", () => {
 		const url = "https://host/media/ep.mp4";
 		setDanmakuApiBase("");

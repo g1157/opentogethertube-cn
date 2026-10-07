@@ -25,8 +25,10 @@ import {
 	type DanmakuBinding,
 } from "@/util/danmaku/danmu-api";
 import { loadGirigiriTrack } from "@/util/danmaku/girigiri-api";
-import { findDanmakuProvider } from "@/util/danmaku/provider";
+import { girigiriProvider } from "@/util/danmaku/girigiri";
+import { findDanmakuProvider, type DanmakuSource } from "@/util/danmaku/provider";
 import { shiftDanmakuTime, type DanmakuItem } from "@/util/danmaku/parse";
+import type { RoomDanmakuSource } from "ott-common/models/types";
 import { useDanmaku } from "../composables";
 
 const props = defineProps<{
@@ -52,9 +54,21 @@ const MAX_ON_SCREEN = 100;
  * nothing on a 3x display.
  */
 const MAX_DPR = 2;
-const FONT_FAMILY = "system-ui, sans-serif";
-const FONT_WEIGHT = 500;
-const OUTLINE_WIDTH = 1.2;
+/**
+ * girigiri (and Bilibili behind it) draw danmaku in a bold CJK UI face with a black
+ * outline. The stack prefers the platform's Chinese UI font and falls back to the system
+ * face, so the type looks native on Windows, macOS and the various Linux desktops alike.
+ */
+const FONT_FAMILY =
+	'"Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Heiti SC", system-ui, sans-serif';
+const FONT_WEIGHT = 600;
+/** Outline width as a fraction of the font size, so larger text keeps a readable edge. */
+const OUTLINE_WIDTH_RATIO = 0.07;
+
+/** One source for the measuring and drawing passes; drift between them mis-lanes text. */
+function fontSpec(fontPx: number): string {
+	return `${FONT_WEIGHT} ${fontPx}px ${FONT_FAMILY}`;
+}
 
 let engine: DanmakuEngine | null = null;
 let items: DanmakuItem[] | null = null;
@@ -65,6 +79,11 @@ let lastDrawnTime = -1;
 /** Track the last "comments loaded" toast was shown for, so moving the offset (which
  * reloads the same track) does not repeat it; a newly bound track still announces itself. */
 let lastToastedTrack: string | null = null;
+/** What identifies the track `items` came from, and its unshifted comments. An offset
+ * edit moves the same track: the shift is applied from these, with no refetch, no blank
+ * screen and no repeated announcement. */
+let loadedIdentity: string | null = null;
+let baseItems: DanmakuItem[] | null = null;
 // The clock the comments advance on. video.currentTime steps once per presented frame — a
 // 24fps anime steps 24 times a second — so reading it directly made scrolling comments
 // judder on a 60/120Hz screen while the picture itself stayed smooth (the decoder
@@ -100,7 +119,7 @@ function measureText(text: string, fontPx: number): number {
 	if (!measureContext) {
 		return text.length * fontPx * 0.8;
 	}
-	measureContext.font = `${FONT_WEIGHT} ${fontPx}px ${FONT_FAMILY}`;
+	measureContext.font = fontSpec(fontPx);
 	return measureContext.measureText(text).width;
 }
 
@@ -186,12 +205,13 @@ function draw(rendered: DanmakuRenderItem[]) {
 	if (rendered.length === 0) {
 		return;
 	}
-	context.font = `${FONT_WEIGHT} ${fontSizePx()}px ${FONT_FAMILY}`;
+	const fontPx = fontSizePx();
+	context.font = fontSpec(fontPx);
 	context.textBaseline = "top";
 	context.globalAlpha = store.state.settings.danmakuOpacity;
 	context.lineJoin = "round";
 	context.strokeStyle = "#000";
-	context.lineWidth = OUTLINE_WIDTH;
+	context.lineWidth = Math.max(1, fontPx * OUTLINE_WIDTH_RATIO);
 	for (const item of rendered) {
 		context.strokeText(item.text, item.x, item.y);
 		context.fillStyle = item.color;
@@ -202,10 +222,17 @@ function draw(rendered: DanmakuRenderItem[]) {
 
 function redrawCurrent() {
 	const video = props.video;
-	if (video && engine) {
-		draw(engine.tick(video.currentTime));
-		lastDrawnTime = video.currentTime;
+	if (!video || !engine) {
+		return;
 	}
+	if (!store.state.settings.danmakuEnabled) {
+		// Every repaint path (pause, paused seek, resize, opacity) comes through here; a
+		// disabled overlay must never put the comments it still holds back on the picture.
+		draw([]);
+		return;
+	}
+	draw(engine.tick(video.currentTime));
+	lastDrawnTime = video.currentTime;
 }
 
 /**
@@ -370,10 +397,41 @@ function detachVideo(video: HTMLVideoElement | undefined) {
 /** Loads the track a stored binding points at, whichever provider it belongs to. */
 function loadBindingTrack(binding: DanmakuBinding): Promise<DanmakuItem[] | null> {
 	if (binding.provider === "girigiri") {
-		return binding.page ? loadGirigiriTrack(binding.page) : Promise.resolve(null);
+		if (binding.page) {
+			return loadGirigiriTrack(binding.page);
+		}
+		// A URL-matched girigiri track the visitor edited (its offset, typically) is kept
+		// as a binding too, located by the track URL itself.
+		return binding.url ? girigiriProvider.load(binding.url) : Promise.resolve(null);
 	}
 	const url = trackUrl(binding);
 	return url ? danmuApiProvider.load(url) : Promise.resolve(null);
+}
+
+/** What identifies a track, ignoring the offset an edit moves: provider + its locator. */
+function trackIdentityFor(
+	effective: DanmakuBinding | null,
+	direct: DanmakuSource | null,
+): string | null {
+	if (effective) {
+		const locator =
+			effective.page ??
+			effective.url ??
+			(effective.episodeId !== undefined ? String(effective.episodeId) : null);
+		return locator === null ? null : `${effective.provider}:${locator}`;
+	}
+	return direct ? `${direct.provider.id}:${direct.url}` : null;
+}
+
+/** Same video and same track; only the offset moved (the slider's debounced publishes). */
+function sameRoomTrack(a: RoomDanmakuSource, b: RoomDanmakuSource): boolean {
+	return (
+		a.videoUrl === b.videoUrl &&
+		a.provider === b.provider &&
+		a.page === b.page &&
+		a.episodeId === b.episodeId &&
+		a.label === b.label
+	);
 }
 
 /**
@@ -398,13 +456,7 @@ async function loadFromAggregator(): Promise<DanmakuItem[] | null> {
 }
 
 async function load() {
-	loadGeneration++;
-	const generation = loadGeneration;
-	items = null;
-	loadedCount.value = 0;
-	engine?.setItems([]);
-	draw([]);
-	updateRunning();
+	const generation = ++loadGeneration;
 	const local = getBinding(props.videoUrl);
 	// Priority: the room's shared source wins (bindings publish themselves, so everyone
 	// follows the same track), then a track the visitor picked locally, then a
@@ -419,6 +471,26 @@ async function load() {
 	if (!store.state.settings.danmakuEnabled) {
 		return;
 	}
+	const identity = trackIdentityFor(effective, direct);
+	// The offset slider edits one track and re-triggers this loader on every drag. Same
+	// track with a new offset: shift the cached comments and swap them in — no refetch, no
+	// blank screen, no repeated announcement, and the running comments keep flying.
+	if (identity !== null && identity === loadedIdentity && baseItems !== null) {
+		items = shiftDanmakuTime(baseItems, effective?.offset ?? 0);
+		loadedCount.value = items.length;
+		engine?.replaceItems(items);
+		redrawCurrent();
+		updateRunning();
+		return;
+	}
+	// A different track replaces the picture: blank it, load, then swap the new one in.
+	items = null;
+	loadedCount.value = 0;
+	loadedIdentity = null;
+	baseItems = null;
+	engine?.setItems([]);
+	draw([]);
+	updateRunning();
 	let loaded: DanmakuItem[] | null = null;
 	if (effective) {
 		// A chosen track is final: when it fails, the matcher stands down instead of
@@ -439,18 +511,22 @@ async function load() {
 			}
 		}
 	}
-	items = loaded === null ? [] : effective ? shiftDanmakuTime(loaded, effective.offset) : loaded;
+	// The matcher may have written a binding while loading; its identity is what a later
+	// offset edit will be matched against.
+	const resolvedIdentity =
+		identity ??
+		trackIdentityFor(getBinding(props.videoUrl), null) ??
+		(loaded !== null && loaded.length > 0 ? props.videoUrl : null);
+	const offset = effective?.offset ?? getBinding(props.videoUrl)?.offset ?? 0;
+	items = loaded === null ? [] : shiftDanmakuTime(loaded, offset);
 	loadedCount.value = items.length;
+	baseItems = items.length > 0 ? loaded : null;
+	loadedIdentity = items.length > 0 ? resolvedIdentity : null;
 	// Feedback that a track actually arrived; without it the only sign was comments
 	// appearing over the picture. Announced once per track: the offset slider reloads the
 	// same track on every drag and must not repeat it.
-	const trackKey = effective
-		? `${effective.provider}:${effective.page ?? String(effective.episodeId)}`
-		: items.length > 0
-		? props.videoUrl
-		: null;
-	if (items.length > 0 && trackKey !== null && trackKey !== lastToastedTrack) {
-		lastToastedTrack = trackKey;
+	if (items.length > 0 && resolvedIdentity !== null && resolvedIdentity !== lastToastedTrack) {
+		lastToastedTrack = resolvedIdentity;
 		toast.add({
 			style: ToastStyle.Neutral,
 			content: i18n.global.t("room.danmaku.loaded-toast", { count: items.length }),
@@ -478,7 +554,9 @@ watch(bindingsState, () => {
 });
 
 // The room's shared source can change under everyone; re-resolve and say what happened,
-// so a picture whose comments suddenly change has an explanation.
+// so a picture whose comments suddenly change has an explanation. The offset slider
+// publishes on every drag, so an offset-only change stays silent: the track is the same
+// and the comments merely shifted.
 watch(
 	() => store.state.room.danmakuSource,
 	(next, previous) => {
@@ -486,6 +564,9 @@ watch(
 		const nextApplies = next?.videoUrl === props.videoUrl;
 		const previousApplied = previous?.videoUrl === props.videoUrl;
 		if (!nextApplies && !previousApplied) {
+			return;
+		}
+		if (next && previous && sameRoomTrack(next, previous)) {
 			return;
 		}
 		toast.add({
@@ -529,9 +610,18 @@ watch(
 	() => {
 		if (store.state.settings.danmakuEnabled && items === null) {
 			void load();
-		} else {
-			updateRunning();
+			return;
 		}
+		if (!store.state.settings.danmakuEnabled) {
+			// Purge, don't just stop drawing: any later repaint (a pause, a paused seek, a
+			// resize) would otherwise put the stale film back over the picture.
+			items = null;
+			baseItems = null;
+			loadedIdentity = null;
+			loadedCount.value = 0;
+			engine?.setItems([]);
+		}
+		updateRunning();
 	},
 );
 

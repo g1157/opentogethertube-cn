@@ -48,6 +48,14 @@ export const FIXED_DURATION = 5;
 const LANE_HEIGHT_RATIO = 1.1;
 /** A time step beyond this is a seek or a source change, not playback. */
 const SEEK_GAP_SECONDS = 1;
+/**
+ * How far the clock may step backwards before it counts as a seek. The layer reads the
+ * media clock through an extrapolating wrapper that can sit a fraction of a second ahead
+ * of `video.currentTime`, so pause and redraw paths regularly take a small step back —
+ * wiping the screen for one of those is what made the comments intermittently blank out
+ * and reappear. Only a rewind larger than this is treated as a real seek.
+ */
+const BACKWARD_TOLERANCE_SECONDS = 0.5;
 
 interface ScrollOccupant {
 	startTime: number;
@@ -62,6 +70,8 @@ interface ActiveItem {
 	/** Scroll velocity in px/s; 0 for fixed comments. */
 	v: number;
 	y: number;
+	/** Lane (scroll) or slot (fixed) index, kept so a geometry change can re-place it. */
+	lane: number;
 	/** Fixed comments only: when their slot frees up. */
 	expireAt: number;
 }
@@ -99,17 +109,34 @@ export class DanmakuEngine {
 		this.reset();
 	}
 
-	/** Geometry changes invalidate every stored position, so active comments are dropped. */
+	/**
+	 * Swaps in a new track without disturbing the comments already on screen. The offset
+	 * slider shifts one track and reloads it on every drag; a full reset would blank the
+	 * screen and replay it from the right edge each time.
+	 */
+	replaceItems(items: DanmakuItem[]) {
+		this.items = items;
+		if (this.lastTime !== null) {
+			this.scheduleIndex = lowerBound(this.items, this.lastTime);
+		}
+	}
+
+	/**
+	 * Settings changes apply to future spawns; a geometry change (the picture box, the
+	 * font, the band) re-places the comments already flying instead of dropping them, so
+	 * a fullscreen toggle or a font tweak no longer blanks the screen.
+	 */
 	configure(partial: Partial<DanmakuEngineConfig>) {
-		this.config = { ...this.config, ...partial };
+		const previous = this.config;
+		this.config = { ...previous, ...partial };
 		if (
-			partial.width !== undefined ||
-			partial.height !== undefined ||
-			partial.fontPx !== undefined ||
-			partial.area !== undefined
+			this.config.width !== previous.width ||
+			this.config.height !== previous.height ||
+			this.config.fontPx !== previous.fontPx ||
+			this.config.area !== previous.area
 		) {
 			this.rebuildLanes();
-			this.active = [];
+			this.remapActive();
 		}
 	}
 
@@ -118,7 +145,16 @@ export class DanmakuEngine {
 		if (this.lastTime === null) {
 			// First frame after a reset: everything before now is already past.
 			this.scheduleIndex = lowerBound(this.items, now);
-		} else if (now < this.lastTime || now - this.lastTime > SEEK_GAP_SECONDS) {
+		} else if (now < this.lastTime) {
+			// A small step back is clock noise, not a seek: hold the last position so a
+			// repaint of a paused frame redraws the same picture instead of wiping the
+			// screen and letting the comments trickle back in from the right edge.
+			if (this.lastTime - now > BACKWARD_TOLERANCE_SECONDS) {
+				this.seekTo(now);
+			} else {
+				now = this.lastTime;
+			}
+		} else if (now - this.lastTime > SEEK_GAP_SECONDS) {
 			this.seekTo(now);
 		}
 		this.spawn(now);
@@ -158,6 +194,43 @@ export class DanmakuEngine {
 		this.scrollLanes = new Array(lanes).fill(null);
 		this.topSlots = new Array(lanes).fill(null);
 		this.bottomSlots = new Array(lanes).fill(null);
+	}
+
+	/**
+	 * Re-places the comments already on screen after the lane grid changed: text widths
+	 * are re-measured, scroll speeds re-derived from the new width, and the occupancy
+	 * tables rebuilt, so the no-overlap invariant holds again from the new geometry on
+	 * while the running comments keep flying.
+	 */
+	private remapActive() {
+		if (this.active.length === 0) {
+			return;
+		}
+		this.scrollLanes.fill(null);
+		this.topSlots.fill(null);
+		this.bottomSlots.fill(null);
+		const scrollDuration = this.config.scrollDuration / Math.max(this.config.speed, 0.1);
+		for (const active of this.active) {
+			if (active.item.mode === "scroll") {
+				active.textW = this.measure(active.item.text, this.config.fontPx);
+				active.v = (this.config.width + active.textW) / scrollDuration;
+				active.lane = Math.min(active.lane, this.scrollLanes.length - 1);
+				active.y = this.laneY(active.lane);
+				const current = this.scrollLanes[active.lane];
+				if (!current || active.startTime > current.startTime) {
+					this.scrollLanes[active.lane] = {
+						startTime: active.startTime,
+						textW: active.textW,
+						v: active.v,
+					};
+				}
+			} else {
+				const slots = active.item.mode === "top" ? this.topSlots : this.bottomSlots;
+				active.lane = Math.min(active.lane, slots.length - 1);
+				active.y = this.slotY(active.item.mode, active.lane);
+				slots[active.lane] = Math.max(slots[active.lane] ?? 0, active.expireAt);
+			}
+		}
 	}
 
 	private spawn(now: number) {
@@ -215,6 +288,7 @@ export class DanmakuEngine {
 					textW,
 					v,
 					y: this.laneY(lane),
+					lane,
 					expireAt: Number.POSITIVE_INFINITY,
 				});
 			} else {
@@ -230,6 +304,7 @@ export class DanmakuEngine {
 					textW,
 					v: 0,
 					y: this.slotY(item.mode, index),
+					lane: index,
 					expireAt: now + FIXED_DURATION,
 				});
 			}

@@ -120,6 +120,28 @@ describe("DanmakuEngine scheduling", () => {
 		expect(afterSeek.some(item => item.text === "100 秒")).toBe(true);
 	});
 
+	it("holds the clock through small backward steps but rewinds on a real seek", () => {
+		const engine = new DanmakuEngine(makeConfig(), measure);
+		engine.setItems([
+			makeItem({ time: 0, text: "现在" }),
+			makeItem({ time: 50, text: "后面" }),
+		]);
+		expect(engine.tick(0)).toHaveLength(1);
+		expect(engine.tick(0.8)).toHaveLength(1);
+		expect(engine.tick(1.6)).toHaveLength(1);
+		expect(engine.tick(2.4)).toHaveLength(1);
+		expect(engine.tick(3.2)).toHaveLength(1);
+		expect(engine.tick(4)).toHaveLength(1);
+		// The layer extrapolates its clock ahead of video.currentTime, so a pause or a
+		// repaint takes a small step back; the frame must not be wiped for that.
+		expect(engine.tick(3.8)).toHaveLength(1);
+		expect(engine.tick(4.2)).toHaveLength(1);
+		// A real rewind is still a seek: the screen clears and the schedule re-anchors.
+		expect(engine.tick(1)).toHaveLength(0);
+		expect(engine.tick(49.9)).toHaveLength(0);
+		expect(engine.tick(50.1)).toHaveLength(1);
+	});
+
 	it("holds fixed comments centered in a slot for their full duration", () => {
 		const engine = new DanmakuEngine(makeConfig(), measure);
 		engine.setItems([makeItem({ time: 0, mode: "top", text: "顶部" })]);
@@ -206,11 +228,45 @@ describe("DanmakuEngine scheduling", () => {
 		expect(rendered.map(item => item.text).sort()).toEqual(["底部", "顶部"]);
 	});
 
-	it("clears and re-lanes when the box changes", () => {
+	it("re-lanes the active comments instead of dropping them when the box changes", () => {
 		const engine = new DanmakuEngine(makeConfig(), measure);
 		engine.setItems([makeItem({ time: 0, text: "像素" })]);
-		expect(engine.tick(0)).toHaveLength(1);
+		const [before] = engine.tick(0);
+		expect(before.x).toBeCloseTo(1280, 5);
+		// A fullscreen toggle or a resize must keep the comments flying, re-anchored to
+		// the new picture box.
 		engine.configure({ width: 640, height: 360 });
-		expect(engine.tick(0.1)).toHaveLength(0);
+		const [after] = engine.tick(0.1);
+		expect(after).toBeDefined();
+		expect(after.x).toBeLessThanOrEqual(640);
+		expect(after.y).toBeLessThanOrEqual(360);
+	});
+
+	it("keeps the active comments when a configure call changes nothing geometric", () => {
+		const engine = new DanmakuEngine(makeConfig(), measure);
+		engine.setItems([makeItem({ time: 0, text: "像素" })]);
+		engine.tick(0);
+		// The layer replays its whole config on every viewport event; identical values
+		// must not blank the screen.
+		engine.configure(makeConfig());
+		expect(engine.tick(0.1)).toHaveLength(1);
+	});
+
+	it("swaps the track under a running comment when the offset changes", () => {
+		const engine = new DanmakuEngine(makeConfig(), measure);
+		engine.setItems([makeItem({ time: 0, text: "旧轨" })]);
+		expect(engine.tick(0)).toHaveLength(1);
+		expect(engine.tick(1)).toHaveLength(1);
+		// The same track, shifted later: the running comment keeps flying...
+		engine.replaceItems([
+			makeItem({ time: 0.5, text: "旧轨" }),
+			makeItem({ time: 3, text: "未来" }),
+		]);
+		expect(engine.tick(1.2)).toHaveLength(1);
+		expect(engine.tick(2.1)).toHaveLength(1);
+		// ...and the shifted schedule spawns from its new times (the one now in the past
+		// is not replayed).
+		expect(engine.tick(3.05)).toHaveLength(2);
+		expect(engine.activeCount).toBe(2);
 	});
 });

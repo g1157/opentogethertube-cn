@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import DanmakuLayer from "@/components/players/DanmakuLayer.vue";
+import { useDanmaku } from "@/components/composables";
 import { flush, mountComponent } from "./component-test-utils";
 
 vi.mock("@/util/danmaku/provider", () => ({
@@ -124,7 +125,7 @@ describe("danmaku layer frame loop", () => {
 		// does in a browser; jsdom's stub never delivers that first observation.
 		window.dispatchEvent(new Event("resize"));
 		await nextTick();
-		return { wrapper, video, state };
+		return { wrapper, video, state, store };
 	}
 
 	it("repaints on every animation frame while the media clock advances", async () => {
@@ -214,5 +215,22 @@ describe("danmaku layer frame loop", () => {
 				true,
 			);
 		}
+	});
+
+	it("purges the track when danmaku are switched off and never repaints it", async () => {
+		const { video, store } = await mountLayer();
+		expect(context.strokeText.mock.calls.length).toBeGreaterThan(0);
+		expect(useDanmaku().loadedCount.value).toBe(1);
+
+		store.commit("settings/UPDATE_TRANSIENT", { danmakuEnabled: false });
+		await nextTick();
+		expect(useDanmaku().loadedCount.value).toBe(0);
+		const strokesWhenOff = context.strokeText.mock.calls.length;
+
+		// Regression: a disabled layer kept its comments, so a pause or a paused seek
+		// repainted the whole track over the picture.
+		video.dispatchEvent(new Event("pause"));
+		video.dispatchEvent(new Event("seeked"));
+		expect(context.strokeText.mock.calls.length).toBe(strokesWhenOff);
 	});
 });
