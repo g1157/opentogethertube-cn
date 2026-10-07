@@ -378,8 +378,10 @@ describe("native playback rate correction", () => {
 		await sync.tick();
 		expect(sync.getMetrics().deadlineSeeks).toBe(1);
 		expect(setPosition).toHaveBeenCalledWith(100);
+		// The 1.5s catch-up is the largest drift this source saw.
+		expect(sync.getMetrics().maxAbsDrift).toBeCloseTo(1.5, 6);
 		sync.resetMetrics();
-		expect(sync.getMetrics()).toEqual({ rateWrites: 0, deadlineSeeks: 0 });
+		expect(sync.getMetrics()).toEqual({ rateWrites: 0, deadlineSeeks: 0, maxAbsDrift: 0 });
 	});
 
 	it("does not write rates at all when the diagnostic switch disables bending", async () => {

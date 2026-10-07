@@ -874,6 +874,21 @@ export default defineComponent({
 		const playbackQuality = createPlaybackQuality({
 			service: () => currentSource.value?.service ?? null,
 			send: sendPlaybackQualityReport,
+			// Sync diagnosis + dropped-frame counters ride along with every report, so the
+			// slow-device questions are answerable from real sessions without anyone
+			// holding a debugger (see docs/old-device-stutter-2026-10-07.zh-CN.md).
+			getSyncCounters: () => playbackSync.getMetrics(),
+			getFrameQuality: () => {
+				try {
+					const quality = statsVideoElement.value?.getVideoPlaybackQuality?.();
+					return quality
+						? { total: quality.totalVideoFrames, dropped: quality.droppedVideoFrames }
+						: null;
+				} catch {
+					// A player without the counters simply reports zeros for this window.
+					return null;
+				}
+			},
 		});
 
 		// Quality is reported per source; a repeated sync of the same video is not a restart.
@@ -951,6 +966,9 @@ export default defineComponent({
 			if (syncMetrics.deadlineSeeks !== metrics.deadlineSeeks) {
 				syncMetrics.deadlineSeeks = metrics.deadlineSeeks;
 			}
+			if (syncMetrics.maxAbsDrift !== metrics.maxAbsDrift) {
+				syncMetrics.maxAbsDrift = metrics.maxAbsDrift;
+			}
 			// The apply chain is event-driven and can silently drop its last play()
 			// (autoplay latch, aborted by a seek, no follow-up ready event). Tick a
 			// bounded self-heal attempt so the room state cannot stay unapplied forever.
@@ -1022,6 +1040,7 @@ export default defineComponent({
 			playbackSync.resetMetrics();
 			syncMetrics.rateWrites = 0;
 			syncMetrics.deadlineSeeks = 0;
+			syncMetrics.maxAbsDrift = 0;
 		});
 
 		// connection status

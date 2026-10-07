@@ -30,6 +30,9 @@ export interface PlaybackSyncMetrics {
 	rateWrites: number;
 	/** Bend deadlines that expired into a visible seek. */
 	deadlineSeeks: number;
+	/** Largest absolute drift seen since the counters last reset. Bending only engages
+	 * past 0.3s, so this says whether the field even reaches that zone. */
+	maxAbsDrift: number;
 }
 
 interface SeekRequestOptions {
@@ -100,6 +103,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 	let bendDeadlineAt = 0;
 	let rateWrites = 0;
 	let deadlineSeeks = 0;
+	let maxAbsDrift = 0;
 
 	function getBendBase() {
 		// The diagnostic switch in the playback details panel turns the engine into a
@@ -162,6 +166,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 	function resetMetrics() {
 		rateWrites = 0;
 		deadlineSeeks = 0;
+		maxAbsDrift = 0;
 	}
 
 	function reset() {
@@ -230,6 +235,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			return;
 		}
 		const drift = Math.abs(latest.position - position);
+		maxAbsDrift = Math.max(maxAbsDrift, drift);
 		const canBend = latest.playing && !latest.temporarySpeed && getBendBase() !== null;
 		// A room sync must not freeze playback for a drift the rate bend can absorb; without
 		// a rate setter (or while paused) only the 300 ms dead band is forgiven.
@@ -291,6 +297,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			}
 			const drift = latest.position - position;
 			const magnitude = Math.abs(drift);
+			maxAbsDrift = Math.max(maxAbsDrift, magnitude);
 			const base = getBendBase();
 			const canBend = latest.playing && !latest.temporarySpeed && base !== null;
 			// While playing, a rate change absorbs up to HARD_SEEK_DRIFT; a paused room or a
@@ -360,7 +367,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 	}
 
 	function getMetrics(): PlaybackSyncMetrics {
-		return { rateWrites, deadlineSeeks };
+		return { rateWrites, deadlineSeeks, maxAbsDrift };
 	}
 
 	return { tick, requestSeek, reset, invalidateRate, dispose, getMetrics, resetMetrics };

@@ -19,6 +19,11 @@ const report = {
 	playSeconds: 600,
 	seeks: 3,
 	errors: 1,
+	rateWrites: 240,
+	deadlineSeeks: 2,
+	maxDriftSeconds: 0.9,
+	totalFrames: 10_000,
+	droppedFrames: 37,
 };
 
 describe("playback quality reports", () => {
@@ -37,6 +42,32 @@ describe("playback quality reports", () => {
 		expect(metrics).toContain(`ott_playback_startup_seconds_count{service="${service}"} 1`);
 		expect(metrics).toContain(`ott_playback_seeks{service="${service}"} 3`);
 		expect(metrics).toContain(`ott_playback_errors{service="${service}"} 1`);
+		expect(metrics).toContain(`ott_playback_rate_writes{service="${service}"} 240`);
+		expect(metrics).toContain(`ott_playback_deadline_seeks{service="${service}"} 2`);
+		expect(metrics).toContain(`ott_playback_max_drift_seconds_count{service="${service}"} 1`);
+		expect(metrics).toContain(`ott_playback_max_drift_seconds_sum{service="${service}"} 0.9`);
+		expect(metrics).toContain(`ott_playback_total_frames{service="${service}"} 10000`);
+		expect(metrics).toContain(`ott_playback_dropped_frames{service="${service}"} 37`);
+	});
+
+	it("accepts a legacy report without the new counters", async () => {
+		// A cached older client must keep validating; the new counters simply stay empty.
+		await request(app)
+			.post("/api/playback/quality")
+			.set("X-Forwarded-For", "10.1.0.9")
+			.send({
+				service: "vimeo",
+				startup: 1,
+				rebuffers: 0,
+				rebufferSeconds: 0,
+				playSeconds: 30,
+				seeks: 0,
+				errors: 0,
+			})
+			.expect(204);
+		const metrics = await register.metrics();
+		expect(metrics).not.toContain('ott_playback_rate_writes{service="vimeo"}');
+		expect(metrics).not.toContain('ott_playback_max_drift_seconds_count{service="vimeo"}');
 	});
 
 	it("collapses unknown service labels into other (cardinality safety)", async () => {

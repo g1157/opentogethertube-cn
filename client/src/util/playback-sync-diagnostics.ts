@@ -13,4 +13,8 @@ import type { PlaybackSyncMetrics } from "./playback-sync";
 export const rateBendDisabled = ref(false);
 
 /** The live sync engine's counters, mirrored here by the room for the panel. */
-export const syncMetrics = reactive<PlaybackSyncMetrics>({ rateWrites: 0, deadlineSeeks: 0 });
+export const syncMetrics = reactive<PlaybackSyncMetrics>({
+	rateWrites: 0,
+	deadlineSeeks: 0,
+	maxAbsDrift: 0,
+});

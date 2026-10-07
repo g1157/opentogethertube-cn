@@ -2,6 +2,11 @@
  * Per-source playback quality, measured on the client because only the client sees
  * startup, rebuffering and real play time. Reports go to the server as counters so the
  * deployment can answer "is playback getting worse?" without any per-viewer records.
+ *
+ * The counter set follows the one the industry converges on for this — startup time,
+ * rebuffering, dropped frames, errors (what Netflix/YouTube-style QoE dashboards read) —
+ * plus this fork's sync diagnosis counters. Deliberately per-session aggregates, not the
+ * per-second samples a full ITU-T P.1203 quality model would need.
  */
 export interface PlaybackQualityReport {
 	service: string;
@@ -12,12 +17,27 @@ export interface PlaybackQualityReport {
 	playSeconds: number;
 	seeks: number;
 	errors: number;
+	/** Sync-engine deltas: rate writes actually sent to the player (the "4 Hz re-timing"
+	 * diagnosis) and bend deadlines that ended in a visible seek. */
+	rateWrites: number;
+	deadlineSeeks: number;
+	/** The largest drift the sync engine saw for this source, in seconds. Bending only
+	 * engages past 0.3s, so this says whether the field even reaches that zone. */
+	maxDriftSeconds: number;
+	/** Media-pipeline frame deltas: frames produced and frames dropped rather than
+	 * displayed — the industry-standard stutter counters. */
+	totalFrames: number;
+	droppedFrames: number;
 }
 
 interface PlaybackQualityOptions {
 	service: () => string | null;
 	send: (report: PlaybackQualityReport) => void;
 	now?: () => number;
+	/** Live sync counters; their per-window deltas ride along with every report. */
+	getSyncCounters?: () => { rateWrites: number; deadlineSeeks: number; maxAbsDrift: number };
+	/** Media-pipeline frame counters (`getVideoPlaybackQuality`); null when unavailable. */
+	getFrameQuality?: () => { total: number; dropped: number } | null;
 }
 
 /** Shorter sessions say nothing useful about quality and are not reported. */
@@ -37,6 +57,17 @@ export function createPlaybackQuality(options: PlaybackQualityOptions) {
 	let rebuffers = 0;
 	let seeks = 0;
 	let errors = 0;
+	// Window bases for the counters that keep running between reports.
+	let lastSyncCounters = { rateWrites: 0, deadlineSeeks: 0 };
+	let lastFrameCounters = { total: 0, dropped: 0 };
+
+	/**
+	 * A counter that went backwards was reset under us (a new source, a reloaded media
+	 * element); its whole value then belongs to the current window instead of the delta.
+	 */
+	function deltaOf(current: number, previous: number): number {
+		return current >= previous ? current - previous : Math.max(0, current);
+	}
 
 	function collectPlayTime() {
 		if (playingSince !== null) {
@@ -64,6 +95,14 @@ export function createPlaybackQuality(options: PlaybackQualityOptions) {
 	}
 
 	function build(): PlaybackQualityReport | null {
+		const sync = options.getSyncCounters?.();
+		const frames = options.getFrameQuality?.() ?? null;
+		const rateWrites = sync ? deltaOf(sync.rateWrites, lastSyncCounters.rateWrites) : 0;
+		const deadlineSeeks = sync
+			? deltaOf(sync.deadlineSeeks, lastSyncCounters.deadlineSeeks)
+			: 0;
+		const totalFrames = frames ? deltaOf(frames.total, lastFrameCounters.total) : 0;
+		const droppedFrames = frames ? deltaOf(frames.dropped, lastFrameCounters.dropped) : 0;
 		if (service === null || playSeconds < MIN_REPORTABLE_PLAY_SECONDS) {
 			return null;
 		}
@@ -75,6 +114,13 @@ export function createPlaybackQuality(options: PlaybackQualityOptions) {
 			playSeconds: Math.round(playSeconds),
 			seeks,
 			errors,
+			rateWrites,
+			deadlineSeeks,
+			// A maximum, not a counter: reporting the same value again after a mid-session
+			// flush is honest, and the engine resets it per source.
+			maxDriftSeconds: sync ? Math.round(sync.maxAbsDrift * 1000) / 1000 : 0,
+			totalFrames,
+			droppedFrames,
 		};
 	}
 
@@ -84,6 +130,15 @@ export function createPlaybackQuality(options: PlaybackQualityOptions) {
 		const report = build();
 		if (report) {
 			options.send(report);
+		}
+		// Advance the window bases whether or not the report was worth sending.
+		const sync = options.getSyncCounters?.();
+		if (sync) {
+			lastSyncCounters = { rateWrites: sync.rateWrites, deadlineSeeks: sync.deadlineSeeks };
+		}
+		const frames = options.getFrameQuality?.() ?? null;
+		if (frames) {
+			lastFrameCounters = { total: frames.total, dropped: frames.dropped };
 		}
 		resetReport();
 		if (playing && bufferingSince === null) {

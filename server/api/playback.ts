@@ -21,6 +21,13 @@ const reportSchema = z.object({
 	playSeconds: z.number().finite().min(0).max(MAX_SECONDS),
 	seeks: z.number().int().min(0).max(MAX_EVENTS),
 	errors: z.number().int().min(0).max(MAX_EVENTS),
+	// Sync diagnosis and dropped-frame counters. Optional so a cached older client (the
+	// frontend reloads within minutes of a deploy) still validates.
+	rateWrites: z.number().int().min(0).max(MAX_EVENTS).optional(),
+	deadlineSeeks: z.number().int().min(0).max(MAX_EVENTS).optional(),
+	maxDriftSeconds: z.number().finite().min(0).max(MAX_SECONDS).optional(),
+	totalFrames: z.number().int().min(0).max(MAX_EVENTS).optional(),
+	droppedFrames: z.number().int().min(0).max(MAX_EVENTS).optional(),
 });
 
 /**
@@ -78,6 +85,37 @@ const counterErrors = new Counter({
 	labelNames: ["service"],
 });
 
+const counterRateWrites = new Counter({
+	name: "ott_playback_rate_writes",
+	help: "playbackRate writes the sync engine sent to the player, by service",
+	labelNames: ["service"],
+});
+
+const counterDeadlineSeeks = new Counter({
+	name: "ott_playback_deadline_seeks",
+	help: "Rate-bend deadlines that ended in a visible seek, by service",
+	labelNames: ["service"],
+});
+
+const histogramMaxDrift = new Histogram({
+	name: "ott_playback_max_drift_seconds",
+	help: "Largest room-clock drift seen per source, by service",
+	labelNames: ["service"],
+	buckets: [0.15, 0.3, 0.5, 1, 3, 10],
+});
+
+const counterTotalFrames = new Counter({
+	name: "ott_playback_total_frames",
+	help: "Video frames produced by the media pipeline, by service",
+	labelNames: ["service"],
+});
+
+const counterDroppedFrames = new Counter({
+	name: "ott_playback_dropped_frames",
+	help: "Video frames dropped rather than displayed, by service",
+	labelNames: ["service"],
+});
+
 const lastReportAt = new Map<string, number>();
 
 /**
@@ -132,6 +170,21 @@ router.post("/quality", (req, res) => {
 		counterRebuffers.inc(labels, report.rebuffers);
 	}
 	counterRebufferSeconds.inc(labels, report.rebufferSeconds);
+	if (report.rateWrites !== undefined) {
+		counterRateWrites.inc(labels, report.rateWrites);
+	}
+	if (report.deadlineSeeks !== undefined) {
+		counterDeadlineSeeks.inc(labels, report.deadlineSeeks);
+	}
+	if (report.maxDriftSeconds !== undefined) {
+		histogramMaxDrift.observe(labels, report.maxDriftSeconds);
+	}
+	if (report.totalFrames !== undefined) {
+		counterTotalFrames.inc(labels, report.totalFrames);
+	}
+	if (report.droppedFrames !== undefined) {
+		counterDroppedFrames.inc(labels, report.droppedFrames);
+	}
 	res.sendStatus(204);
 });
 

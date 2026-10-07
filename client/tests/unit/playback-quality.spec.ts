@@ -103,4 +103,73 @@ describe("playback quality measurement", () => {
 		quality.flush();
 		expect(sent.map(report => report.playSeconds)).toEqual([10, 10]);
 	});
+
+	it("reports zeros when the sync and frame counters are unavailable", () => {
+		playFromFirstFrame();
+		now += 10_000;
+		quality.flush();
+		expect(sent[0]).toMatchObject({
+			rateWrites: 0,
+			deadlineSeeks: 0,
+			maxDriftSeconds: 0,
+			totalFrames: 0,
+			droppedFrames: 0,
+		});
+	});
+
+	it("reports per-window deltas of the sync and frame counters", () => {
+		const sync = { rateWrites: 0, deadlineSeeks: 0, maxAbsDrift: 0.6 };
+		const frames = { total: 0, dropped: 0 };
+		quality = createPlaybackQuality({
+			service: () => "hls",
+			send: report => sent.push(report),
+			now: () => now,
+			getSyncCounters: () => sync,
+			getFrameQuality: () => frames,
+		});
+		playFromFirstFrame();
+		sync.rateWrites += 240;
+		sync.deadlineSeeks += 2;
+		sync.maxAbsDrift = 1.4;
+		frames.total += 6000;
+		frames.dropped += 37;
+		now += 10_000;
+		quality.flush();
+		expect(sent[0]).toMatchObject({
+			rateWrites: 240,
+			deadlineSeeks: 2,
+			maxDriftSeconds: 1.4,
+			totalFrames: 6000,
+			droppedFrames: 37,
+		});
+
+		// A mid-session window reports only its own growth.
+		sync.rateWrites += 60;
+		sync.deadlineSeeks += 1;
+		frames.total += 1500;
+		frames.dropped += 3;
+		now += 10_000;
+		quality.flush();
+		expect(sent[1]).toMatchObject({
+			rateWrites: 60,
+			deadlineSeeks: 1,
+			totalFrames: 1500,
+			droppedFrames: 3,
+		});
+
+		// A counter that went backwards was reset (a new source, a reloaded element);
+		// its whole value belongs to this window.
+		sync.rateWrites = 25;
+		sync.deadlineSeeks = 0;
+		frames.total = 400;
+		frames.dropped = 1;
+		now += 10_000;
+		quality.flush();
+		expect(sent[2]).toMatchObject({
+			rateWrites: 25,
+			deadlineSeeks: 0,
+			totalFrames: 400,
+			droppedFrames: 1,
+		});
+	});
 });
