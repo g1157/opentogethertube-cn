@@ -3,8 +3,8 @@
 给在本仓库工作的 AI 代理的速查手册：**改哪里、怎么跑、有哪些坑**。目标是让新会话不必重新
 调查代码结构。人类可读的完整架构说明见 [architecture.zh-CN.md](./architecture.zh-CN.md)。
 
-**版本快照**：`feat/upscale-quality` @ `ebace39`（v1.2.6 + 1 提交，2026-09-30；写作时
-`origin/main` 同点），写于 2026-10-01。**维护规则**：发版或大改后更新本文件（§9 有核查命令）；过期信息比没有信息更糟。
+**版本快照**：`feat/ass-subtitles` @ v1.4.1 + v1.4.2 工作批次（2026-10-07；v1.4.2 尚未发布），
+写于 2026-10-07。**维护规则**：发版或大改后更新本文件（§9 有核查命令）；过期信息比没有信息更糟。
 
 ---
 
@@ -68,7 +68,7 @@ client/src/
   components/     ServerMessageHandler.vue、Workaround*.vue、players/*、controls/*、
                   composables/media-player.ts、Chat/VideoQueue/RoomNotes/PlayerStatsPanel…
   locales/        en.ts zh-CN.ts de/es/fr/pirate/pt-br/ru（后 6 个按需加载、普遍缺键）
-client/tests/unit/  69 个 *.spec.ts（32 个组件用例）+ 3 个旧 .js 用例
+client/tests/unit/  83 个 *.spec.ts（43 个组件用例）+ 3 个旧 .js 用例
 
 server/
   app.ts          入口（无 index.ts）：启动顺序/优雅停机见架构文档 §4.1
@@ -80,7 +80,7 @@ server/
   infoextractor.ts serviceadapter.ts services/* ffprobe.ts sponsorblock.ts   媒体管线
   storage.ts storage/*  models/*  migrations/（22 个）   持久化（PG/SQLite）
   redisclient.ts ott-config.ts metrics.ts logger.ts exceptions.ts voice*.ts balancer.ts
-  tests/unit/     47 个 *.spec.ts（+1 类型测试、fixtures/、redis mock）
+  tests/unit/     49 个 *.spec.ts（+1 类型测试、fixtures/、redis mock）
   config/config.mjs + .sequelizerc    Sequelize CLI 配置
 
 common/           共享 TS：models/messages.ts（协议）、permissions.ts（28 权限位）、
@@ -137,7 +137,8 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
   seek `media-seek.ts`、延迟 `connection-latency.ts`（8 样本，`min/2`）。
 - **播放器**：接口 `components/composables/media-player.ts`；实现 `components/players/*`；
   分发 `OmniPlayer.vue`；只有 Direct/HLS/DASH 支持速率微调（`supportsRateBend()`）。
-- **画质增强**：`util/upscale/*`（档位、渲染器选择、WebGPU 探针、目标池、自动降档）；UI 在
+- **画质增强**：`util/upscale/*`（档位、渲染器选择、WebGPU 探针、目标池、自动降档、帧节奏判据
+  `pacing.ts`——媒体时钟/下限/管线丢帧三判据）；UI 在
   `components/controls/VideoSettings.vue` 与 `components/players/UpscaleLayer.vue`。
   生成文件 `anime4k-glsl.ts` / `anime4k-ultra-glsl.ts` **由脚本生成，禁止手改**。
 - **i18n**：默认 `zh-CN`、回退 `en`；两者立即加载，其余按需 import；新增文案两边都要加。
@@ -279,9 +280,9 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
 git describe --tags --always HEAD          # 版本快照
 git rev-parse HEAD origin/main             # 主干是否同点
 ls server/migrations/*.js | wc -l          # 迁移数量（当前 22）
-find server/tests -name '*.spec.ts' | wc -l   # 47（另有 1 个 .spec-d.ts）
-find client/tests -name '*.spec.ts' | wc -l   # 69（另有 3 个 .js）
-find common/tests -name '*.spec.ts' | wc -l   # 7（另有 1 个 .spec-d.ts）
+find server/tests -name '*.spec.ts' | wc -l   # 49（另有 1 个 .spec-d.ts）
+find client/tests -name '*.spec.ts' | wc -l   # 83（另有 3 个 .js）
+find common/tests -name '*.spec.ts' | wc -l   # 8（另有 1 个 .spec-d.ts）
 ls tests/e2e/integration/*.spec.ts | wc -l    # 9
 grep -n "debounce" server/room.ts             # 50ms / 5000ms
 grep -n "MAX_BEND\|HARD_SEEK_DRIFT" client/src/util/playback-sync.ts
