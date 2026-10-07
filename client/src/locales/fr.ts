@@ -1,4 +1,4 @@
-import { OttWebsocketError } from "ott-common/models/types";
+import { OttWebsocketError, Role } from "ott-common/models/types";
 
 export default {
 	common: {
@@ -303,6 +303,15 @@ export default {
 		text2: "Les administrateurs ont tous les droits. Le propriétaire de la salle est automatiquement administrateur et ne peut pas être rétrogradé.",
 		"viewing-as": "Affichage en tant que",
 		permission: "Permission",
+		"group-count": "{count} éléments",
+		groups: {
+			playback: "Lecture",
+			queue: "File d'attente",
+			chat: "Chat",
+			room: "Paramètres de la salle",
+			users: "Gestion des utilisateurs",
+			advanced: "Avancé : délégation des permissions",
+		},
 	},
 	"client-settings": {
 		title: "Préférences",
@@ -328,9 +337,54 @@ export default {
 				"Il s'est passé quelque chose, mais nous ne savons pas quoi. Veuillez signaler ceci comme un bug.",
 		},
 	},
+	roles: {
+		[Role.Administrator]: "Administrateur",
+		[Role.Moderator]: "Modérateur",
+		[Role.TrustedUser]: "Utilisateur de confiance",
+		[Role.RegisteredUser]: "Utilisateur inscrit",
+		[Role.UnregisteredUser]: "Utilisateur non inscrit",
+		[Role.Owner]: "Propriétaire",
+	},
 	permissions: {
+		playback: {
+			"play-pause": "Lire / mettre en pause",
+			skip: "Passer la vidéo actuelle",
+			seek: "Se déplacer dans la vidéo",
+			speed: "Changer la vitesse de lecture",
+		},
+		chat: "Envoyer des messages de chat",
+		"manage-queue": {
+			add: "Ajouter des vidéos",
+			remove: "Supprimer des vidéos",
+			order: "Réorganiser la file d'attente",
+			vote: "Voter pour des vidéos",
+			"play-now": "Lire une vidéo immédiatement",
+			edit: "Modifier les éléments de la file (sous-titres)",
+		},
 		"configure-room": {
+			"set-title": "Changer le titre de la salle",
+			"set-description": "Changer la description de la salle",
+			"set-visibility": "Changer la visibilité de la salle",
+			"set-queue-mode": "Changer le mode de file d'attente",
+			other: "Modifier les autres paramètres de la salle",
+			"set-danmaku-source": "Définir la source de danmaku de la salle",
 			"set-notes": "Ajouter ou supprimer les notes de la salle",
+			"set-permissions": {
+				"for-moderator": "Définir les permissions des modérateurs",
+				"for-trusted-users": "Définir les permissions des utilisateurs de confiance",
+				"for-all-registered-users": "Définir les permissions des utilisateurs inscrits",
+				"for-all-unregistered-users":
+					"Définir les permissions des utilisateurs non inscrits",
+			},
+		},
+		"manage-users": {
+			"promote-admin": "Promouvoir administrateur",
+			"demote-admin": "Retirer le rôle d'administrateur",
+			"promote-moderator": "Promouvoir modérateur",
+			"demote-moderator": "Retirer le rôle de modérateur",
+			"promote-trusted-user": "Promouvoir utilisateur de confiance",
+			"demote-trusted-user": "Retirer le rôle d'utilisateur de confiance",
+			kick: "Expulser des utilisateurs",
 		},
 	},
 };

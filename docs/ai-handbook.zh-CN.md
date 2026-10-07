@@ -260,7 +260,8 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
 来自 `docs/fix-report-2026-09-30.zh-CN.md` 第八节"明确未修"与 `docs/code-review-2026-09-30.zh-CN.md`
 中修复报告未覆盖的条目（细节以原文为准）：
 
-- 非中英 locale（de/es/fr/pt-br/ru）普遍缺 396–475 个键；可访问性覆盖不均。
+- 非中英 locale（de/es/fr/pt-br/ru）普遍缺数百个键（权限编辑器一组已于 v1.4.3 补全：权限名、
+  分组、角色名在全部 8 种语言下完整）；可访问性覆盖不均。
 - SponsorBlock 等外部 IO 仍在房间 tick 关键路径上（已加指标可量化）。
 - `RunFfprobe` 路径存在 DNS rebinding 缺口（默认策略 `run`）；SSRF 只在每次重定向检查。
 - `corsFromHeaders` 把任何非空 ACAO 当允许（已知取舍）。

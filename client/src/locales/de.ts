@@ -378,6 +378,15 @@ export default {
 		text2: "Administratoren haben alle Rechte. Der Raumbesitzer ist automatisch Administrator und kann nicht degradiert werden.",
 		"viewing-as": "Ansicht als",
 		permission: "Berechtigung",
+		"group-count": "{count} Einträge",
+		groups: {
+			playback: "Wiedergabe",
+			queue: "Warteschlange",
+			chat: "Chat",
+			room: "Raumeinstellungen",
+			users: "Benutzerverwaltung",
+			advanced: "Erweitert: Rechteübertragung",
+		},
 	},
 	"client-settings": {
 		title: "Anpassen",
@@ -439,8 +448,45 @@ export default {
 		},
 	},
 	permissions: {
+		playback: {
+			"play-pause": "Wiedergeben / pausieren",
+			skip: "Aktuelles Video überspringen",
+			seek: "Spulen",
+			speed: "Wiedergabegeschwindigkeit ändern",
+		},
+		chat: "Chatnachrichten senden",
+		"manage-queue": {
+			add: "Videos hinzufügen",
+			remove: "Videos entfernen",
+			order: "Warteschlange umsortieren",
+			vote: "Über Videos abstimmen",
+			"play-now": "Ein Video sofort abspielen",
+			edit: "Einträge bearbeiten (Untertitel)",
+		},
 		"configure-room": {
+			"set-title": "Raumtitel ändern",
+			"set-description": "Raumbeschreibung ändern",
+			"set-visibility": "Sichtbarkeit des Raums ändern",
+			"set-queue-mode": "Warteschlangen-Modus ändern",
+			other: "Sonstige Raumeinstellungen ändern",
+			"set-danmaku-source": "Danmaku-Quelle des Raums festlegen",
 			"set-notes": "Notizen des Raums hinzufügen oder entfernen",
+			"set-permissions": {
+				"for-moderator": "Berechtigungen für Moderatoren festlegen",
+				"for-trusted-users": "Berechtigungen für vertrauensvolle Nutzer festlegen",
+				"for-all-registered-users": "Berechtigungen für registrierte Nutzer festlegen",
+				"for-all-unregistered-users":
+					"Berechtigungen für nicht registrierte Nutzer festlegen",
+			},
+		},
+		"manage-users": {
+			"promote-admin": "Zum Administrator befördern",
+			"demote-admin": "Administratorrechte entziehen",
+			"promote-moderator": "Zum Moderator befördern",
+			"demote-moderator": "Moderatorrechte entziehen",
+			"promote-trusted-user": "Zum vertrauensvollen Nutzer befördern",
+			"demote-trusted-user": "Vertrauensstatus entziehen",
+			kick: "Benutzer rauswerfen",
 		},
 	},
 };
