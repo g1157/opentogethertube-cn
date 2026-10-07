@@ -364,6 +364,50 @@ describe("native playback rate correction", () => {
 		expect(setLocalRate).toHaveBeenCalledTimes(2);
 	});
 
+	it("counts rate writes and deadline fallbacks for the diagnostics panel", async () => {
+		const before = sync.getMetrics();
+		expect(before.deadlineSeeks).toBe(0);
+		getPosition.mockReturnValue(99.69);
+		await sync.tick();
+		expect(sync.getMetrics().rateWrites).toBe(before.rateWrites + 1);
+		// A catch-up the bend cannot finish expires into the visible seek.
+		getPosition.mockReturnValue(98.5);
+		vi.advanceTimersByTime(250);
+		await sync.tick();
+		vi.advanceTimersByTime(30000);
+		await sync.tick();
+		expect(sync.getMetrics().deadlineSeeks).toBe(1);
+		expect(setPosition).toHaveBeenCalledWith(100);
+		sync.resetMetrics();
+		expect(sync.getMetrics()).toEqual({ rateWrites: 0, deadlineSeeks: 0 });
+	});
+
+	it("does not write rates at all when the diagnostic switch disables bending", async () => {
+		const local = createPlaybackSync({
+			getState: () => ({ ...state }),
+			getPosition,
+			setPosition,
+			getBendBase: () => base,
+			setLocalRate,
+			allowRateBend: () => false,
+			onError,
+		});
+		await local.tick();
+		setPosition.mockClear();
+		// A drift that would bend if the switch were on stays untouched...
+		getPosition.mockReturnValue(99.6);
+		vi.advanceTimersByTime(2000);
+		await local.tick();
+		expect(setLocalRate).not.toHaveBeenCalled();
+		// ...and beyond one second the coarser seek path still corrects it.
+		getPosition.mockReturnValue(98.5);
+		vi.advanceTimersByTime(2000);
+		await local.tick();
+		expect(setPosition).toHaveBeenCalledWith(100);
+		expect(local.getMetrics().rateWrites).toBe(0);
+		local.dispose();
+	});
+
 	it("suspends during temporary 2x and reapplies the restored room base afterwards", async () => {
 		await sync.tick();
 		base = 2;

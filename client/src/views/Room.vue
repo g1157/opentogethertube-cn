@@ -503,6 +503,7 @@ import { PlayerControlsActivityKey, usePlayerControls } from "@/util/player-cont
 import { createPlayerGestures, type LevelSide } from "@/util/player-gestures";
 import { usePlayerBrightness } from "@/util/player-brightness";
 import { createPlaybackSync } from "@/util/playback-sync";
+import { rateBendDisabled, syncMetrics } from "@/util/playback-sync-diagnostics";
 import { PlayerActionsKey } from "@/util/player-actions";
 import {
 	createPlaybackPreparation,
@@ -835,6 +836,9 @@ export default defineComponent({
 				return player.setPosition(position);
 			},
 			getBendBase: () => (player.supportsRateBend() ? store.state.room.playbackSpeed : null),
+			// Session-only A/B switch from the slow-device investigation; see
+			// util/playback-sync-diagnostics.ts.
+			allowRateBend: () => !rateBendDisabled.value,
 			setLocalRate: rate => {
 				const instance = player.player.value;
 				if (instance?.supportsRateBend === true) {
@@ -939,6 +943,14 @@ export default defineComponent({
 			nextPrefetch.tick();
 			void playbackPreparation.tick();
 			void playbackSync.tick();
+			// Mirror the sync engine's counters for the playback details panel.
+			const metrics = playbackSync.getMetrics();
+			if (syncMetrics.rateWrites !== metrics.rateWrites) {
+				syncMetrics.rateWrites = metrics.rateWrites;
+			}
+			if (syncMetrics.deadlineSeeks !== metrics.deadlineSeeks) {
+				syncMetrics.deadlineSeeks = metrics.deadlineSeeks;
+			}
 			// The apply chain is event-driven and can silently drop its last play()
 			// (autoplay latch, aborted by a seek, no follow-up ready event). Tick a
 			// bounded self-heal attempt so the room state cannot stay unapplied forever.
@@ -1002,6 +1014,14 @@ export default defineComponent({
 			if (iTimestampUpdater.value) {
 				clearInterval(iTimestampUpdater.value);
 			}
+		});
+
+		// Mirror the sync engine's counters for the playback details panel. Flipping the
+		// diagnostic switch zeroes them so the A/B reads as "same clip, bend on vs off".
+		watch(rateBendDisabled, () => {
+			playbackSync.resetMetrics();
+			syncMetrics.rateWrites = 0;
+			syncMetrics.deadlineSeeks = 0;
 		});
 
 		// connection status

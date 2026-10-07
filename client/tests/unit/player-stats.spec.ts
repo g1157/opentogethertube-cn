@@ -49,6 +49,7 @@ function baseInput(overrides: Partial<PlayerStatsInput> = {}): PlayerStatsInput 
 		video: fakeVideo(),
 		measuredFps: 59.5,
 		sourceFps: 23.98,
+		sync: { rateWrites: 12, deadlineSeeks: 3 },
 		now: 1_000_000,
 		room: {
 			isPlaying: true,
@@ -93,6 +94,8 @@ describe("playback details", () => {
 		expect(rowOf(sections, "player.stats.state").valueKey).toBe("player.stats.state-playing");
 		expect(rowOf(sections, "player.stats.render-fps").value).toBe("59.5 fps");
 		expect(rowOf(sections, "player.stats.source-fps").value).toBe("23.98 fps");
+		expect(rowOf(sections, "player.stats.rate-writes").params).toEqual({ value: 12 });
+		expect(rowOf(sections, "player.stats.deadline-seeks").params).toEqual({ value: 3 });
 		expect(rowOf(sections, "player.stats.dropped").value).toBe("3 / 1000");
 		expect(rowOf(sections, "player.stats.buffer-ahead").params).toEqual({ value: "20.0" });
 		// Auto follows the displayed 2560x1440 box, which is a 2x render of the 720p source.

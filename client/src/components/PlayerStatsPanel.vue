@@ -20,17 +20,31 @@
 				</span>
 			</div>
 		</div>
+		<!-- The A/B step of the slow-device investigation: bending off (session-only) makes
+		     the same clip play without the continuous rate re-timing. -->
+		<div class="player-stats-row player-stats-action-row">
+			<button type="button" class="player-stats-bend-toggle" @click="toggleRateBend">
+				{{ $t("player.stats.rate-bend") }}：{{
+					$t(rateBendDisabled ? "common.off" : "common.on")
+				}}
+			</button>
+		</div>
 	</div>
 </template>
 
 <script lang="ts" setup>
 import { usePlayerStats } from "./composables/player-stats";
+import { rateBendDisabled } from "@/util/playback-sync-diagnostics";
 
 const props = defineProps<{
 	/** The live media element, when the current player owns one. */
 	videoElement?: HTMLVideoElement;
 }>();
 const emit = defineEmits(["close"]);
+
+function toggleRateBend() {
+	rateBendDisabled.value = !rateBendDisabled.value;
+}
 
 // Sampling only runs while the panel is mounted.
 const { sections } = usePlayerStats(
@@ -115,6 +129,28 @@ const { sections } = usePlayerStats(
 	display: flex;
 	align-items: baseline;
 	gap: 0.35rem;
+}
+
+/* The diagnostic toggle is the panel's only interactive row besides the close button. */
+.player-stats-action-row {
+	margin-top: 0.35rem;
+	padding-top: 0.3rem;
+	border-top: 1px solid rgb(255 255 255 / 14%);
+}
+
+.player-stats-bend-toggle {
+	pointer-events: auto;
+	border: none;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	padding: 0;
+	cursor: pointer;
+	opacity: 0.8;
+}
+
+.player-stats-bend-toggle:hover {
+	opacity: 1;
 }
 
 .player-stats-label {

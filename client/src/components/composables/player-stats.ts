@@ -2,6 +2,8 @@ import { onBeforeUnmount, ref, watch, type Ref } from "vue";
 import { calculateCurrentPosition } from "ott-common/timestamp";
 import { useStore } from "@/store";
 import type { UpscaleMode } from "@/stores/settings";
+/** The live sync engine's counters, mirrored into a module ref by the room. */
+import { syncMetrics } from "@/util/playback-sync-diagnostics";
 import { medianFrameInterval } from "@/util/upscale/pacing";
 import {
 	canAffordCnnUpscale,
@@ -32,6 +34,8 @@ export interface PlayerStatsInput {
 	measuredFps: number | null;
 	/** The source's nominal frame rate from the presented media times, null while unknown. */
 	sourceFps: number | null;
+	/** Sync-engine counters for the slow-device diagnosis (rate writes, deadline seeks). */
+	sync: { rateWrites: number; deadlineSeeks: number };
 	now: number;
 	room: {
 		isPlaying: boolean;
@@ -214,6 +218,16 @@ export function collectPlayerStats(input: PlayerStatsInput): PlayerStatsSection[
 			value: input.sourceFps === null ? "—" : `${input.sourceFps.toFixed(2)} fps`,
 		},
 		secondsRow("player.stats.drift", drift, s => `${s >= 0 ? "+" : ""}${s.toFixed(2)}`),
+		{
+			labelKey: "player.stats.rate-writes",
+			valueKey: "player.stats.value-count",
+			params: { value: input.sync.rateWrites },
+		},
+		{
+			labelKey: "player.stats.deadline-seeks",
+			valueKey: "player.stats.value-count",
+			params: { value: input.sync.deadlineSeeks },
+		},
 	];
 
 	const enhancementRows: PlayerStatsRow[] = [
@@ -333,6 +347,7 @@ export function usePlayerStats(
 			video: getVideo(),
 			measuredFps,
 			sourceFps,
+			sync: { rateWrites: syncMetrics.rateWrites, deadlineSeeks: syncMetrics.deadlineSeeks },
 			now: Date.now(),
 			room: {
 				isPlaying: room.isPlaying,

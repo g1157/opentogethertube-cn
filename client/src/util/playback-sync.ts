@@ -19,7 +19,17 @@ interface PlaybackSyncOptions {
 	/** Null for players with discrete rates (YouTube/PeerTube) or no rate setter (Vimeo). */
 	getBendBase?(): number | null;
 	setLocalRate?(rate: number): void | Promise<void>;
+	/** The slow-device A/B switch; false makes the engine behave like a player that
+	 * cannot change rates (coarser seeks instead of a continuously re-timed bend). */
+	allowRateBend?(): boolean;
 	onError(error: unknown): void;
+}
+
+export interface PlaybackSyncMetrics {
+	/** Rate writes actually sent to the player (the diagnosis for "4 Hz re-timing"). */
+	rateWrites: number;
+	/** Bend deadlines that expired into a visible seek. */
+	deadlineSeeks: number;
 }
 
 interface SeekRequestOptions {
@@ -88,8 +98,16 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 	/** Largest drift seen during the current bend; the deadline follows the catch-up size. */
 	let bendPeak = 0;
 	let bendDeadlineAt = 0;
+	let rateWrites = 0;
+	let deadlineSeeks = 0;
 
 	function getBendBase() {
+		// The diagnostic switch in the playback details panel turns the engine into a
+		// player without a rate setter, so an A/B can compare the same clip with and
+		// without the continuous re-timing.
+		if (options.allowRateBend && !options.allowRateBend()) {
+			return null;
+		}
 		const base = options.getBendBase?.();
 		return options.setLocalRate && base != null && Number.isFinite(base) && base > 0
 			? base
@@ -101,6 +119,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			return;
 		}
 		appliedRate = rate;
+		rateWrites++;
 		const currentGeneration = generation;
 		const failed = (error: unknown) => {
 			if (!disposed && currentGeneration === generation) {
@@ -140,6 +159,11 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		cancelBend();
 	}
 
+	function resetMetrics() {
+		rateWrites = 0;
+		deadlineSeeks = 0;
+	}
+
 	function reset() {
 		invalidateRate();
 		lastSeekAt = -Infinity;
@@ -148,6 +172,8 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		pendingSeekToleratesDrift = false;
 		pendingSeekReason = "reset";
 		inFlight = null;
+		// Counter readings are meant per source; a new source starts them over.
+		resetMetrics();
 	}
 
 	function canSeek(state: PlaybackSyncState) {
@@ -175,6 +201,11 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 
 	async function seek(state: PlaybackSyncState, reason = "drift") {
 		console.debug("playback-sync: hard seek", { reason, position: state.position });
+		if (reason === "bend-deadline") {
+			// The catch-up a rate bend could not converge is the "8-second fallback" the
+			// investigation doc wants measured on real devices.
+			deadlineSeeks++;
+		}
 		cancelBend();
 		lastSeekAt = Date.now();
 		bufferedSinceLastSeek = state.buffering;
@@ -328,5 +359,9 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		inFlight = null;
 	}
 
-	return { tick, requestSeek, reset, invalidateRate, dispose };
+	function getMetrics(): PlaybackSyncMetrics {
+		return { rateWrites, deadlineSeeks };
+	}
+
+	return { tick, requestSeek, reset, invalidateRate, dispose, getMetrics, resetMetrics };
 }
