@@ -9,6 +9,9 @@ const BINDING_DEFAULTS = {
 	repeat: false,
 };
 
+/** Keys a focused button or link handles natively; those stay with the element. */
+const ACTIVATION_CODES = new Set(["Space", "Enter", "NumpadEnter"]);
+
 export class KeyboardShortcuts {
 	shortcuts: [KeyBindingStrict, (event: KeyboardEvent) => void][] = [];
 
@@ -57,11 +60,23 @@ export class KeyboardShortcuts {
 		) {
 			return;
 		}
-		if (event.target instanceof Element) {
+		if (
+			event.target instanceof Element &&
+			!event.target.closest('[data-player-shortcuts="on"]')
+		) {
 			if (
 				event.target.closest(
-					'input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="slider"], [role="button"], [role="menu"], [data-player-shortcuts="off"]',
+					'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="slider"], [role="menu"], [data-player-shortcuts="off"]',
 				)
+			) {
+				return;
+			}
+			// A focused button or link keeps its own activation keys (Space/Enter), but the
+			// player's keys must still work right after clicking it — losing the seek keys
+			// to a focused fullscreen button read as the arrows "sometimes not working".
+			if (
+				event.target.closest('button, a[href], [role="button"]') &&
+				ACTIVATION_CODES.has(event.code)
 			) {
 				return;
 			}

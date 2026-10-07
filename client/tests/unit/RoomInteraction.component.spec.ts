@@ -589,6 +589,9 @@ describe("room player interactions", () => {
 	});
 
 	it("commits one room seek only after releasing a swipe", async () => {
+		// Pin the step so this asserts the gesture, not the shipped default.
+		page.store.commit("settings/UPDATE", { seekSeconds: 30 });
+		await nextTick();
 		const position = page.wrapper.vm.truePosition;
 		pointer("pointerdown");
 		pointer("pointermove", 260);
@@ -598,7 +601,7 @@ describe("room player interactions", () => {
 		pointer("pointerup", 260);
 		await nextTick();
 		expect(page.connection.sent).toEqual([
-			{ action: "req", request: { type: RoomRequestType.SeekRequest, value: position + 10 } },
+			{ action: "req", request: { type: RoomRequestType.SeekRequest, value: position + 30 } },
 		]);
 	});
 
@@ -756,7 +759,10 @@ describe("room player interactions", () => {
 		expect(page.wrapper.get(".video-controls").classes()).not.toContain("hide");
 		document.querySelector<HTMLElement>('[data-cy="player-more-toggle"]')!.click();
 		await nextTick();
-		document.querySelectorAll<HTMLButtonElement>(".seek-step-options button")[2].click();
+		const seekButtons = [
+			...document.querySelectorAll<HTMLButtonElement>(".seek-step-options button"),
+		];
+		seekButtons.find(button => button.textContent?.includes("30"))!.click();
 		await nextTick();
 		expect(page.store.state.settings.seekSeconds).toBe(30);
 		key("Escape");
@@ -782,6 +788,32 @@ describe("room player interactions", () => {
 			action: "req",
 			request: { type: RoomRequestType.SeekRequest, value: before + 30 },
 		});
+	});
+
+	it("stacks rapid arrow presses while the room has not answered yet", async () => {
+		// Two presses inside one round trip used to compute from the same stale room
+		// position and collapse into a single step; the pending target accumulates instead.
+		installPlayer();
+		page.store.commit("settings/UPDATE", { seekSeconds: 30 });
+		page.store.commit("room/SYNC", {
+			currentSource: { service: "direct", id: "https://example.test/source", length: 600 },
+			isPlaying: false,
+		});
+		await nextTick();
+		page.connection.sent.length = 0;
+		const before = page.wrapper.vm.truePosition as number;
+
+		key("ArrowRight");
+		await nextTick();
+		key("ArrowRight");
+		await nextTick();
+
+		const seeks = (
+			page.connection.sent as { request?: { type: RoomRequestType; value: number } }[]
+		)
+			.filter(message => message?.request?.type === RoomRequestType.SeekRequest)
+			.map(message => message.request!.value);
+		expect(seeks).toEqual([before + 30, before + 60]);
 	});
 
 	it("seeks backward with J and forward with L", async () => {

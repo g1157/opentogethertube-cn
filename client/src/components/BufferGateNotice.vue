@@ -24,18 +24,17 @@ const waitingNames = computed(() => {
 		return "";
 	}
 	// Existing room/user sync is sufficient. This describes buffering, not who paused the room.
-	let eligibleCount = 0;
+	// One viewer's stall holds the room too, so a solo room shows the notice as well.
 	const names: string[] = [];
 	for (const viewer of store.state.users.users.values()) {
 		if (!room.grants.granted(viewer.role, "playback.play-pause")) {
 			continue;
 		}
-		eligibleCount++;
 		if (viewer.status === PlayerStatus.buffering) {
 			names.push(viewer.name);
 		}
 	}
-	return eligibleCount >= 2 ? names.join("、") : "";
+	return names.join("、");
 });
 </script>
 

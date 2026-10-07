@@ -40,6 +40,8 @@ describe("saved settings and default migrations", () => {
 			defaultUpscaleVersion: "v1.3.10",
 			defaultNoticeVersion: "v1.3.10",
 			defaultThemeVersion: "v1.3.11",
+			defaultDanmakuDensityVersion: "v1.4.2",
+			defaultSeekSecondsVersion: "v1.4.2",
 			sfxEnabled: false,
 			danmakuEnabled: false,
 		});
@@ -47,6 +49,11 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings).not.toHaveProperty("defaultSfxVersion");
 		expect(store.state.settings).not.toHaveProperty("defaultDanmakuOpacityVersion");
 		expect(store.state.settings).not.toHaveProperty("defaultDanmakuEnabledVersion");
+		expect(store.state.settings).not.toHaveProperty("defaultUpscaleVersion");
+		expect(store.state.settings).not.toHaveProperty("defaultNoticeVersion");
+		expect(store.state.settings).not.toHaveProperty("defaultThemeVersion");
+		expect(store.state.settings).not.toHaveProperty("defaultDanmakuDensityVersion");
+		expect(store.state.settings).not.toHaveProperty("defaultSeekSecondsVersion");
 		expect(store.state.settings.sfxEnabled).toBe(false);
 		expect(store.state.settings.theme).toBe(Theme.teal);
 		expect(store.state.settings.danmakuEnabled).toBe(false);
@@ -250,6 +257,48 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.controlsHideSeconds).toBe(10);
 	});
 
+	it("moves the shipped danmaku density default to medium once", async () => {
+		saved.set("settings", JSON.stringify({ danmakuDensity: "high", volume: 37 }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.danmakuDensity).toBe("medium");
+		expect(store.state.settings.volume).toBe(37);
+
+		// A density the visitor picked is not the shipped default and stays theirs.
+		saved.set("settings", JSON.stringify({ danmakuDensity: "low" }));
+		const picked = newStore();
+		await picked.dispatch("settings/load");
+		expect(picked.state.settings.danmakuDensity).toBe("low");
+	});
+
+	it("moves the shipped seek step default to seven seconds once", async () => {
+		saved.set("settings", JSON.stringify({ seekSeconds: 10, volume: 37 }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.seekSeconds).toBe(7);
+		expect(store.state.settings.volume).toBe(37);
+
+		// Once the marker is stored, a step the visitor picks survives (including 10).
+		const firstVisit = newStore();
+		await firstVisit.dispatch("settings/load");
+		firstVisit.commit("settings/UPDATE", { seekSeconds: 10 });
+		const nextVisit = newStore();
+		await nextVisit.dispatch("settings/load");
+		expect(nextVisit.state.settings.seekSeconds).toBe(10);
+	});
+
+	it.each([
+		null,
+		-1,
+		100000,
+		"5",
+	])("replaces an invalid saved seek step with the default: %s", async value => {
+		saved.set("settings", JSON.stringify({ seekSeconds: value }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.seekSeconds).toBe(7);
+	});
+
 	it("migrates a returning English visitor while preserving their other settings and storage", async () => {
 		const previous = {
 			locale: "en",
@@ -395,7 +444,7 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.danmakuEnabled).toBe(false);
 		expect(store.state.settings.danmakuBlockTop).toBe(false);
 		expect(store.state.settings.danmakuDisplayArea).toBe("full");
-		expect(store.state.settings.danmakuDensity).toBe("high");
+		expect(store.state.settings.danmakuDensity).toBe("medium");
 	});
 
 	it("persists the audio and display preferences across visits", async () => {

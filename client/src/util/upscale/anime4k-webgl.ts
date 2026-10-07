@@ -17,7 +17,7 @@ import {
 	SHARPEN_FRAGMENT_SHADER,
 	type RenderTarget,
 } from "./cas";
-import { reportEnhancementTarget } from "./status";
+import { reportEnhancementError, reportEnhancementTarget } from "./status";
 import type { UpscaleRenderer } from "./upscale-renderer";
 
 export type { Anime4KPassSpec };
@@ -274,6 +274,10 @@ export function startAnime4KWebGLRenderer(
 	let stopped = false;
 	let frames = 0;
 	let passCount = 0;
+	/** Media time of the frame the last loop callback drew; a repeated presentation of the
+	 * same frame (a rate-change re-time, a redraw after a seek) is skipped, not drawn twice. */
+	let lastFrameMediaTime = Number.NaN;
+	let drawFailures = 0;
 	// The chain's shape depends only on the source and target sizes, so it is planned once per
 	// size rather than once per frame.
 	let plan: Anime4KPlanStep[] = [];
@@ -412,11 +416,28 @@ export function startAnime4KWebGLRenderer(
 		frames++;
 	};
 
-	const frame = () => {
+	const frame = (_now: number, metadata: VideoFrameCallbackMetadata) => {
 		if (stopped) {
 			return;
 		}
-		drawFrame();
+		try {
+			const mediaTime = metadata?.mediaTime;
+			if (mediaTime === undefined || !(Math.abs(mediaTime - lastFrameMediaTime) < 1e-4)) {
+				lastFrameMediaTime = mediaTime ?? Number.NaN;
+				drawFrame();
+			}
+			drawFailures = 0;
+		} catch (error) {
+			// A draw that throws used to end the loop silently, freezing the canvas under a
+			// tier that still looked enabled. Three failures in a row stand the renderer down
+			// and surface the reason in the playback details panel.
+			drawFailures++;
+			if (drawFailures >= 3) {
+				stopped = true;
+				reportEnhancementError(error instanceof Error ? error.message : String(error));
+				return;
+			}
+		}
 		frameRequest = video.requestVideoFrameCallback(frame);
 	};
 	// A paused video presents no frames, so nothing would redraw the picture the viewer is

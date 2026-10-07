@@ -2,6 +2,7 @@ import { onBeforeUnmount, ref, watch, type Ref } from "vue";
 import { calculateCurrentPosition } from "ott-common/timestamp";
 import { useStore } from "@/store";
 import type { UpscaleMode } from "@/stores/settings";
+import { medianFrameInterval } from "@/util/upscale/pacing";
 import {
 	canAffordCnnUpscale,
 	computeCanvasSize,
@@ -29,6 +30,8 @@ export interface PlayerStatsInput {
 	video?: HTMLVideoElement;
 	/** Presentation rate measured over the last sampling window, null while paused. */
 	measuredFps: number | null;
+	/** The source's nominal frame rate from the presented media times, null while unknown. */
+	sourceFps: number | null;
 	now: number;
 	room: {
 		isPlaying: boolean;
@@ -203,6 +206,13 @@ export function collectPlayerStats(input: PlayerStatsInput): PlayerStatsSection[
 			labelKey: "player.stats.render-fps",
 			value: input.measuredFps === null ? "—" : `${input.measuredFps.toFixed(1)} fps`,
 		},
+		{
+			// The presentation count wobbles around a 23.976 fps source (23.5–24.25 over
+			// one-second windows); the source rate from the media clock does not, and is the
+			// number to read when judging "measured vs actual".
+			labelKey: "player.stats.source-fps",
+			value: input.sourceFps === null ? "—" : `${input.sourceFps.toFixed(2)} fps`,
+		},
 		secondsRow("player.stats.drift", drift, s => `${s >= 0 ? "+" : ""}${s.toFixed(2)}`),
 	];
 
@@ -311,6 +321,10 @@ export function usePlayerStats(
 	const FPS_SAMPLES = 4;
 	let fpsSamples: number[] = [];
 	let measuredFps: number | null = null;
+	/** Media times of the recent presentations, for the source's nominal rate. */
+	const SOURCE_FPS_SAMPLES = 240;
+	let fpsMediaTimes: number[] = [];
+	let sourceFps: number | null = null;
 	let gpuName: string | null = null;
 
 	const input = (): PlayerStatsInput => {
@@ -318,6 +332,7 @@ export function usePlayerStats(
 		return {
 			video: getVideo(),
 			measuredFps,
+			sourceFps,
 			now: Date.now(),
 			room: {
 				isPlaying: room.isPlaying,
@@ -364,8 +379,12 @@ export function usePlayerStats(
 		}
 		fpsCount = 0;
 		fpsStart = performance.now();
-		const tick = () => {
+		const tick = (_now: number, metadata: VideoFrameCallbackMetadata) => {
 			fpsCount++;
+			fpsMediaTimes.push(metadata?.mediaTime ?? video.currentTime);
+			if (fpsMediaTimes.length > SOURCE_FPS_SAMPLES) {
+				fpsMediaTimes.shift();
+			}
 			if (fpsFrame) {
 				fpsFrame = video.requestVideoFrameCallback(tick);
 			}
@@ -390,6 +409,8 @@ export function usePlayerStats(
 		measuredFps = fpsSamples.length
 			? fpsSamples.reduce((total, sample) => total + sample, 0) / fpsSamples.length
 			: null;
+		const interval = medianFrameInterval(fpsMediaTimes);
+		sourceFps = interval !== null && interval > 0 ? 1 / interval : null;
 		sections.value = collectPlayerStats(input());
 	}
 
@@ -400,7 +421,9 @@ export function usePlayerStats(
 		}
 		stopFpsWindow();
 		fpsSamples = [];
+		fpsMediaTimes = [];
 		measuredFps = null;
+		sourceFps = null;
 	}
 
 	function start() {

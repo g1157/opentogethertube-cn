@@ -670,8 +670,10 @@ export class Room implements RoomState {
 			this.grants.granted(this.getRole(user), "playback.play-pause"),
 		);
 		// Only explicit buffering can hold the room: none/error are not a readiness vote.
+		// A single viewer counts too — their own stall pauses the room clock, so the
+		// position does not run ahead while their buffer refills.
 		const waiting = eligible.filter(user => user.playerStatus === PlayerStatus.buffering);
-		if (eligible.length < 2 || waiting.length === 0) {
+		if (waiting.length === 0) {
 			await this.releaseBufferGate();
 			return;
 		}

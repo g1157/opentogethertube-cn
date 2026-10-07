@@ -11,6 +11,7 @@ import { i18n } from "@/i18n";
 import { ToastStyle } from "@/models/toast";
 import { useStore } from "@/store";
 import type { SettingsState } from "@/stores/settings";
+import { pacingVerdict } from "@/util/upscale/pacing";
 import {
 	canAffordCnnUpscale,
 	computeCanvasSize,
@@ -49,6 +50,12 @@ let monitorFrame = 0;
 let monitorElement: HTMLVideoElement | null = null;
 let monitorWindowStart = 0;
 let monitorFrames = 0;
+/** Media times of the distinct frames in the window, for the pacing estimate. */
+let monitorMediaTimes: number[] = [];
+let lastMediaTime = Number.NaN;
+/** Media-pipeline drop counters at the start of the window, for its drop ratio. */
+let monitorDroppedAtStart = 0;
+let monitorTotalAtStart = 0;
 // Negative infinity rather than 0, so "no frame yet" cannot be confused with a clock
 // that legitimately reads 0.
 let lastFrameAt = Number.NEGATIVE_INFINITY;
@@ -135,7 +142,26 @@ function scheduleMonitor() {
 	monitorElement = video ?? null;
 }
 
-function monitorPerformance() {
+/** Starts a fresh measuring window, dropping whatever the previous one held. */
+function resetMonitorWindow(now = performance.now()) {
+	monitorWindowStart = now;
+	monitorFrames = 0;
+	monitorMediaTimes = [];
+	lastMediaTime = Number.NaN;
+	let dropped = 0;
+	let total = 0;
+	try {
+		const quality = props.video?.getVideoPlaybackQuality?.();
+		dropped = quality?.droppedVideoFrames ?? 0;
+		total = quality?.totalVideoFrames ?? 0;
+	} catch {
+		// A player without these counters simply never triggers the drop signal.
+	}
+	monitorDroppedAtStart = dropped;
+	monitorTotalAtStart = total;
+}
+
+function monitorPerformance(_now: number, metadata: VideoFrameCallbackMetadata) {
 	const video = props.video;
 	if (!video || video !== monitorElement) {
 		// A callback that outlived its element: the new element gets its own schedule, and
@@ -145,8 +171,7 @@ function monitorPerformance() {
 	const now = performance.now();
 	if (video.paused) {
 		// Paused videos produce no frames; counting that time would look like 0 fps.
-		monitorWindowStart = 0;
-		monitorFrames = 0;
+		resetMonitorWindow(0);
 		scheduleMonitor();
 		return;
 	}
@@ -154,30 +179,54 @@ function monitorPerformance() {
 		// requestVideoFrameCallback stops firing while the video is paused, so the paused
 		// check above may never run; this is what actually catches it. Without it, resuming
 		// after a pause scores the whole pause as one window and degrades on the first frame.
-		monitorWindowStart = now;
-		monitorFrames = 0;
+		resetMonitorWindow(now);
 	}
 	lastFrameAt = now;
-	monitorFrames++;
+	// One presented frame, unless the browser is re-presenting the same media frame (a
+	// rate-change re-time); a repeat is not another frame the renderer had to keep up with.
+	const mediaTime = metadata?.mediaTime ?? video.currentTime;
+	if (Number.isNaN(lastMediaTime) || Math.abs(mediaTime - lastMediaTime) >= 1e-4) {
+		lastMediaTime = mediaTime;
+		monitorFrames++;
+		monitorMediaTimes.push(mediaTime);
+	}
 	scheduleMonitor();
 	if (now - monitorWindowStart < 6000) {
 		return;
 	}
-	const elapsed = (now - monitorWindowStart) / 1000;
-	const frames = monitorFrames;
-	monitorWindowStart = now;
-	monitorFrames = 0;
+	// The media pipeline's own counters for this window: an evenly thinned presentation
+	// looks self-consistent to the cadence estimate, while these still report the drops.
+	let droppedFrames: number | undefined;
+	let totalFrames: number | undefined;
+	try {
+		const quality = video.getVideoPlaybackQuality?.();
+		if (quality) {
+			const dropped = quality.droppedVideoFrames - monitorDroppedAtStart;
+			const total = quality.totalVideoFrames - monitorTotalAtStart;
+			if (dropped >= 0 && total >= 0) {
+				droppedFrames = dropped;
+				totalFrames = total;
+			}
+		}
+	} catch {
+		// No counters here; the cadence checks stand alone for this window.
+	}
+	const verdict = pacingVerdict({
+		frameCount: monitorFrames,
+		elapsedMs: now - monitorWindowStart,
+		mediaTimes: monitorMediaTimes,
+		droppedFrames,
+		totalFrames,
+	});
+	resetMonitorWindow(now);
 	if (monitorSkipWindow) {
 		// The window began at a rebuild, so its first frames were the rebuild itself. Judge the
 		// window after this one rather than stepping down on a cost that has already been paid.
 		monitorSkipWindow = false;
 		return;
 	}
-	if (frames < 24) {
-		return;
-	}
-	const fps = frames / elapsed;
-	if (fps >= 18) {
+	if (!verdict.judged || !verdict.degrade) {
+		// Healthy, or too few frames to say anything (a stall owns that case).
 		return;
 	}
 	if (!store.state.settings.upscaleAutoDegrade) {
@@ -255,8 +304,7 @@ function degradeOneStep(video: HTMLVideoElement | undefined, target: HTMLCanvasE
 	store.commit("settings/UPDATE_TRANSIENT", step);
 	// Give the new setting a full window to prove itself before stepping again,
 	// whichever watcher it woke.
-	monitorWindowStart = 0;
-	monitorFrames = 0;
+	resetMonitorWindow();
 }
 
 // A rebuild costs a GPU device and a pipeline, so the viewport has to settle first;
@@ -474,8 +522,7 @@ async function start() {
 	reportEnhancementError(null);
 	updateCaptions();
 	captionTimer = setInterval(updateCaptions, 250);
-	monitorWindowStart = 0;
-	monitorFrames = 0;
+	resetMonitorWindow();
 	monitorSkipWindow = true;
 	scheduleMonitor();
 }

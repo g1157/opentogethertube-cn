@@ -48,6 +48,7 @@ function baseInput(overrides: Partial<PlayerStatsInput> = {}): PlayerStatsInput 
 	return {
 		video: fakeVideo(),
 		measuredFps: 59.5,
+		sourceFps: 23.98,
 		now: 1_000_000,
 		room: {
 			isPlaying: true,
@@ -91,6 +92,7 @@ describe("playback details", () => {
 		expect(rowOf(sections, "player.stats.source-host").value).toBe("cdn.example.com");
 		expect(rowOf(sections, "player.stats.state").valueKey).toBe("player.stats.state-playing");
 		expect(rowOf(sections, "player.stats.render-fps").value).toBe("59.5 fps");
+		expect(rowOf(sections, "player.stats.source-fps").value).toBe("23.98 fps");
 		expect(rowOf(sections, "player.stats.dropped").value).toBe("3 / 1000");
 		expect(rowOf(sections, "player.stats.buffer-ahead").params).toEqual({ value: "20.0" });
 		// Auto follows the displayed 2560x1440 box, which is a 2x render of the 720p source.
@@ -101,13 +103,19 @@ describe("playback details", () => {
 
 	it("reports no video when the player is an embedded one", () => {
 		const sections = collectPlayerStats(
-			baseInput({ video: undefined, measuredFps: null, room: { ...baseInput().room } }),
+			baseInput({
+				video: undefined,
+				measuredFps: null,
+				sourceFps: null,
+				room: { ...baseInput().room },
+			}),
 		);
 
 		expect(rowOf(sections, "player.stats.resolution").value).toBe("—");
 		expect(rowOf(sections, "player.stats.state").valueKey).toBe("player.stats.state-unknown");
 		expect(rowOf(sections, "player.stats.render-target").value).toBe("—");
 		expect(rowOf(sections, "player.stats.render-fps").value).toBe("—");
+		expect(rowOf(sections, "player.stats.source-fps").value).toBe("—");
 	});
 
 	it("reports buffering only while playing, and keeps a paused player paused", () => {

@@ -80,10 +80,22 @@ describe("room buffering gate", () => {
 		expect(room.bufferingGateHeld).toBe(true);
 	});
 
-	it("does not gate a single viewer", async () => {
+	it("gates a single viewer", async () => {
+		// A solo viewer's own stall pauses the room clock too, so the position does not
+		// drift ahead while their buffer refills.
 		await start(1);
 		await report("alice");
+		expect(room.isPlaying).toBe(false);
+		expect(room.bufferingGateHeld).toBe(true);
+	});
+
+	it("resumes a solo viewer's room once their buffer recovers", async () => {
+		await start(1);
+		await report("alice");
+		expect(room.bufferingGateHeld).toBe(true);
+		await report("alice", PlayerStatus.ready);
 		expect(room.isPlaying).toBe(true);
+		expect(room.bufferingGateHeld).toBe(false);
 	});
 
 	it.each([

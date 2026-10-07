@@ -5,6 +5,8 @@ import vuetify from "@/plugins/vuetify";
 export const CHAT_OVERLAY_SECONDS_OPTIONS = [0, 3, 5, 10, 20] as const;
 export const ROOM_NOTICE_SECONDS_OPTIONS = [0, 1, 2, 3, 5, 10, 20] as const;
 export const CONTROLS_HIDE_SECONDS_OPTIONS = [2, 3, 5, 10] as const;
+/** How far one seek goes — a swipe or an arrow key, one shared setting. 7 is the default. */
+export const SEEK_SECONDS_OPTIONS = [5, 7, 10, 30] as const;
 /**
  * Forward buffering target for the players that own their buffer (HLS and DASH). The value is
  * the target, not a hard cap: a fast connection keeps loading past it, up to a byte budget
@@ -67,7 +69,8 @@ export const DANMAKU_AREAS = ["full", "top", "bottom"] as const;
 export type DanmakuArea = (typeof DANMAKU_AREAS)[number];
 /**
  * How many comments are let through per second. "high" keeps the historical behavior
- * (every comment the lanes can hold), so the default does not quietly thin a track.
+ * (every comment the lanes can hold); the shipped default is "medium" (8/s), which keeps
+ * a busy track readable without gutting it.
  */
 export const DANMAKU_DENSITY_OPTIONS = ["low", "medium", "high"] as const;
 export type DanmakuDensity = (typeof DANMAKU_DENSITY_OPTIONS)[number];
@@ -100,7 +103,7 @@ export interface SettingsState {
 	defaultRoomSettings?: DefaultRoomSettings;
 	enableAdapterSelector: boolean;
 	/** How far one seek goes, whatever asked for it: a swipe or an arrow key. */
-	seekSeconds: 5 | 10 | 30;
+	seekSeconds: (typeof SEEK_SECONDS_OPTIONS)[number];
 	chatOverlaySeconds: (typeof CHAT_OVERLAY_SECONDS_OPTIONS)[number];
 	presenceNoticeSeconds: (typeof ROOM_NOTICE_SECONDS_OPTIONS)[number];
 	seekNoticeSeconds: (typeof ROOM_NOTICE_SECONDS_OPTIONS)[number];
@@ -178,6 +181,10 @@ const DEFAULT_NOTICE_VERSION = "v1.3.10";
 // The default theme moved from dark to teal; the previously shipped dark default moves
 // once, and any theme the visitor picked themselves is left alone.
 const DEFAULT_THEME_VERSION = "v1.3.11";
+// The danmaku density now starts at 适中 and the seek step at 7 seconds; the previously
+// shipped defaults (密集 / 10s) move once, and a value the visitor picked stays theirs.
+const DEFAULT_DANMAKU_DENSITY_VERSION = "v1.4.2";
+const DEFAULT_SEEK_SECONDS_VERSION = "v1.4.2";
 type StoredSettings = Partial<SettingsState> & {
 	defaultLocaleVersion?: string;
 	defaultSfxVersion?: string;
@@ -186,6 +193,8 @@ type StoredSettings = Partial<SettingsState> & {
 	defaultUpscaleVersion?: string;
 	defaultNoticeVersion?: string;
 	defaultThemeVersion?: string;
+	defaultDanmakuDensityVersion?: string;
+	defaultSeekSecondsVersion?: string;
 };
 
 /** Keeps whatever a caller wrote inside the ranges this release understands. */
@@ -196,8 +205,8 @@ function normalizeSettings(state: SettingsState) {
 	if (!Number.isFinite(state.sfxVolume) || state.sfxVolume < 0 || state.sfxVolume > 1) {
 		state.sfxVolume = 0.8;
 	}
-	if (![5, 10, 30].includes(state.seekSeconds)) {
-		state.seekSeconds = 10;
+	if (!SEEK_SECONDS_OPTIONS.includes(state.seekSeconds)) {
+		state.seekSeconds = 7;
 	}
 	if (!CHAT_OVERLAY_SECONDS_OPTIONS.includes(state.chatOverlaySeconds)) {
 		state.chatOverlaySeconds = 3;
@@ -247,7 +256,7 @@ function normalizeSettings(state: SettingsState) {
 		state.danmakuDisplayArea = "full";
 	}
 	if (!DANMAKU_DENSITY_OPTIONS.includes(state.danmakuDensity)) {
-		state.danmakuDensity = "high";
+		state.danmakuDensity = "medium";
 	}
 	if (typeof state.danmakuBlockScroll !== "boolean") {
 		state.danmakuBlockScroll = false;
@@ -298,6 +307,8 @@ function persistSettings(state: SettingsState) {
 				defaultUpscaleVersion: DEFAULT_UPSCALE_VERSION,
 				defaultNoticeVersion: DEFAULT_NOTICE_VERSION,
 				defaultThemeVersion: DEFAULT_THEME_VERSION,
+				defaultDanmakuDensityVersion: DEFAULT_DANMAKU_DENSITY_VERSION,
+				defaultSeekSecondsVersion: DEFAULT_SEEK_SECONDS_VERSION,
 			}),
 		);
 	} catch {
@@ -317,7 +328,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		sfxEnabled: false,
 		sfxVolume: 0.8,
 		enableAdapterSelector: false,
-		seekSeconds: 10,
+		seekSeconds: 7,
 		chatOverlaySeconds: 3,
 		presenceNoticeSeconds: 1,
 		seekNoticeSeconds: 1,
@@ -332,7 +343,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		danmakuFontSize: "medium",
 		danmakuSpeed: 1,
 		danmakuDisplayArea: "full",
-		danmakuDensity: "high",
+		danmakuDensity: "medium",
 		danmakuBlockScroll: false,
 		danmakuBlockTop: false,
 		danmakuBlockBottom: false,
@@ -391,6 +402,8 @@ export const settingsModule: Module<SettingsState, unknown> = {
 				defaultUpscaleVersion,
 				defaultNoticeVersion,
 				defaultThemeVersion,
+				defaultDanmakuDensityVersion,
+				defaultSeekSecondsVersion,
 				...settings
 			} = loaded;
 			if (
@@ -446,6 +459,22 @@ export const settingsModule: Module<SettingsState, unknown> = {
 			// is moved, so a theme the visitor picked themselves stays theirs.
 			if (defaultThemeVersion !== DEFAULT_THEME_VERSION && settings.theme === Theme.dark) {
 				settings.theme = Theme.teal;
+			}
+			// The danmaku density shipped as 密集 for a while; that exact value moves once
+			// to 适中, while any other stored value (including 稀疏) is a choice.
+			if (
+				defaultDanmakuDensityVersion !== DEFAULT_DANMAKU_DENSITY_VERSION &&
+				settings.danmakuDensity === "high"
+			) {
+				settings.danmakuDensity = "medium";
+			}
+			// The seek step shipped as 10 seconds; that exact value moves once to 7 seconds,
+			// while any other stored value is a choice.
+			if (
+				defaultSeekSecondsVersion !== DEFAULT_SEEK_SECONDS_VERSION &&
+				settings.seekSeconds === 10
+			) {
+				settings.seekSeconds = 7;
 			}
 			context.commit("UPDATE", settings);
 		},

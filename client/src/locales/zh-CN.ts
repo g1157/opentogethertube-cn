@@ -250,7 +250,7 @@ export default {
 			"intro-anime4k-quality":
 				"AI 超分（质量）：在快速档之上再叠一遍修复与放大（A+A），感知质量最高，GPU 开销约为快速档两倍；笔记本会明显发热、风扇转速上升。倍率交给「自动」跟随显示尺寸即可，手动调高只会多渲染屏幕显示不出的像素。没有 WebGPU 时，在 WebGL2 上跑同一条 A+A 链路。",
 			"intro-anime4k-ultra":
-				"AI 超分（极致）：与 mpv 的 A+A (HQ) 同款链路（VL 修复与放大 + M 修复与放大，外加防光晕的 Clamp Highlights，约 55 个 pass），只在本机拿不到 WebGPU 时出现。首次开启要编译着色器、会停顿一下；笔记本发热明显，建议 1080p 源配 2× 倍率。",
+				"AI 超分（极致）：与 mpv 的 A+A (HQ) 同款链路（VL 修复与放大 + M 修复与放大，外加防光晕的 Clamp Highlights，约 55 个 pass）。首次开启要编译着色器、会停顿一下；笔记本发热明显，建议 1080p 源配 2× 倍率。没有 WebGPU 时同样在 WebGL2 上运行。",
 			"intro-note": "性能不足时会自动逐级降档；在下方「进阶」里关闭自动降档可保持当前设置。",
 			advanced: "进阶",
 			strength: "锐化强度",
@@ -316,6 +316,7 @@ export default {
 			"girigiri-binding": "{show} · 线路{n}·第{ep}话",
 			offset: "时间偏移",
 			"offset-hint": "换片源后弹幕对不上时调整：正值让弹幕更晚出现。",
+			"offset-reset": "归零",
 			unavailable: "该片源暂无弹幕。",
 			settings: "弹幕设置",
 		},
@@ -938,6 +939,7 @@ export default {
 			"speed-hold": "长按进入 2 倍速，松手恢复",
 			volume: "音量增加 / 减少 5%",
 			mute: "静音 / 取消静音",
+			danmaku: "开 / 关弹幕",
 			fullscreen: "切换播放器全屏",
 			escape: "关闭当前浮层 / 退出全屏",
 			chat: "展开 / 收起聊天",
@@ -970,6 +972,7 @@ export default {
 			"value-seconds": "{value} 秒",
 			dropped: "丢帧",
 			"render-fps": "实测帧率",
+			"source-fps": "源帧率",
 			drift: "与房间偏差",
 			mode: "增强模式",
 			"render-target": "渲染目标",

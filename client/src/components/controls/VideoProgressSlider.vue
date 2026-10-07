@@ -1,4 +1,8 @@
 <template>
+	<!-- The slider's own arrow-key handling is off and the room's shortcuts take over:
+	     focusing the bar (which a click or drag does) used to hand the arrows to 0.1s
+	     micro-steps that the sync dead band discarded, so the bar appeared not to move.
+	     The data-player-shortcuts marker keeps it out of the shortcuts' focus guard. -->
 	<vue-slider
 		id="videoSlider"
 		:interval="0.1"
@@ -14,6 +18,8 @@
 		:drag-on-click="true"
 		tooltip="none"
 		:duration="0"
+		:use-keyboard="false"
+		data-player-shortcuts="on"
 	/>
 	<div
 		id="seek-preview"

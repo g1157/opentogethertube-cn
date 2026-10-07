@@ -485,7 +485,13 @@ import VoteSkip from "@/components/VoteSkip.vue";
 import { waitForToken } from "@/util/token";
 import { useSfx } from "@/plugins/sfx";
 import { secondsToTimestamp } from "@/util/timestamp";
-import { useCaptions, useMediaPlayer, usePlaybackRate, useVolume } from "@/components/composables";
+import {
+	useCaptions,
+	useDanmaku,
+	useMediaPlayer,
+	usePlaybackRate,
+	useVolume,
+} from "@/components/composables";
 import type { MediaPlayerWithPlaybackRate } from "@/components/composables/media-player";
 import { useGrants } from "@/components/composables/grants";
 import { PlayerStatus, Visibility, OttWebsocketError } from "ott-common/models/types";
@@ -604,8 +610,12 @@ export default defineComponent({
 			toggleMute: toggleVoiceMute,
 		} = useVoice();
 		const granted = useGrants();
+		const { available: danmakuAvailable } = useDanmaku();
 		const mediaPlaybackBlocked = ref(false);
 		const pendingLocalSeek = ref(false);
+		/** Where the in-flight seek is headed: rapid key presses stack from it, and the
+		 * progress bar shows it at once instead of waiting out the round trip. */
+		const pendingSeekTarget = ref<number | null>(null);
 		let localSeekTimer: ReturnType<typeof setTimeout> | undefined;
 		let playbackStatusUnsub: (() => void) | null = null;
 		const flushPlaybackQuality = () => playbackQuality.flush();
@@ -921,7 +931,7 @@ export default defineComponent({
 		function timestampUpdate(): boolean {
 			truePosition.value = roomPosition();
 			sliderPosition.value = _.clamp(
-				truePosition.value,
+				pendingSeekTarget.value ?? truePosition.value,
 				0,
 				store.state.room.currentSource?.length ?? 0,
 			);
@@ -1224,7 +1234,10 @@ export default defineComponent({
 		function seekDelta(delta: number) {
 			const bounds = seekBounds();
 			if (bounds && connection.connected.value) {
-				requestRoomSeek(_.clamp(truePosition.value + delta, bounds.start, bounds.end));
+				// Stack from the pending target: a burst of presses inside one round trip used
+				// to recompute from the same stale room position and collapse into one step.
+				const base = pendingSeekTarget.value ?? truePosition.value;
+				requestRoomSeek(_.clamp(base + delta, bounds.start, bounds.end));
 			}
 		}
 
@@ -1232,6 +1245,7 @@ export default defineComponent({
 			clearTimeout(localSeekTimer);
 			localSeekTimer = undefined;
 			pendingLocalSeek.value = false;
+			pendingSeekTarget.value = null;
 		}
 
 		function requestRoomSeek(position: number) {
@@ -1248,10 +1262,12 @@ export default defineComponent({
 			playbackPreparation.cancel();
 			clearPendingLocalSeek();
 			pendingLocalSeek.value = true;
+			const target = _.clamp(position, bounds.start, bounds.end);
+			pendingSeekTarget.value = target;
 			// Freeze this browser before the WebSocket round trip. Native players keep the
 			// hold until the authoritative target has enough data to resume.
 			void applyIsPlaying();
-			roomapi.seek(_.clamp(position, bounds.start, bounds.end));
+			roomapi.seek(target);
 			activateVideoControls();
 			localSeekTimer = setTimeout(() => {
 				clearPendingLocalSeek();
@@ -1689,6 +1705,10 @@ export default defineComponent({
 		// Holding the right arrow plays fast, the way the touch hold does: a tap still seeks
 		// one step, and only a hold long enough to mean it starts the room's temporary speed.
 		const ARROW_HOLD_MS = 500;
+		/** A held seek key repeats faster than the room can settle; one step per this
+		 * interval keeps the walk going without burning the message budget. */
+		const HELD_SEEK_MIN_INTERVAL_MS = 150;
+		let lastHeldSeekAt = Number.NEGATIVE_INFINITY;
 		let arrowHoldTimer: ReturnType<typeof setTimeout> | null = null;
 		let arrowHoldPlaying = false;
 		function armArrowHold() {
@@ -1729,13 +1749,19 @@ export default defineComponent({
 		shortcuts.bind(
 			["ArrowLeft", "KeyJ", "KeyL"].map(code => ({ code, repeat: true })),
 			(e: KeyboardEvent) => {
-				if (granted("playback.seek")) {
-					// J seeks backward and L forward, matching the player habits the shortcut
-					// dialog advertises; ArrowLeft is the keyboard's own version of J.
-					const backward = e.code === "ArrowLeft" || e.code === "KeyJ";
-					const step = store.state.settings.seekSeconds;
-					seekDelta(backward ? -step : step);
+				if (!granted("playback.seek")) {
+					return;
 				}
+				const now = performance.now();
+				if (e.repeat && now - lastHeldSeekAt < HELD_SEEK_MIN_INTERVAL_MS) {
+					return;
+				}
+				lastHeldSeekAt = now;
+				// J seeks backward and L forward, matching the player habits the shortcut
+				// dialog advertises; ArrowLeft is the keyboard's own version of J.
+				const backward = e.code === "ArrowLeft" || e.code === "KeyJ";
+				const step = store.state.settings.seekSeconds;
+				seekDelta(backward ? -step : step);
 			},
 		);
 		shortcuts.bind({ code: "Home" }, () => {
@@ -1765,6 +1791,17 @@ export default defineComponent({
 		);
 		shortcuts.bind({ code: "KeyM" }, () => {
 			volume.isMuted.value = !volume.isMuted.value;
+			activateVideoControls();
+		});
+		shortcuts.bind({ code: "KeyD" }, () => {
+			// Mirrors the control-bar toggle; the setting is per device, so it needs no
+			// room permission. Without a track there is nothing to toggle.
+			if (!danmakuAvailable.value) {
+				return;
+			}
+			store.commit("settings/UPDATE", {
+				danmakuEnabled: !store.state.settings.danmakuEnabled,
+			});
 			activateVideoControls();
 		});
 		shortcuts.bind({ code: "KeyT" }, () => chat.value?.setActivated(!chatOpen.value));

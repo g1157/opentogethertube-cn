@@ -36,7 +36,10 @@ function renderer() {
  * which is the only way to reproduce a pause, since browsers stop calling back then.
  */
 function fakeVideo() {
-	const callbacks = new Map<number, () => void>();
+	const callbacks = new Map<
+		number,
+		(now: number, metadata: VideoFrameCallbackMetadata) => void
+	>();
 	let nextId = 1;
 	const video = document.createElement("video");
 	Object.defineProperties(video, {
@@ -58,7 +61,9 @@ function fakeVideo() {
 			y: 0,
 			toJSON: () => ({}),
 		}) as DOMRect;
-	video.requestVideoFrameCallback = ((callback: () => void) => {
+	video.requestVideoFrameCallback = ((
+		callback: (now: number, metadata: VideoFrameCallbackMetadata) => void,
+	) => {
 		const id = nextId++;
 		callbacks.set(id, callback);
 		return id;
@@ -76,7 +81,9 @@ function fakeVideo() {
 				throw new Error("no frame callback is registered");
 			}
 			callbacks.delete(next[0]);
-			next[1]();
+			// Playback runs at 1x, so the media clock follows the wall clock and a frame
+			// presented late leaves a gap in the media times the pacing check can see.
+			next[1](clock, { mediaTime: clock / 1000 } as VideoFrameCallbackMetadata);
 		},
 	};
 }

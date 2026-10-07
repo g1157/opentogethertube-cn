@@ -31,10 +31,8 @@ describe("KeyboardShortcuts", () => {
 	});
 	it.each([
 		'<div contenteditable="true"><span>text</span></div>',
-		"<button><span>button</span></button>",
 		"<select></select>",
 		'<div role="slider"><span>slider</span></div>',
-		'<a href="#"><span>link</span></a>',
 	])("preserves keyboard behavior of interactive elements: %s", html => {
 		document.body.innerHTML = html;
 		const shortcuts = new KeyboardShortcuts();
@@ -44,6 +42,43 @@ describe("KeyboardShortcuts", () => {
 		const target = document.querySelector("span") ?? document.body.firstElementChild!;
 		target.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyK", bubbles: true }));
 		expect(action).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"<button><span>button</span></button>",
+		'<a href="#"><span>link</span></a>',
+	])("lets the player's keys through a focused %s but keeps its activation keys", html => {
+		// Clicking a control-bar button leaves it focused; losing every shortcut to that
+		// focus made the arrow keys look broken right after pressing play or fullscreen.
+		document.body.innerHTML = html;
+		const shortcuts = new KeyboardShortcuts();
+		const action = vi.fn();
+		const activation = vi.fn();
+		shortcuts.bind({ code: "KeyK" }, action);
+		shortcuts.bind({ code: "Space" }, activation);
+		document.onkeydown = event => shortcuts.handleKeyDown(event);
+		const target = document.querySelector("span") ?? document.body.firstElementChild!;
+		target.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyK", bubbles: true }));
+		expect(action).toHaveBeenCalledTimes(1);
+		// Space and Enter stay with the focused element so it keeps activating natively.
+		for (const code of ["Space", "Enter"]) {
+			target.dispatchEvent(new KeyboardEvent("keydown", { code, bubbles: true }));
+		}
+		expect(activation).not.toHaveBeenCalled();
+	});
+
+	it("treats an explicitly marked player control as part of the player", () => {
+		// The progress bar carries data-player-shortcuts="on": it takes focus when dragged,
+		// and its slider role must not hide the player's keys from it.
+		document.body.innerHTML =
+			'<div role="slider" data-player-shortcuts="on"><span>bar</span></div>';
+		const shortcuts = new KeyboardShortcuts();
+		const action = vi.fn();
+		shortcuts.bind({ code: "ArrowRight" }, action);
+		document.onkeydown = event => shortcuts.handleKeyDown(event);
+		const target = document.querySelector("span")!;
+		target.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowRight", bubbles: true }));
+		expect(action).toHaveBeenCalledTimes(1);
 	});
 	it("does not trigger behind a modal and allows explicit repeat for seek keys", () => {
 		const shortcuts = new KeyboardShortcuts();

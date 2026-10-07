@@ -256,7 +256,7 @@ export default {
 			"intro-anime4k-quality":
 				"AI upscale (quality): stacks a second restore-and-upscale pass on the fast preset (A+A). The highest perceptual quality at roughly double the GPU cost — expect heat and fan noise on a laptop. Leave the render scale on Auto so it follows the display; rendering above that only adds pixels the screen cannot show. Without WebGPU the same A+A chain runs on WebGL2.",
 			"intro-anime4k-ultra":
-				'AI upscale (ultra): the same chain mpv runs as "Mode A+A (HQ)" — VL restore and upscale, M restore and upscale, plus Clamp Highlights, about 55 passes — offered only where WebGPU is unavailable. The first start compiles the shaders and pauses briefly; expect heat on a laptop, and pair it with a 1080p source at 2x.',
+				'AI upscale (ultra): the same chain mpv runs as "Mode A+A (HQ)" — VL restore and upscale, M restore and upscale, plus Clamp Highlights, about 55 passes. The first start compiles the shaders and pauses briefly; expect heat on a laptop, and pair it with a 1080p source at 2x. Without WebGPU the same chain runs on WebGL2.',
 			"intro-note":
 				"Slow devices step down one tier at a time; turn auto-degrade off under Advanced to keep these settings.",
 			advanced: "Advanced",
@@ -327,6 +327,7 @@ export default {
 			offset: "Time offset",
 			"offset-hint":
 				"Use it when another source's cut is off: positive shows comments later.",
+			"offset-reset": "Reset to 0",
 			unavailable: "This source has no bullet comments.",
 			settings: "Bullet comment settings",
 		},
@@ -978,6 +979,7 @@ export default {
 			"speed-hold": "Hold for 2× speed, release to restore",
 			volume: "Volume up / down 5%",
 			mute: "Mute / unmute",
+			danmaku: "Toggle bullet comments",
 			fullscreen: "Toggle player fullscreen",
 			escape: "Close overlay / exit fullscreen",
 			chat: "Open / close chat",
@@ -1010,6 +1012,7 @@ export default {
 			"value-seconds": "{value} s",
 			dropped: "Dropped frames",
 			"render-fps": "Measured frame rate",
+			"source-fps": "Source frame rate",
 			drift: "Room drift",
 			mode: "Enhancement mode",
 			"render-target": "Render target",

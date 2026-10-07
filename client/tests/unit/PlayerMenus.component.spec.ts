@@ -388,6 +388,39 @@ describe("player menu placement", () => {
 		expect(document.querySelector('[data-cy="player-preferences-toggle"]')).not.toBeNull();
 	});
 
+	it("offers every enhancement tier and highlights whichever one is running", async () => {
+		// Regression: the tier buttons were built from the WebGPU probe's answer, so when
+		// the probe flipped (e.g. Firefox hands out no video-upload support) the running
+		// tier lost its button and nothing was highlighted. Every tier now has one.
+		const { wrapper, store } = await mountMenu("settings");
+		await wrapper.get(selectors.settings).trigger("click");
+		await settle();
+		document.querySelector<HTMLElement>('[data-cy="player-upscale-toggle"]')!.click();
+		await settle();
+
+		for (const value of [
+			"off",
+			"sharpen",
+			"film",
+			"anime4k",
+			"anime4k-quality",
+			"anime4k-ultra",
+		]) {
+			expect(document.querySelector(`[data-cy="upscale-tier-${value}"]`)).not.toBeNull();
+		}
+
+		store.commit("settings/UPDATE", { upscaleMode: "anime4k-quality" });
+		await settle();
+		const isActive = (button: HTMLElement) =>
+			button.classList.contains("v-btn--active") ||
+			button.classList.contains("v-item--active");
+		const active = [
+			...document.querySelectorAll<HTMLElement>('[data-cy^="upscale-tier-"]'),
+		].filter(isActive);
+		expect(active).toHaveLength(1);
+		expect(active[0].dataset.cy).toBe("upscale-tier-anime4k-quality");
+	});
+
 	it("offers picture fitting from the player menu", async () => {
 		const { wrapper, store } = await mountMenu("settings");
 		menuControls = (wrapper.vm as unknown as { controls: ReturnType<typeof useMediaPlayer> })

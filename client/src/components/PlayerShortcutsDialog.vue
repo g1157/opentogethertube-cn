@@ -39,6 +39,7 @@ const shortcuts = [
 	["→ 长按 / Hold →", "speed-hold"],
 	["↑ / ↓", "volume"],
 	["M", "mute"],
+	["D", "danmaku"],
 	["F", "fullscreen"],
 	["Esc", "escape"],
 	["T", "chat"],

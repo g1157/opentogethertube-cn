@@ -162,7 +162,7 @@
 								class="seek-step-options"
 							>
 								<v-btn
-									v-for="seconds in [5, 10, 30]"
+									v-for="seconds in SEEK_SECONDS_OPTIONS"
 									:key="seconds"
 									:value="seconds"
 									size="small"
@@ -505,15 +505,9 @@
 									<div class="upscale-help">
 										<p>{{ $t("room.upscale.intro-sharpen") }}</p>
 										<p>{{ $t("room.upscale.intro-film") }}</p>
-										<p v-if="webgpuAvailable">
-											{{ $t("room.upscale.intro-anime4k") }}
-										</p>
-										<p v-if="webgpuAvailable">
-											{{ $t("room.upscale.intro-anime4k-quality") }}
-										</p>
-										<p v-if="!webgpuAvailable">
-											{{ $t("room.upscale.intro-anime4k-ultra") }}
-										</p>
+										<p>{{ $t("room.upscale.intro-anime4k") }}</p>
+										<p>{{ $t("room.upscale.intro-anime4k-quality") }}</p>
+										<p>{{ $t("room.upscale.intro-anime4k-ultra") }}</p>
 										<p class="upscale-help-note">
 											{{ $t("room.upscale.intro-note") }}
 										</p>
@@ -667,13 +661,13 @@ import {
 	MAX_UPSCALE_STRENGTH,
 	MIN_UPSCALE_STRENGTH,
 	ROOM_NOTICE_SECONDS_OPTIONS,
+	SEEK_SECONDS_OPTIONS,
 	UPSCALE_MODES,
 	UPSCALE_SCALES,
 	VIDEO_FILL_MODES,
 	type AudioEqPreset,
 	type VideoFillMode,
 } from "@/stores/settings";
-import { canRunWebGPUEnhancement, webgpuVideoUploadSupported } from "@/util/upscale/webgpu-probe";
 import VolumeControl from "./VolumeControl.vue";
 import PlaybackRateSwitcher from "./PlaybackRateSwitcher.vue";
 import DanmakuSettingsPanel from "./DanmakuSettingsPanel.vue";
@@ -692,38 +686,18 @@ const hoverToOpen =
 	!window.matchMedia("(pointer: coarse)").matches;
 
 type UpscaleMode = (typeof UPSCALE_MODES)[number];
-// Which tiers to offer follows from a real probe of the WebGPU path, not from the interface
-// existing: Firefox exposes navigator.gpu everywhere but hands out no adapter outside Windows and
-// Nightly, and where it does hand one out its WebGPU still cannot upload a video frame — so the
-// AI tiers fall back to the WebGL2 chain, whose heavy A+A (HQ) tier then takes the place of the
-// WebGPU "quality" one. That upload answer is only known once a video has been through the probe,
-// so this recomputes when it arrives.
-const webgpuCoreAvailable = ref(false);
-const webgpuAvailable = computed(
-	() => webgpuCoreAvailable.value && webgpuVideoUploadSupported.value !== false,
-);
-void canRunWebGPUEnhancement().then(usable => {
-	webgpuCoreAvailable.value = usable;
-});
+// Every tier is offered on every device; which one actually runs is the layer's call
+// (WebGPU where it works, the WebGL2 chain everywhere else). Hiding a button here — the
+// WebGPU probe used to swap "quality" for "ultra" — left a running tier with no button to
+// highlight the moment the probe's answer changed.
 const upscaleLabel = computed(() => t(`room.upscale.${store.state.settings.upscaleMode}`));
-const upscaleOptions = computed(() => {
-	const options: Array<{ value: UpscaleMode; text: string }> = [
-		{ value: "off", text: t("room.upscale.off") },
-		{ value: "sharpen", text: t("room.upscale.sharpen") },
-		{ value: "film", text: t("room.upscale.film") },
-	];
-	if (webgpuAvailable.value) {
-		options.push({ value: "anime4k", text: t("room.upscale.anime4k") });
-		options.push({ value: "anime4k-quality", text: t("room.upscale.anime4k-quality") });
-	} else {
-		options.push({ value: "anime4k", text: t("room.upscale.anime4k") });
-		if (!window.matchMedia("(pointer: coarse)").matches) {
-			// The heavy chain is a desktop affair: about 55 passes per frame.
-			options.push({ value: "anime4k-ultra", text: t("room.upscale.anime4k-ultra") });
-		}
-	}
-	return options;
-});
+const upscaleOptions = computed(() =>
+	UPSCALE_MODES.map(mode => ({
+		value: mode,
+		// biome-ignore lint/nursery/noVueRefAsOperand: map iterates plain mode strings, not Vue refs.
+		text: t(`room.upscale.${mode}`),
+	})),
+);
 /** The tiers whose shader actually reads `upscaleStrength`; the CNN tiers replace it wholesale. */
 const SLIDER_STRENGTH_MODES: UpscaleMode[] = ["sharpen", "film"];
 const upscaleMode = computed({
