@@ -100,6 +100,16 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 			this.failConnection("network");
 		}
 	};
+	private readonly onVisibilityChange = () => {
+		// Browsers throttle timers in background tabs, so a retry scheduled before the tab was
+		// hidden can still be waiting when the viewer comes back. Retry right away instead of
+		// making them watch the remaining backoff. Only for a drop we already know about: a
+		// first connect that is still in flight must not be restarted (it would also be
+		// relabelled as a session resume).
+		if (!document.hidden && this.active.value && !this.connected.value && this.issue.value) {
+			this.reconnect();
+		}
+	};
 	private messageHandlers = new Map<ServerMessageActionType, ((msg: ServerMessage) => void)[]>();
 	private eventHandlers = new Map<ConnectionEventKind, ((e: unknown) => void)[]>();
 
@@ -125,6 +135,7 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 		this.reconnectAttempts.value = 0;
 		window.addEventListener("online", this.onOnline);
 		window.addEventListener("offline", this.onOffline);
+		document.addEventListener("visibilitychange", this.onVisibilityChange);
 		this.doConnect(this.connectionUrl);
 	}
 
@@ -195,7 +206,7 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 		this.issue.value = null;
 		this.clearTimers();
 		this.closeSocket();
-		this.removeNetworkListeners();
+		this.removeWindowListeners();
 		this.roomName.value = "";
 	}
 
@@ -236,7 +247,7 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 			this.issue.value = null;
 			this.kickReason.value = e.code;
 			this.active.value = false;
-			this.removeNetworkListeners();
+			this.removeWindowListeners();
 			this.dispatchEvent({ kind: "disconnected" });
 			this.dispatchEvent({ kind: "kicked", reason: e.code });
 		} else if (this.active.value) {
@@ -266,9 +277,10 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 		}
 	}
 
-	private removeNetworkListeners() {
+	private removeWindowListeners() {
 		window.removeEventListener("online", this.onOnline);
 		window.removeEventListener("offline", this.onOffline);
+		document.removeEventListener("visibilitychange", this.onVisibilityChange);
 	}
 
 	private failConnection(issue: "timeout" | "network") {

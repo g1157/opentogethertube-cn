@@ -22,6 +22,7 @@ import { loadModels } from "../../models/index.js";
 import type { Request } from "express";
 import { loadConfigFile, conf } from "../../ott-config.js";
 import { type M2BInit, UnloadReason, type MsgB2M } from "../../generated.js";
+import { RoomRequestType } from "ott-common/models/messages.js";
 
 class TestClient extends Client {
 	sendRawMock = vi.fn();
@@ -155,6 +156,24 @@ describe("ClientManager", () => {
 		client.emit("disconnect", client);
 		const joins2 = clientmanager.getClientsInRoom("foo");
 		expect(joins2).toHaveLength(0);
+	});
+
+	it("should name an over-long chat message so the client can explain it", async () => {
+		const client = new TestClient("foo");
+		clientmanager.addClient(client);
+		client.emit("auth", client, "token", { isLoggedIn: false, username: "foo" });
+		await new Promise(resolve => setTimeout(resolve, 100));
+
+		client.emit("message", client, {
+			action: "req",
+			request: { type: RoomRequestType.ChatRequest, text: "长".repeat(301) },
+		});
+		await new Promise(resolve => setTimeout(resolve, 0));
+
+		const sent = client.sendRawMock.mock.calls.map(call => JSON.parse(call[0] as string));
+		const error = sent.find(msg => msg.action === "error");
+		// A bare Error would give the client only its generic fallback message.
+		expect(error?.name).toBe("LengthOutOfRangeException");
 	});
 
 	it("should disconnect all clients when a balancer disconnects", async () => {

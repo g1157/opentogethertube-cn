@@ -135,18 +135,41 @@ describe("room WebSocket recovery", () => {
 		expect(TestWebSocket.sockets).toHaveLength(2);
 	});
 
-	it("disconnects safely while waiting to retry and removes online/offline listeners", () => {
+	it("disconnects safely while waiting to retry and removes window lifecycle listeners", () => {
 		const socket = join();
 		socket.finishClose();
 		connection.disconnect();
 		connection.disconnect();
 		window.dispatchEvent(new Event("online"));
 		window.dispatchEvent(new Event("offline"));
+		document.dispatchEvent(new Event("visibilitychange"));
 		vi.advanceTimersByTime(60000);
 		expect(connection.active.value).toBe(false);
 		expect(connection.connected.value).toBe(false);
 		expect(connection.issue.value).toBeNull();
 		expect(TestWebSocket.sockets).toHaveLength(1);
+	});
+
+	it("retries immediately when the tab comes back to the foreground", () => {
+		join().finishClose();
+		expect(connection.issue.value).toBe("network");
+		// Background tabs throttle timers, so the scheduled retry may still be waiting out its
+		// backoff when the viewer returns; they should not have to watch it.
+		document.dispatchEvent(new Event("visibilitychange"));
+		expect(TestWebSocket.sockets).toHaveLength(2);
+	});
+
+	it("leaves a healthy connection alone when the tab becomes visible", () => {
+		join();
+		document.dispatchEvent(new Event("visibilitychange"));
+		expect(TestWebSocket.sockets).toHaveLength(1);
+	});
+
+	it("does not restart a first connect that is still in flight when the tab becomes visible", () => {
+		connection.connect("test-room");
+		document.dispatchEvent(new Event("visibilitychange"));
+		expect(TestWebSocket.sockets).toHaveLength(1);
+		expect(TestWebSocket.sockets[0].url).not.toContain("reconnect=true");
 	});
 
 	it("manual retry replaces the pending timer instead of creating overlapping sockets", () => {

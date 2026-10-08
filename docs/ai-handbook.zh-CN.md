@@ -131,7 +131,11 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
   `UPDATE_TRANSIENT` 仅本次会话（自动降档在用）。
 - **连接**（`plugins/connection.ts`）：重连是**线性退避** `min(30s, (1s+2s×次数))×(0.5–1.5)`，不是指数；
   `connected` 在**收到第一条 `sync`** 后才为 true；`send()` 在未 connected 时抛错；服务端关闭码 ≥4000
-  为踢出。
+  为踢出。`visibilitychange`（回到前台）与 `online` 时，若已知断线（`issue` 非空）且未连接则立即重连，
+  首次连接在途时不动；断线横幅（`RoomConnectionNotice`）有 **10 秒宽限**，短暂掉线不提示，只有持续
+  失败才显示。
+  服务端错误文案走 `util/server-error.ts`：按 `name` 映射到 `errors.*`，**拿不到响应时用
+  `errors.network`**（不要再落回泛化的 `errors.unknown`）；新增服务端错误名要同步 en/zh-CN 文案。
 - **同步**：`util/playback-sync.ts`（常量与状态机见架构文档 §5.4，**不要凭记忆改数值**）；
   `views/Room.vue` 每 250ms tick 一次；首帧对齐 `playback-preparation.ts`、恢复 `media-recovery.ts`、
   seek `media-seek.ts`、延迟 `connection-latency.ts`（8 样本，`min/2`）。

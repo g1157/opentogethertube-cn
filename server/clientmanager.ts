@@ -17,7 +17,11 @@ import {
 	type ServerMessageVoice,
 	type ClientMessageSignal,
 } from "ott-common/models/messages.js";
-import { ClientNotFoundInRoomException, MissingToken } from "./exceptions.js";
+import {
+	ClientNotFoundInRoomException,
+	LengthOutOfRangeException,
+	MissingToken,
+} from "./exceptions.js";
 import { getVoiceIceServers, isVoiceEnabled } from "./voice.js";
 import { decideVoiceJoin, isRelayAllowedNow, recordUsage } from "./voice-budget.js";
 import {
@@ -42,7 +46,6 @@ import {
 	initBalancerConnections,
 } from "./balancer.js";
 import usermanager from "./usermanager.js";
-import { OttException } from "ott-common/exceptions.js";
 import { conf } from "./ott-config.js";
 import { UnloadReason } from "./generated.js";
 
@@ -464,26 +467,28 @@ async function onClientMessage(client: Client, msg: ClientMessage) {
 				return;
 			}
 			// WS requests bypass the REST body schemas; enforce the same content caps
-			// so oversized text cannot reach storage or every client's UI.
+			// so oversized text cannot reach storage or every client's UI. These are named
+			// exceptions, not bare ones, so the client can say what was wrong instead of
+			// falling back to its generic "something went wrong" message.
 			if (msg.request.type === RoomRequestType.ApplySettingsRequest) {
 				const settings = (
 					msg.request as { settings?: { title?: unknown; description?: unknown } }
 				).settings;
 				if (settings) {
 					if (typeof settings.title === "string" && settings.title.length > 254) {
-						throw new OttException("title is too long (max 254 characters)");
+						throw new LengthOutOfRangeException("title", { max: 254 });
 					}
 					if (
 						typeof settings.description === "string" &&
 						settings.description.length > 5000
 					) {
-						throw new OttException("description is too long (max 5000 characters)");
+						throw new LengthOutOfRangeException("description", { max: 5000 });
 					}
 				}
 			} else if (msg.request.type === RoomRequestType.ChatRequest) {
 				const text = (msg.request as { text?: unknown }).text;
 				if (typeof text !== "string" || text.length === 0 || text.length > 300) {
-					throw new OttException("chat message must be between 1 and 300 characters");
+					throw new LengthOutOfRangeException("chat message", { min: 1, max: 300 });
 				}
 			}
 			await makeRoomRequest(client, msg.request);

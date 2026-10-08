@@ -338,8 +338,10 @@ HLS/DASH 不走 ffprobe，分别用 `m3u8-parser` / `dash-mpd-parser` 解析清�
 `client/src/plugins/connection.ts` 提供 `OttRoomConnectionReal`（测试用 Mock）：
 
 - 重连：**线性退避** `min(30s, (1s + 2s×次数)) × (0.5–1.5 随机)`，不是指数退避；`?reconnect=true` 跳过首次加入语义。
+- 回到前台或网络恢复（`visibilitychange` → 可见、`online`）时若**已知连接中断（`issue` 非空）**且仍未连上，立即重连，不等退避计时器到期；首次连接仍在途时不打扰（否则会被误标成会话恢复）。
 - `connected` 在收到第一条 `sync` 时置真；`active` 表示"应当连接"。
 - 关闭码 ≥4000 为服务端踢出（未知码可重试 2 次）；`<4000` 视为网络问题并重连。
+- 断线提示（`RoomConnectionNotice`）：中断持续 **10 秒**且仍未连上才显示横幅；短暂掉线（后台回来、休眠、切网）完全静默，由自动重连消化。
 - 延迟探测：每 15s `ping`，服务端回 `pong`；样本保留 8 个，取 `min/2` 作为单程延迟。
 
 ### 7.4 消息处理与回流
