@@ -2,11 +2,11 @@
  * Judges whether the enhancement is keeping up with the picture.
  *
  * The degrade ladder used to watch only how many frames the browser presented, and only
- * gave up below an absolute 18 fps; a renderer dropping one frame in twenty — visible
- * judder on 24 fps content — left that number looking healthy. This module reads the
- * presented media times instead: their median step is the source's nominal frame interval,
- * so the media clock says how many frames should have arrived over a measuring window, and
- * the shortfall says how many never did. The ladder steps down until the machine keeps up.
+ * gave up below an absolute 18 fps; a renderer whose drops never made a dent in that
+ * number — visible judder on 24 fps content — kept the tier it could not afford. This
+ * module reads the presented media times instead: their median step is the source's
+ * nominal frame interval, so the media clock says how many frames should have arrived
+ * over a measuring window, and the shortfall says how many never did.
  *
  * The caller owns the window: it feeds distinct presentations only (a frame the browser
  * presents twice carries the same `mediaTime` and is not another frame to keep up with),
@@ -46,8 +46,13 @@ export interface PacingVerdict {
 export const PACING_MIN_FRAMES = 6;
 /** A presentation rate under this is struggling regardless of cadence. */
 export const PACING_FLOOR_FPS = 18;
-/** Dropping this share of the media clock's frames is visible judder; step down. */
-export const PACING_SHORTFALL = 0.05;
+/**
+ * Dropping this share of the media clock's frames is visible judder; step down. The share
+ * stays well clear of the few frames a healthy renderer can miss at window edges and of
+ * sources whose cadence is not perfectly constant (a mixed-cadence stream reads as a small
+ * shortfall against its median interval); an oversubscribed renderer misses far more.
+ */
+export const PACING_SHORTFALL = 0.08;
 /** The share of the pipeline's own dropped frames that counts as stutter. */
 export const PACING_DROPPED = 0.08;
 

@@ -392,6 +392,7 @@ HLS/DASH 不走 ffprobe，分别用 `m3u8-parser` / `dash-mpd-parser` 解析清�
 - WebGPU 探针（`webgpu-probe.ts`）真正跑一遍存储纹理读写 + 视频上传校验，只有确证不支持才排除 WebGPU 档；
   失败不缓存。
 - 性能与降档：渲染目标池化复用、程序按 GL 上下文缓存；自动降档按 档位 → 倍率（下限 `min(1, 显示盒倍率)`）→ 关闭 的阶梯，
+  **连续两个** 6 秒判定窗口都判坏（缺帧 >8%、<18fps、管线丢帧 >8%）才降一级；`seeking`、暂停、缓冲与后台标签页会重置窗口且不计入，
   降档只影响本次会话（`settings/UPDATE_TRANSIENT`）。
 - 生成物 `anime4k-glsl.ts` / `anime4k-ultra-glsl.ts` **不要手改**，由
   `scripts/anime4k-glsl-to-webgl2.mjs` + `.sh` 从官方 GLSL 生成（Biome 已排除这两个文件）。

@@ -56,6 +56,21 @@ describe("pacingVerdict", () => {
 		expect(verdict.degrade).toBe(true);
 	});
 
+	it("tolerates a shortfall below the threshold", () => {
+		// A few frames missed at the window edges, or a source whose cadence is not perfectly
+		// constant, must not take the viewer's tier away: 5% missing is well under what the
+		// threshold accepts, and stepping down for it is what made the ladder feel eager.
+		const times = frameTimes(145, 24).filter((_, index) => index % 20 !== 0);
+		const verdict = pacingVerdict({
+			frameCount: times.length,
+			elapsedMs: 6000,
+			mediaTimes: times,
+		});
+		expect(verdict.shortfall).toBeGreaterThan(0.04);
+		expect(verdict.shortfall).toBeLessThan(PACING_SHORTFALL);
+		expect(verdict.degrade).toBe(false);
+	});
+
 	it("degrades a steady slow presentation rate through the floor", () => {
 		// A consistently overloaded renderer degrades into a regular, self-consistent
 		// cadence the shortfall cannot see; the absolute floor is what still catches it.

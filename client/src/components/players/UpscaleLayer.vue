@@ -32,14 +32,17 @@ const store = useStore();
 const canvasHost = ref<HTMLElement | null>(null);
 const captionElem = ref<HTMLElement | null>(null);
 
-// Degrade ladder, walked one rung per monitoring window.
+// Degrade ladder, walked one rung per confirmed bad window.
 const SCALE_STEPS = [3, 2.5, 2, 1.5, 1, 0.75, 0.5, 0.25] as const;
 // A gap this long between presented frames means nothing was being drawn — a pause, a
 // seek, a rebuffer or a backgrounded tab. That time says nothing about the device, so
-// the measurement restarts instead of scoring it as an abysmal frame rate. Judging needs
-// 24 frames in a 6s window, so nothing slower than 4fps is judged either way; a second is
-// far above any real frame interval and far below a human pause.
+// the measurement restarts instead of scoring it as an abysmal frame rate: a judge that
+// accepts a handful of frames would otherwise read the pause as a few fps.
 const STALL_MS = 1000;
+// One bad window is a hiccup — another app taking the GPU, a heavy scene, a garbage
+// collection pause. Two in a row is the device saying the tier does not fit, and a
+// genuinely overloaded device fails every window, so it still steps down within ~12s.
+const BAD_WINDOWS_BEFORE_DEGRADE = 2;
 
 let renderer: UpscaleRenderer | null = null;
 let canvas: HTMLCanvasElement | null = null;
@@ -62,6 +65,8 @@ let lastFrameAt = Number.NEGATIVE_INFINITY;
 // A rebuild pays for itself in shader linking and a first frame, so the monitoring window
 // that starts with one is not evidence about the device and is thrown away unread.
 let monitorSkipWindow = false;
+/** Consecutive windows that judged the tier too heavy; see BAD_WINDOWS_BEFORE_DEGRADE. */
+let monitorBadWindows = 0;
 
 /**
  * A canvas keeps whatever context type it was first asked for, so WebGL2 and WebGPU each get a
@@ -175,6 +180,14 @@ function monitorPerformance(_now: number, metadata: VideoFrameCallbackMetadata) 
 		scheduleMonitor();
 		return;
 	}
+	if (document.hidden) {
+		// A hidden tab is throttled by the browser, and nobody is looking at the picture
+		// anyway, so what its frames do here says nothing about the device.
+		resetMonitorWindow();
+		monitorBadWindows = 0;
+		scheduleMonitor();
+		return;
+	}
 	if (now - lastFrameAt > STALL_MS) {
 		// requestVideoFrameCallback stops firing while the video is paused, so the paused
 		// check above may never run; this is what actually catches it. Without it, resuming
@@ -225,12 +238,21 @@ function monitorPerformance(_now: number, metadata: VideoFrameCallbackMetadata) 
 		monitorSkipWindow = false;
 		return;
 	}
-	if (!verdict.judged || !verdict.degrade) {
-		// Healthy, or too few frames to say anything (a stall owns that case).
+	if (!verdict.judged) {
+		// Too few frames arrived to say anything (a stall owns that case).
+		return;
+	}
+	if (!verdict.degrade) {
+		// Healthy: whatever the previous window looked like, the tier is keeping up now.
+		monitorBadWindows = 0;
 		return;
 	}
 	if (!store.state.settings.upscaleAutoDegrade) {
 		// The user chose to keep the enhancement on and absorb the stutter.
+		return;
+	}
+	monitorBadWindows++;
+	if (monitorBadWindows < BAD_WINDOWS_BEFORE_DEGRADE) {
 		return;
 	}
 	degradeOneStep(video, canvas);
@@ -304,6 +326,7 @@ function degradeOneStep(video: HTMLVideoElement | undefined, target: HTMLCanvasE
 	store.commit("settings/UPDATE_TRANSIENT", step);
 	// Give the new setting a full window to prove itself before stepping again,
 	// whichever watcher it woke.
+	monitorBadWindows = 0;
 	resetMonitorWindow();
 }
 
@@ -522,6 +545,9 @@ async function start() {
 	reportEnhancementError(null);
 	updateCaptions();
 	captionTimer = setInterval(updateCaptions, 250);
+	// The tier may have changed, so any evidence gathered before this point describes
+	// another pipeline.
+	monitorBadWindows = 0;
 	resetMonitorWindow();
 	monitorSkipWindow = true;
 	scheduleMonitor();
@@ -531,15 +557,27 @@ function onLoadedMetadata() {
 	void start();
 }
 
+function onSeeking() {
+	// A seek moves the media clock: the frames before and after it sit at different places in
+	// the media, so the clock difference between them is not a frame the renderer failed to
+	// keep up with. Room-sync hard seeks, other viewers' seeks and manual drags all land here.
+	// The window restarts, and the one after it — the seek's own rebuffering — goes unjudged.
+	monitorBadWindows = 0;
+	resetMonitorWindow();
+	monitorSkipWindow = true;
+}
+
 function attachVideo(video: HTMLVideoElement | undefined) {
 	if (video) {
 		video.addEventListener("loadedmetadata", onLoadedMetadata);
+		video.addEventListener("seeking", onSeeking);
 	}
 }
 
 function detachVideo(video: HTMLVideoElement | undefined) {
 	if (video) {
 		video.removeEventListener("loadedmetadata", onLoadedMetadata);
+		video.removeEventListener("seeking", onSeeking);
 	}
 }
 

@@ -41,6 +41,8 @@ function fakeVideo() {
 		(now: number, metadata: VideoFrameCallbackMetadata) => void
 	>();
 	let nextId = 1;
+	/** Added to the media clock, so a test can simulate a seek. */
+	let mediaOffset = 0;
 	const video = document.createElement("video");
 	Object.defineProperties(video, {
 		videoWidth: { value: 1920, configurable: true },
@@ -83,7 +85,14 @@ function fakeVideo() {
 			callbacks.delete(next[0]);
 			// Playback runs at 1x, so the media clock follows the wall clock and a frame
 			// presented late leaves a gap in the media times the pacing check can see.
-			next[1](clock, { mediaTime: clock / 1000 } as VideoFrameCallbackMetadata);
+			next[1](clock, {
+				mediaTime: clock / 1000 + mediaOffset,
+			} as VideoFrameCallbackMetadata);
+		},
+		/** Jump the media clock like a seek does, announced the way the element announces it. */
+		seekBy(seconds: number) {
+			mediaOffset += seconds;
+			video.dispatchEvent(new Event("seeking"));
 		},
 	};
 }
@@ -266,8 +275,8 @@ describe("enhancement layer lifecycle", () => {
 		});
 		await settle();
 
-		// The window that begins at a rebuild is skipped by design, so a step needs two windows
-		// of sustained slowness (the second one is the first that is judged).
+		// The window that begins at a rebuild is skipped by design, and a step then needs two
+		// consecutive bad windows on top of it, so 200 slow frames cover the whole decision.
 		for (let i = 0; i < 200; i++) {
 			fire(100);
 		}
@@ -360,6 +369,79 @@ describe("enhancement layer lifecycle", () => {
 		// it, so one rung down is still above what the screen can show and the ladder may take
 		// it. The floor itself is covered by the next test.
 		expect(store.state.settings.upscaleScale).toBe(0.75);
+	});
+
+	it("waits for a second bad window before stepping down", async () => {
+		// A single bad window is a hiccup — another app taking the GPU, a heavy scene — and
+		// taking the viewer's tier away for it is what made the ladder feel trigger-happy.
+		const { video, fire } = fakeVideo();
+		const { store } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "sharpen" },
+		});
+		await settle();
+
+		// 10fps for two windows: the rebuild's window is skipped, so one verdict has landed.
+		for (let i = 0; i < 130; i++) {
+			fire(100);
+		}
+		expect(store.state.settings.upscaleScale).toBe("auto");
+
+		// One more bad window confirms it, and the ladder steps.
+		for (let i = 0; i < 60; i++) {
+			fire(100);
+		}
+		expect(store.state.settings.upscaleScale).toBe(0.75);
+	});
+
+	it("does not step down for the seeks a room does while watching", async () => {
+		// Room-sync hard seeks, other viewers' seeks and manual drags all move `currentTime`,
+		// and the media clock jumps with it. Counting that jump as frames the renderer never
+		// presented used to step the tier down for something it had no part in.
+		const { video, fire, seekBy } = fakeVideo();
+		const { store } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "sharpen" },
+		});
+		await settle();
+
+		// Healthy 30fps with a hard seek every three seconds — a room whose sync keeps
+		// correcting itself, or a viewer scrubbing. Every window holds a jump in it.
+		for (let round = 0; round < 10; round++) {
+			for (let i = 0; i < 90; i++) {
+				fire(33);
+			}
+			seekBy(3);
+		}
+		for (let i = 0; i < 400; i++) {
+			fire(33);
+		}
+
+		expect(store.state.settings.upscaleScale).toBe("auto");
+	});
+
+	it("ignores what the frames do while the tab is hidden", async () => {
+		// A background tab is throttled by the browser, and nobody is looking at the picture:
+		// the ladder must not strip the tier for frames the viewer never saw.
+		const { video, fire } = fakeVideo();
+		const { store } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "sharpen" },
+		});
+		await settle();
+
+		Object.defineProperty(document, "hidden", { value: true, configurable: true });
+		try {
+			for (let i = 0; i < 300; i++) {
+				fire(200);
+			}
+			expect(store.state.settings.upscaleScale).toBe("auto");
+		} finally {
+			Reflect.deleteProperty(document, "hidden");
+		}
+
+		// Back on screen at 30fps: still nothing to step down for.
+		for (let i = 0; i < 400; i++) {
+			fire(33);
+		}
+		expect(store.state.settings.upscaleScale).toBe("auto");
 	});
 
 	it("ends the ladder at the display box instead of rendering below the source", async () => {
