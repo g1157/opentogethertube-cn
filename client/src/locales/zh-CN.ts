@@ -27,6 +27,8 @@ export default {
 		close: "关闭",
 		"close-all": "全部关闭",
 		"more-notices": "另有 {count} 条新提示",
+		"show-notices": "查看新的提示（{count} 条）",
+		"collapse-notices": "收起提示",
 		add: "添加",
 		remove: "移除",
 		delete: "删除",

@@ -4,7 +4,11 @@
 		<span class="toast-content">
 			<ProcessedText :text="toast.content" :show-add-queue-tooltip="false" />
 		</span>
-		<div class="bar" :style="{ 'animation-duration': `${toast.duration}ms` }"></div>
+		<div
+			class="bar"
+			v-if="!persistent"
+			:style="{ 'animation-duration': `${toast.duration}ms` }"
+		></div>
 		<div class="toast-actions">
 			<v-btn variant="text" v-if="undoable && !isEdgePreview" @click="undo">
 				{{ $t("common.undo") }}
@@ -35,14 +39,15 @@ import ProcessedText from "./ProcessedText.vue";
 import axios from "axios";
 import { serverErrorMessage } from "@/util/server-error";
 
-const props = defineProps<{ toast: Toast; number?: number }>();
+const props = defineProps<{ toast: Toast; number?: number; persistent?: boolean }>();
 
 const { toast } = toRefs(props);
 const store = useStore();
 const closeTimeoutId: Ref<ReturnType<typeof setTimeout> | null> = ref(null);
 
 onMounted(() => {
-	if (toast.value.duration) {
+	// The review view holds notices open until they are closed on purpose.
+	if (!props.persistent && toast.value.duration) {
 		closeTimeoutId.value = setTimeout(() => {
 			close();
 		}, toast.value.duration);

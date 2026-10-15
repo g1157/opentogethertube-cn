@@ -40,6 +40,11 @@ export const toastModule: Module<ToastState, unknown> = {
 		},
 		REMOVE_TOAST(state: ToastState, id: symbol) {
 			const idx = _.findIndex(state.notifications, { id });
+			if (idx < 0) {
+				// A card closed twice, or after a clear, must not take the last toast with it:
+				// splice(-1, 1) deletes from the end of the array.
+				return;
+			}
 			state.notifications.splice(idx, 1);
 		},
 		CLEAR_ALL_TOASTS(state: ToastState) {

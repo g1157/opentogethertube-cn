@@ -28,6 +28,8 @@ export default {
 		close: "Close",
 		"close-all": "Close All",
 		"more-notices": "{count} more notices",
+		"show-notices": "Show new notices ({count})",
+		"collapse-notices": "Collapse notices",
 		add: "Add",
 		remove: "Remove",
 		delete: "Delete",
