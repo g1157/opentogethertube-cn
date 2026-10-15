@@ -49,6 +49,7 @@ function baseInput(overrides: Partial<PlayerStatsInput> = {}): PlayerStatsInput 
 		video: fakeVideo(),
 		measuredFps: 59.5,
 		sourceFps: 23.98,
+		pageFps: 59.8,
 		sync: { rateWrites: 12, deadlineSeeks: 3 },
 		now: 1_000_000,
 		room: {
@@ -93,6 +94,7 @@ describe("playback details", () => {
 		expect(rowOf(sections, "player.stats.source-host").value).toBe("cdn.example.com");
 		expect(rowOf(sections, "player.stats.state").valueKey).toBe("player.stats.state-playing");
 		expect(rowOf(sections, "player.stats.render-fps").value).toBe("59.5 fps");
+		expect(rowOf(sections, "player.stats.page-fps").value).toBe("59.8 fps");
 		expect(rowOf(sections, "player.stats.source-fps").value).toBe("23.98 fps");
 		expect(rowOf(sections, "player.stats.rate-writes").params).toEqual({ value: 12 });
 		expect(rowOf(sections, "player.stats.deadline-seeks").params).toEqual({ value: 3 });
@@ -110,6 +112,7 @@ describe("playback details", () => {
 				video: undefined,
 				measuredFps: null,
 				sourceFps: null,
+				pageFps: null,
 				room: { ...baseInput().room },
 			}),
 		);
@@ -118,6 +121,7 @@ describe("playback details", () => {
 		expect(rowOf(sections, "player.stats.state").valueKey).toBe("player.stats.state-unknown");
 		expect(rowOf(sections, "player.stats.render-target").value).toBe("—");
 		expect(rowOf(sections, "player.stats.render-fps").value).toBe("—");
+		expect(rowOf(sections, "player.stats.page-fps").value).toBe("—");
 		expect(rowOf(sections, "player.stats.source-fps").value).toBe("—");
 	});
 

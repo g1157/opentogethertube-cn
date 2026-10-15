@@ -1029,6 +1029,7 @@ export default {
 			"value-seconds": "{value} s",
 			dropped: "Dropped frames",
 			"render-fps": "Measured frame rate",
+			"page-fps": "Page frame rate",
 			"source-fps": "Source frame rate",
 			"value-count": "{value} times",
 			"rate-writes": "Rate writes",

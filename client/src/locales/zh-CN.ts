@@ -988,6 +988,7 @@ export default {
 			"value-seconds": "{value} 秒",
 			dropped: "丢帧",
 			"render-fps": "实测帧率",
+			"page-fps": "页面帧率",
 			"source-fps": "源帧率",
 			"value-count": "{value} 次",
 			"rate-writes": "速率写入",

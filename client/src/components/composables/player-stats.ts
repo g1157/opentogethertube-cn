@@ -34,6 +34,8 @@ export interface PlayerStatsInput {
 	measuredFps: number | null;
 	/** The source's nominal frame rate from the presented media times, null while unknown. */
 	sourceFps: number | null;
+	/** The page's own requestAnimationFrame rate: what overlay smoothness (danmaku) follows. */
+	pageFps: number | null;
 	/** Sync-engine counters for the slow-device diagnosis (rate writes, deadline seeks). */
 	sync: { rateWrites: number; deadlineSeeks: number };
 	now: number;
@@ -211,6 +213,13 @@ export function collectPlayerStats(input: PlayerStatsInput): PlayerStatsSection[
 			value: input.measuredFps === null ? "—" : `${input.measuredFps.toFixed(1)} fps`,
 		},
 		{
+			// The media pipeline can present every source frame while the page itself renders
+			// slower — canvas overlays (danmaku) follow the page rate, not the media rate, so
+			// the two readings together say whether an overlay's judder comes from load.
+			labelKey: "player.stats.page-fps",
+			value: input.pageFps === null ? "—" : `${input.pageFps.toFixed(1)} fps`,
+		},
+		{
 			// The presentation count wobbles around a 23.976 fps source (23.5–24.25 over
 			// one-second windows); the source rate from the media clock does not, and is the
 			// number to read when judging "measured vs actual".
@@ -339,6 +348,11 @@ export function usePlayerStats(
 	const SOURCE_FPS_SAMPLES = 240;
 	let fpsMediaTimes: number[] = [];
 	let sourceFps: number | null = null;
+	let pageFpsFrame = 0;
+	let pageFpsCount = 0;
+	let pageFpsStart = 0;
+	let pageFpsSamples: number[] = [];
+	let pageFps: number | null = null;
 	let gpuName: string | null = null;
 
 	const input = (): PlayerStatsInput => {
@@ -347,6 +361,7 @@ export function usePlayerStats(
 			video: getVideo(),
 			measuredFps,
 			sourceFps,
+			pageFps,
 			sync: { rateWrites: syncMetrics.rateWrites, deadlineSeeks: syncMetrics.deadlineSeeks },
 			now: Date.now(),
 			room: {
@@ -407,22 +422,60 @@ export function usePlayerStats(
 		fpsFrame = video.requestVideoFrameCallback(tick);
 	}
 
+	function stopPageFpsWindow() {
+		if (pageFpsFrame) {
+			cancelAnimationFrame(pageFpsFrame);
+		}
+		pageFpsFrame = 0;
+	}
+
+	function startPageFpsWindow() {
+		if (typeof requestAnimationFrame !== "function") {
+			pageFps = null;
+			return;
+		}
+		pageFpsCount = 0;
+		pageFpsStart = performance.now();
+		const tick = () => {
+			pageFpsCount++;
+			if (pageFpsFrame) {
+				pageFpsFrame = requestAnimationFrame(tick);
+			}
+		};
+		pageFpsFrame = requestAnimationFrame(tick);
+	}
+
 	function refresh() {
 		const video = getVideo();
 		if (video?.paused) {
 			// A paused video presents no frames, and a stale number would only mislead.
 			fpsSamples = [];
-		} else if (fpsStart > 0 && fpsCount > 0) {
-			const elapsed = performance.now() - fpsStart;
-			if (elapsed > 0) {
-				fpsSamples.push((fpsCount * 1000) / elapsed);
-				if (fpsSamples.length > FPS_SAMPLES) {
-					fpsSamples.shift();
+			pageFpsSamples = [];
+		} else {
+			if (fpsStart > 0 && fpsCount > 0) {
+				const elapsed = performance.now() - fpsStart;
+				if (elapsed > 0) {
+					fpsSamples.push((fpsCount * 1000) / elapsed);
+					if (fpsSamples.length > FPS_SAMPLES) {
+						fpsSamples.shift();
+					}
+				}
+			}
+			if (pageFpsStart > 0 && pageFpsCount > 0) {
+				const elapsed = performance.now() - pageFpsStart;
+				if (elapsed > 0) {
+					pageFpsSamples.push((pageFpsCount * 1000) / elapsed);
+					if (pageFpsSamples.length > FPS_SAMPLES) {
+						pageFpsSamples.shift();
+					}
 				}
 			}
 		}
 		measuredFps = fpsSamples.length
 			? fpsSamples.reduce((total, sample) => total + sample, 0) / fpsSamples.length
+			: null;
+		pageFps = pageFpsSamples.length
+			? pageFpsSamples.reduce((total, sample) => total + sample, 0) / pageFpsSamples.length
 			: null;
 		const interval = medianFrameInterval(fpsMediaTimes);
 		sourceFps = interval !== null && interval > 0 ? 1 / interval : null;
@@ -435,10 +488,13 @@ export function usePlayerStats(
 			timer = undefined;
 		}
 		stopFpsWindow();
+		stopPageFpsWindow();
 		fpsSamples = [];
 		fpsMediaTimes = [];
+		pageFpsSamples = [];
 		measuredFps = null;
 		sourceFps = null;
+		pageFps = null;
 	}
 
 	function start() {
@@ -448,10 +504,13 @@ export function usePlayerStats(
 		});
 		sections.value = collectPlayerStats(input());
 		startFpsWindow();
+		startPageFpsWindow();
 		timer = setInterval(() => {
 			refresh();
 			stopFpsWindow();
 			startFpsWindow();
+			stopPageFpsWindow();
+			startPageFpsWindow();
 		}, 1000);
 	}
 
