@@ -212,6 +212,7 @@ const getOwnedRooms: RequestHandler<never, OttResponseBody<{ data: RoomListItem[
 		queueMode: dbRoom.queueMode as QueueMode,
 		currentSource: null,
 		users: 0,
+		hasPassword: !!dbRoom.passwordHash,
 	}));
 
 	res.json({

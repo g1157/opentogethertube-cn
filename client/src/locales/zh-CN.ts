@@ -209,6 +209,7 @@ export default {
 		"load-failed": "暂时无法加载房间，请重试。",
 		viewers: "{count} 人在线",
 		"permanent-room": "永久房间",
+		"password-protected": "需要密码",
 		enter: "进入房间",
 		"no-rooms": "暂时没有房间…",
 		create: "@:nav.create.title",

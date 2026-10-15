@@ -706,5 +706,41 @@ describe("Room API", () => {
 				.auth(token, { type: "bearer" });
 			expect(read.status).toBe(200);
 		});
+
+		it("flags the room in the public list without exposing the hash", async () => {
+			getSessionInfoSpy.mockResolvedValue({ isLoggedIn: true, user_id: owner.id });
+			await request(app)
+				.patch("/api/room/testpassword/password")
+				.auth(token, { type: "bearer" })
+				.send({ password: "hunter22" })
+				.expect(200);
+			// The list only shows public rooms; the fixture defaults to unlisted.
+			(await roommanager.getRoom("testpassword")).unwrap().visibility = Visibility.Public;
+
+			const list = await request(app)
+				.get("/api/room/list")
+				.auth(token, { type: "bearer" })
+				.expect(200);
+			const entry = list.body.find((room: { name: string }) => room.name === "testpassword");
+			expect(entry?.hasPassword).toBe(true);
+			// Temporary rooms live in memory; their hash must never ride along either.
+			const hash = (await roommanager.getRoom("testpassword")).unwrap().passwordHash;
+			expect(hash).toBeTruthy();
+			expect(JSON.stringify(list.body)).not.toContain(hash);
+
+			await request(app)
+				.patch("/api/room/testpassword/password")
+				.auth(token, { type: "bearer" })
+				.send({ password: null })
+				.expect(200);
+			const cleared = await request(app)
+				.get("/api/room/list")
+				.auth(token, { type: "bearer" })
+				.expect(200);
+			expect(
+				cleared.body.find((room: { name: string }) => room.name === "testpassword")
+					?.hasPassword,
+			).toBe(false);
+		});
 	});
 });

@@ -213,6 +213,7 @@ export default {
 		"load-failed": "Unable to load rooms. Please try again.",
 		viewers: "{count} in room",
 		"permanent-room": "Permanent room",
+		"password-protected": "Password required",
 		enter: "Enter room",
 		"no-rooms": "No rooms right now...",
 		create: "@:nav.create.title",

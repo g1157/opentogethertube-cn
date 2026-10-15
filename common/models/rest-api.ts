@@ -120,4 +120,6 @@ export interface RoomListItem {
 	queueMode: QueueMode;
 	currentSource: Video | null;
 	users: number;
+	/** Whether visitors must enter a room password; never carries the hash itself. */
+	hasPassword?: boolean;
 }

@@ -95,6 +95,20 @@ describe("permanent room persistence", () => {
 		expect(new Set(allNames)).toEqual(fixtureNames);
 	});
 
+	it("flags password-protected rooms in the permanent list without exposing the hash", async () => {
+		const lockedRoom = await createRoom("retention-list-locked");
+		const openRoom = await createRoom("retention-list-open");
+		const hash = "argon2-placeholder-hash";
+		expect(await storage.updateRoomPassword(lockedRoom.name, hash)).toBe(true);
+		const fixtureNames = new Set([lockedRoom.name, openRoom.name]);
+		const listed = (await storage.getPermanentRoomList()).filter(room =>
+			fixtureNames.has(room.name),
+		);
+		expect(listed.find(room => room.name === lockedRoom.name)?.hasPassword).toBe(true);
+		expect(listed.find(room => room.name === openRoom.name)?.hasPassword).toBe(false);
+		expect(JSON.stringify(listed)).not.toContain(hash);
+	});
+
 	it("does not resurrect links after the current video and queue are explicitly cleared", async () => {
 		const room = await createRoom("cleared-permanent-room");
 		room.currentSource = { service: "direct", id: "first.mp4", length: 120 };

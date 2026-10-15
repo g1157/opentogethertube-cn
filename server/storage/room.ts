@@ -15,7 +15,15 @@ const log = getLogger("storage/room");
 export async function getPermanentRoomList(includeUnlisted = false): Promise<RoomListItem[]> {
 	const rooms = await DbRoomModel.findAll({
 		where: includeUnlisted ? {} : { visibility: Visibility.Public },
-		attributes: ["name", "title", "description", "visibility", "queueMode", "prevQueue"],
+		attributes: [
+			"name",
+			"title",
+			"description",
+			"visibility",
+			"queueMode",
+			"prevQueue",
+			"passwordHash",
+		],
 	});
 	return rooms.map(room => ({
 		name: room.name,
@@ -26,6 +34,8 @@ export async function getPermanentRoomList(includeUnlisted = false): Promise<Roo
 		isTemporary: false,
 		currentSource: room.prevQueue?.[0] ?? null,
 		users: 0,
+		// Only the boolean leaves storage; the hash itself stays in the row.
+		hasPassword: !!room.passwordHash,
 	}));
 }
 

@@ -70,9 +70,23 @@
 										: $t("room-list.permanent-room")
 								}}
 							</span>
-							<span class="room-viewers" data-cy="room-viewers">
-								<v-icon :icon="mdiAccountMultiple" :size="16" aria-hidden="true" />
-								{{ $t("room-list.viewers", { count: room.users }) }}
+							<span class="room-flags">
+								<span
+									v-if="room.hasPassword"
+									class="room-lock"
+									data-cy="room-password-badge"
+								>
+									<v-icon :icon="mdiLockOutline" :size="14" aria-hidden="true" />
+									{{ $t("room-list.password-protected") }}
+								</span>
+								<span class="room-viewers" data-cy="room-viewers">
+									<v-icon
+										:icon="mdiAccountMultiple"
+										:size="16"
+										aria-hidden="true"
+									/>
+									{{ $t("room-list.viewers", { count: room.users }) }}
+								</span>
 							</span>
 						</div>
 						<h2 class="room-title">
@@ -106,6 +120,7 @@ import {
 	mdiAccountMultiple,
 	mdiAlertCircleOutline,
 	mdiArrowRight,
+	mdiLockOutline,
 	mdiPlayCircleOutline,
 	mdiPlus,
 	mdiRefresh,
@@ -257,6 +272,18 @@ async function createRoom() {
 }
 .room-type.permanent {
 	color: var(--signal);
+}
+.room-flags {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.6rem;
+}
+.room-lock {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	color: var(--signal);
+	white-space: nowrap;
 }
 .room-viewers {
 	display: inline-flex;

@@ -135,6 +135,20 @@ describe("Room browsing", () => {
 		expect(wrapper.html()).not.toContain("private-token");
 	});
 
+	it("marks password-protected rooms in the public list", async () => {
+		API.get.mockResolvedValueOnce({
+			data: [room({ name: "locked-night", hasPassword: true }), room({ name: "open-night" })],
+		});
+		const { wrapper } = mountComponent(RoomList, {
+			global: { stubs: { VImg: true } },
+		});
+		await flushPromises();
+
+		const cards = wrapper.findAll('[data-cy="room-card"]');
+		expect(cards[0].find('[data-cy="room-password-badge"]').exists()).toBe(true);
+		expect(cards[1].find('[data-cy="room-password-badge"]').exists()).toBe(false);
+	});
+
 	it("shows the public-room empty state only after a successful empty response", async () => {
 		API.get.mockResolvedValueOnce({ data: [] });
 		const { wrapper } = mountComponent(RoomList);

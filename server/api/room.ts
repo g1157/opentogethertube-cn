@@ -103,6 +103,7 @@ router.get("/list", async (req, res, next) => {
 			queueMode: room.queueMode,
 			currentSource: room.currentSource,
 			users: room.users.length,
+			hasPassword: room.hasPassword,
 		};
 		rooms.push(obj);
 	}
