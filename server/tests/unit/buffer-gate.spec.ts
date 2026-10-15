@@ -60,7 +60,7 @@ describe("room buffering gate", () => {
 		advance(2100);
 	}
 
-	it("is off by default and leaves buffering clients independent", async () => {
+	it("is off by default and leaves a shared room's buffering clients independent", async () => {
 		expect(room.bufferGateMode).toBe(BufferGateMode.Off);
 		await start(2, BufferGateMode.Off);
 		await report("bob");
@@ -87,6 +87,45 @@ describe("room buffering gate", () => {
 		await report("alice");
 		expect(room.isPlaying).toBe(false);
 		expect(room.bufferingGateHeld).toBe(true);
+	});
+
+	it("gates a solo viewer even when the setting is off", async () => {
+		// A solo room does not wait for the opt-in: holding the clock costs nobody and
+		// prevents the recovery seek from skipping the stalled span.
+		await start(1, BufferGateMode.Off);
+		await report("alice");
+		expect(room.isPlaying).toBe(false);
+		expect(room.bufferingGateHeld).toBe(true);
+		await report("alice", PlayerStatus.ready);
+		expect(room.isPlaying).toBe(true);
+		expect(room.bufferingGateHeld).toBe(false);
+	});
+
+	it("keeps a solo hold when the setting is switched off mid-buffer", async () => {
+		await start(1);
+		await report("alice");
+		expect(room.bufferingGateHeld).toBe(true);
+		await room.applySettings(
+			{
+				type: RoomRequestType.ApplySettingsRequest,
+				settings: { bufferGateMode: BufferGateMode.Off },
+			},
+			{ ...context("alice"), role: Role.Owner },
+		);
+		expect(room.isPlaying).toBe(false);
+		expect(room.bufferingGateHeld).toBe(true);
+		await report("alice", PlayerStatus.ready);
+		expect(room.isPlaying).toBe(true);
+	});
+
+	it("releases a solo hold once a second viewer joins an unconfigured room", async () => {
+		await start(1, BufferGateMode.Off);
+		await report("alice");
+		expect(room.bufferingGateHeld).toBe(true);
+		await join("bob");
+		await room.update();
+		expect(room.isPlaying).toBe(true);
+		expect(room.bufferingGateHeld).toBe(false);
 	});
 
 	it("resumes a solo viewer's room once their buffer recovers", async () => {

@@ -14,8 +14,11 @@ import { useStore } from "@/store";
 const store = useStore();
 const waitingNames = computed(() => {
 	const room = store.state.room;
+	// A solo room holds the clock regardless of the setting, so its notice must not require
+	// the opt-in value there; in a shared room only the setting can pause everyone.
+	const soloRoom = store.state.users.users.size <= 1;
 	if (
-		room.bufferGateMode !== BufferGateMode.Pause ||
+		(room.bufferGateMode !== BufferGateMode.Pause && !soloRoom) ||
 		room.isPlaying ||
 		!room.currentSource ||
 		room.playbackPreparation ||

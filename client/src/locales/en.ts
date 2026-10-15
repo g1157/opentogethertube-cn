@@ -444,7 +444,7 @@ export default {
 				unreachable:
 					"When it says the device cannot reach the video source, your browser cannot reach that host (blocked network, bad DNS, or a proxy rule sending it down a dead route). It is unrelated to the server: the server reaching it does not mean you can.",
 				retry: '"Retry my video" in the error message reloads only your device and does not affect the rest of the room.',
-				gate: '"Wait for buffering viewers" in room settings pauses everyone for viewers with slow connections.',
+				gate: '"Wait for buffering viewers" in room settings pauses everyone for viewers with slow connections; a solo room always waits without enabling it.',
 				source: "A link that plays when opened directly may still refuse to play embedded elsewhere. Sources that only turn away a foreign Referer are retried without one; sources that require their own site's Referer or a cookie still fail.",
 			},
 		},
@@ -646,7 +646,7 @@ export default {
 		"buffer-gate-off": "Off",
 		"buffer-gate-pause": "Pause automatically for up to 15 seconds",
 		"buffer-gate-hint":
-			"Wait for viewers with playback permission. Background tabs are excluded. After a timeout, playback continues without another automatic pause for 30 seconds.",
+			"A solo room always waits; in a shared room, viewers with playback permission hold playback while buffering. Background tabs are excluded. After a timeout, playback continues without another automatic pause for 30 seconds.",
 	},
 	"create-room-form": {
 		"card-title": "Create a Permanent Room",

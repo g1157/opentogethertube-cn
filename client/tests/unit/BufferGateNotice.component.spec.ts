@@ -28,4 +28,41 @@ describe("buffer gate notice", () => {
 		await nextTick();
 		expect(wrapper.find('[data-cy="buffer-gate-notice"]').exists()).toBe(false);
 	});
+
+	it("shows a paused solo room's buffering notice even when the setting is off", async () => {
+		const { wrapper, store } = mountComponent(BufferGateNotice);
+		store.state.room.grants.setRoleGrants(Role.UnregisteredUser, ["playback.play-pause"]);
+		store.commit("room/SYNC", {
+			bufferGateMode: BufferGateMode.Off,
+			isPlaying: false,
+			currentSource: { service: "direct", id: "test.mp4" },
+		});
+		store.commit("users/INIT_USERS", [
+			{
+				id: "alice",
+				name: "Alice",
+				role: Role.UnregisteredUser,
+				status: PlayerStatus.buffering,
+			},
+		]);
+		await nextTick();
+		expect(wrapper.find('[data-cy="buffer-gate-notice"]').exists()).toBe(true);
+		expect(wrapper.text()).toContain("Alice");
+	});
+
+	it("keeps a shared room's notice gated by the setting", async () => {
+		const { wrapper, store } = mountComponent(BufferGateNotice);
+		store.state.room.grants.setRoleGrants(Role.UnregisteredUser, ["playback.play-pause"]);
+		store.commit("room/SYNC", {
+			bufferGateMode: BufferGateMode.Off,
+			isPlaying: false,
+			currentSource: { service: "direct", id: "test.mp4" },
+		});
+		store.commit("users/INIT_USERS", [
+			{ id: "alice", name: "Alice", role: Role.UnregisteredUser, status: PlayerStatus.ready },
+			{ id: "bob", name: "Bob", role: Role.UnregisteredUser, status: PlayerStatus.buffering },
+		]);
+		await nextTick();
+		expect(wrapper.find('[data-cy="buffer-gate-notice"]').exists()).toBe(false);
+	});
 });

@@ -641,6 +641,7 @@ export class Room implements RoomState {
 		if (timedOut) {
 			this.bufferGateCooldownUntil = Date.now() + BUFFER_GATE_COOLDOWN_MS;
 		}
+		this.log.info(`buffer gate released${timedOut ? " after the wait limit" : ""}`);
 		if (
 			gate.pausedByGate &&
 			!this.isPlaying &&
@@ -657,8 +658,12 @@ export class Room implements RoomState {
 			await this.releaseBufferGate(true);
 			return;
 		}
+		// A solo room gates regardless of the setting: holding the clock for its only viewer
+		// costs nobody, and letting it run ahead would skip the stalled span on recovery.
+		// The opt-in setting decides who gets held up in a shared room.
+		const soloViewer = this.realusers.length === 1;
 		if (
-			this.bufferGateMode !== BufferGateMode.Pause ||
+			(this.bufferGateMode !== BufferGateMode.Pause && !soloViewer) ||
 			this.temporarySpeed ||
 			this.playbackPreparation ||
 			!this.currentSource
@@ -694,6 +699,9 @@ export class Room implements RoomState {
 			waitingOn: waiting.map(user => user.id),
 			pausedByGate: true,
 		};
+		this.log.info(
+			`buffer gate engaged: holding playback for ${waiting.map(user => user.username).join(", ")}`,
+		);
 		await this.pause(true);
 	}
 
@@ -1457,6 +1465,7 @@ export class Room implements RoomState {
 			// A viewer explicitly chose to continue; do not immediately recapture playback.
 			this.bufferGate = null;
 			this.bufferGateCooldownUntil = Date.now() + BUFFER_GATE_COOLDOWN_MS;
+			this.log.info("buffer gate released: playback was continued manually");
 		}
 		this.cancelPlaybackPreparation();
 		this.restoredFromStorage = false;
