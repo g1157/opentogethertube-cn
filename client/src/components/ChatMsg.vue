@@ -33,7 +33,6 @@ const emit = defineEmits<{
 .message {
 	margin: 1px 0;
 	padding: 2px 4px;
-	font-size: 0.85em;
 	line-height: 1.3;
 	opacity: 0;
 	transition: all 1s ease;
