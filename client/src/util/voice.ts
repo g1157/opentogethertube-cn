@@ -45,6 +45,8 @@ export function useVoice() {
 	let audioContext: AudioContext | null = null;
 	let speakingTimer: ReturnType<typeof setInterval> | null = null;
 	let duckActive = false;
+	let joining = false;
+	let joinEpoch = 0;
 
 	function selfId(): ClientId {
 		return store.state.users.you.id;
@@ -276,6 +278,12 @@ export function useVoice() {
 			source.connect(analyser);
 			const buffer = new Float32Array(analyser.fftSize);
 			speakingTimer = setInterval(() => {
+				// A tick queued before teardown still runs once after clearInterval; without
+				// this guard its duck(true) would land after the closing duck(false) and hold
+				// the shared media at the ducking level until the next join.
+				if (speakingTimer === null) {
+					return;
+				}
 				analyser.getFloatTimeDomainData(buffer);
 				let sum = 0;
 				for (const sample of buffer) {
@@ -310,19 +318,39 @@ export function useVoice() {
 	}
 
 	async function join() {
-		if (joined.value) {
+		// The microphone request can take seconds (permission prompt) and the button stays live
+		// during it. Without this guard a double click captured twice and left a second speaking
+		// watch running after leave, which kept ducking the media intermittently.
+		if (joined.value || joining) {
 			return;
 		}
+		joining = true;
+		const epoch = ++joinEpoch;
 		error.value = null;
+		let stream: MediaStream | null = null;
 		try {
-			localStream = await navigator.mediaDevices.getUserMedia({
+			stream = await navigator.mediaDevices.getUserMedia({
 				audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
 			});
 		} catch (e) {
 			console.warn("voice: microphone is unavailable", e);
 			error.value = "mic-permission";
 			return;
+		} finally {
+			joining = false;
 		}
+		if (epoch !== joinEpoch) {
+			// Left (or the room unmounted) while the request was in flight: the late stream
+			// must not stay open behind a joined state nobody tracks anymore.
+			for (const track of stream?.getTracks() ?? []) {
+				track.stop();
+			}
+			return;
+		}
+		if (stream === null) {
+			return;
+		}
+		localStream = stream;
 		joined.value = true;
 		muted.value = false;
 		startSpeakingDetection();
@@ -341,6 +369,8 @@ export function useVoice() {
 	}
 
 	function leave() {
+		// An in-flight join must not attach its microphone stream afterwards.
+		joinEpoch++;
 		if (joined.value) {
 			sendPresence(false);
 		}

@@ -5,7 +5,7 @@ import Chat from "@/components/Chat.vue";
 import VideoSettings from "@/components/controls/VideoSettings.vue";
 import LayoutSwitcher from "@/components/controls/LayoutSwitcher.vue";
 import VideoProgressSlider from "@/components/controls/VideoProgressSlider.vue";
-import { usePlaybackRate, type MediaPlayerV2 } from "@/components/composables";
+import { usePlaybackRate, useVolume, type MediaPlayerV2 } from "@/components/composables";
 import { usePlayerBrightness, MIN_PLAYER_BRIGHTNESS } from "@/util/player-brightness";
 import { OttSfx } from "@/plugins/sfx";
 import { RoomRequestType } from "ott-common/models/messages";
@@ -138,7 +138,10 @@ describe("room player interactions", () => {
 		vi.stubGlobal("navigator", {
 			...navigator,
 			mediaDevices: {
-				getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [track] }),
+				getUserMedia: vi.fn().mockResolvedValue({
+					getTracks: () => [track],
+					getAudioTracks: () => [track],
+				}),
 			},
 		});
 		vi.stubGlobal(
@@ -175,6 +178,169 @@ describe("room player interactions", () => {
 		expect(page.connection.sent).toContainEqual({ action: "voice", joined: false });
 		expect(page.wrapper.find('[data-cy="voice-leave"]').exists()).toBe(false);
 		expect(page.wrapper.find('[data-cy="voice-join"]').exists()).toBe(true);
+		expect(track.stop).toHaveBeenCalled();
+	});
+
+	it("ducks the shared media while the local microphone speaks and restores it on leave", async () => {
+		// A detection tick queued right before teardown must not duck the media again after
+		// leaving: the volume would stay low with no watch left to restore it.
+		const track = { enabled: true, stop: vi.fn() };
+		vi.stubGlobal("navigator", {
+			...navigator,
+			mediaDevices: {
+				getUserMedia: vi.fn().mockResolvedValue({
+					getTracks: () => [track],
+					getAudioTracks: () => [track],
+				}),
+			},
+		});
+		vi.stubGlobal(
+			"AudioContext",
+			class {
+				createMediaStreamSource() {
+					return { connect: () => undefined };
+				}
+				createAnalyser() {
+					return {
+						fftSize: 0,
+						getFloatTimeDomainData: (buffer: Float32Array) => {
+							buffer.fill(0.5);
+						},
+					};
+				}
+				close() {
+					return Promise.resolve();
+				}
+			},
+		);
+		page.connection.mockReceive({
+			action: "voice",
+			participants: [],
+			iceServers: [],
+			relay: true,
+		});
+		await nextTick();
+
+		const duckFactor = useVolume().duckFactor;
+		await page.wrapper.get('[data-cy="voice-join"]').trigger("click");
+		await vi.advanceTimersByTimeAsync(120);
+		expect(duckFactor.value).toBeCloseTo(0.4, 6);
+
+		await page.wrapper.get('[data-cy="voice-leave"]').trigger("click");
+		await nextTick();
+		expect(duckFactor.value).toBe(1);
+
+		// The speaking watch is gone: later ticks cannot lower the volume again.
+		await vi.advanceTimersByTimeAsync(600);
+		expect(duckFactor.value).toBe(1);
+	});
+
+	it("restores the media volume as soon as voice is muted", async () => {
+		const track = { enabled: true, stop: vi.fn() };
+		vi.stubGlobal("navigator", {
+			...navigator,
+			mediaDevices: {
+				getUserMedia: vi.fn().mockResolvedValue({
+					getTracks: () => [track],
+					getAudioTracks: () => [track],
+				}),
+			},
+		});
+		vi.stubGlobal(
+			"AudioContext",
+			class {
+				createMediaStreamSource() {
+					return { connect: () => undefined };
+				}
+				createAnalyser() {
+					return {
+						fftSize: 0,
+						getFloatTimeDomainData: (buffer: Float32Array) => {
+							buffer.fill(0.5);
+						},
+					};
+				}
+				close() {
+					return Promise.resolve();
+				}
+			},
+		);
+		page.connection.mockReceive({
+			action: "voice",
+			participants: [],
+			iceServers: [],
+			relay: true,
+		});
+		await nextTick();
+
+		const duckFactor = useVolume().duckFactor;
+		await page.wrapper.get('[data-cy="voice-join"]').trigger("click");
+		await vi.advanceTimersByTimeAsync(120);
+		expect(duckFactor.value).toBeCloseTo(0.4, 6);
+
+		await page.wrapper.get('[data-cy="voice-mute"]').trigger("click");
+		await nextTick();
+		expect(duckFactor.value).toBe(1);
+
+		await vi.advanceTimersByTimeAsync(240);
+		expect(duckFactor.value).toBe(1);
+	});
+
+	it("ignores a second join while the microphone request is still in flight", async () => {
+		const track = { enabled: true, stop: vi.fn() };
+		let resolveStream!: (stream: unknown) => void;
+		const getUserMedia = vi.fn(
+			() =>
+				new Promise(resolve => {
+					resolveStream = resolve;
+				}),
+		);
+		vi.stubGlobal("navigator", {
+			...navigator,
+			mediaDevices: { getUserMedia },
+		});
+		vi.stubGlobal(
+			"AudioContext",
+			class {
+				createMediaStreamSource() {
+					return { connect: () => undefined };
+				}
+				createAnalyser() {
+					return {
+						fftSize: 0,
+						getFloatTimeDomainData: (buffer: Float32Array) => {
+							buffer.fill(0.5);
+						},
+					};
+				}
+				close() {
+					return Promise.resolve();
+				}
+			},
+		);
+		page.connection.mockReceive({
+			action: "voice",
+			participants: [],
+			iceServers: [],
+			relay: true,
+		});
+		await nextTick();
+
+		const joinButton = page.wrapper.get('[data-cy="voice-join"]');
+		const firstClick = joinButton.trigger("click");
+		const secondClick = joinButton.trigger("click");
+		resolveStream({ getTracks: () => [track], getAudioTracks: () => [track] });
+		await Promise.all([firstClick, secondClick]);
+		await flush();
+		await nextTick();
+
+		// The second click must not capture a second microphone stream: it used to leave a
+		// stray speaking watch that kept ducking the media after leaving voice.
+		expect(getUserMedia).toHaveBeenCalledTimes(1);
+		expect(page.connection.sent).toContainEqual({ action: "voice", joined: true });
+
+		await page.wrapper.get('[data-cy="voice-leave"]').trigger("click");
+		await nextTick();
 		expect(track.stop).toHaveBeenCalled();
 	});
 
