@@ -53,18 +53,16 @@ describe("room playback synchronization", () => {
 		expect(setPosition).toHaveBeenCalledTimes(2);
 	});
 
-	it("gives buffering eight seconds without permanently disabling drift correction", async () => {
+	it("suspends drift correction entirely while the element is buffering", async () => {
+		await sync.tick();
+		setPosition.mockClear();
+		getPosition.mockClear();
 		state.buffering = true;
+		vi.advanceTimersByTime(30000);
 		await sync.tick();
-		vi.advanceTimersByTime(7999);
-		await sync.tick();
-		expect(setPosition).toHaveBeenCalledTimes(1);
-		vi.advanceTimersByTime(1);
-		await sync.tick();
-		expect(setPosition).toHaveBeenCalledTimes(2);
-		vi.advanceTimersByTime(8000);
-		await sync.tick();
-		expect(setPosition).toHaveBeenCalledTimes(3);
+		// A stopped clock cannot drift: no reads, no seeks, no matter the waiting time.
+		expect(getPosition).not.toHaveBeenCalled();
+		expect(setPosition).not.toHaveBeenCalled();
 	});
 
 	it("keeps the buffering grace period when canplay arrives before the download settles", async () => {
@@ -332,20 +330,36 @@ describe("native playback rate correction", () => {
 		expect(setPosition).toHaveBeenCalledOnce();
 	});
 
-	it("catches up a large drift while a buffering seek is still cooling down", async () => {
+	it("pauses the bend while the element is buffering and resumes it on recovery", async () => {
+		getPosition.mockReturnValue(99.6);
 		state.buffering = true;
-		getPosition.mockReturnValue(98);
 		vi.advanceTimersByTime(250);
 		await sync.tick();
-		expect(setLocalRate).toHaveBeenLastCalledWith(1.115);
+		// A stopped clock cannot drift: no rate, no seek.
+		expect(setLocalRate).not.toHaveBeenCalled();
+		expect(setPosition).not.toHaveBeenCalled();
+		state.buffering = false;
+		vi.advanceTimersByTime(250);
+		await sync.tick();
+		expect(setLocalRate).toHaveBeenLastCalledWith(expect.closeTo(1.064, 6));
+		expect(setPosition).not.toHaveBeenCalled();
+	});
+
+	it("keeps the longer seek cooldown once a buffering source recovers", async () => {
+		state.buffering = true;
+		vi.advanceTimersByTime(250);
+		await sync.tick();
+		state.buffering = false;
+		getPosition.mockReturnValue(96);
+		vi.advanceTimersByTime(250);
+		await sync.tick();
+		// 4 s of drift cannot be bent away, but the seek still waits out the cooldown.
+		expect(setLocalRate).toHaveBeenLastCalledWith(expect.closeTo(1.15, 6));
+		expect(setPosition).not.toHaveBeenCalled();
 		vi.advanceTimersByTime(8000);
 		await sync.tick();
-		expect(setPosition).not.toHaveBeenCalled();
-		// The catch-up deadline is longer than the gentle one; only then does it give up.
-		vi.advanceTimersByTime(14000);
-		await sync.tick();
-		expect(setLocalRate).toHaveBeenLastCalledWith(1);
 		expect(setPosition).toHaveBeenCalledOnce();
+		expect(setPosition).toHaveBeenCalledWith(100);
 	});
 
 	it.each([
@@ -355,6 +369,7 @@ describe("native playback rate correction", () => {
 		"seeking",
 		"recovering",
 		"error",
+		"buffering",
 	] as const)("restores the base rate when %s prevents bending", async field => {
 		await sync.tick();
 		state[field] = field !== "playing" && field !== "ready";

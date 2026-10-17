@@ -193,14 +193,28 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		);
 	}
 
+	/**
+	 * Drift correction pauses while the element is buffering: its clock is stopped, so the
+	 * measured drift says nothing useful, and a rate written for it would only carry into
+	 * the catch-up when playback resumes. The buffering stop is recorded in
+	 * bufferedSinceLastSeek, which lengthens the cooldown after recovery. Explicit seeks
+	 * bypass this check on purpose (see the pendingSeek branch in tick).
+	 */
 	function canObserve(state: PlaybackSyncState) {
-		return canSeek(state) && !state.blocked && !state.seeking && !state.recovering;
+		return (
+			canSeek(state) &&
+			!state.blocked &&
+			!state.seeking &&
+			!state.recovering &&
+			!state.buffering
+		);
 	}
 
 	function canSeekNow(state: PlaybackSyncState) {
 		return (
 			canObserve(state) &&
-			Date.now() - lastSeekAt >= (state.buffering || bufferedSinceLastSeek ? 8000 : 2000)
+			// A source that was buffering keeps the longer cooldown after recovery.
+			Date.now() - lastSeekAt >= (bufferedSinceLastSeek ? 8000 : 2000)
 		);
 	}
 
@@ -262,6 +276,8 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		if (!canSeek(state)) {
 			return;
 		}
+		// Explicit seeks (user gestures, room syncs) run before the observation gate: a
+		// buffering element must still follow the room's instruction.
 		if (pendingSeek) {
 			pendingSeek = false;
 			const reason = pendingSeekReason;
