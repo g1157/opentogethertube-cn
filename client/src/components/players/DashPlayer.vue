@@ -19,6 +19,7 @@
 			@stalled="onStalled"
 			@loadstart="onBuffering"
 			@progress="onProgress"
+			@durationchange="onDurationChange"
 			@ended="onEnd"
 			@error="onNativeError"
 		></video>
@@ -37,6 +38,7 @@ import { type ErrorEvent, MediaPlayer, type MediaPlayerClass } from "dashjs";
 import { computed, onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
+import { isUsableDuration } from "@/util/video-length";
 import { nativeMediaError } from "@/util/media-recovery";
 import { createMediaSeek } from "@/util/media-seek";
 import type {
@@ -82,6 +84,7 @@ const emit = defineEmits<{
 	"paused": [];
 	"buffering": [];
 	"end": [];
+	"duration": [duration: number];
 	"error": [error: MediaPlayerError];
 	"buffer-progress": [progress: number];
 	"buffer-spans": [spans: TimeRanges];
@@ -508,6 +511,13 @@ function onBuffering() {
 function onStalled() {
 	if (videoElem.value && !videoElem.value.paused && videoElem.value.readyState < 3) {
 		onBuffering();
+	}
+}
+
+function onDurationChange() {
+	const duration = videoElem.value?.duration;
+	if (isUsableDuration(duration)) {
+		emit("duration", duration);
 	}
 }
 

@@ -83,6 +83,7 @@ import { useStore } from "@/store";
 import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
 import { PlayerActionsKey } from "@/util/player-actions";
+import { resolveVideoLength } from "@/util/video-length";
 import { useGrants } from "../composables/grants";
 
 const props = withDefaults(
@@ -154,11 +155,9 @@ function togglePlayback() {
 }
 
 function seekDelta(delta: number) {
-	const position = _.clamp(
-		props.currentPosition + delta,
-		0,
-		store.state.room.currentSource?.length ?? 0,
-	);
+	const length =
+		resolveVideoLength(store.state.room.currentSource?.length, store.state.playerDuration) ?? 0;
+	const position = _.clamp(props.currentPosition + delta, 0, length);
 	if (actions) {
 		actions.seek(position);
 	} else {

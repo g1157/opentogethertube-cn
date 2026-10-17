@@ -20,6 +20,7 @@ import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
 import { PlayerActionsKey } from "@/util/player-actions";
 import { secondsToTimestamp, timestampToSeconds } from "@/util/timestamp";
+import { resolveVideoLength } from "@/util/video-length";
 import ClickToEdit from "../ClickToEdit.vue";
 
 withDefaults(
@@ -43,8 +44,11 @@ function seek(position: number) {
 }
 
 const lengthDisplay = computed(() => {
-	const length = store.state.room.currentSource?.length ?? 0;
-	return secondsToTimestamp(length);
+	const length = resolveVideoLength(
+		store.state.room.currentSource?.length,
+		store.state.playerDuration,
+	);
+	return secondsToTimestamp(length ?? 0);
 });
 </script>
 

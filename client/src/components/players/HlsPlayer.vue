@@ -17,6 +17,7 @@
 			@stalled="onStalled"
 			@loadstart="onBuffering"
 			@progress="onProgress"
+			@durationchange="onDurationChange"
 			@ended="onEnd"
 			@error="onMediaError"
 		></video>
@@ -49,6 +50,7 @@ import toast from "@/util/toast";
 import { i18n } from "@/i18n";
 import { calculateCurrentPosition } from "ott-common/timestamp";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
+import { isUsableDuration } from "@/util/video-length";
 import type {
 	MediaPlayerWithAudioBoost,
 	MediaPlayerWithCaptions,
@@ -98,6 +100,7 @@ const emit = defineEmits<{
 	"buffering": [];
 	"error": [error: MediaPlayerError];
 	"end": [];
+	"duration": [duration: number];
 	"buffer-progress": [progress: number];
 	"buffer-spans": [spans: TimeRanges];
 	"loading-state": [state: MediaLoadingState];
@@ -526,6 +529,14 @@ function onProgress() {
 		emit("buffer-progress", bufferedPercentage);
 	}
 }
+
+function onDurationChange() {
+	const duration = videoElem.value?.duration;
+	if (isUsableDuration(duration)) {
+		emit("duration", duration);
+	}
+}
+
 function onEnd() {
 	emit("end");
 }

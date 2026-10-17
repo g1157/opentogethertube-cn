@@ -20,6 +20,7 @@
 			@stalled="onStalled"
 			@loadstart="onBuffering"
 			@progress="onProgress"
+			@durationchange="onDurationChange"
 			@ended="onEnd"
 			@error="onError"
 		>
@@ -63,6 +64,7 @@ import {
 	probeSourceReachability,
 } from "@/util/media-recovery";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
+import { isUsableDuration } from "@/util/video-length";
 import { ToastStyle } from "@/models/toast";
 import toast from "@/util/toast";
 import { i18n } from "@/i18n";
@@ -299,6 +301,7 @@ const emit = defineEmits<{
 	"buffering": [];
 	"error": [error: MediaPlayerError];
 	"end": [];
+	"duration": [duration: number];
 	"buffer-progress": [progress: number];
 	"buffer-spans": [spans: TimeRanges];
 	"loading-state": [state: MediaLoadingState];
@@ -682,6 +685,13 @@ function onProgress() {
 		}
 		const bufferedPercentage = duration > 0 ? bufferedTotal / duration : 0;
 		emit("buffer-progress", bufferedPercentage);
+	}
+}
+
+function onDurationChange() {
+	const duration = videoElem.value?.duration;
+	if (isUsableDuration(duration)) {
+		emit("duration", duration);
 	}
 }
 

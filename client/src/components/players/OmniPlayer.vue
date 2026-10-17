@@ -102,6 +102,7 @@
 				@error="onError"
 				@buffer-progress="onBufferProgress"
 				@buffer-spans="onBufferSpans"
+				@duration="onDuration"
 				@loading-state="onLoadingState"
 				@end="onEnd"
 			/>
@@ -119,6 +120,7 @@
 				@error="onError"
 				@buffer-progress="onBufferProgress"
 				@buffer-spans="onBufferSpans"
+				@duration="onDuration"
 				@loading-state="onLoadingState"
 				@end="onEnd"
 			/>
@@ -144,6 +146,7 @@
 				@error="onError"
 				@buffer-progress="onBufferProgress"
 				@buffer-spans="onBufferSpans"
+				@duration="onDuration"
 				@loading-state="onLoadingState"
 				@end="onEnd"
 			/>
@@ -548,6 +551,10 @@ async function retryLocalMedia() {
 
 function onBufferProgress(percent: number) {
 	store.commit("PLAYBACK_BUFFER", percent);
+}
+
+function onDuration(duration: number) {
+	store.commit("PLAYBACK_DURATION", duration);
 }
 
 async function onBufferSpans(spans: TimeRanges) {

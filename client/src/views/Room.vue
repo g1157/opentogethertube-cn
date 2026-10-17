@@ -485,6 +485,7 @@ import VoteSkip from "@/components/VoteSkip.vue";
 import { waitForToken } from "@/util/token";
 import { useSfx } from "@/plugins/sfx";
 import { secondsToTimestamp } from "@/util/timestamp";
+import { resolveVideoLength } from "@/util/video-length";
 import {
 	useCaptions,
 	useDanmaku,
@@ -920,7 +921,9 @@ export default defineComponent({
 				};
 			},
 			getPositionState: () => ({
-				duration: currentSource.value?.length ?? 0,
+				duration:
+					resolveVideoLength(currentSource.value?.length, store.state.playerDuration) ??
+					0,
 				position: truePosition.value,
 				playbackRate: store.state.room.playbackSpeed,
 			}),
@@ -937,8 +940,11 @@ export default defineComponent({
 
 		const nextPrefetch = createNextMediaPrefetch({
 			getRemainingSeconds: () => {
-				const length = currentSource.value?.length ?? 0;
-				return length > 0 ? length - truePosition.value : null;
+				const length = resolveVideoLength(
+					currentSource.value?.length,
+					store.state.playerDuration,
+				);
+				return length !== null ? length - truePosition.value : null;
 			},
 			getNext: () => store.state.room.queue[0],
 		});
@@ -952,7 +958,10 @@ export default defineComponent({
 			sliderPosition.value = _.clamp(
 				pendingSeekTarget.value ?? truePosition.value,
 				0,
-				store.state.room.currentSource?.length ?? 0,
+				resolveVideoLength(
+					store.state.room.currentSource?.length,
+					store.state.playerDuration,
+				) ?? 0,
 			);
 			mediaSession.update();
 			nextPrefetch.tick();
@@ -1533,11 +1542,15 @@ export default defineComponent({
 
 		function seekBounds() {
 			const video = currentSource.value;
-			if (!video || !Number.isFinite(video.length) || (video.length ?? 0) <= 0) {
+			if (!video) {
+				return null;
+			}
+			const length = resolveVideoLength(video.length, store.state.playerDuration);
+			if (length === null) {
 				return null;
 			}
 			const start = 0;
-			const end = Math.min(video.length!, video.endAt ?? video.length!);
+			const end = Math.min(length, video.endAt ?? length);
 			return end > start ? { start, end } : null;
 		}
 

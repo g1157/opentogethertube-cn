@@ -25,6 +25,8 @@ interface BaseStoreState {
 
 	playerBufferPercent: number | null;
 	playerBufferSpans: TimeRanges | null;
+	/** Locally measured media duration; fills in for sources queued with an unknown length. */
+	playerDuration: number | null;
 	playerStatus: string | null;
 
 	// TODO: rename to "account" ??, make a proper type for this, and move it to it's own store
@@ -47,6 +49,7 @@ export function buildNewStore() {
 				playerStatus: null,
 				playerBufferPercent: null,
 				playerBufferSpans: null,
+				playerDuration: null,
 				fullscreen: false,
 				production: import.meta.env.PROD,
 				/** Unregistered user's username  */
@@ -71,9 +74,13 @@ export function buildNewStore() {
 			PLAYBACK_BUFFER_SPANS(state, spans: TimeRanges) {
 				state.playerBufferSpans = spans;
 			},
+			PLAYBACK_DURATION(state, duration: number) {
+				state.playerDuration = duration;
+			},
 			PLAYBACK_BUFFER_RESET(state) {
 				state.playerBufferPercent = null;
 				state.playerBufferSpans = null;
+				state.playerDuration = null;
 			},
 			LOGIN(state, user) {
 				state.user = user;

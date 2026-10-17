@@ -10,9 +10,7 @@
 		:model-value="currentPosition"
 		:max="normalisedVideoLength"
 		:tooltip-formatter="sliderTooltipFormatter"
-		:disabled="
-			store.state.room.currentSource?.length === undefined || !granted('playback.seek')
-		"
+		:disabled="effectiveLength === null || !granted('playback.seek')"
 		:process="getSliderProcesses"
 		@change="sliderChange"
 		:drag-on-click="true"
@@ -38,6 +36,7 @@ import { ref, type Ref, onMounted, onUpdated, computed, inject } from "vue";
 import VueSlider from "vue-slider-component";
 import { useStore } from "@/store";
 import { secondsToTimestamp } from "@/util/timestamp";
+import { resolveVideoLength } from "@/util/video-length";
 import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
 import { PlayerActionsKey } from "@/util/player-actions";
@@ -59,16 +58,21 @@ const roomapi = useRoomApi(useConnection());
 const granted = useGrants();
 const actions = inject(PlayerActionsKey, undefined);
 
+/** The length the slider runs on: the server's value, or the locally measured duration when
+ * the source's metadata probe failed (see resolveVideoLength). */
+const effectiveLength = computed(() =>
+	resolveVideoLength(store.state.room.currentSource?.length, store.state.playerDuration),
+);
+
 /**
  * vue-slider-component requires (props.max - props.min) to be divisible by props.interval.
  * Some videos have an irregular length (e.g. 100.117), which will break the slider unless rounded (e.g. after rounding, 100.1).
- * This function rounds the video length provided by the server to 1 decimal place.
+ * This function rounds the video length to 1 decimal place.
  * The video length is then used by the slider to define the maximum value (props.max).
  */
 const normalisedVideoLength = computed((): number => {
-	if (store.state.room.currentSource?.length) {
-		const videoLength = store.state.room.currentSource.length;
-		return Math.round(videoLength * 10) / 10;
+	if (effectiveLength.value !== null) {
+		return Math.round(effectiveLength.value * 10) / 10;
 	} else {
 		return 0;
 	}
@@ -96,10 +100,11 @@ function getSliderProcesses(dotsPos: number[]) {
 	const bufferedColor = "rgba(var(--v-theme-primary), 60%)";
 	// show buffered spans
 	const bufferSpans = store.state.playerBufferSpans;
-	if (bufferSpans && store.state.room.currentSource && store.state.room.currentSource.length) {
+	const length = effectiveLength.value;
+	if (bufferSpans && length !== null) {
 		for (let i = 0; i < bufferSpans.length; i++) {
-			const start = (bufferSpans.start(i) / store.state.room.currentSource.length) * 100;
-			const end = (bufferSpans.end(i) / store.state.room.currentSource.length) * 100;
+			const start = (bufferSpans.start(i) / length) * 100;
+			const end = (bufferSpans.end(i) / length) * 100;
 			processes.push([start, end, { backgroundColor: bufferedColor }]);
 		}
 	} else if (store.state.playerBufferPercent) {
@@ -164,7 +169,7 @@ function updateSeekPreview(e) {
 	const sliderY = sliderRect.top;
 	seekPreviewPercent.value = sliderPos / sliderRect.width;
 	seekPreviewTimestamp.value = secondsToTimestamp(
-		seekPreviewPercent.value * (store.state.room.currentSource?.length ?? 0),
+		seekPreviewPercent.value * (effectiveLength.value ?? 0),
 	);
 	const seekPreview = document.getElementById("seek-preview");
 	if (!seekPreview) {
