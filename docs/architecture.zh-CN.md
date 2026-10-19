@@ -4,8 +4,8 @@
 同步引擎、服务端与客户端内部结构、数据与配置、测试与发布流程。面向想深入代码的贡献者与运维者；
 "改哪里、有哪些坑"的速查版见配套的 [AI 工作手册](./ai-handbook.zh-CN.md)。
 
-**版本快照**：`feat/upscale-quality` @ `ebace39`（v1.2.6 标签后一个 balancer 清理提交，
-2026-09-30；写作时 `origin/main` 同点）。涉及具体行为时以工作区代码为准。
+**版本快照**：`feat/ass-subtitles` @ v1.4.6 之后的修复批次（2026-10-19；未发版）。
+涉及具体行为时以工作区代码为准。
 
 ---
 
@@ -465,9 +465,9 @@ D1 存身份/房间索引/媒体缓存/限流，`MaintenanceObject` 每 6h 清�
 
 | 位置 | 规模 | 运行 |
 | --- | --- | --- |
-| `server/tests/unit/**` | 47 个 `*.spec.ts`（+1 类型测试） | `yarn workspace ott-server test`（需 `NODE_ENV=test` 与已迁移的测试库） |
-| `client/tests/unit/**` | 69 个 `*.spec.ts`（+3 个旧 `.js`） | `yarn workspace ott-client test`（脚本已带 `NODE_ENV=test`） |
-| `common/tests/unit/**` | 7 个 `*.spec.ts`（+1 类型测试） | `yarn workspace ott-common test` |
+| `server/tests/unit/**` | 50 个 `*.spec.ts`（+1 类型测试，828 项） | `yarn workspace ott-server test`（需 `NODE_ENV=test` 与已迁移的测试库） |
+| `client/tests/unit/**` | 91 个 `*.spec.ts`（+3 个旧 `.js`，约 1005 项） | `yarn workspace ott-client test`（脚本已带 `NODE_ENV=test`） |
+| `common/tests/unit/**` | 9 个 `*.spec.ts`（+1 类型测试，76 项） | `yarn workspace ott-common test` |
 | `tests/e2e/integration/*.spec.ts` | 9 个 Cypress 用例 | `yarn cy:run`（本地运行，**不在 CI**；含上游英文选择器） |
 | `crates/**` | Rust 单元 + harness 集成测试 | `cargo test` |
 | `tests/load/*.js` | 7 个 k6 脚本 | `k6 run <script>`（需手动准备房间） |

@@ -3,8 +3,9 @@
 给在本仓库工作的 AI 代理的速查手册：**改哪里、怎么跑、有哪些坑**。目标是让新会话不必重新
 调查代码结构。人类可读的完整架构说明见 [architecture.zh-CN.md](./architecture.zh-CN.md)。
 
-**版本快照**：`feat/ass-subtitles` @ v1.4.1 + v1.4.2 工作批次（2026-10-07；v1.4.2 尚未发布），
-写于 2026-10-07。**维护规则**：发版或大改后更新本文件（§9 有核查命令）；过期信息比没有信息更糟。
+**版本快照**：`feat/ass-subtitles` @ v1.4.6 之后的修复批次（2026-10-19；未发版），包含
+2026-10-17 审查报告的 Tier 0/Tier 1 闭环项。**维护规则**：发版或大改后更新本文件（§9 有核查命令）；
+过期信息比没有信息更糟。
 
 ---
 
@@ -68,7 +69,7 @@ client/src/
   components/     ServerMessageHandler.vue、Workaround*.vue、players/*、controls/*、
                   composables/media-player.ts、Chat/VideoQueue/RoomNotes/PlayerStatsPanel…
   locales/        en.ts zh-CN.ts de/es/fr/pirate/pt-br/ru（后 6 个按需加载、普遍缺键）
-client/tests/unit/  83 个 *.spec.ts（43 个组件用例）+ 3 个旧 .js 用例
+client/tests/unit/  91 个 *.spec.ts（含组件用例）+ 3 个旧 .js 用例
 
 server/
   app.ts          入口（无 index.ts）：启动顺序/优雅停机见架构文档 §4.1
@@ -78,9 +79,9 @@ server/
   room.ts roommanager.ts    房间状态机 + 1s tick + 事件总线
   usermanager.ts rate-limit.ts admin.ts   用户/限流/API key
   infoextractor.ts serviceadapter.ts services/* ffprobe.ts sponsorblock.ts   媒体管线
-  storage.ts storage/*  models/*  migrations/（22 个）   持久化（PG/SQLite）
+  storage.ts storage/*  models/*  migrations/（27 个）   持久化（PG/SQLite）
   redisclient.ts ott-config.ts metrics.ts logger.ts exceptions.ts voice*.ts balancer.ts
-  tests/unit/     49 个 *.spec.ts（+1 类型测试、fixtures/、redis mock）
+  tests/unit/     50 个 *.spec.ts（+1 类型测试、fixtures/、redis mock）
   config/config.mjs + .sequelizerc    Sequelize CLI 配置
 
 common/           共享 TS：models/messages.ts（协议）、permissions.ts（28 权限位）、
@@ -284,10 +285,10 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
 ```bash
 git describe --tags --always HEAD          # 版本快照
 git rev-parse HEAD origin/main             # 主干是否同点
-ls server/migrations/*.js | wc -l          # 迁移数量（当前 22）
-find server/tests -name '*.spec.ts' | wc -l   # 49（另有 1 个 .spec-d.ts）
-find client/tests -name '*.spec.ts' | wc -l   # 83（另有 3 个 .js）
-find common/tests -name '*.spec.ts' | wc -l   # 8（另有 1 个 .spec-d.ts）
+ls server/migrations/*.js | wc -l          # 迁移数量（当前 27）
+find server/tests -name '*.spec.ts' | wc -l   # 50（另有 1 个 .spec-d.ts）
+find client/tests -name '*.spec.ts' | wc -l   # 91（另有 3 个 .js）
+find common/tests -name '*.spec.ts' | wc -l   # 9（另有 1 个 .spec-d.ts）
 ls tests/e2e/integration/*.spec.ts | wc -l    # 9
 grep -n "debounce" server/room.ts             # 50ms / 5000ms
 grep -n "MAX_BEND\|HARD_SEEK_DRIFT" client/src/util/playback-sync.ts
