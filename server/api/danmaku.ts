@@ -1,6 +1,7 @@
 import express from "express";
 import { z } from "zod";
 import { getLogger } from "../logger.js";
+import { consumeRateLimitPoints } from "../rate-limit.js";
 
 const log = getLogger("api/danmaku");
 
@@ -19,6 +20,10 @@ const TRACK_TIMEOUT_MS = 15_000;
 const SEARCH_TTL_MS = 10 * 60_000;
 const EPISODES_TTL_MS = 60 * 60_000;
 const TRACK_TTL_MS = 24 * 60 * 60_000;
+/** Failures and empty results are remembered briefly so they cannot be replayed upstream. */
+const NEGATIVE_TTL_MS = 60_000;
+/** Each girigiri call costs upstream requests; charge a previewAdd-sized rate limit. */
+const GIRIGIRI_POINTS = 5;
 /** Bounded caches; a track is a few hundred kilobytes. */
 const SEARCH_CACHE_MAX = 64;
 const EPISODES_CACHE_MAX = 32;
@@ -46,8 +51,8 @@ function createCache<T>(ttlMs: number, maxEntries: number) {
 			entries.set(key, entry);
 			return entry.value;
 		},
-		set(key: string, value: T) {
-			entries.set(key, { value, expiresAt: Date.now() + ttlMs });
+		set(key: string, value: T, ttlMsOverride: number = ttlMs) {
+			entries.set(key, { value, expiresAt: Date.now() + ttlMsOverride });
 			while (entries.size > maxEntries) {
 				const oldest = entries.keys().next().value;
 				if (oldest === undefined) {
@@ -59,9 +64,9 @@ function createCache<T>(ttlMs: number, maxEntries: number) {
 	};
 }
 
-const searchCache = createCache<GirigiriSearchResult[]>(SEARCH_TTL_MS, SEARCH_CACHE_MAX);
-const episodesCache = createCache<GirigiriLine[]>(EPISODES_TTL_MS, EPISODES_CACHE_MAX);
-const trackCache = createCache<string>(TRACK_TTL_MS, TRACK_CACHE_MAX);
+const searchCache = createCache<GirigiriSearchResult[] | null>(SEARCH_TTL_MS, SEARCH_CACHE_MAX);
+const episodesCache = createCache<GirigiriLine[] | null>(EPISODES_TTL_MS, EPISODES_CACHE_MAX);
+const trackCache = createCache<string | null>(TRACK_TTL_MS, TRACK_CACHE_MAX);
 
 export interface GirigiriSearchResult {
 	id: number;
@@ -212,13 +217,20 @@ const SHOW_ID = /^\d{1,10}$/;
 const router = express.Router();
 
 router.get("/girigiri/search", async (req, res) => {
+	if (!(await consumeRateLimitPoints(res, req.ip, GIRIGIRI_POINTS))) {
+		return;
+	}
 	const wd = typeof req.query.wd === "string" ? req.query.wd.trim() : "";
 	if (wd.length === 0 || wd.length > 64) {
 		res.status(400).json({ results: [] });
 		return;
 	}
 	const cached = searchCache.get(wd);
-	if (cached) {
+	if (cached !== undefined) {
+		if (cached === null) {
+			res.status(502).json({ results: [] });
+			return;
+		}
 		res.json({ results: cached });
 		return;
 	}
@@ -226,32 +238,44 @@ router.get("/girigiri/search", async (req, res) => {
 		`${GIRIGIRI_ORIGIN}/index.php/ajax/suggest?mid=1&wd=${encodeURIComponent(wd)}`,
 	);
 	if (body === null) {
+		// A short negative entry stops a failing upstream from being replayed on every hit.
+		searchCache.set(wd, null, NEGATIVE_TTL_MS);
 		res.status(502).json({ results: [] });
 		return;
 	}
 	const results = parseSuggest(body);
-	searchCache.set(wd, results);
+	// An empty result is as likely to be a hiccup as a real miss; remember it briefly.
+	searchCache.set(wd, results, results.length === 0 ? NEGATIVE_TTL_MS : SEARCH_TTL_MS);
 	res.json({ results });
 });
 
 router.get("/girigiri/episodes", async (req, res) => {
+	if (!(await consumeRateLimitPoints(res, req.ip, GIRIGIRI_POINTS))) {
+		return;
+	}
 	const id = typeof req.query.id === "string" ? req.query.id.trim() : "";
 	if (!SHOW_ID.test(id)) {
 		res.status(400).json({ lines: [] });
 		return;
 	}
 	const cached = episodesCache.get(id);
-	if (cached) {
+	if (cached !== undefined) {
+		if (cached === null) {
+			res.status(404).json({ lines: [] });
+			return;
+		}
 		res.json({ lines: cached });
 		return;
 	}
 	const html = await fetchText(`${GIRIGIRI_ORIGIN}/playGV${id}-1-1/`);
 	if (html === null) {
+		episodesCache.set(id, null, NEGATIVE_TTL_MS);
 		res.status(502).json({ lines: [] });
 		return;
 	}
 	const lines = parseEpisodeLines(html, id);
 	if (lines.length === 0) {
+		episodesCache.set(id, null, NEGATIVE_TTL_MS);
 		res.status(404).json({ lines: [] });
 		return;
 	}
@@ -260,13 +284,20 @@ router.get("/girigiri/episodes", async (req, res) => {
 });
 
 router.get("/girigiri/track", async (req, res) => {
+	if (!(await consumeRateLimitPoints(res, req.ip, GIRIGIRI_POINTS))) {
+		return;
+	}
 	const page = typeof req.query.page === "string" ? req.query.page : "";
 	if (!TRACK_PAGE.test(page)) {
 		res.status(400).json({ error: "invalid page" });
 		return;
 	}
 	const cached = trackCache.get(page);
-	if (cached) {
+	if (cached !== undefined) {
+		if (cached === null) {
+			res.status(502).json({ error: "the track is unavailable" });
+			return;
+		}
 		sendXml(res, cached);
 		return;
 	}
@@ -274,11 +305,13 @@ router.get("/girigiri/track", async (req, res) => {
 	const videoUrl = html === null ? null : parsePlayerUrl(html);
 	const trackUrl = videoUrl === null ? null : girigiriTrackPath(videoUrl);
 	if (trackUrl === null) {
+		trackCache.set(page, null, NEGATIVE_TTL_MS);
 		res.status(502).json({ error: "could not resolve the track" });
 		return;
 	}
 	const xml = await fetchText(trackUrl, TRACK_TIMEOUT_MS);
 	if (xml === null || !xml.includes("<d ")) {
+		trackCache.set(page, null, NEGATIVE_TTL_MS);
 		res.status(502).json({ error: "the track is unavailable" });
 		return;
 	}

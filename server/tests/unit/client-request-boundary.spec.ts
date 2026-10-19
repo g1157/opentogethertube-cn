@@ -13,6 +13,7 @@ import {
 	type ClientMessage,
 } from "ott-common/models/messages.js";
 import { OttWebsocketError, PlayerStatus, Role } from "ott-common/models/types.js";
+import permissions from "ott-common/permissions.js";
 
 class ConnectedGuest extends Client {
 	sendRaw = vi.fn();
@@ -58,6 +59,21 @@ describe("client room request authorization boundary", () => {
 	async function request(value: unknown) {
 		client.emit("message", client, { action: "req", request: value as RoomRequest });
 		await settleMessages();
+	}
+
+	function lastError(): { name?: string; message?: string } | null {
+		const calls = client.sendRaw.mock.calls as unknown as [string][];
+		for (let i = calls.length - 1; i >= 0; i--) {
+			try {
+				const parsed = JSON.parse(calls[i][0]);
+				if (parsed?.action === "error") {
+					return parsed;
+				}
+			} catch {
+				// Not JSON; ignore.
+			}
+		}
+		return null;
 	}
 
 	it("prevents a guest from impersonating the owner through an internal user update", async () => {
@@ -167,5 +183,59 @@ describe("client room request authorization boundary", () => {
 		expect(room.playbackPreparation).toBeNull();
 		expect(room.getRole(room.getUser(client.id))).toBe(Role.UnregisteredUser);
 		expect(client.kick).not.toHaveBeenCalled();
+	});
+
+	it("rejects room settings that fail the shared schema before they reach the room", async () => {
+		const process = vi.spyOn(room, "processUnauthorizedRequest");
+		await request({
+			type: RoomRequestType.ApplySettingsRequest,
+			settings: {
+				queueMode: "banana",
+				danmakuSource: { label: "x".repeat(100_000) },
+			},
+		});
+		expect(process).not.toHaveBeenCalled();
+		expect(client.kick).not.toHaveBeenCalled();
+		expect(lastError()?.name).toBe("BadApiArgumentException");
+		expect(room.queueMode).not.toBe("banana");
+	});
+
+	it("keeps the named length error for an oversized title", async () => {
+		const process = vi.spyOn(room, "processUnauthorizedRequest");
+		await request({
+			type: RoomRequestType.ApplySettingsRequest,
+			settings: { title: "a".repeat(255) },
+		});
+		expect(process).not.toHaveBeenCalled();
+		expect(lastError()?.name).toBe("LengthOutOfRangeException");
+	});
+
+	it("applies schema-valid settings and converts wire-format grants", async () => {
+		await request({
+			type: RoomRequestType.ApplySettingsRequest,
+			settings: {
+				danmakuSource: {
+					videoUrl: "https://example.com/v",
+					provider: "girigiri",
+					label: "probe",
+					page: "/playGV1-1-1/",
+					offset: 0,
+				},
+			},
+		});
+		expect(lastError()).toBeNull();
+		expect(room.danmakuSource).toMatchObject({ label: "probe" });
+
+		// Only the owner may change role grants; the wire-format conversion is what is
+		// being tested here, so act as the room owner.
+		guest.user_id = owner.id;
+		guest.user = owner as unknown as User;
+		const chatOnly = permissions.parseIntoGrantMask(["chat"]);
+		await request({
+			type: RoomRequestType.ApplySettingsRequest,
+			settings: { grants: [[Role.UnregisteredUser, chatOnly]] },
+		});
+		expect(lastError()).toBeNull();
+		expect(room.grants.getMask(Role.UnregisteredUser)).toBe(chatOnly);
 	});
 });

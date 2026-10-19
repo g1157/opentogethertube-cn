@@ -173,6 +173,9 @@ export class VideoQueue extends Dirtyable {
 	async shuffle() {
 		await this.lock.protect(() => {
 			this._items = _.shuffle(this._items);
+			// Unlike orderBy there is no cheap equality check; mark unconditionally so the
+			// new order is broadcast and persisted instead of dying on this node.
+			this.markDirty();
 		});
 	}
 

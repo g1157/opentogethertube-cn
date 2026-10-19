@@ -37,6 +37,7 @@ import type {
 	DeleteNoteRequest,
 	RoomNote,
 	ServerMessageNotes,
+	ServerMessageEvent,
 } from "ott-common/models/messages.js";
 import { RoomRequestType } from "ott-common/models/messages.js";
 import _ from "lodash";
@@ -74,6 +75,7 @@ import {
 	VideoNotFoundException,
 	UnsupportedSubtitleType,
 	BadApiArgumentException,
+	UndoEventUnavailable,
 } from "./exceptions.js";
 import storage from "./storage.js";
 import tokens, { type SessionInfo } from "./auth/tokens.js";
@@ -109,6 +111,8 @@ import { Mutex } from "@divine/synchronization";
 
 const TEMPORARY_PLAYBACK_GESTURE_ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
 const NATIVE_ODYSEE_MIME_REGEX = /video\/mp4|application\/(?:vnd\.apple\.mpegurl|x-mpegURL)/;
+/** How many recent room events stay available for undo. */
+const RECENT_EVENTS_LIMIT = 20;
 
 /**
  * Represents a User from the Room's perspective.
@@ -345,6 +349,8 @@ export class Room implements RoomState {
 	votesToSkip: Set<string> = new Set();
 
 	_dirty: Set<keyof RoomStateSyncable> = new Set();
+	/** Events this room published recently; undo may only replay one of these. */
+	private recentEvents: ServerMessageEvent[] = [];
 	private readonly syncLock = new Mutex();
 	log: winston.Logger;
 	_playbackStart: Dayjs | null = null;
@@ -840,12 +846,19 @@ export class Room implements RoomState {
 			return;
 		}
 		const user = this.getUserInfo(context.clientId);
-		await this.publish({
+		const message: ServerMessageEvent = {
 			action: "event",
 			request,
 			user,
 			additional: additional ?? {},
-		});
+		};
+		// Keep a bounded, server-owned copy for undo: a client echo is matched against
+		// these, and the recorded copy (never the echo) is what a matching undo applies.
+		this.recentEvents.push(_.cloneDeep(message));
+		if (this.recentEvents.length > RECENT_EVENTS_LIMIT) {
+			this.recentEvents.shift();
+		}
+		await this.publish(message);
 	}
 
 	isOwner(user: RoomUser): boolean {
@@ -1995,14 +2008,21 @@ export class Room implements RoomState {
 		if (!validation.success) {
 			throw new BadApiArgumentException("event", "Invalid undo event");
 		}
-		// FIXME: room event type definitions suck ass, and needs to be reworked
-		switch (request.event.request.type) {
+		// An undo echo is matched against the events this room actually published, and the
+		// recorded copy is what gets applied. A forged event — an arbitrary video, or extra
+		// fields the room never sent — has nothing to match and is rejected instead of
+		// being written into the room state.
+		const event = this.findRecentEvent(request.event);
+		if (!event) {
+			throw new UndoEventUnavailable();
+		}
+		switch (event.request.type) {
 			case RoomRequestType.SeekRequest:
-				if (request.event.additional.prevPosition !== undefined) {
+				if (event.additional.prevPosition !== undefined) {
 					await this.processRequest(
 						{
-							type: request.event.request.type,
-							value: request.event.additional.prevPosition,
+							type: event.request.type,
+							value: event.additional.prevPosition,
 						},
 						context,
 					);
@@ -2017,12 +2037,9 @@ export class Room implements RoomState {
 				if (this.currentSource) {
 					await this.queue.pushTop(this.currentSource);
 				}
-				if (
-					request.event.additional.video &&
-					request.event.additional.prevPosition !== undefined
-				) {
-					this.currentSource = request.event.additional.video;
-					this.playbackPosition = request.event.additional.prevPosition;
+				if (event.additional.video && event.additional.prevPosition !== undefined) {
+					this.currentSource = event.additional.video;
+					this.playbackPosition = event.additional.prevPosition;
 					// Reset the anchor: keeping the old anchor made the restored position
 					// keep drifting forward by everything that elapsed since the skip.
 					this._playbackStart = dayjs();
@@ -2030,10 +2047,10 @@ export class Room implements RoomState {
 				break;
 			case RoomRequestType.AddRequest:
 				this.grants.check(context.role, "manage-queue.remove");
-				if (this.queue.length > 0 && request.event.request.video) {
+				if (this.queue.length > 0 && event.request.video) {
 					const removeReq: RemoveRequest = {
 						type: RoomRequestType.RemoveRequest,
-						video: request.event.request.video,
+						video: event.request.video,
 					};
 					await this.processRequest(removeReq, context);
 				} else {
@@ -2044,20 +2061,30 @@ export class Room implements RoomState {
 			case RoomRequestType.RemoveRequest:
 				this.grants.check(context.role, "manage-queue.add");
 				this.grants.check(context.role, "manage-queue.order");
-				if (
-					request.event.additional.video &&
-					request.event.additional.queueIdx !== undefined
-				) {
-					await this.queue.insert(
-						request.event.additional.video,
-						request.event.additional.queueIdx,
-					);
+				if (event.additional.video && event.additional.queueIdx !== undefined) {
+					await this.queue.insert(event.additional.video, event.additional.queueIdx);
 				}
 				break;
 			default:
-				this.log.error(`Event ${request.event.request.type} is not undoable, ignoring`);
+				this.log.error(`Event ${event.request.type} is not undoable, ignoring`);
 				break;
 		}
+	}
+
+	/**
+	 * Match a client-echoed undo event against the recent events this room published.
+	 * Only the fields undo applies are compared; an echo that adds or alters fields
+	 * misses every candidate rather than slipping through, because the recorded copy
+	 * (not the echo) is what a matching undo applies.
+	 */
+	private findRecentEvent(echo: ServerMessageEvent): ServerMessageEvent | undefined {
+		const fields = (event: ServerMessageEvent) => ({
+			type: event.request.type,
+			additional: _.pick(event.additional, ["video", "prevPosition", "queueIdx"]),
+			video: (event.request as { video?: unknown }).video,
+		});
+		const wanted = fields(echo);
+		return this.recentEvents.find(candidate => _.isEqual(fields(candidate), wanted));
 	}
 
 	public async vote(request: VoteRequest, context: RoomRequestContext): Promise<void> {

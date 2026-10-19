@@ -9,7 +9,14 @@ import {
 	type MockInstance,
 } from "vitest";
 import _ from "lodash";
-import { type AuthToken, QueueMode, Visibility, BufferGateMode } from "ott-common/models/types.js";
+import {
+	type AuthToken,
+	QueueMode,
+	Visibility,
+	BufferGateMode,
+	Role,
+} from "ott-common/models/types.js";
+import permissions from "ott-common/permissions.js";
 import request from "supertest";
 import tokens from "../../../../server/auth/tokens.js";
 import roommanager from "../../../../server/roommanager.js";
@@ -456,6 +463,21 @@ describe("Room API", () => {
 			expect(_.pick(roomResult.value, "autoSkipSegmentCategories")).toMatchObject({
 				autoSkipSegmentCategories: savedAutoSkipSegmentCategories,
 			});
+		});
+
+		it("leaves customized grants untouched when a patch does not include them", async () => {
+			const room = (await roommanager.getRoom("foo")).unwrap();
+			const custom = permissions.parseIntoGrantMask(["playback", "chat"]);
+			room.grants.setRoleGrants(Role.UnregisteredUser, custom);
+
+			await request(app)
+				.patch("/api/room/foo")
+				.auth(token, { type: "bearer" })
+				.send({ title: "grants preservation probe" })
+				.expect(200);
+
+			expect(room.title).toBe("grants preservation probe");
+			expect(room.grants.getMask(Role.UnregisteredUser)).toBe(custom);
 		});
 	});
 

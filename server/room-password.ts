@@ -1,6 +1,10 @@
 import argon2 from "argon2";
 import crypto from "node:crypto";
-import { RateLimiterMemory, type RateLimiterAbstract } from "rate-limiter-flexible";
+import {
+	RateLimiterMemory,
+	type RateLimiterAbstract,
+	type RateLimiterRes,
+} from "rate-limiter-flexible";
 import { RateLimiterRedisv4 } from "./rate-limit.js";
 import { conf } from "./ott-config.js";
 import { getLogger } from "./logger.js";
@@ -94,29 +98,33 @@ function limiterKey(roomName: string, ip: string): string {
 	return `${roomName}_${ip}`;
 }
 
-export async function getRoomPasswordRetrySeconds(roomName: string, ip: string): Promise<number> {
+/**
+ * Consume one attempt before the password is checked. Consuming first makes the limit
+ * atomic and exact: a concurrent burst can no longer all pass a pre-check before any of
+ * them is counted, and the attempt that crosses the limit is blocked instead of being
+ * verified (previously the 11th wrong password still ran argon2 before the block).
+ *
+ * @returns seconds to wait before retrying, or 0 when the attempt may proceed.
+ */
+export async function consumeRoomPasswordAttempt(roomName: string, ip: string): Promise<number> {
 	if (!conf.get("rate_limit.enabled")) {
 		return 0;
 	}
 	try {
-		const result = await getLimiter().get(limiterKey(roomName, ip));
-		if (result !== null && result.consumedPoints > MAX_WRONG_ATTEMPTS) {
-			return Math.round(result.msBeforeNext / 1000) || 1;
-		}
+		const result = await getLimiter().consume(limiterKey(roomName, ip));
+		return result.consumedPoints > MAX_WRONG_ATTEMPTS
+			? Math.round(result.msBeforeNext / 1000) || 1
+			: 0;
 	} catch (e) {
-		log.warn(`Failed to read the room password attempts counter: ${e}`);
-	}
-	return 0;
-}
-
-export async function recordFailedRoomPasswordAttempt(roomName: string, ip: string): Promise<void> {
-	if (!conf.get("rate_limit.enabled")) {
-		return;
-	}
-	try {
-		await getLimiter().consume(limiterKey(roomName, ip));
-	} catch {
-		// Already over the limit; the counter was still incremented.
+		if (e instanceof Error) {
+			// Storage trouble must not lock everyone out of a password room; the password
+			// itself still gates access.
+			log.warn(`Failed to consume a room password attempt: ${e}`);
+			return 0;
+		}
+		// rate-limiter-flexible rejects with a RateLimiterRes when the key is blocked.
+		const blocked = e as RateLimiterRes;
+		return Math.round(blocked.msBeforeNext / 1000) || 1;
 	}
 }
 

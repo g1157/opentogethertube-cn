@@ -29,7 +29,8 @@
   客户端只同步布尔 `hasPassword`（设置区显示"已设置/未设置"用）。
 - **列表接口同样只返回布尔**：`GET /api/room/list`（数据库永久房与内存房间两条路径）与
   `GET /api/user/owned-rooms` 都带 `hasPassword`，浏览卡片用它渲染锁标识；哈希本身不出存储层。
-- 永久房间在服务重启后从 Redis 快照恢复时，`roommanager.getRoom` 会回查一次 DB 补齐哈希。
+- 永久房间在服务重启后从 Redis 快照恢复时，`roommanager.getRoom` 会回查一次 DB 补齐哈希；
+  **回查失败则房间加载失败（fail-closed）**，不会以"无密码"形态放行。
 
 ### 通行证（grant）
 
@@ -53,7 +54,12 @@
 ### 防爆破与策略
 
 专用限流（`rate-limiter-flexible`，模板同登录暴破防护）：按 `房间名 + IP`，10 次/分钟，超限封 5 分钟；
-校验成功即清点；`rate_limit.enabled=false` 时跳过。密码策略：4–64 字符、无复杂度要求（共享口令语义）。
+**每次尝试先原子扣点、再做校验**——并发突发不能抢在校验前绕过点数上限，跨线的那一次直接 429
+（不会再执行一次昂贵的 argon2 校验）；校验成功即清点；`rate_limit.enabled=false` 时跳过。
+密码策略：4–64 字符、无复杂度要求（共享口令语义）。
+
+客户端（`common-http.ts`）只对"会话失效"类 401（`MissingToken` 等）刷新并重放请求，且**刷新携带当前 token**；
+密码校验返回的 401 属业务结果，不刷新、不重放——避免把一次输入计成两次尝试，也避免登录访客被静默换成游客 token。
 
 ## 边界与已知限制
 
@@ -66,4 +72,6 @@
 
 - `server/tests/unit/room-password.spec.ts`：哈希/校验/通行证/改密失效/清除；
 - `server/tests/unit/api/room.spec.ts > room password`：房主设置、游客被挡（401）、错误密码、正确密码放行、清除后开放；
+- `server/tests/unit/storage.spec.ts`：哈希回查失败即拒绝（fail-closed）；
+- `client/tests/unit/common-http.spec.ts`：401 分流（业务 401 不刷新/不重放；会话 401 刷新带凭据并重放一次）；
 - `client/tests/unit/RoomPasswordDialog.component.spec.ts`：提交与错误提示。

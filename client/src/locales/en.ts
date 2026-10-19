@@ -900,6 +900,8 @@ export default {
 		BadPasswordError:
 			"Password does not meet minimum requirements. Must be at least 8 characters long, and contain 2 of the following categories of characters: lowercase letters, uppercase letters, numbers, special characters.",
 		BadApiArgumentException: "Bad API Argument. This is likely a bug, please report it.",
+		UndoEventUnavailable:
+			"That action can no longer be undone. It may be too old, or the room was reloaded since it happened.",
 		FeatureDisabledException: "This feature is currently unavailable.",
 		LocalFileException:
 			"Videos on your computer or the server cannot be played. Use a public link everyone can reach.",

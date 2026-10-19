@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import _ from "lodash";
 import { CachedVideo, Room as DbRoom, User, loadModels } from "../../models/index.js";
 import storage from "../../storage.js";
@@ -489,5 +489,11 @@ describe("Storage: CachedVideos: bulk inserts/updates", () => {
 		expect(await storage.getVideoInfo("direct", "abc789")).toEqual(videos[2]);
 		expect(await storage.getVideoInfo("direct", "def123")).toEqual(videos[3]);
 		expect(await storage.getVideoInfo("direct", "def456")).toEqual(videos[4]);
+	});
+
+	it("fails closed when the room password hash lookup errors", async () => {
+		const spy = vi.spyOn(DbRoom, "findOne").mockRejectedValue(new Error("database is down"));
+		await expect(storage.getRoomPasswordHash("example")).rejects.toThrow("database is down");
+		spy.mockRestore();
 	});
 });

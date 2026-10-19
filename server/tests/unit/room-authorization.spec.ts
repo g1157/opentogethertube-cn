@@ -32,6 +32,14 @@ describe("room mutations cannot bypass grants", () => {
 			additional: { video: previous, prevPosition: 0, queueIdx: 0 },
 		} as ServerMessageEvent,
 	});
+	// Undo only replays events the room actually published, so each case seeds one.
+	const publishUndoable = async (request: RoomRequest) => {
+		await room.publishRoomEvent(request, context, {
+			video: previous,
+			prevPosition: 0,
+			queueIdx: 0,
+		});
+	};
 
 	beforeAll(async () => {
 		await buildClients();
@@ -57,6 +65,7 @@ describe("room mutations cannot bypass grants", () => {
 		{ type: RoomRequestType.AddRequest, video: queued },
 		{ type: RoomRequestType.RemoveRequest, video: previous },
 	] as RoomRequest[])("requires grants when undoing operation $type", async eventRequest => {
+		await publishUndoable(eventRequest);
 		await expect(room.processRequest(undo(eventRequest), context)).rejects.toThrow();
 		expect(room.currentSource).toEqual(current);
 		expect(room.queue.items).toEqual([queued]);
@@ -66,6 +75,7 @@ describe("room mutations cannot bypass grants", () => {
 	it("requires skip permission before undoing an add by clearing the current video", async () => {
 		await room.queue.set([]);
 		room.grants.setRoleGrants(Role.UnregisteredUser, ["manage-queue.remove"]);
+		await publishUndoable({ type: RoomRequestType.AddRequest, video: current });
 		await expect(
 			room.processRequest(
 				undo({ type: RoomRequestType.AddRequest, video: current }),
@@ -87,6 +97,7 @@ describe("room mutations cannot bypass grants", () => {
 				grant => grant !== missingGrant,
 			),
 		);
+		await publishUndoable({ type: RoomRequestType.SkipRequest });
 		await expect(
 			room.processRequest(undo({ type: RoomRequestType.SkipRequest }), context),
 		).rejects.toThrow();
@@ -96,11 +107,13 @@ describe("room mutations cannot bypass grants", () => {
 
 	it("permits authorized undo at the start of a video", async () => {
 		room.grants.setRoleGrants(Role.UnregisteredUser, ["playback", "manage-queue"]);
+		await publishUndoable({ type: RoomRequestType.SkipRequest });
 		await room.processRequest(undo({ type: RoomRequestType.SkipRequest }), context);
 		expect(room.currentSource).toEqual(previous);
 		expect(room.queue.items).toEqual([current, queued]);
 		expect(room.playbackPosition).toBe(0);
 		room.playbackPosition = 50;
+		await publishUndoable({ type: RoomRequestType.SeekRequest, value: 50 });
 		await room.processRequest(undo({ type: RoomRequestType.SeekRequest, value: 50 }), context);
 		expect(room.playbackPosition).toBe(0);
 	});

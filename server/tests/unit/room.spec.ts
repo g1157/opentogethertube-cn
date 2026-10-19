@@ -24,7 +24,7 @@ import { Room, RoomUser } from "../../room.js";
 import infoextractor from "../../infoextractor.js";
 import type { Video, VideoId } from "ott-common/models/video.js";
 import permissions, { Grants } from "ott-common/permissions.js";
-import { BadApiArgumentException } from "../../exceptions.js";
+import { BadApiArgumentException, UndoEventUnavailable } from "../../exceptions.js";
 import _ from "lodash";
 import { VideoQueue } from "../../videoqueue.js";
 import { loadModels } from "../../models/index.js";
@@ -460,6 +460,16 @@ describe("Room", () => {
 				);
 				expect(shuffleSpy).toHaveBeenCalled();
 				expect(room.queue).toHaveLength(5);
+			});
+
+			it("marks the queue dirty so the new order is broadcast", async () => {
+				await room.processRequest(
+					{
+						type: RoomRequestType.ShuffleRequest,
+					},
+					{ username: "test", role: Role.Owner, clientId: "1234" },
+				);
+				expect(room.queue.dirty).toBe(true);
 			});
 		});
 
@@ -925,6 +935,7 @@ describe("Room", () => {
 
 		beforeEach(() => {
 			room = new Room({ name: "undo-validation" });
+			room.realusers.push(new RoomUser("client", "test-token"));
 			room.grants.setRoleGrants(Role.UnregisteredUser, permissions.parseIntoGrantMask(["*"]));
 			vi.spyOn(room, "publish").mockResolvedValue(undefined);
 		});
@@ -961,6 +972,10 @@ describe("Room", () => {
 
 		it("still accepts a well-formed undo event", async () => {
 			room.currentSource = { service: "direct", id: "current.mp4" };
+			await room.publishRoomEvent({ type: RoomRequestType.SkipRequest }, context, {
+				video: { service: "direct", id: "previous.mp4" },
+				prevPosition: 12,
+			});
 			await room.processRequest(
 				undoRequest({
 					request: { type: RoomRequestType.SkipRequest },
@@ -973,6 +988,48 @@ describe("Room", () => {
 			);
 			expect(room.currentSource).toEqual({ service: "direct", id: "previous.mp4" });
 			expect(room.playbackPosition).toBe(12);
+		});
+
+		it("refuses an undo whose video the room never published", async () => {
+			room.currentSource = { service: "direct", id: "current.mp4" };
+			await expect(
+				room.processRequest(
+					undoRequest({
+						request: { type: RoomRequestType.SkipRequest },
+						additional: {
+							video: { service: "direct", id: "http://attacker.example/evil.mp4" },
+							prevPosition: 0,
+						},
+					}),
+					context,
+				),
+			).rejects.toThrowError(UndoEventUnavailable);
+			expect(room.currentSource).toEqual({ service: "direct", id: "current.mp4" });
+		});
+
+		it("refuses an echo that alters the published event's video", async () => {
+			await room.publishRoomEvent({ type: RoomRequestType.SkipRequest }, context, {
+				video: { service: "direct", id: "previous.mp4" },
+				prevPosition: 12,
+			});
+			room.currentSource = { service: "direct", id: "current.mp4" };
+			await expect(
+				room.processRequest(
+					undoRequest({
+						request: { type: RoomRequestType.SkipRequest },
+						additional: {
+							video: {
+								service: "direct",
+								id: "previous.mp4",
+								src_url: "http://attacker.example/x.mp4",
+							},
+							prevPosition: 12,
+						},
+					}),
+					context,
+				),
+			).rejects.toThrowError(UndoEventUnavailable);
+			expect(room.currentSource).toEqual({ service: "direct", id: "current.mp4" });
 		});
 	});
 });

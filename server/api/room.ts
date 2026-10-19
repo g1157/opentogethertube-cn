@@ -1,7 +1,7 @@
 import _ from "lodash";
 import { getLogger } from "../logger.js";
 import roommanager from "../roommanager.js";
-import { Visibility } from "ott-common/models/types.js";
+import { Visibility, type RoomSettings } from "ott-common/models/types.js";
 import { consumeRateLimitPoints } from "../rate-limit.js";
 import {
 	BadApiArgumentException,
@@ -52,10 +52,9 @@ import {
 } from "ott-common/models/zod-schemas.js";
 import {
 	clearRoomPasswordFailures,
-	getRoomPasswordRetrySeconds,
+	consumeRoomPasswordAttempt,
 	grantRoomAccess,
 	hasRoomAccess,
-	recordFailedRoomPasswordAttempt,
 	setRoomPassword,
 	verifyRoomPassword,
 } from "../room-password.js";
@@ -248,10 +247,14 @@ const patchRoom: RequestHandler<{ name: string }, unknown, OttApiRequestPatchRoo
 			}
 		}
 	} else {
-		const newBody = {
-			...body,
-			grants: new Grants(body.grants),
-		};
+		// Only convert grants when the client actually sent them: `new Grants(undefined)`
+		// falls back to the default masks, which would silently reset any role whose
+		// permissions were customized on every settings patch.
+		const { grants, ...rest } = body;
+		const newBody: Partial<RoomSettings> = { ...rest };
+		if (grants !== undefined) {
+			newBody.grants = new Grants(grants);
+		}
 		const roomRequest: ApplySettingsRequest = {
 			type: RoomRequestType.ApplySettingsRequest,
 			settings: newBody,
@@ -544,7 +547,8 @@ const errorHandler: ErrorRequestHandler = (err: Error, req, res) => {
 		} else if (
 			err.name === "VideoAlreadyQueuedException" ||
 			err.name === "PermissionDeniedException" ||
-			err.name === "ClientNotFoundInRoomException"
+			err.name === "ClientNotFoundInRoomException" ||
+			err.name === "UndoEventUnavailable"
 		) {
 			log.warn(`Failed to post video: ${err.name}`);
 			res.status(400).json({
@@ -723,7 +727,7 @@ const verifyRoomPasswordHandler: RequestHandler<{ name: string }> = async (req, 
 		res.json({ success: true });
 		return;
 	}
-	const retrySeconds = await getRoomPasswordRetrySeconds(room.name, req.ip);
+	const retrySeconds = await consumeRoomPasswordAttempt(room.name, req.ip);
 	if (retrySeconds > 0) {
 		res.set("Retry-After", String(retrySeconds));
 		res.status(429).json({
@@ -733,7 +737,6 @@ const verifyRoomPasswordHandler: RequestHandler<{ name: string }> = async (req, 
 		return;
 	}
 	if (!(await verifyRoomPassword(room, body.password))) {
-		await recordFailedRoomPasswordAttempt(room.name, req.ip);
 		throw new InvalidRoomPassword();
 	}
 	await clearRoomPasswordFailures(room.name, req.ip);

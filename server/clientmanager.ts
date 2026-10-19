@@ -16,8 +16,10 @@ import {
 	type ServerMessageSignal,
 	type ServerMessageVoice,
 	type ClientMessageSignal,
+	type ApplySettingsRequest,
 } from "ott-common/models/messages.js";
 import {
+	BadApiArgumentException,
 	ClientNotFoundInRoomException,
 	LengthOutOfRangeException,
 	MissingToken,
@@ -29,11 +31,15 @@ import {
 	OttWebsocketError,
 	type AuthToken,
 	type ClientId,
+	type RoomSettings,
 } from "ott-common/models/types.js";
 import roommanager from "./roommanager.js";
 import { hasRoomAccess } from "./room-password.js";
 import storage from "./storage.js";
 import { ANNOUNCEMENT_CHANNEL, ROOM_NAME_REGEX } from "ott-common/constants.js";
+import { RoomSettingsSchema } from "ott-common/models/zod-schemas.js";
+import { Grants } from "ott-common/permissions.js";
+import { fromZodError } from "zod-validation-error";
 import tokens, { type SessionInfo } from "./auth/tokens.js";
 import { Gauge } from "prom-client";
 import { replacer } from "ott-common/serialize.js";
@@ -466,25 +472,39 @@ async function onClientMessage(client: Client, msg: ClientMessage) {
 				client.kick(OttWebsocketError.UNKNOWN);
 				return;
 			}
-			// WS requests bypass the REST body schemas; enforce the same content caps
-			// so oversized text cannot reach storage or every client's UI. These are named
-			// exceptions, not bare ones, so the client can say what was wrong instead of
-			// falling back to its generic "something went wrong" message.
+			// WS requests bypass the REST body schemas, so the settings path must run the
+			// shared schema here: without it a crafted client can write unvalidated
+			// settings (invalid enums, oversized danmaku sources) into the room state and
+			// its persistence. Length violations keep their named exceptions so the client
+			// can say what was wrong instead of falling back to the generic schema message.
 			if (msg.request.type === RoomRequestType.ApplySettingsRequest) {
-				const settings = (
-					msg.request as { settings?: { title?: unknown; description?: unknown } }
-				).settings;
-				if (settings) {
-					if (typeof settings.title === "string" && settings.title.length > 254) {
-						throw new LengthOutOfRangeException("title", { max: 254 });
-					}
+				const parsed = RoomSettingsSchema.safeParse(
+					(msg.request as { settings?: unknown }).settings,
+				);
+				if (!parsed.success) {
+					const issue = parsed.error.issues[0];
 					if (
-						typeof settings.description === "string" &&
-						settings.description.length > 5000
+						issue &&
+						(issue.path[0] === "title" || issue.path[0] === "description") &&
+						issue.code === "too_big"
 					) {
-						throw new LengthOutOfRangeException("description", { max: 5000 });
+						throw new LengthOutOfRangeException(String(issue.path[0]), {
+							max: Number(issue.maximum),
+						});
 					}
+					throw new BadApiArgumentException(
+						"settings",
+						fromZodError(parsed.error).message,
+					);
 				}
+				const { grants, ...rest } = parsed.data;
+				const settings: Partial<RoomSettings> = { ...rest };
+				// The wire format carries grants as [role, mask] tuples; an absent field
+				// must stay absent so the room keeps its current permissions.
+				if (grants !== undefined) {
+					settings.grants = new Grants(grants);
+				}
+				msg.request.settings = settings;
 			} else if (msg.request.type === RoomRequestType.ChatRequest) {
 				const text = (msg.request as { text?: unknown }).text;
 				if (typeof text !== "string" || text.length === 0 || text.length > 300) {

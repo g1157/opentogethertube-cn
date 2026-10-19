@@ -323,6 +323,16 @@ export class VideoNotFoundException extends OttException {
 	}
 }
 
+export class UndoEventUnavailable extends OttException {
+	name = "UndoEventUnavailable";
+
+	constructor() {
+		super(
+			`That action can no longer be undone. It may be too old, or the room was reloaded since it happened.`,
+		);
+	}
+}
+
 export class BadApiArgumentException extends OttException {
 	name = "BadApiArgumentException";
 	arg: string;

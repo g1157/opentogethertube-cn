@@ -866,6 +866,7 @@ export default {
 		BadPasswordError:
 			"密码不符合最低要求。长度必须至少为 8 个字符，且包含以下字符类别中的至少 2 种：小写字母、大写字母、数字、特殊字符。",
 		BadApiArgumentException: "API 参数错误。这很可能是个 Bug，请报告。",
+		UndoEventUnavailable: "该操作已无法撤销：可能已过期，或房间在那之后重新加载过。",
 		FeatureDisabledException: "该功能当前不可用。",
 		LocalFileException: "无法播放本地文件，请使用所有人可访问的公开链接。",
 		MissingMetadataException: "无法获取视频时长等必要信息，请更换一个片源。",

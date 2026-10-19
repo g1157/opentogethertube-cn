@@ -1,12 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 import danmaku, { girigiriTrackPath } from "../../../api/danmaku.js";
+import { buildRateLimiter } from "../../../rate-limit.js";
 
 const app = express();
 app.use("/api/danmaku", danmaku);
 
 const fetchMock = vi.fn<[input: string | URL | Request, init?: RequestInit], Promise<Response>>();
+
+beforeAll(() => {
+	buildRateLimiter();
+});
 
 beforeEach(() => {
 	fetchMock.mockReset();
@@ -108,6 +113,19 @@ describe("girigiri search", () => {
 			.expect(502);
 		expect(res.body.results).toEqual([]);
 	});
+
+	it("remembers a failed upstream briefly instead of replaying it", async () => {
+		fetchMock.mockResolvedValue(json({}, 500));
+		await request(app)
+			.get("/api/danmaku/girigiri/search")
+			.query({ wd: "negative-search" })
+			.expect(502);
+		await request(app)
+			.get("/api/danmaku/girigiri/search")
+			.query({ wd: "negative-search" })
+			.expect(502);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
 });
 
 describe("girigiri episodes", () => {
@@ -150,6 +168,19 @@ describe("girigiri episodes", () => {
 			.get("/api/danmaku/girigiri/episodes")
 			.query({ id: "111111" })
 			.expect(404);
+	});
+
+	it("remembers an empty episode list briefly instead of replaying it", async () => {
+		fetchMock.mockResolvedValue(new Response("<html>nothing</html>", { status: 200 }));
+		await request(app)
+			.get("/api/danmaku/girigiri/episodes")
+			.query({ id: "222222" })
+			.expect(404);
+		await request(app)
+			.get("/api/danmaku/girigiri/episodes")
+			.query({ id: "222222" })
+			.expect(404);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 });
 
@@ -206,5 +237,15 @@ describe("girigiri track", () => {
 			.get("/api/danmaku/girigiri/track")
 			.query({ page: "/playGV26846-6-1/" })
 			.expect(502);
+	});
+
+	it("remembers an unresolvable track briefly instead of replaying it", async () => {
+		const page = "/playGV26846-5-1/";
+		fetchMock.mockResolvedValueOnce(
+			new Response("<html>no player data</html>", { status: 200 }),
+		);
+		await request(app).get("/api/danmaku/girigiri/track").query({ page }).expect(502);
+		await request(app).get("/api/danmaku/girigiri/track").query({ page }).expect(502);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 });

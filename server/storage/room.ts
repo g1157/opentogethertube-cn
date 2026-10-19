@@ -180,8 +180,10 @@ export async function getRoomPasswordHash(roomName: string): Promise<string | nu
 		});
 		return room?.passwordHash ?? null;
 	} catch (err) {
+		// Fail closed: a lookup error must not load a locked room as if it had no password.
+		// The room simply fails to load until the database answers again.
 		log.error(`Failed to read the password hash for room ${roomName}: ${err}`);
-		return null;
+		throw err;
 	}
 }
 
