@@ -76,8 +76,26 @@ describe("room WebSocket recovery", () => {
 		socket.message({ action: "sync", name: "test-room" });
 		expect(connection.connected.value).toBe(true);
 		expect(connected).toHaveBeenCalledTimes(1);
-		vi.advanceTimersByTime(60000);
+		// Answer the periodic probes: an unanswered run is treated as a half-open socket.
+		for (let i = 0; i < 4; i++) {
+			vi.advanceTimersByTime(15000);
+			socket.message({ action: "pong", t0: Date.now() });
+		}
 		expect(TestWebSocket.sockets).toHaveLength(1);
+	});
+
+	it("reconnects a half-open socket whose probes stop being answered", () => {
+		const socket = join();
+		// The join sends one probe immediately; answer it so the run starts at zero.
+		socket.message({ action: "pong", t0: Date.now() });
+		vi.advanceTimersByTime(15000);
+		vi.advanceTimersByTime(15000);
+		vi.advanceTimersByTime(15000);
+		expect(connection.connected.value).toBe(false);
+		expect(connection.issue.value).toBe("network");
+		expect(socket.close).toHaveBeenCalled();
+		vi.advanceTimersByTime(1000);
+		expect(TestWebSocket.sockets).toHaveLength(2);
 	});
 
 	it("times out a proxy that leaves the upgrade pending, then reconnects", () => {

@@ -292,14 +292,13 @@ function normalizeSettings(state: SettingsState) {
 
 function persistSettings(state: SettingsState) {
 	try {
-		// Save defaults and their migration markers together so they cannot diverge.
-		// Kept synchronous on purpose: tests and the update checker read it right
-		// after an UPDATE, and repeated writes are already de-duplicated at the
-		// media-player layer (a single shared volume watcher instead of one per caller).
+		// Session-only corrections (the auto-degrade ladder) live in state but must never
+		// replace the values the visitor picked, so the last persisted picks win here.
 		localStorage.setItem(
 			"settings",
 			JSON.stringify({
 				...state,
+				...persistedTransient,
 				defaultLocaleVersion: DEFAULT_LOCALE_VERSION,
 				defaultSfxVersion: DEFAULT_SFX_VERSION,
 				defaultDanmakuOpacityVersion: DEFAULT_DANMAKU_OPACITY_VERSION,
@@ -313,6 +312,21 @@ function persistSettings(state: SettingsState) {
 		);
 	} catch {
 		// Private browsing or storage limits must not prevent settings from working in memory.
+	}
+}
+
+/**
+ * The settings the visitor chose themselves, for the keys UPDATE_TRANSIENT may correct for
+ * this session only. A later persist writes these back instead of the corrected values.
+ */
+let persistedTransient: Partial<Pick<SettingsState, "upscaleMode" | "upscaleScale">> = {};
+
+function rememberPersistedTransient(state: SettingsState, changed: Partial<SettingsState>): void {
+	if (changed.upscaleMode !== undefined) {
+		persistedTransient.upscaleMode = state.upscaleMode;
+	}
+	if (changed.upscaleScale !== undefined) {
+		persistedTransient.upscaleScale = state.upscaleScale;
 	}
 }
 
@@ -359,6 +373,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		UPDATE(state, settings: Partial<SettingsState>) {
 			Object.assign(state, settings);
 			normalizeSettings(state);
+			rememberPersistedTransient(state, settings);
 			persistSettings(state);
 
 			// apply some global settings
@@ -479,6 +494,13 @@ export const settingsModule: Module<SettingsState, unknown> = {
 				settings.seekSeconds = 7;
 			}
 			context.commit("UPDATE", settings);
+			// Record what this store started with: later session-only corrections must not
+			// become the persisted baseline, and a key the visitor never touches still
+			// needs its starting value here.
+			persistedTransient = {
+				upscaleMode: context.state.upscaleMode,
+				upscaleScale: context.state.upscaleScale,
+			};
 		},
 	},
 };

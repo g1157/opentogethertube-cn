@@ -12,6 +12,11 @@ import { noteLatencySample, resetLatencySamples } from "@/util/connection-latenc
 const MAX_UNKNOWN_RECONNECTS = 2;
 /** Latency probes are client-driven; this is long enough to be free and short enough to stay current. */
 const LATENCY_PROBE_INTERVAL_MS = 15_000;
+/**
+ * A half-open socket keeps its OPEN state and silently swallows messages; unanswered probes
+ * are the only signal. Two missed replies (one interval each) is ~30–45s since the last pong.
+ */
+const MAX_UNANSWERED_PROBES = 2;
 
 export interface OttRoomConnection {
 	active: Ref<boolean>;
@@ -90,6 +95,8 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 	private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 	private connectTimeout: ReturnType<typeof setTimeout> | null = null;
 	private latencyTimer: ReturnType<typeof setInterval> | null = null;
+	/** Probes sent since the last pong; see MAX_UNANSWERED_PROBES. */
+	private unansweredProbes = 0;
 	private readonly onOnline = () => {
 		if (this.active.value && !this.connected.value) {
 			this.reconnect();
@@ -310,6 +317,7 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 				const msg = JSON.parse(e.data) as ServerMessage;
 				if (msg.action === "pong") {
 					// Echoed send timestamp; no handler is registered for the reply itself.
+					this.unansweredProbes = 0;
 					noteLatencySample(Date.now() - msg.t0);
 					return;
 				}
@@ -341,6 +349,7 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 	 */
 	private startLatencyProbes() {
 		this.stopLatencyProbes();
+		this.unansweredProbes = 0;
 		this.sendLatencyProbe();
 		this.latencyTimer = setInterval(() => this.sendLatencyProbe(), LATENCY_PROBE_INTERVAL_MS);
 	}
@@ -360,8 +369,15 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 		) {
 			return;
 		}
+		if (this.unansweredProbes >= MAX_UNANSWERED_PROBES) {
+			// The socket still looks open but nothing is coming back: treat it as a drop so
+			// the reconnect path takes over instead of leaving the room silently dead.
+			this.failConnection("network");
+			return;
+		}
 		try {
 			this.socket.send(JSON.stringify({ action: "ping", t0: Date.now() }));
+			this.unansweredProbes += 1;
 		} catch {
 			// A probe must never surface as an error; the next tick retries.
 		}

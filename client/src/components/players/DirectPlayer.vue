@@ -46,7 +46,8 @@
 
 <script lang="ts" setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
-import JASSUB from "jassub";
+// JASSUB itself is imported lazily (see loadJassub): it is a large main-thread bundle and
+// only visitors who actually render an ASS/SSA track need it.
 // ?url would copy jassub's worker verbatim, keeping its bare imports (abslink, …) that a
 // browser worker cannot resolve; ?worker&url bundles the worker with its pthread companion.
 import jassubWorkerUrl from "jassub/dist/worker/worker.js?worker&url";
@@ -198,7 +199,18 @@ function nativeTrackIndex(sourceIndex: number): number {
 // created lazily on first ASS use, then kept alive for the component's lifetime: its canvas
 // can only be transferred to the worker once, so VTT<->ASS toggles and ASS->ASS track changes
 // reuse this instance instead of tearing it down and rebuilding a new worker
-let jassubInstance: JASSUB | null = null;
+type JassubConstructor = typeof import("jassub")["default"];
+let jassubConstructor: JassubConstructor | null = null;
+let jassubInstance: InstanceType<JassubConstructor> | null = null;
+
+/** Load the renderer on first use so pages without ASS tracks never download it. */
+async function loadJassub(): Promise<JassubConstructor> {
+	if (!jassubConstructor) {
+		const module = await import("jassub");
+		jassubConstructor = module.default;
+	}
+	return jassubConstructor;
+}
 
 // A jassub instance owns its canvas for good: transferring a canvas to the worker cannot be
 // undone, and destroy() removes it. Each instance therefore gets a freshly created canvas,
@@ -254,27 +266,38 @@ async function doApplyTrack(idx: number, enabled: boolean) {
 		if (!videoElem.value) {
 			return;
 		}
-		if (!jassubInstance) {
-			const canvas = createSubtitleCanvas();
-			if (!canvas) {
-				return;
+		try {
+			if (!jassubInstance) {
+				const canvas = createSubtitleCanvas();
+				if (!canvas) {
+					return;
+				}
+				const JASSUB = await loadJassub();
+				jassubInstance = new JASSUB({
+					video: videoElem.value,
+					canvas,
+					workerUrl: jassubWorkerUrl,
+					wasmUrl: jassubWasmUrl,
+					modernWasmUrl: jassubModernWasmUrl,
+					// fall back to remote font queries so styles using fonts not installed
+					// locally (e.g. CJK/decorative fonts) still render instead of falling
+					// back to the default font
+					queryFonts: "localandremote",
+				});
 			}
-			jassubInstance = new JASSUB({
-				video: videoElem.value,
-				canvas,
-				subUrl: source.url,
-				workerUrl: jassubWorkerUrl,
-				wasmUrl: jassubWasmUrl,
-				modernWasmUrl: jassubModernWasmUrl,
-				// fall back to remote font queries so styles using fonts not installed
-				// locally (e.g. CJK/decorative fonts) still render instead of falling
-				// back to the default font
-				queryFonts: "localandremote",
-			});
-			await jassubInstance.ready;
-		} else {
 			await jassubInstance.ready;
 			await jassubInstance.renderer.setTrackByUrl(source.url);
+		} catch (e) {
+			// The worker can resolve ready after a failed fetch; a half-working instance
+			// would then silently show nothing forever. Drop it so the next attempt rebuilds,
+			// and tell the viewer instead of pretending captions are on.
+			destroyJassub();
+			toast.add({
+				style: ToastStyle.Error,
+				content: i18n.global.t("player.subtitle-load-failed"),
+				duration: 6000,
+			});
+			throw e;
 		}
 		assVisible.value = true;
 		return;

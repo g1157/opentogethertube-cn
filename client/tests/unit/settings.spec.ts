@@ -505,6 +505,28 @@ describe("saved settings and default migrations", () => {
 		expect(nextVisit.state.settings.upscaleScale).toBe("auto");
 	});
 
+	it("keeps a transient degrade out of the saved tier when another setting changes", async () => {
+		const store = newStore();
+		await store.dispatch("settings/load");
+		store.commit("settings/UPDATE", { upscaleMode: "anime4k-quality" });
+		store.commit("settings/UPDATE_TRANSIENT", {
+			upscaleMode: "sharpen",
+			upscaleScale: 1.5,
+		});
+
+		// Any later persisted change (here: the volume) must write the visitor's pick.
+		store.commit("settings/UPDATE", { volume: 42 });
+		expect(JSON.parse(saved.get("settings")!)).toMatchObject({
+			volume: 42,
+			upscaleMode: "anime4k-quality",
+			upscaleScale: "auto",
+		});
+
+		// A change the visitor makes themselves still persists.
+		store.commit("settings/UPDATE", { upscaleMode: "film" });
+		expect(JSON.parse(saved.get("settings")!)).toMatchObject({ upscaleMode: "film" });
+	});
+
 	it("does not mark a migration saved if storage rejects the settings write", async () => {
 		saved.set("settings", JSON.stringify({ locale: "en", volume: 37 }));
 		storage.setItem.mockImplementation(() => {

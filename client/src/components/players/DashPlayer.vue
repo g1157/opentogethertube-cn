@@ -39,8 +39,11 @@ import { computed, onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
 import { isUsableDuration } from "@/util/video-length";
-import { nativeMediaError } from "@/util/media-recovery";
+import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
 import { createMediaSeek } from "@/util/media-seek";
+import { ToastStyle } from "@/models/toast";
+import toast from "@/util/toast";
+import { i18n } from "@/i18n";
 import type {
 	MediaPlayerError,
 	MediaPlayerWithAudioBoost,
@@ -97,28 +100,84 @@ const loadingState = createMediaLoadingState({
 	isAudioOnly: () => audioOnly,
 });
 
+/**
+ * dash.js download/manifest error ids (DASH-IF error codes 25–29) are worth retrying; the
+ * remaining error ids describe a stream or device problem a reload cannot repair.
+ */
+const DASH_RETRYABLE_ERROR_CODES = new Set([25, 26, 27, 28, 29]);
+
+function describeDashError(event: ErrorEvent): MediaPlayerError {
+	if (event.error === "download" || event.error === "manifestError") {
+		const detail = event.error === "manifestError" ? event.event.message : undefined;
+		return {
+			type: "network",
+			message:
+				typeof detail === "string" && detail.trim() !== ""
+					? detail
+					: "dash.js could not download the media stream",
+		};
+	}
+	if (event.error === "capability" || event.error === "mediasource") {
+		// The browser cannot decode this container/codec; retrying cannot change that.
+		return {
+			type: "unsupported",
+			message: "This device cannot decode the DASH stream",
+			retryable: false,
+		};
+	}
+	if (typeof event.error === "object" && event.error !== null) {
+		const detail = event.error.message;
+		return {
+			type: DASH_RETRYABLE_ERROR_CODES.has(event.error.code) ? "network" : "unknown",
+			message:
+				typeof detail === "string" && detail.trim() !== ""
+					? detail
+					: "dash.js reported an error",
+		};
+	}
+	return { type: "unknown", message: "dash.js reported an error" };
+}
+
+const recovery = createMediaRecovery({
+	media: () => videoElem.value,
+	restart: () => {
+		loadingState.reset();
+		if (!videoElem.value) {
+			return;
+		}
+		// dash.js exposes no per-error recovery hook; rebuilding the player at the captured
+		// position is the reliable path (MSE is recreated either way). Keep the recovery
+		// snapshot: canPlay() restores it once the rebuilt stream is playable.
+		loadVideoSource(recovery.getPosition(), false);
+	},
+	onRecovering: () => {
+		loadingState.reset();
+		emit("buffering");
+	},
+	// dash.js retries segment and manifest requests itself; a silent stall is usually
+	// throughput, so the first trigger waits instead of re-fetching the same region.
+	stallFirstResponse: () => "wait",
+	onStallSkip: seconds => {
+		toast.add({
+			style: ToastStyle.Neutral,
+			content: i18n.global.t("player.recovery.skipped", { seconds }),
+			duration: 6000,
+		});
+	},
+	onError: error => {
+		loadingState.stop();
+		dash.value?.destroy();
+		dash.value = undefined;
+		emit("error", error);
+	},
+});
+
 function play(userInitiated = false) {
-	const media = videoElem.value;
-	if (!media) {
-		console.error("video element not ready");
-		return;
-	}
-	if (!media.currentSrc && !media.src && !media.srcObject) {
-		// dash.js attaches MediaSource after reading the manifest. Room retries on ready.
-		return;
-	}
-	if (seek.pending() && !userInitiated) {
-		return;
-	}
-	return media.play();
+	return recovery.play(userInitiated);
 }
 
 function pause() {
-	if (!videoElem.value) {
-		console.error("video element not ready");
-		return;
-	}
-	videoElem.value.pause();
+	recovery.pause();
 }
 
 function setVolume(volume: number) {
@@ -141,6 +200,9 @@ function setPosition(position: number) {
 	if (!Number.isFinite(position) || position < 0) {
 		return;
 	}
+	// Keep the recovery snapshot in step: a recovery after this seek resumes here instead
+	// of at the position captured by the last error.
+	recovery.setPosition(position);
 	pendingPosition = position;
 	applyPendingPosition();
 }
@@ -167,10 +229,7 @@ function isRecovering() {
 }
 
 function retry() {
-	const position = pendingPosition ?? videoElem.value?.currentTime;
-	loadVideoSource(
-		position !== undefined && Number.isFinite(position) && position >= 0 ? position : null,
-	);
+	recovery.retry();
 }
 
 function isCaptionsSupported(): boolean {
@@ -330,12 +389,13 @@ function getPlaybackRate(): number {
 	return videoElem.value.playbackRate;
 }
 
-async function setPlaybackRate(rate: number): Promise<void> {
+function setPlaybackRate(rate: number): Promise<void> {
 	if (!videoElem.value) {
 		console.error("video element not ready");
-		return;
+		return Promise.resolve();
 	}
-	videoElem.value.playbackRate = rate;
+	recovery.setPlaybackRate(rate);
+	return Promise.resolve();
 }
 
 function setAudioBoost(boost: number): void {
@@ -346,7 +406,11 @@ function setAudioEq(preset: AudioEqPreset): void {
 	audioBoost.setEq(preset);
 }
 
-function loadVideoSource(resumePosition: number | null = null) {
+function loadVideoSource(resumePosition: number | null = null, resetRecovery = true) {
+	if (resetRecovery) {
+		// A new source starts from zero; a recovery reboot keeps its captured snapshot.
+		recovery.reset();
+	}
 	console.log("DashPlayer: loading video source:", props.videoUrl);
 	if (!videoElem.value) {
 		console.error("video element not ready");
@@ -419,14 +483,14 @@ function loadVideoSource(resumePosition: number | null = null) {
 		if (generation !== sourceGeneration) {
 			return;
 		}
+		if (event.error === "cc") {
+			// A timed-text track that fails to load is not a playback failure.
+			console.warn("DashPlayer: timed text error", event);
+			return;
+		}
 		loadingState.stop();
 		console.error("DashPlayer: dash.js error:", event);
-		console.log("DashPlayer: dash.js error event type:", typeof event);
-		const errorEvent: MediaPlayerError = {
-			type: "unknown",
-			message: JSON.stringify(event),
-		};
-		emit("error", errorEvent);
+		recovery.handleError(describeDashError(event));
 	});
 	// dash.value.on(MediaPlayer.events.PLAYBACK_ERROR, (event: unknown) => {
 	// 	console.error("DashPlayer: dash.js playback error:", event);
@@ -490,6 +554,9 @@ onMounted(() => {
 });
 
 function onReady() {
+	// Side effect: marks the recovery phase ready and starts its stall watch once the
+	// element can play (the room still applies play/pause through the ready handler).
+	recovery.canPlay();
 	applyPendingPosition();
 	if (seek.ready()) {
 		emit("ready");
@@ -529,7 +596,7 @@ function onNativeError() {
 	const error = nativeMediaError(videoElem.value?.error ?? null);
 	if (error) {
 		loadingState.stop();
-		emit("error", error);
+		recovery.handleError(error);
 	}
 }
 
@@ -554,6 +621,7 @@ onBeforeUnmount(() => {
 	sourceGeneration++;
 	streamReady = false;
 	pendingPosition = null;
+	recovery.dispose();
 	loadingState.dispose();
 	dash.value?.destroy();
 	videoElem.value?.pause();

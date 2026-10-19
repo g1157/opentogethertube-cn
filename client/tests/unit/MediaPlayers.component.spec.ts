@@ -74,6 +74,7 @@ const jassubMock = vi.hoisted(() => ({
 		opts: Record<string, unknown>;
 		destroy: ReturnType<typeof vi.fn>;
 		freeTrack: ReturnType<typeof vi.fn>;
+		setTrackByUrl: ReturnType<typeof vi.fn>;
 	}>,
 }));
 
@@ -90,6 +91,7 @@ vi.mock("jassub", () => {
 				opts,
 				destroy: this.destroy,
 				freeTrack: this.renderer.freeTrack,
+				setTrackByUrl: this.renderer.setTrackByUrl,
 			});
 		}
 	}
@@ -329,7 +331,9 @@ describe("native and HLS player reliability", () => {
 		]);
 		expect(api.isCaptionsEnabled()).toBe(true);
 		expect(jassubMock.created).toHaveLength(1);
-		expect(jassubMock.created[0].opts.subUrl).toBe("https://media.example/subs.ass");
+		expect(jassubMock.created[0].setTrackByUrl).toHaveBeenCalledWith(
+			"https://media.example/subs.ass",
+		);
 		expect(wrapper.find(".jassub-canvas-host").isVisible()).toBe(true);
 		expect(wrapper.find(".jassub-canvas").exists()).toBe(true);
 

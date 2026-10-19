@@ -112,7 +112,8 @@ export default defineConfig({
 						id.includes("dashjs") ||
 						id.includes("node_modules/shaders") ||
 						id.includes("node_modules/three") ||
-						id.includes("anime4k-webgpu")
+						id.includes("anime4k-webgpu") ||
+						id.includes("node_modules/jassub")
 					) {
 						return;
 					}
