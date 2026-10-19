@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { getSubtitleFormatFromUrl, SUBTITLE_CONTENT_TYPES } from "../../subtitles.js";
+import {
+	getSubtitleFormatFromUrl,
+	isPublicSubtitleUrl,
+	MAX_SUBTITLE_URL_LENGTH,
+	SUBTITLE_CONTENT_TYPES,
+} from "../../subtitles.js";
 
 describe("getSubtitleFormatFromUrl", () => {
 	it("recognizes .vtt", () => {
@@ -28,6 +33,33 @@ describe("getSubtitleFormatFromUrl", () => {
 
 	it("returns null for invalid URLs", () => {
 		expect(getSubtitleFormatFromUrl("not a url")).toBeNull();
+	});
+});
+
+describe("isPublicSubtitleUrl", () => {
+	it("accepts public https and http links", () => {
+		expect(isPublicSubtitleUrl("https://example.com/subs.vtt")).toBe(true);
+		expect(isPublicSubtitleUrl("http://cdn.example.com/a/b/subs.ass")).toBe(true);
+	});
+
+	it.each([
+		"ftp://example.com/subs.vtt",
+		"https://127.0.0.1/subs.vtt",
+		"https://192.168.1.10/subs.vtt",
+		"https://[::1]/subs.vtt",
+		"https://localhost/subs.vtt",
+		"https://subs.local/subs.vtt",
+		"https://user:pass@example.com/subs.vtt",
+		"https://example/subs.vtt",
+		"not a url",
+	])("rejects %s", value => {
+		expect(isPublicSubtitleUrl(value)).toBe(false);
+	});
+
+	it("rejects a URL longer than the shared limit", () => {
+		const base = "https://example.com/";
+		const long = base + "a".repeat(MAX_SUBTITLE_URL_LENGTH);
+		expect(isPublicSubtitleUrl(long)).toBe(false);
 	});
 });
 

@@ -60,7 +60,7 @@ import {
 	BufferGateMode,
 } from "ott-common/models/types.js";
 import type { User } from "./models/user.js";
-import type { QueueItem, Video, VideoId } from "ott-common/models/video.js";
+import type { QueueItem, QueueItemExtras, Video, VideoId } from "ott-common/models/video.js";
 import dayjs, { type Dayjs } from "dayjs";
 import type { PickFunctions } from "ott-common/typeutils.js";
 import { replacer } from "ott-common/serialize.js";
@@ -74,6 +74,7 @@ import {
 	VideoAlreadyQueuedException,
 	VideoNotFoundException,
 	UnsupportedSubtitleType,
+	UnsupportedSubtitleUrl,
 	BadApiArgumentException,
 	UndoEventUnavailable,
 } from "./exceptions.js";
@@ -95,7 +96,7 @@ import { undoEventSchema } from "./ws-schemas.js";
 import { type Result, countEligibleVoters, err, ok, voteSkipThreshold } from "ott-common";
 import type { ClientManagerCommand } from "./clientmanager.js";
 import { canKickUser } from "ott-common/userutils.js";
-import { getSubtitleFormatFromUrl } from "ott-common/subtitles.js";
+import { getSubtitleFormatFromUrl, isPublicSubtitleUrl } from "ott-common/subtitles.js";
 import { conf } from "./ott-config.js";
 import {
 	ALL_SKIP_CATEGORIES,
@@ -1736,6 +1737,20 @@ export class Room implements RoomState {
 	}
 
 	/**
+	 * Reject subtitle URLs that the viewers' browsers should not be told to load: the
+	 * extension picks the renderer, and the public-URL check keeps a queue item from
+	 * pointing every viewer at their own network.
+	 */
+	private assertUsableSubtitleUrl(subtitleUrl: string): void {
+		if (getSubtitleFormatFromUrl(subtitleUrl) === null) {
+			throw new UnsupportedSubtitleType();
+		}
+		if (!isPublicSubtitleUrl(subtitleUrl)) {
+			throw new UnsupportedSubtitleUrl();
+		}
+	}
+
+	/**
 	 * Add the video to the queue. Should only be called after permissions have been checked.
 	 * @param request
 	 */
@@ -1761,10 +1776,7 @@ export class Room implements RoomState {
 				throw new Error("video was undefined");
 			}
 			if (request.video.subtitleUrl) {
-				if (getSubtitleFormatFromUrl(request.video.subtitleUrl) === null) {
-					this.log.error("subtitle URL has an unsupported extension");
-					throw new UnsupportedSubtitleType();
-				}
+				this.assertUsableSubtitleUrl(request.video.subtitleUrl);
 				video.subtitleUrl = request.video.subtitleUrl;
 			}
 			this.queue.enqueue(video);
@@ -1780,6 +1792,11 @@ export class Room implements RoomState {
 				if (video === undefined) {
 					this.log.error("video was undefined, which is bad");
 					throw new Error("video was undefined");
+				}
+				// Batch adds keep the request's extras on non-cache-safe services; validate
+				// them here too so the REST schema is not the only gate.
+				if (video.subtitleUrl) {
+					this.assertUsableSubtitleUrl(video.subtitleUrl);
 				}
 				if (this.isVideoInQueue(video)) {
 					videos.splice(i--, 1);
@@ -1805,13 +1822,19 @@ export class Room implements RoomState {
 		request: UpdateQueueItemRequest,
 		context: RoomRequestContext,
 	): Promise<void> {
-		if (
-			request.update.subtitleUrl !== undefined &&
-			getSubtitleFormatFromUrl(request.update.subtitleUrl) === null
-		) {
-			throw new UnsupportedSubtitleType();
+		const update: Partial<QueueItemExtras> = { ...request.update };
+		if (Object.hasOwn(request.update, "subtitleUrl")) {
+			const subtitleUrl = (request.update as { subtitleUrl?: string | null }).subtitleUrl;
+			if (typeof subtitleUrl === "string" && subtitleUrl !== "") {
+				this.assertUsableSubtitleUrl(subtitleUrl);
+				update.subtitleUrl = subtitleUrl;
+			} else {
+				// null (or an empty string from an older client) is an explicit clear;
+				// assigning undefined removes the track, while an omitted field is a no-op.
+				update.subtitleUrl = undefined;
+			}
 		}
-		await this.queue.update(request.video, request.update);
+		await this.queue.update(request.video, update);
 		this.log.info(`Queue item updated: ${JSON.stringify(request.video)}`);
 		await this.publishRoomEvent(request, context);
 	}

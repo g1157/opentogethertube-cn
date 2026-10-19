@@ -361,6 +361,14 @@ export class UnsupportedSubtitleType extends OttException {
 	}
 }
 
+export class UnsupportedSubtitleUrl extends OttException {
+	name = "UnsupportedSubtitleUrl";
+
+	constructor() {
+		super(`Subtitle URL must be a public HTTP(S) link.`);
+	}
+}
+
 export class ClientNotFoundInRoomException extends OttException {
 	name = "ClientNotFoundInRoomException";
 

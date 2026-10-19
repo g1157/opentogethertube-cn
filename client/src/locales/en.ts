@@ -913,6 +913,7 @@ export default {
 		UnsupportedMimeTypeException: "This file format is not supported.",
 		UnsupportedVideoType: "This type of video is not supported yet.",
 		UnsupportedSubtitleType: "The subtitle URL must end with .vtt, .ass, or .ssa.",
+		UnsupportedSubtitleUrl: "The subtitle URL must be a publicly reachable HTTP(S) link.",
 		InvalidVideoIdException: "That video link is not valid. Check it and try again.",
 		InvalidAddPreviewInputException: "Type more characters, or paste a video URL.",
 		FfprobeError:
@@ -1070,6 +1071,8 @@ export default {
 		},
 		"cors-fallback":
 			"Video enhancement was disabled so this source can play (it may not allow cross-origin access).",
+		"subtitle-load-failed":
+			"Could not load that subtitle track. Check that the subtitle link is reachable and allows this site.",
 		recovery: {
 			skipped:
 				"This part of the source could not be loaded; skipped {seconds}s to keep playing.",

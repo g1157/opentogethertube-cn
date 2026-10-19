@@ -274,4 +274,34 @@ describe("VideoQueueItem component", () => {
 		});
 		expect(wrapper.find('[data-cy="btn-remove-from-queue"] svg').exists()).toBe(true);
 	});
+
+	it("sends null when the subtitle field is cleared", async () => {
+		API.patch.mockResolvedValue({ data: { success: true } });
+		const directVideo = {
+			...video,
+			service: "direct",
+			subtitleUrl: "https://example.com/subtitles.vtt",
+		};
+		const { wrapper, store } = mountComponent(VideoQueueItem, {
+			props: { item: directVideo, isPreview: false },
+		});
+		store.state.room.name = "foo";
+
+		await openMenu(wrapper);
+		(document.querySelector('[data-cy="menu-btn-edit-preview"]') as HTMLElement).click();
+		await flush();
+		const input = document.querySelector(
+			'[data-cy="edit-subtitle-url"] input',
+		) as HTMLInputElement;
+		input.value = "";
+		input.dispatchEvent(new Event("input", { bubbles: true }));
+		(document.querySelector('[data-cy="edit-save"]') as HTMLElement).click();
+		await flush();
+
+		expect(API.patch).toHaveBeenCalledWith("/room/foo/queue", {
+			service: "direct",
+			id: "1",
+			subtitleUrl: null,
+		});
+	});
 });

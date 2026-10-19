@@ -602,6 +602,52 @@ describe("Room API", () => {
 			});
 		});
 
+		it("clears a queue item's subtitleUrl when null is sent", async () => {
+			await roommanager.createRoom({
+				name: "testqueue",
+				isTemporary: true,
+			});
+			const room = (await roommanager.getRoom("testqueue")).unwrap();
+			await room.queue.enqueue({
+				service: "direct",
+				id: "foo",
+				subtitleUrl: "https://example.com/subtitles.vtt",
+			});
+
+			await request(app)
+				.patch("/api/room/testqueue/queue")
+				.auth(token, { type: "bearer" })
+				.send({ service: "direct", id: "foo", subtitleUrl: null })
+				.expect(200);
+
+			const updatedRoom = (await roommanager.getRoom("testqueue")).unwrap();
+			expect(updatedRoom.queue.items[0].subtitleUrl).toBeUndefined();
+		});
+
+		it("rejects a subtitle URL that points at a private address", async () => {
+			await roommanager.createRoom({
+				name: "testqueue",
+				isTemporary: true,
+			});
+			const room = (await roommanager.getRoom("testqueue")).unwrap();
+			await room.queue.enqueue({ service: "direct", id: "foo" });
+
+			const resp = await request(app)
+				.patch("/api/room/testqueue/queue")
+				.auth(token, { type: "bearer" })
+				.send({
+					service: "direct",
+					id: "foo",
+					subtitleUrl: "http://192.168.1.10/subs.vtt",
+				})
+				.expect(400);
+
+			expect(resp.body.success).toEqual(false);
+			expect(resp.body.error).toMatchObject({ name: "ZodValidationError" });
+			const updatedRoom = (await roommanager.getRoom("testqueue")).unwrap();
+			expect(updatedRoom.queue.items[0].subtitleUrl).toBeUndefined();
+		});
+
 		it("should fail if the request body is invalid", async () => {
 			await roommanager.createRoom({
 				name: "testqueue",

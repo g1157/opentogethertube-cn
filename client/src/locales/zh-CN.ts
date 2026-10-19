@@ -875,6 +875,7 @@ export default {
 		UnsupportedMimeTypeException: "此文件的格式不受支持。",
 		UnsupportedVideoType: "暂不支持此类型的视频。",
 		UnsupportedSubtitleType: "字幕链接必须以 .vtt、.ass 或 .ssa 结尾。",
+		UnsupportedSubtitleUrl: "字幕链接必须是可公开访问的 HTTP(S) 地址。",
 		InvalidVideoIdException: "视频链接无效，请检查后重试。",
 		InvalidAddPreviewInputException: "请多输入几个字符，或直接粘贴视频链接。",
 		FfprobeError: "无法读取视频信息，请确认链接可公开访问后重试。",
@@ -1026,6 +1027,7 @@ export default {
 				"你这台设备连不上视频源。服务器能探测到它并不代表你的浏览器也能访问：常见原因是源站被网络屏蔽，或代理规则把它分流到了走不通的线路。请检查网络与代理分流后重试。",
 		},
 		"cors-fallback": "已暂时关闭画质增强以保证播放（该片源可能不允许跨域访问）。",
+		"subtitle-load-failed": "字幕轨道加载失败，请检查字幕链接是否可访问、是否允许本站加载。",
 		recovery: {
 			skipped: "此处片源取不到数据，已跳过 {seconds} 秒继续播放。",
 		},

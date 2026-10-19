@@ -12,6 +12,38 @@ const SUBTITLE_EXTENSIONS: Record<string, SubtitleFormat> = {
 	ssa: "ass",
 };
 
+export const MAX_SUBTITLE_URL_LENGTH = 2048;
+
+const HTTP_PROTOCOL = /^https?:$/;
+const NUMERIC_HOST = /^[\d.]+$/;
+const LOCAL_HOST = /(^|\.)(localhost|local|internal|test|invalid)$/;
+
+/**
+ * A subtitle URL that every viewer's browser may load: a public http(s) link. This mirrors
+ * the ott-edge media guard — IP literals, localhost-style names and credentials are
+ * rejected so a queue item cannot point viewers at their own network.
+ */
+export function isPublicSubtitleUrl(value: string): boolean {
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		return false;
+	}
+	const host = url.hostname.toLowerCase();
+	return (
+		HTTP_PROTOCOL.test(url.protocol) &&
+		!url.username &&
+		!url.password &&
+		value.length <= MAX_SUBTITLE_URL_LENGTH &&
+		host.includes(".") &&
+		!NUMERIC_HOST.test(host) &&
+		!host.includes(":") &&
+		!host.startsWith("[") &&
+		!LOCAL_HOST.test(host)
+	);
+}
+
 /** Determines the subtitle format from a URL's file extension, or null if unsupported/unparseable. */
 export function getSubtitleFormatFromUrl(url: string): SubtitleFormat | null {
 	let pathname: string;

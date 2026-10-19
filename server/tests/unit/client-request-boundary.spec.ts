@@ -3,6 +3,7 @@ import clientmanager from "../../clientmanager.js";
 import { Client, ClientJoinStatus } from "../../client.js";
 import roommanager from "../../roommanager.js";
 import { Room, RoomUser } from "../../room.js";
+import { VideoQueue } from "../../videoqueue.js";
 import usermanager from "../../usermanager.js";
 import type { User } from "../../models/user.js";
 import { buildClients } from "../../redisclient.js";
@@ -237,5 +238,33 @@ describe("client room request authorization boundary", () => {
 		});
 		expect(lastError()).toBeNull();
 		expect(room.grants.getMask(Role.UnregisteredUser)).toBe(chatOnly);
+	});
+
+	it("rejects a queue subtitle URL that points into a private network", async () => {
+		room.queue = new VideoQueue([{ service: "direct", id: "episode.mp4" }]);
+		await request({
+			type: RoomRequestType.UpdateQueueItemRequest,
+			video: { service: "direct", id: "episode.mp4" },
+			update: { subtitleUrl: "http://192.168.1.10/subs.vtt" },
+		});
+		expect(lastError()?.name).toBe("UnsupportedSubtitleUrl");
+		expect(room.queue.items[0].subtitleUrl).toBeUndefined();
+	});
+
+	it("clears a queue subtitle when the update sends null", async () => {
+		room.queue = new VideoQueue([
+			{
+				service: "direct",
+				id: "episode.mp4",
+				subtitleUrl: "https://example.com/subs.vtt",
+			},
+		]);
+		await request({
+			type: RoomRequestType.UpdateQueueItemRequest,
+			video: { service: "direct", id: "episode.mp4" },
+			update: { subtitleUrl: null },
+		});
+		expect(lastError()).toBeNull();
+		expect(room.queue.items[0].subtitleUrl).toBeUndefined();
 	});
 });

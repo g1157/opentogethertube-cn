@@ -67,6 +67,9 @@ const router = express.Router();
 const log = getLogger("api/room");
 
 router.get("/list", async (req, res, next) => {
+	if (!(await consumeRateLimitPoints(res, req.ip, 5))) {
+		return;
+	}
 	const isAuthorized = safeCompareApiKey(req.get("apikey"));
 	if (req.get("apikey") && !isAuthorized) {
 		log.warn(
@@ -180,6 +183,10 @@ const getRoom: RequestHandler<{ name: string }, OttApiResponseGetRoom, unknown> 
 	req,
 	res,
 ) => {
+	// Reading a room can lazily load it into memory and run its tick; charge for it.
+	if (!(await consumeRateLimitPoints(res, req.ip, 5))) {
+		return;
+	}
 	const room = await getRoomChecked(req);
 	const resp: OttApiResponseGetRoom = {
 		..._.cloneDeep(
@@ -213,6 +220,11 @@ const patchRoom: RequestHandler<{ name: string }, unknown, OttApiRequestPatchRoo
 	res,
 ) => {
 	const body = OttApiRequestPatchRoomSchema.parse(req.body);
+	// A settings patch persists the whole row for permanent rooms; keep it on the same
+	// budget class as the other write endpoints.
+	if (!(await consumeRateLimitPoints(res, req.ip, 10))) {
+		return;
+	}
 
 	if (!req.token) {
 		throw new OttException("Missing token");
@@ -453,7 +465,11 @@ const addToQueue: RequestHandler<
 	if ("videos" in body) {
 		roomRequest = {
 			type: RoomRequestType.AddRequest,
-			videos: body.videos,
+			videos: body.videos.map(video => ({
+				...video,
+				// null means "no subtitle"; the room only ever stores strings.
+				subtitleUrl: video.subtitleUrl ?? undefined,
+			})),
 		};
 	} else if ("url" in body) {
 		roomRequest = {
@@ -466,7 +482,8 @@ const addToQueue: RequestHandler<
 			video: {
 				service: body.service,
 				id: body.id,
-				subtitleUrl: "subtitleUrl" in body ? body.subtitleUrl : undefined,
+				// null means "no subtitle"; the room only ever stores strings.
+				subtitleUrl: ("subtitleUrl" in body ? body.subtitleUrl : undefined) ?? undefined,
 			},
 		};
 	}
@@ -512,10 +529,16 @@ const updateQueueItem: RequestHandler<
 		return;
 	}
 	const room = await getRoomChecked(req);
+	const update: UpdateQueueItemRequest["update"] = {};
+	// Only pass the key when the client sent it: an omitted subtitleUrl must leave the
+	// current track untouched, while null is an explicit clear.
+	if (Object.hasOwn(body, "subtitleUrl")) {
+		update.subtitleUrl = body.subtitleUrl ?? undefined;
+	}
 	const roomRequest: UpdateQueueItemRequest = {
 		type: RoomRequestType.UpdateQueueItemRequest,
 		video: { service: body.service, id: body.id },
-		update: { subtitleUrl: body.subtitleUrl },
+		update,
 	};
 	await room.processUnauthorizedRequest(roomRequest, { token: req.token! });
 	res.json({

@@ -242,7 +242,7 @@ import { ref, toRefs, computed, watch, watchEffect, onMounted, onBeforeUnmount }
 import { API } from "@/common-http";
 import { secondsToTimestamp } from "@/util/timestamp";
 import { ToastStyle } from "@/models/toast";
-import type { QueueItem, VideoAdd } from "ott-common/models/video";
+import type { QueueItem } from "ott-common/models/video";
 import { QueueMode } from "ott-common/models/types";
 import { useStore } from "@/store";
 import toast from "@/util/toast";
@@ -366,15 +366,17 @@ function updateHasBeenAdded() {
 	hasBeenAdded.value = false;
 }
 
-function getPostData(): VideoAdd {
-	const data = {
+function getPostData(emptySubtitle: "omit" | "clear" = "omit") {
+	const edited = (props.isPreview ? item.value.subtitleUrl : editedSubtitleUrl.value) ?? "";
+	const subtitleUrl = edited.trim();
+	return {
 		service: item.value.service,
 		id: item.value.id,
-		// Use `item.value.subtitleUrl` for preview since editedSubtitleUrl might have been edited but not saved
+		// Updating an item treats an emptied field as an explicit clear (null); adding,
+		// removing or voting omits the field entirely.
 		subtitleUrl:
-			(props.isPreview ? item.value.subtitleUrl : editedSubtitleUrl.value) ?? undefined,
+			subtitleUrl === "" ? (emptySubtitle === "clear" ? null : undefined) : subtitleUrl,
 	};
-	return data;
 }
 
 // Ensure that the editedSubtitleUrl is reflected to the current subtitle URL after a failed update request
@@ -386,13 +388,16 @@ watch(showEditDialog, open => {
 
 async function saveEdit() {
 	if (props.isPreview) {
-		// Update the subtitle URL for playNow()
-		item.value.subtitleUrl = editedSubtitleUrl.value ?? undefined;
+		// Update the subtitle URL for playNow(); an emptied field means "no subtitle".
+		item.value.subtitleUrl = editedSubtitleUrl.value.trim() || undefined;
 		showEditDialog.value = false;
 	} else {
 		isLoadingEdit.value = true;
 		try {
-			const resp = await API.patch(`/room/${store.state.room.name}/queue`, getPostData());
+			const resp = await API.patch(
+				`/room/${store.state.room.name}/queue`,
+				getPostData("clear"),
+			);
 			hasError.value = !resp.data.success;
 			showEditDialog.value = false;
 			toast.add({

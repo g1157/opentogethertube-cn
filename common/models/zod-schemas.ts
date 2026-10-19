@@ -1,6 +1,7 @@
 import { ALL_VIDEO_SERVICES, ROOM_NAME_REGEX } from "ott-common/constants.js";
 import { BehaviorOption, BufferGateMode, Role } from "ott-common/models/types.js";
 import { Visibility, QueueMode } from "ott-common/models/types.js";
+import { MAX_SUBTITLE_URL_LENGTH, isPublicSubtitleUrl } from "ott-common/subtitles.js";
 import { z } from "zod";
 
 // These strings are not allowed to be used as room names.
@@ -50,10 +51,17 @@ const VideoIdSchema = z.object({
 	id: z.string(),
 });
 
+const SubtitleUrlSchema = z
+	.string()
+	.max(MAX_SUBTITLE_URL_LENGTH, "subtitle URL is too long")
+	.url("subtitle URL must be a valid URL")
+	.refine(isPublicSubtitleUrl, "subtitle URL must be a public HTTP(S) link");
+
 const QueueItemExtrasSchema = z.object({
 	// startAt: z.number().nonnegative().optional(),
 	// endAt: z.number().positive().optional(),
-	subtitleUrl: z.string().url().optional(),
+	// null is an explicit clear; an omitted field leaves the current track untouched.
+	subtitleUrl: SubtitleUrlSchema.nullable().optional(),
 });
 
 const VideoAddSchema = VideoIdSchema.extend(QueueItemExtrasSchema.shape);
