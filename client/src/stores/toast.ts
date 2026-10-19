@@ -4,6 +4,13 @@ import type { Module } from "vuex/types";
 
 import type { Toast } from "../models/toast";
 
+/**
+ * The queue keeps a bounded history. Notifier renders only the last few cards, so without a
+ * cap a room that emits events faster than cards drain (joins, seeks, queue changes) grows
+ * the array and the "more notices" counter without bound.
+ */
+const MAX_QUEUED_TOASTS = 30;
+
 export interface ToastState {
 	notifications: Toast[];
 }
@@ -37,6 +44,9 @@ export const toastModule: Module<ToastState, unknown> = {
 				...notification,
 				id: Symbol(),
 			});
+			if (state.notifications.length > MAX_QUEUED_TOASTS) {
+				state.notifications.splice(0, state.notifications.length - MAX_QUEUED_TOASTS);
+			}
 		},
 		REMOVE_TOAST(state: ToastState, id: symbol) {
 			const idx = _.findIndex(state.notifications, { id });

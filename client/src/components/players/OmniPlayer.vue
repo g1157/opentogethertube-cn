@@ -501,7 +501,13 @@ function onBuffering() {
 		loadingState.value = { phase: "buffering", currentTime: null, bufferAhead: null };
 	}
 	currentPlaybackError.value = null;
-	store.commit("PLAYBACK_STATUS", PlayerStatus.buffering);
+	// A paused element that reports buffering (a paused seek, a paused buffer, a room-wide
+	// pause) is not a viewer waiting for playback. The one exception is a retry out of the
+	// error state: its first buffering event is what clears the error overlay.
+	const media = player.value?.getVideoElement?.();
+	if (!media?.paused || store.state.playerStatus === PlayerStatus.error) {
+		store.commit("PLAYBACK_STATUS", PlayerStatus.buffering);
+	}
 	emit("buffering");
 }
 
