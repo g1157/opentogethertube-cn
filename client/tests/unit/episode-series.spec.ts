@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	episodeTokenChoices,
 	findNumberTokens,
 	isEpisodeLike,
+	probeSameSeries,
 	seriesKey,
 	shiftToken,
 } from "@/util/episode-series";
@@ -47,5 +48,71 @@ describe("same-series probing", () => {
 		expect(seriesKey("https://h/anime/ep12.mp4")).toBe(a);
 		expect(seriesKey("https://h/other/ep01.mp4")).not.toBe(a);
 		expect(seriesKey("https://h/anime/one.mp4")).toBe("https://h/anime/one.mp4");
+	});
+});
+
+const SEASON_FOLDER = /\/show\/0[24]\/ep11\.mp4$/;
+
+describe("probeSameSeries", () => {
+	// The probe preserves the digit width of the token it bumps ("11" => "09", not "9").
+	const urls = (numbers: number[]) =>
+		new Set(numbers.map(n => `https://h/anime/${String(n).padStart(2, "0")}.mp4`));
+	const lookupFor = (available: Set<string>) =>
+		vi.fn(async (url: string) => (available.has(url) ? [{ id: url }] : null));
+
+	it("walks both directions and returns the season in order", async () => {
+		const lookup = lookupFor(urls(Array.from({ length: 26 }, (_, i) => i + 1)));
+		const found = await probeSameSeries("https://h/anime/11.mp4", lookup);
+
+		expect(found.map(v => v.id)).toEqual(
+			[
+				...Array.from({ length: 10 }, (_, i) => i + 1),
+				...Array.from({ length: 15 }, (_, i) => i + 12),
+			].map(n => `https://h/anime/${String(n).padStart(2, "0")}.mp4`),
+		);
+		// 15 forward hits plus two misses, then 10 backward hits down to episode 1.
+		expect(lookup).toHaveBeenCalledTimes(27);
+	});
+
+	it("stops at the edges of what the folder actually holds", async () => {
+		const lookup = lookupFor(urls([11, 12, 13, 14, 15]));
+		const found = await probeSameSeries("https://h/anime/11.mp4", lookup);
+
+		expect(found.map(v => v.id)).toEqual([12, 13, 14, 15].map(n => `https://h/anime/${n}.mp4`));
+		expect(lookup).toHaveBeenCalledTimes(8);
+	});
+
+	it("caps the request count with a budget", async () => {
+		const lookup = lookupFor(urls(Array.from({ length: 26 }, (_, i) => i + 1)));
+		const found = await probeSameSeries("https://h/anime/11.mp4", lookup, { budget: 5 });
+
+		expect(lookup).toHaveBeenCalledTimes(5);
+		expect(found).toHaveLength(5);
+	});
+
+	it("stops once the probe has been superseded", async () => {
+		let calls = 0;
+		const lookup = vi.fn(async (url: string) => {
+			calls++;
+			return [{ id: url }];
+		});
+		const found = await probeSameSeries("https://h/anime/11.mp4", lookup, {
+			isAborted: () => calls >= 1,
+		});
+
+		expect(found).toEqual([]);
+		expect(lookup).toHaveBeenCalledTimes(1);
+	});
+
+	it("falls back to the earlier number when the last one yields nothing", async () => {
+		const lookup = vi.fn(async (candidate: string) =>
+			SEASON_FOLDER.test(candidate) ? [{ id: candidate }] : null,
+		);
+		const found = await probeSameSeries("https://h/show/03/ep11.mp4", lookup);
+
+		expect(found.map(v => v.id)).toEqual([
+			"https://h/show/02/ep11.mp4",
+			"https://h/show/04/ep11.mp4",
+		]);
 	});
 });

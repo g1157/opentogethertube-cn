@@ -9,6 +9,8 @@ const { API } = vi.hoisted(() => ({
 
 vi.mock("@/common-http", () => ({ API }));
 
+const NEIGHBOURING_EPISODE = /\/(12|13)\.mp4$/;
+
 describe("AddPreview component", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -144,6 +146,68 @@ describe("AddPreview component", () => {
 		expect(wrapper.find('[data-cy="add-preview-loading"]').exists()).toBe(false);
 		expect(wrapper.text()).toContain("New video");
 		expect(wrapper.text()).not.toContain("Old video");
+	});
+
+	it("does not probe for series episodes until the preview menu asks", async () => {
+		const url = "https://example.com/anime/11.mp4";
+		API.get.mockImplementation((request: string) => {
+			const input = decodeURIComponent(request.split("input=")[1] ?? "");
+			const found = input === url || NEIGHBOURING_EPISODE.test(input);
+			return Promise.resolve({
+				data: {
+					success: true,
+					result: found ? [{ service: "direct", id: input, title: input }] : [],
+				},
+			});
+		});
+		const { wrapper, store } = mountComponent(AddPreview);
+		store.state.production = true;
+		await wrapper.get('[data-cy="add-preview-input"] textarea').setValue(url);
+		await new Promise(resolve => setTimeout(resolve, 1100));
+		await flush();
+
+		expect(API.get).toHaveBeenCalledTimes(1);
+		expect(wrapper.find('[data-cy="same-series"]').exists()).toBe(false);
+
+		await wrapper.get('[data-cy="btn-menu"]').trigger("click");
+		await flush();
+		expect(document.querySelector('[data-cy="menu-btn-probe-series"]')).not.toBeNull();
+		(document.querySelector('[data-cy="menu-btn-probe-series"]') as HTMLElement).click();
+		await new Promise(resolve => setTimeout(resolve, 0));
+		await flush();
+
+		expect(wrapper.get('[data-cy="same-series"]').text()).toContain(
+			i18n.global.t("add-preview.same-series", { count: 2 }),
+		);
+		expect(wrapper.find('[data-cy="same-series-probing"]').exists()).toBe(false);
+	});
+
+	it("says so when the series probe finds nothing", async () => {
+		const url = "https://example.com/anime/7.mp4";
+		API.get.mockImplementation((request: string) => {
+			const input = decodeURIComponent(request.split("input=")[1] ?? "");
+			return Promise.resolve({
+				data: {
+					success: true,
+					result: input === url ? [{ service: "direct", id: input, title: input }] : [],
+				},
+			});
+		});
+		const { wrapper, store } = mountComponent(AddPreview);
+		store.state.production = true;
+		await wrapper.get('[data-cy="add-preview-input"] textarea').setValue(url);
+		await new Promise(resolve => setTimeout(resolve, 1100));
+		await flush();
+
+		await wrapper.get('[data-cy="btn-menu"]').trigger("click");
+		await flush();
+		(document.querySelector('[data-cy="menu-btn-probe-series"]') as HTMLElement).click();
+		await new Promise(resolve => setTimeout(resolve, 0));
+		await flush();
+
+		expect(wrapper.get('[data-cy="same-series-empty"]').text()).toBe(
+			i18n.global.t("add-preview.same-series-empty"),
+		);
 	});
 
 	it("clearing the input cancels pending and in-flight lookups", async () => {

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { defineComponent, h } from "vue";
 import { QueueMode } from "ott-common/models/types";
 import { RoomRequestType } from "ott-common/models/messages";
 import type { QueueItem } from "ott-common/models/video";
@@ -242,6 +243,37 @@ describe("VideoQueueItem component", () => {
 				request: { type: RoomRequestType.OrderRequest, fromIdx: 1, toIdx: 2 },
 			},
 		]);
+	});
+
+	it("offers the series probe for direct previews and emits the URL", async () => {
+		const directItem = {
+			...video,
+			service: "direct" as const,
+			id: "https://example.com/anime/11.mp4",
+		};
+		const probed: string[] = [];
+		const Parent = defineComponent({
+			setup: () => () =>
+				h(VideoQueueItem, {
+					item: directItem,
+					isPreview: true,
+					onProbeSeries: (url: string) => probed.push(url),
+				}),
+		});
+		const { wrapper } = mountComponent(Parent);
+
+		await openMenu(wrapper);
+		expect(document.querySelector('[data-cy="menu-btn-probe-series"]')).not.toBeNull();
+		(document.querySelector('[data-cy="menu-btn-probe-series"]') as HTMLElement).click();
+
+		expect(probed).toEqual([directItem.id]);
+	});
+
+	it("does not offer the series probe for non-direct previews", async () => {
+		const { wrapper } = mountItem({ isPreview: true });
+
+		await openMenu(wrapper);
+		expect(document.querySelector('[data-cy="menu-btn-probe-series"]')).toBeNull();
 	});
 
 	it("shows an error when saving an invalid subtitle URL", async () => {

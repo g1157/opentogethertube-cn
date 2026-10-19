@@ -573,6 +573,8 @@ export default {
 		},
 		"same-series": "Same series: {count} more found",
 		"same-series-add": "Add to queue",
+		"same-series-probing": "Looking for episodes… {count} found",
+		"same-series-empty": "No other episodes found",
 		"render-target": "Renders at: {size} ({scale}×)",
 	},
 	"processed-text": {
@@ -597,6 +599,7 @@ export default {
 			"This host only accepts requests that come from its own site, so it may not play here.",
 		"play-next": "Play Next",
 		"play-last": "Play Last",
+		"probe-series": "Find episodes in this series",
 		messages: {
 			"video-added": "Video added",
 			"video-removed": "Video removed",

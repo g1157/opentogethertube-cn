@@ -146,6 +146,15 @@
 						</v-list-item>
 						<v-list-item
 							class="button-with-icon"
+							v-if="isPreview && item.service === 'direct'"
+							@click="requestSeriesProbe"
+							data-cy="menu-btn-probe-series"
+						>
+							<v-icon :icon="mdiMagnify" />
+							<span>{{ $t("video-queue-item.probe-series") }}</span>
+						</v-list-item>
+						<v-list-item
+							class="button-with-icon"
 							@click="moveToTop"
 							v-if="
 								!isPreview &&
@@ -237,6 +246,7 @@ import {
 	mdiSortDescending,
 	mdiSortAscending,
 	mdiPencil,
+	mdiMagnify,
 } from "@mdi/js";
 import { ref, toRefs, computed, watch, watchEffect, onMounted, onBeforeUnmount } from "vue";
 import { API } from "@/common-http";
@@ -269,7 +279,13 @@ const props = withDefaults(defineProps<VideoQueueItemProps>(), {
 	hideAllButtons: false,
 });
 
+const emit = defineEmits<{ (e: "probe-series", url: string): void }>();
+
 const { item, index } = toRefs(props);
+
+function requestSeriesProbe() {
+	emit("probe-series", item.value.id);
+}
 const store = useStore();
 const { t } = useI18n();
 const roomapi = useRoomApi(useConnection());

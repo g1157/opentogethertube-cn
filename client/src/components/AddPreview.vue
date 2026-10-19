@@ -154,6 +154,7 @@
 				:item="highlightedAddPreviewItem"
 				is-preview
 				style="margin-bottom: 20px"
+				@probe-series="runSeriesProbe"
 			/>
 			<h4>{{ $t("add-preview.playlist") }}</h4>
 		</div>
@@ -162,7 +163,17 @@
 			:key="index"
 			:item="itemdata"
 			is-preview
+			@probe-series="runSeriesProbe"
 		/>
+		<div v-if="probingSeries" class="same-series" data-cy="same-series-probing">
+			<div class="same-series-label">
+				<v-progress-circular size="14" width="2" indeterminate color="primary" />
+				{{ $t("add-preview.same-series-probing", { count: seriesProbeFound }) }}
+			</div>
+		</div>
+		<div v-else-if="seriesProbeMissed" class="same-series" data-cy="same-series-empty">
+			<div class="same-series-label">{{ $t("add-preview.same-series-empty") }}</div>
+		</div>
 		<div v-if="seriesEpisodes.length > 0" class="same-series" data-cy="same-series">
 			<div class="same-series-label">
 				{{ $t("add-preview.same-series", { count: seriesEpisodes.length }) }}
@@ -200,7 +211,7 @@ import { ALL_VIDEO_SERVICES } from "ott-common/constants";
 import { isEdgePreview } from "@/edge-preview";
 import { getSearchEnabled } from "@/util/backend-status";
 import { serverErrorMessage } from "@/util/server-error";
-import { episodeTokenChoices, seriesKey, shiftToken } from "@/util/episode-series";
+import { probeSameSeries, seriesKey } from "@/util/episode-series";
 
 const store = useStore();
 const { t } = useI18n();
@@ -214,7 +225,9 @@ const isAddPreviewSlow = ref(false);
 const seriesEpisodes: Ref<Video[]> = ref([]);
 // biome-ignore lint/nursery/noVueRefAsOperand: the callback param shadows nothing; the ref is read through `.value`.
 const seriesTitles = computed(() => seriesEpisodes.value.map(v => v.title).join(" · "));
-const SERIES_PROBE_LIMIT = 4;
+const probingSeries = ref(false);
+const seriesProbeFound = ref(0);
+const seriesProbeMissed = ref(false);
 const seriesCache = new Map<string, Video[]>();
 let seriesProbeGeneration = 0;
 const hasAddPreviewFailed = ref(false);
@@ -228,6 +241,7 @@ const videosLoadFailureText = ref("");
 const selectedTestVideo = ref<string | undefined>(undefined);
 const selectedAdapter = ref<string | null>(null);
 const PREVIEW_TIMEOUT_MS = 45_000;
+const HTTP_URL = /^https?:\/\//i;
 let previewRequest: AbortController | null = null;
 let previewTimeout: ReturnType<typeof setTimeout> | undefined;
 let previewSlowTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -429,7 +443,6 @@ async function requestAddPreview() {
 			videos.value = res.data.result;
 			highlightedAddPreviewItem.value = res.data.highlighted;
 			console.log(`Got add preview with ${videos.value.length}`);
-			void probeSameSeries();
 		} else {
 			throw new Error(res.data.error.message);
 		}
@@ -508,46 +521,44 @@ async function fetchPreviewQuiet(input: string): Promise<Video[] | null> {
 }
 
 /**
- * Quietly probe the neighbouring numbers of the link that just resolved, so the next
- * episodes of the same series show up without anyone asking for them. The last
- * episode-like number is tried first, then the one before it (folder layouts such as
- * ".../2026/07/show/1/playlist.m3u8" put the episode after the date).
+ * Look for the rest of the series only when someone asks for it (the preview item's
+ * three-dot menu). A folder holds the whole season, so the probe walks both directions,
+ * reports what it has found while it runs, and stops on its own at the edges.
  */
-async function probeSameSeries(): Promise<void> {
+async function runSeriesProbe(url: string): Promise<void> {
 	const generation = ++seriesProbeGeneration;
 	seriesEpisodes.value = [];
-	const input = inputAddPreview.value.trim();
-	// Playlists and searches already carry their own episode list.
-	if (isEdgePreview || !isAddPreviewInputUrl.value || videos.value.length !== 1) {
+	seriesProbeMissed.value = false;
+	seriesProbeFound.value = 0;
+	if (isEdgePreview || !HTTP_URL.test(url)) {
 		return;
 	}
-	const cached = seriesCache.get(seriesKey(input));
+	const cached = seriesCache.get(seriesKey(url));
 	if (cached) {
 		seriesEpisodes.value = cached;
 		return;
 	}
-	for (const token of episodeTokenChoices(input)) {
-		const found: Video[] = [];
-		let misses = 0;
-		for (let step = 1; step <= SERIES_PROBE_LIMIT && misses < 2; step++) {
-			const candidate = shiftToken(input, token, step);
-			if (!candidate || candidate === input) {
-				break;
-			}
-			const preview = await fetchPreviewQuiet(candidate);
-			if (generation !== seriesProbeGeneration) {
-				return;
-			}
-			if (preview && preview.length > 0) {
-				found.push(preview[0]);
-			} else {
-				misses++;
-			}
-		}
-		if (found.length > 0) {
-			seriesCache.set(seriesKey(input), found);
-			seriesEpisodes.value = found;
+	probingSeries.value = true;
+	try {
+		const found = await probeSameSeries(url, fetchPreviewQuiet, {
+			isAborted: () => generation !== seriesProbeGeneration,
+			onProgress: count => {
+				if (generation === seriesProbeGeneration) {
+					seriesProbeFound.value = count;
+				}
+			},
+		});
+		if (generation !== seriesProbeGeneration) {
 			return;
+		}
+		seriesEpisodes.value = found;
+		seriesProbeMissed.value = found.length === 0;
+		if (found.length > 0) {
+			seriesCache.set(seriesKey(url), found);
+		}
+	} finally {
+		if (generation === seriesProbeGeneration) {
+			probingSeries.value = false;
 		}
 	}
 }
@@ -578,6 +589,9 @@ function onInputAddPreviewChange() {
 	// A new link invalidates the episodes probed for the previous one.
 	seriesProbeGeneration++;
 	seriesEpisodes.value = [];
+	probingSeries.value = false;
+	seriesProbeFound.value = 0;
+	seriesProbeMissed.value = false;
 	if (!inputAddPreview.value || _.trim(inputAddPreview.value).length === 0) {
 		videos.value = [];
 		highlightedAddPreviewItem.value = undefined;
@@ -671,6 +685,9 @@ function setAddPreviewText(text: string) {
 }
 
 .same-series-label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
 	font-size: 0.8125rem;
 	font-weight: 600;
 }

@@ -555,6 +555,8 @@ export default {
 		},
 		"same-series": "同剧集：还找到 {count} 集",
 		"same-series-add": "加入队列",
+		"same-series-probing": "正在探测同剧集… 已找到 {count} 集",
+		"same-series-empty": "未找到同剧集",
 		"render-target": "渲染后画质：{size}（{scale}×）",
 	},
 	"processed-text": {
@@ -577,6 +579,7 @@ export default {
 		"media-access-warning": "源站只放行来自站内的请求，这里可能无法播放。",
 		"play-next": "下一个播放",
 		"play-last": "最后播放",
+		"probe-series": "探测同剧集",
 		messages: {
 			"video-added": "视频已添加",
 			"video-removed": "视频已移除",

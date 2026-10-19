@@ -104,3 +104,82 @@ export function episodeTokenChoices(url: string): NumberToken[] {
 export function shiftToken(url: string, token: NumberToken, offset: number): string {
 	return replaceToken(url, token, Math.max(0, token.value + offset));
 }
+
+export interface SeriesProbeOptions {
+	/** How many steps to try in each direction. */
+	steps?: number;
+	/** Hard cap on lookup requests, whichever direction they come from. */
+	budget?: number;
+	/** Consecutive misses that end a direction. */
+	misses?: number;
+	/** Stop early, for example when the input has changed since the probe started. */
+	isAborted?: () => boolean;
+	/** Called after every hit, so the UI can show progress while probing. */
+	onProgress?: (found: number) => void;
+}
+
+const SERIES_PROBE_STEPS = 50;
+const SERIES_PROBE_BUDGET = 80;
+const SERIES_PROBE_MISSES = 2;
+
+/**
+ * Episodes of the same series around `url`, both before and after it. A folder keeps its
+ * whole season under one path, so looking only forward loses everything already aired;
+ * the first token choice that yields anything wins, and two consecutive misses in a
+ * direction mean that direction has ended. Listings are capped by `budget` so a long
+ * series cannot turn one click into unbounded requests.
+ */
+export async function probeSameSeries<T>(
+	url: string,
+	lookup: (candidate: string) => Promise<T[] | null>,
+	options: SeriesProbeOptions = {},
+): Promise<T[]> {
+	const steps = options.steps ?? SERIES_PROBE_STEPS;
+	const budget = options.budget ?? SERIES_PROBE_BUDGET;
+	const maxMisses = options.misses ?? SERIES_PROBE_MISSES;
+	let remaining = budget;
+	const seen = new Set<string>([url]);
+	for (const token of episodeTokenChoices(url)) {
+		if (options.isAborted?.()) {
+			return [];
+		}
+		const found: { number: number; item: T }[] = [];
+		const walk = async (direction: 1 | -1) => {
+			let misses = 0;
+			for (let step = 1; step <= steps && misses < maxMisses && remaining > 0; step++) {
+				if (options.isAborted?.()) {
+					return;
+				}
+				const number = token.value + direction * step;
+				if (number <= 0) {
+					break;
+				}
+				const candidate = shiftToken(url, token, direction * step);
+				if (candidate === url || seen.has(candidate)) {
+					continue;
+				}
+				remaining--;
+				const preview = await lookup(candidate);
+				if (preview && preview.length > 0) {
+					seen.add(candidate);
+					found.push({ number, item: preview[0] });
+					misses = 0;
+					options.onProgress?.(found.length);
+				} else {
+					misses++;
+				}
+			}
+		};
+		// Forward first: the next episode is the likelier thing to watch.
+		await walk(1);
+		await walk(-1);
+		if (options.isAborted?.()) {
+			return [];
+		}
+		if (found.length > 0) {
+			found.sort((a, b) => a.number - b.number);
+			return found.map(entry => entry.item);
+		}
+	}
+	return [];
+}
