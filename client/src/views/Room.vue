@@ -858,9 +858,19 @@ export default defineComponent({
 			// OmniPlayer first applies the room rate; the next tick can then bend that base.
 			{ flush: "post" },
 		);
+		// Report the outgoing quality source before the sync counters reset. With two
+		// separate watchers the reset ran first and every switched-away source reported
+		// rateWrites/deadlineSeeks/maxDrift as 0.
+		let reportedSourceKey: string | null = null;
 		watch(
 			[currentSource, player.player],
 			() => {
+				const source = currentSource.value;
+				const key = source?.id ? `${source.service}:${source.id}` : null;
+				if (key !== reportedSourceKey) {
+					reportedSourceKey = key;
+					playbackQuality.noteSourceChanged(source?.service ?? null);
+				}
 				playbackApplication++;
 				localPlaying.value = false;
 				localMediaState.value = null;
@@ -891,21 +901,6 @@ export default defineComponent({
 				}
 			},
 		});
-
-		// Quality is reported per source; a repeated sync of the same video is not a restart.
-		let reportedSourceKey: string | null = null;
-		watch(
-			currentSource,
-			source => {
-				const key = source?.id ? `${source.service}:${source.id}` : null;
-				if (key === reportedSourceKey) {
-					return;
-				}
-				reportedSourceKey = key;
-				playbackQuality.noteSourceChanged(source?.service ?? null);
-			},
-			{ flush: "sync" },
-		);
 
 		const mediaSession = installMediaSession({
 			getMetadata: () => {
