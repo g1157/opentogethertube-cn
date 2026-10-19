@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import DirectVideoAdapter from "../../services/direct.js";
-import { isPrivateAddress } from "../../ffprobe.js";
+import { isPrivateAddress, probeMediaInfo, type FfprobeStrategy } from "../../ffprobe.js";
 
 const RANGE = /^bytes=(\d+)-(\d*)$/;
 let server: Server | undefined;
@@ -131,4 +131,59 @@ describe("direct media probing", () => {
 		expect(starts.some(start => start >= indexOffset)).toBe(true);
 		expect(downloaded).toBeLessThan(2 * 1024 * 1024);
 	}, 10000);
+});
+
+describe("probeMediaInfo caching and concurrency", () => {
+	function strategyWith(run: () => Promise<any>): FfprobeStrategy {
+		return { getFileInfo: run } as unknown as FfprobeStrategy;
+	}
+
+	it("caches a successful probe", async () => {
+		let calls = 0;
+		const strategy = strategyWith(async () => {
+			calls++;
+			return { format: { duration: "1" } };
+		});
+		await probeMediaInfo(strategy, "https://example.com/cached-success.mp4");
+		await probeMediaInfo(strategy, "https://example.com/cached-success.mp4");
+		expect(calls).toBe(1);
+	});
+
+	it("remembers a failure briefly instead of re-probing on every retry", async () => {
+		let calls = 0;
+		const strategy = strategyWith(async () => {
+			calls++;
+			throw new Error("probe failed");
+		});
+		await expect(
+			probeMediaInfo(strategy, "https://example.com/cached-failure.mp4"),
+		).rejects.toThrow("probe failed");
+		await expect(
+			probeMediaInfo(strategy, "https://example.com/cached-failure.mp4"),
+		).rejects.toThrow("probe failed");
+		expect(calls).toBe(1);
+	});
+
+	it("bounds the number of concurrent probes", async () => {
+		const pending: (() => void)[] = [];
+		const strategy = strategyWith(
+			() =>
+				new Promise<void>(resolve => {
+					pending.push(resolve);
+				}),
+		);
+		const results = Array.from({ length: 6 }, (_, index) =>
+			probeMediaInfo(strategy, `https://example.com/concurrent-${index}.mp4`),
+		);
+		await new Promise(resolve => setTimeout(resolve, 0));
+		expect(pending).toHaveLength(4);
+		pending.shift()?.();
+		await new Promise(resolve => setTimeout(resolve, 0));
+		expect(pending).toHaveLength(4);
+		while (pending.length > 0) {
+			pending.shift()?.();
+			await new Promise(resolve => setTimeout(resolve, 0));
+		}
+		await Promise.all(results);
+	});
 });

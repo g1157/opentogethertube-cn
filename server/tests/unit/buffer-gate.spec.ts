@@ -199,6 +199,23 @@ describe("room buffering gate", () => {
 		expect(room.bufferingGateHeld).toBe(true);
 	});
 
+	it("does not loop the solo room while its only viewer stays buffering", async () => {
+		await start(1);
+		await report("alice");
+		expect(room.bufferingGateHeld).toBe(true);
+		advance(BUFFER_GATE_MAX_WAIT_MS);
+		await room.update();
+		expect(room.isPlaying).toBe(true);
+		expect(room.bufferingGateHeld).toBe(false);
+		// Still buffering after the cooldown: no second hold until the viewer recovers.
+		advance(BUFFER_GATE_COOLDOWN_MS + 1000);
+		await room.update();
+		expect(room.bufferingGateHeld).toBe(false);
+		await report("alice", PlayerStatus.ready);
+		await report("alice");
+		expect(room.bufferingGateHeld).toBe(true);
+	});
+
 	it("honors an explicit play while held without immediately pausing again", async () => {
 		await start();
 		await report("bob");

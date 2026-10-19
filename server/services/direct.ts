@@ -11,6 +11,7 @@ import {
 	type FfprobeStrategy,
 	assertPublicMediaUrl,
 	OnDiskPreviewFfprobe,
+	probeMediaInfo,
 	RunFfprobe,
 	StreamFfprobe,
 } from "../ffprobe.js";
@@ -180,7 +181,7 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 		const appOrigin = appOriginFromHostname(conf.get("hostname"));
 		try {
 			const [info, access] = await Promise.all([
-				this.ffprobe.getFileInfo(link),
+				probeMediaInfo(this.ffprobe, link),
 				probeMediaAccess(link, appOrigin),
 			]);
 			fileInfo = info;

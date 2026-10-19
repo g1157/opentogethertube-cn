@@ -305,6 +305,12 @@ export class Room implements RoomState {
 	_bufferGateMode = BufferGateMode.Off;
 	/** The danmaku track this room shares; null when nobody set one. */
 	_danmakuSource: RoomDanmakuSource | null = null;
+	/**
+	 * Viewers whose wait limit ran out. They must report ready before the room holds for
+	 * them again; otherwise a viewer who is permanently stuck would put the room into a
+	 * 15s paused / 30s playing loop for as long as they stay.
+	 */
+	private bufferGateExhausted: Set<ClientId> = new Set();
 	/** Argon2 hash of the room password; null when the room has no password. Never synced. */
 	passwordHash: string | null = null;
 
@@ -533,6 +539,8 @@ export class Room implements RoomState {
 	public set currentSource(value: QueueItem | null) {
 		// Status from the previous video must never resume a replacement source.
 		this.bufferGate = null;
+		// A new video deserves a fresh read of everyone's readiness.
+		this.bufferGateExhausted.clear();
 		this.lastPlayAt = Date.now();
 		this.endTemporaryPlaybackSpeed();
 		this.cancelPlaybackPreparation();
@@ -647,6 +655,14 @@ export class Room implements RoomState {
 		}
 		if (timedOut) {
 			this.bufferGateCooldownUntil = Date.now() + BUFFER_GATE_COOLDOWN_MS;
+			// Only a solo room needs this: the same single viewer would otherwise put the
+			// room into a permanent 15s paused / 30s playing loop. In a shared room the
+			// opt-in setting keeps its meaning (wait again after the cooldown).
+			if (this.realusers.length === 1) {
+				for (const id of gate.waitingOn) {
+					this.bufferGateExhausted.add(id);
+				}
+			}
 		}
 		this.log.info(`buffer gate released${timedOut ? " after the wait limit" : ""}`);
 		if (
@@ -682,9 +698,13 @@ export class Room implements RoomState {
 			this.grants.granted(this.getRole(user), "playback.play-pause"),
 		);
 		// Only explicit buffering can hold the room: none/error are not a readiness vote.
-		// A single viewer counts too — their own stall pauses the room clock, so the
-		// position does not run ahead while their buffer refills.
-		const waiting = eligible.filter(user => user.playerStatus === PlayerStatus.buffering);
+		// A single viewer counts too, but someone whose wait already ran out must report
+		// ready first — otherwise the hold would repeat forever.
+		const waiting = eligible.filter(
+			user =>
+				user.playerStatus === PlayerStatus.buffering &&
+				!this.bufferGateExhausted.has(user.id),
+		);
 		if (waiting.length === 0) {
 			await this.releaseBufferGate();
 			return;
@@ -1949,6 +1969,10 @@ export class Room implements RoomState {
 		for (let i = 0; i < this.realusers.length; i++) {
 			if (this.realusers[i].id === request.info.id) {
 				await this.realusers[i].updateInfo(request.info);
+				// A viewer who recovered re-arms the gate for them.
+				if (request.info.status && request.info.status !== PlayerStatus.buffering) {
+					this.bufferGateExhausted.delete(request.info.id);
+				}
 				await this.syncUser(this.getUserInfo(this.realusers[i].id));
 				await this.finishPlaybackPreparation(
 					request.info.id,

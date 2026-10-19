@@ -330,6 +330,76 @@ function streamDataIntoFfprobe(
 	});
 }
 
+const PROBE_CACHE_MAX = 64;
+const PROBE_SUCCESS_TTL_MS = 10 * 60_000;
+const PROBE_FAILURE_TTL_MS = 60_000;
+/** ffprobe spawns a process (and often a network fetch) per call; cap the burst. */
+const PROBE_CONCURRENCY = 4;
+
+interface ProbeCacheEntry {
+	value: Promise<any>;
+	expiresAt: number;
+}
+
+const probeCache = new Map<string, ProbeCacheEntry>();
+let activeProbes = 0;
+const probeQueue: (() => void)[] = [];
+
+async function withProbeSlot<T>(run: () => Promise<T>): Promise<T> {
+	if (activeProbes >= PROBE_CONCURRENCY) {
+		await new Promise<void>(resolve => probeQueue.push(resolve));
+	}
+	activeProbes += 1;
+	try {
+		return await run();
+	} finally {
+		activeProbes -= 1;
+		probeQueue.shift()?.();
+	}
+}
+
+/**
+ * Probe through a bounded pool and a short-lived result cache. A broken link should not
+ * spawn a 20-second probe on every retry, and a burst of adds must not spawn an unbounded
+ * number of ffprobe processes.
+ */
+async function rememberProbeOutcome(
+	probe: Promise<unknown>,
+	entry: ProbeCacheEntry,
+): Promise<void> {
+	try {
+		await probe;
+	} catch {
+		entry.expiresAt = Date.now() + PROBE_FAILURE_TTL_MS;
+	}
+}
+
+export function probeMediaInfo(strategy: FfprobeStrategy, uri: string): Promise<any> {
+	const key = `${strategy.constructor.name}:${uri}`;
+	const now = Date.now();
+	const cached = probeCache.get(key);
+	if (cached && cached.expiresAt > now) {
+		return cached.value;
+	}
+	probeCache.delete(key);
+	const entry: ProbeCacheEntry = {
+		value: withProbeSlot(() => strategy.getFileInfo(uri)),
+		expiresAt: now + PROBE_SUCCESS_TTL_MS,
+	};
+	// A rejection is remembered briefly, then re-probed; the handler is attached here so
+	// the cached copy never becomes an unhandled rejection.
+	void rememberProbeOutcome(entry.value, entry);
+	probeCache.set(key, entry);
+	while (probeCache.size > PROBE_CACHE_MAX) {
+		const oldest = probeCache.keys().next().value;
+		if (oldest === undefined) {
+			break;
+		}
+		probeCache.delete(oldest);
+	}
+	return entry.value;
+}
+
 export abstract class FfprobeStrategy {
 	ffprobePath: string;
 

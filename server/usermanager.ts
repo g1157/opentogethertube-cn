@@ -811,14 +811,34 @@ async function getUser(options: { user?: string; id?: number; discordId?: string
 // profile edits clear it via onUserModified so staleness stays bounded to seconds.
 const userByIdCache = new Map<number, { user: User; at: number }>();
 const USER_CACHE_TTL_MS = 60_000;
+/** Long-running processes see many identities over time; keep the cache from growing forever. */
+const USER_CACHE_MAX = 2048;
+
+/** Drop expired entries, then the oldest, so the cache stays bounded. */
+function pruneUserByIdCache(now: number): void {
+	for (const [id, entry] of userByIdCache) {
+		if (now - entry.at >= USER_CACHE_TTL_MS) {
+			userByIdCache.delete(id);
+		}
+	}
+	while (userByIdCache.size > USER_CACHE_MAX) {
+		const oldest = userByIdCache.keys().next().value;
+		if (oldest === undefined) {
+			break;
+		}
+		userByIdCache.delete(oldest);
+	}
+}
 
 export async function getUserCachedById(id: number): Promise<User> {
 	const cached = userByIdCache.get(id);
 	if (cached && Date.now() - cached.at < USER_CACHE_TTL_MS) {
 		return cached.user;
 	}
+	userByIdCache.delete(id);
 	const user = await getUser({ id });
 	userByIdCache.set(id, { user, at: Date.now() });
+	pruneUserByIdCache(Date.now());
 	return user;
 }
 
