@@ -151,7 +151,7 @@ describe("AddPreview component", () => {
 	it("does not probe for series episodes until the preview menu asks", async () => {
 		const url = "https://example.com/anime/11.mp4";
 		API.get.mockImplementation((request: string) => {
-			const input = decodeURIComponent(request.split("input=")[1] ?? "");
+			const input = new URLSearchParams(request.split("?")[1] ?? "").get("input") ?? "";
 			const found = input === url || NEIGHBOURING_EPISODE.test(input);
 			return Promise.resolve({
 				data: {
@@ -182,10 +182,82 @@ describe("AddPreview component", () => {
 		expect(wrapper.find('[data-cy="same-series-probing"]').exists()).toBe(false);
 	});
 
+	it("honours the configured probe limit", async () => {
+		const url = "https://example.com/anime/11.mp4";
+		API.get.mockImplementation((request: string) => {
+			const input = new URLSearchParams(request.split("?")[1] ?? "").get("input") ?? "";
+			const found = input === url || NEIGHBOURING_EPISODE.test(input);
+			return Promise.resolve({
+				data: {
+					success: true,
+					result: found ? [{ service: "direct", id: input, title: input }] : [],
+				},
+			});
+		});
+		const { wrapper, store } = mountComponent(AddPreview);
+		store.state.production = true;
+		store.state.settings.seriesProbeLimit = 1;
+		await wrapper.get('[data-cy="add-preview-input"] textarea').setValue(url);
+		await new Promise(resolve => setTimeout(resolve, 1100));
+		await flush();
+
+		await wrapper.get('[data-cy="btn-menu"]').trigger("click");
+		await flush();
+		(document.querySelector('[data-cy="menu-btn-probe-series"]') as HTMLElement).click();
+		await new Promise(resolve => setTimeout(resolve, 0));
+		await flush();
+
+		expect(wrapper.get('[data-cy="same-series"]').text()).toContain(
+			i18n.global.t("add-preview.same-series", { count: 1 }),
+		);
+		expect(API.get).toHaveBeenCalledTimes(2);
+	});
+
+	it("adds only the chosen probed episodes to the queue", async () => {
+		const url = "https://example.com/anime/11.mp4";
+		API.get.mockImplementation((request: string) => {
+			const input = new URLSearchParams(request.split("?")[1] ?? "").get("input") ?? "";
+			const found = input === url || NEIGHBOURING_EPISODE.test(input);
+			return Promise.resolve({
+				data: {
+					success: true,
+					result: found ? [{ service: "direct", id: input, title: input }] : [],
+				},
+			});
+		});
+		API.post.mockResolvedValue({ data: { success: true } });
+		const { wrapper, store } = mountComponent(AddPreview);
+		store.state.production = true;
+		await wrapper.get('[data-cy="add-preview-input"] textarea').setValue(url);
+		await new Promise(resolve => setTimeout(resolve, 1100));
+		await flush();
+
+		await wrapper.get('[data-cy="btn-menu"]').trigger("click");
+		await flush();
+		(document.querySelector('[data-cy="menu-btn-probe-series"]') as HTMLElement).click();
+		await new Promise(resolve => setTimeout(resolve, 0));
+		await flush();
+
+		await wrapper.get('[data-cy="same-series-select-none"]').trigger("click");
+		await flush();
+		const first = wrapper.get('[data-cy="same-series-episode"] input');
+		await first.setValue(true);
+		// Vuetify reads the checked state from the input event; setValue only emits change.
+		await first.trigger("input");
+		await flush();
+		await wrapper.get('[data-cy="same-series-add"]').trigger("click");
+		await flush();
+
+		expect(API.post).toHaveBeenCalledTimes(1);
+		expect(API.post.mock.calls[0][1].videos.map((video: { id: string }) => video.id)).toEqual([
+			"https://example.com/anime/12.mp4",
+		]);
+	});
+
 	it("says so when the series probe finds nothing", async () => {
 		const url = "https://example.com/anime/7.mp4";
 		API.get.mockImplementation((request: string) => {
-			const input = decodeURIComponent(request.split("input=")[1] ?? "");
+			const input = new URLSearchParams(request.split("?")[1] ?? "").get("input") ?? "";
 			return Promise.resolve({
 				data: {
 					success: true,

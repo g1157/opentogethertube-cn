@@ -15,6 +15,12 @@ export const SEEK_SECONDS_OPTIONS = [5, 7, 10, 30] as const;
 export const HLS_BUFFER_SECONDS_OPTIONS = [30, 60, 120, 300] as const;
 /** Default leans deep: a room stall pauses everyone, and the target is not a hard cap. */
 export const DEFAULT_HLS_BUFFER_SECONDS: (typeof HLS_BUFFER_SECONDS_OPTIONS)[number] = 120;
+/**
+ * How many episodes after the current one the add-preview probe may check in a single
+ * manual run. The probe only walks forward, so this is the whole request budget.
+ */
+export const SERIES_PROBE_LIMIT_OPTIONS = [5, 10, 20, 30, 50] as const;
+export const DEFAULT_SERIES_PROBE_LIMIT: (typeof SERIES_PROBE_LIMIT_OPTIONS)[number] = 10;
 export const UPSCALE_MODES = [
 	"off",
 	"sharpen",
@@ -109,6 +115,8 @@ export interface SettingsState {
 	seekNoticeSeconds: (typeof ROOM_NOTICE_SECONDS_OPTIONS)[number];
 	controlsHideSeconds: (typeof CONTROLS_HIDE_SECONDS_OPTIONS)[number];
 	hlsBufferSeconds: (typeof HLS_BUFFER_SECONDS_OPTIONS)[number];
+	/** Maximum episodes one manual same-series probe checks, counting forward only. */
+	seriesProbeLimit: (typeof SERIES_PROBE_LIMIT_OPTIONS)[number];
 	upscaleMode: UpscaleMode;
 	upscaleStrength: number;
 	upscaleScale: (typeof UPSCALE_SCALES)[number];
@@ -222,6 +230,9 @@ function normalizeSettings(state: SettingsState) {
 	}
 	if (!HLS_BUFFER_SECONDS_OPTIONS.includes(state.hlsBufferSeconds)) {
 		state.hlsBufferSeconds = DEFAULT_HLS_BUFFER_SECONDS;
+	}
+	if (!SERIES_PROBE_LIMIT_OPTIONS.includes(state.seriesProbeLimit)) {
+		state.seriesProbeLimit = DEFAULT_SERIES_PROBE_LIMIT;
 	}
 	if (!UPSCALE_MODES.includes(state.upscaleMode)) {
 		state.upscaleMode = "off";
@@ -348,6 +359,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		seekNoticeSeconds: 1,
 		controlsHideSeconds: 3,
 		hlsBufferSeconds: DEFAULT_HLS_BUFFER_SECONDS,
+		seriesProbeLimit: DEFAULT_SERIES_PROBE_LIMIT,
 		upscaleMode: "off",
 		upscaleStrength: DEFAULT_UPSCALE_STRENGTH,
 		upscaleScale: "auto",

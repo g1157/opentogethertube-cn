@@ -51,7 +51,7 @@ describe("same-series probing", () => {
 	});
 });
 
-const SEASON_FOLDER = /\/show\/0[24]\/ep11\.mp4$/;
+const NEXT_SEASON_FOLDER = /\/show\/04\/ep11\.mp4$/;
 
 describe("probeSameSeries", () => {
 	// The probe preserves the digit width of the token it bumps ("11" => "09", not "9").
@@ -60,18 +60,16 @@ describe("probeSameSeries", () => {
 	const lookupFor = (available: Set<string>) =>
 		vi.fn(async (url: string) => (available.has(url) ? [{ id: url }] : null));
 
-	it("walks both directions and returns the season in order", async () => {
+	it("only walks forward from the current episode, up to the default limit", async () => {
 		const lookup = lookupFor(urls(Array.from({ length: 26 }, (_, i) => i + 1)));
 		const found = await probeSameSeries("https://h/anime/11.mp4", lookup);
 
 		expect(found.map(v => v.id)).toEqual(
-			[
-				...Array.from({ length: 10 }, (_, i) => i + 1),
-				...Array.from({ length: 15 }, (_, i) => i + 12),
-			].map(n => `https://h/anime/${String(n).padStart(2, "0")}.mp4`),
+			Array.from({ length: 10 }, (_, i) => i + 12).map(
+				n => `https://h/anime/${String(n).padStart(2, "0")}.mp4`,
+			),
 		);
-		// 15 forward hits plus two misses, then 10 backward hits down to episode 1.
-		expect(lookup).toHaveBeenCalledTimes(27);
+		expect(lookup).toHaveBeenCalledTimes(10);
 	});
 
 	it("stops at the edges of what the folder actually holds", async () => {
@@ -79,12 +77,12 @@ describe("probeSameSeries", () => {
 		const found = await probeSameSeries("https://h/anime/11.mp4", lookup);
 
 		expect(found.map(v => v.id)).toEqual([12, 13, 14, 15].map(n => `https://h/anime/${n}.mp4`));
-		expect(lookup).toHaveBeenCalledTimes(8);
+		expect(lookup).toHaveBeenCalledTimes(6);
 	});
 
-	it("caps the request count with a budget", async () => {
+	it("caps the request count with the configured limit", async () => {
 		const lookup = lookupFor(urls(Array.from({ length: 26 }, (_, i) => i + 1)));
-		const found = await probeSameSeries("https://h/anime/11.mp4", lookup, { budget: 5 });
+		const found = await probeSameSeries("https://h/anime/11.mp4", lookup, { limit: 5 });
 
 		expect(lookup).toHaveBeenCalledTimes(5);
 		expect(found).toHaveLength(5);
@@ -106,13 +104,10 @@ describe("probeSameSeries", () => {
 
 	it("falls back to the earlier number when the last one yields nothing", async () => {
 		const lookup = vi.fn(async (candidate: string) =>
-			SEASON_FOLDER.test(candidate) ? [{ id: candidate }] : null,
+			NEXT_SEASON_FOLDER.test(candidate) ? [{ id: candidate }] : null,
 		);
 		const found = await probeSameSeries("https://h/show/03/ep11.mp4", lookup);
 
-		expect(found.map(v => v.id)).toEqual([
-			"https://h/show/02/ep11.mp4",
-			"https://h/show/04/ep11.mp4",
-		]);
+		expect(found.map(v => v.id)).toEqual(["https://h/show/04/ep11.mp4"]);
 	});
 });

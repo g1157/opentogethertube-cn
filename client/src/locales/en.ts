@@ -572,7 +572,9 @@ export default {
 			auto: "Auto-detect",
 		},
 		"same-series": "Same series: {count} more found",
-		"same-series-add": "Add to queue",
+		"same-series-add-selected": "Add selected ({count})",
+		"same-series-select-all": "Select all",
+		"same-series-select-none": "Select none",
 		"same-series-probing": "Looking for episodes… {count} found",
 		"same-series-empty": "No other episodes found",
 		"render-target": "Renders at: {size} ({scale}×)",
@@ -860,6 +862,10 @@ export default {
 		"sfx-volume": "Message sound volume",
 		"room-settings": "Default Room Settings",
 		"enable-adapter-selector": "Show adapter selector (advanced)",
+		"series-probe-limit": "Same-series probe limit",
+		"series-probe-limit-hint":
+			"Forward only. The maximum number of episodes one manual probe from the preview menu checks.",
+		"series-probe-limit-value": "{count} episodes",
 	},
 	"client-update": {
 		text: "A new version is available.",

@@ -176,17 +176,45 @@
 		</div>
 		<div v-if="seriesEpisodes.length > 0" class="same-series" data-cy="same-series">
 			<div class="same-series-label">
-				{{ $t("add-preview.same-series", { count: seriesEpisodes.length }) }}
+				<span>{{ $t("add-preview.same-series", { count: seriesEpisodes.length }) }}</span>
+				<v-btn
+					size="x-small"
+					variant="text"
+					data-cy="same-series-select-all"
+					@click="selectAllSeries(true)"
+				>
+					{{ $t("add-preview.same-series-select-all") }}
+				</v-btn>
+				<v-btn
+					size="x-small"
+					variant="text"
+					data-cy="same-series-select-none"
+					@click="selectAllSeries(false)"
+				>
+					{{ $t("add-preview.same-series-select-none") }}
+				</v-btn>
 			</div>
-			<div class="same-series-list">{{ seriesTitles }}</div>
+			<div class="same-series-list">
+				<v-checkbox
+					v-for="video in seriesEpisodes"
+					:key="videoKey(video)"
+					:label="video.title"
+					:model-value="seriesSelected.has(videoKey(video))"
+					density="compact"
+					hide-details
+					data-cy="same-series-episode"
+					@update:model-value="setSeriesSelected(video, $event)"
+				/>
+			</div>
 			<v-btn
 				size="small"
 				variant="tonal"
 				:loading="isLoadingAddAll"
+				:disabled="seriesSelected.size === 0"
 				data-cy="same-series-add"
-				@click="addAllToQueue(seriesEpisodes)"
+				@click="addSelectedToQueue"
 			>
-				{{ $t("add-preview.same-series-add") }}
+				{{ $t("add-preview.same-series-add-selected", { count: seriesSelected.size }) }}
 			</v-btn>
 		</div>
 	</div>
@@ -221,15 +249,42 @@ const videos: Ref<Video[]> = ref([]);
 const isLoadingAddPreview = ref(false);
 const isAddPreviewSlow = ref(false);
 
-/** Episodes of the same series, found by probing the neighbouring numbers of the link. */
+/** Episodes after the current one, found only when the preview menu asks for them. */
 const seriesEpisodes: Ref<Video[]> = ref([]);
-// biome-ignore lint/nursery/noVueRefAsOperand: the callback param shadows nothing; the ref is read through `.value`.
-const seriesTitles = computed(() => seriesEpisodes.value.map(v => v.title).join(" · "));
+/** Chosen episodes, keyed by service + id so a later probe's list maps cleanly. */
+const seriesSelected = ref<Set<string>>(new Set());
 const probingSeries = ref(false);
 const seriesProbeFound = ref(0);
 const seriesProbeMissed = ref(false);
 const seriesCache = new Map<string, Video[]>();
 let seriesProbeGeneration = 0;
+
+function videoKey(video: Video): string {
+	return `${video.service}:${video.id}`;
+}
+
+function selectAllSeries(selected: boolean): void {
+	seriesSelected.value = selected
+		? new Set(seriesEpisodes.value.map(video => videoKey(video)))
+		: new Set();
+}
+
+function setSeriesSelected(video: Video, selected: boolean | null): void {
+	const next = new Set(seriesSelected.value);
+	if (selected) {
+		next.add(videoKey(video));
+	} else {
+		next.delete(videoKey(video));
+	}
+	seriesSelected.value = next;
+}
+
+function addSelectedToQueue(): void {
+	const selected = seriesEpisodes.value.filter(video =>
+		seriesSelected.value.has(videoKey(video)),
+	);
+	void addAllToQueue(selected);
+}
 const hasAddPreviewFailed = ref(false);
 const inputAddPreview = ref("");
 const searchEnabled = ref(true);
@@ -510,7 +565,7 @@ async function requestAddPreviewExplicit() {
 async function fetchPreviewQuiet(input: string): Promise<Video[] | null> {
 	try {
 		const res = await API.get<OttResponseBody<OttApiResponseAddPreview>>(
-			`/data/previewAdd?input=${encodeURIComponent(input)}`,
+			`/data/previewAdd?input=${encodeURIComponent(input)}&verify=1`,
 			{ timeout: 20_000 },
 		);
 		return res.data.success ? res.data.result : null;
@@ -521,13 +576,14 @@ async function fetchPreviewQuiet(input: string): Promise<Video[] | null> {
 }
 
 /**
- * Look for the rest of the series only when someone asks for it (the preview item's
- * three-dot menu). A folder holds the whole season, so the probe walks both directions,
- * reports what it has found while it runs, and stops on its own at the edges.
+ * Look for later episodes only when someone asks for it (the preview item's three-dot
+ * menu). The walk is forward only and bounded by the client setting, and the server
+ * verifies each candidate before it counts as a hit.
  */
 async function runSeriesProbe(url: string): Promise<void> {
 	const generation = ++seriesProbeGeneration;
 	seriesEpisodes.value = [];
+	seriesSelected.value = new Set();
 	seriesProbeMissed.value = false;
 	seriesProbeFound.value = 0;
 	if (isEdgePreview || !HTTP_URL.test(url)) {
@@ -536,11 +592,13 @@ async function runSeriesProbe(url: string): Promise<void> {
 	const cached = seriesCache.get(seriesKey(url));
 	if (cached) {
 		seriesEpisodes.value = cached;
+		seriesSelected.value = new Set(cached.map(video => videoKey(video)));
 		return;
 	}
 	probingSeries.value = true;
 	try {
 		const found = await probeSameSeries(url, fetchPreviewQuiet, {
+			limit: store.state.settings.seriesProbeLimit,
 			isAborted: () => generation !== seriesProbeGeneration,
 			onProgress: count => {
 				if (generation === seriesProbeGeneration) {
@@ -552,6 +610,7 @@ async function runSeriesProbe(url: string): Promise<void> {
 			return;
 		}
 		seriesEpisodes.value = found;
+		seriesSelected.value = new Set(found.map(video => videoKey(video)));
 		seriesProbeMissed.value = found.length === 0;
 		if (found.length > 0) {
 			seriesCache.set(seriesKey(url), found);
@@ -589,6 +648,7 @@ function onInputAddPreviewChange() {
 	// A new link invalidates the episodes probed for the previous one.
 	seriesProbeGeneration++;
 	seriesEpisodes.value = [];
+	seriesSelected.value = new Set();
 	probingSeries.value = false;
 	seriesProbeFound.value = 0;
 	seriesProbeMissed.value = false;
@@ -686,6 +746,7 @@ function setAddPreviewText(text: string) {
 
 .same-series-label {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: 6px;
 	font-size: 0.8125rem;
@@ -693,8 +754,16 @@ function setAddPreviewText(text: string) {
 }
 
 .same-series-list {
+	width: 100%;
+	max-height: 220px;
+	overflow-y: auto;
 	font-size: 0.75rem;
 	line-height: 1.5;
-	opacity: 0.7;
+	opacity: 0.9;
+}
+
+.same-series-list :deep(.v-label) {
+	font-size: 0.8125rem;
+	opacity: 1;
 }
 </style>

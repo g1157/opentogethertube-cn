@@ -448,6 +448,24 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.danmakuDensity).toBe("medium");
 	});
 
+	it("starts the series probe at ten episodes and keeps a chosen limit", async () => {
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.seriesProbeLimit).toBe(10);
+
+		store.commit("settings/UPDATE", { seriesProbeLimit: 20 });
+		const nextVisit = newStore();
+		await nextVisit.dispatch("settings/load");
+		expect(nextVisit.state.settings.seriesProbeLimit).toBe(20);
+	});
+
+	it("repairs a damaged series probe limit", async () => {
+		saved.set("settings", JSON.stringify({ seriesProbeLimit: 999 }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.seriesProbeLimit).toBe(10);
+	});
+
 	it("persists the audio and display preferences across visits", async () => {
 		const firstVisit = newStore();
 		await firstVisit.dispatch("settings/load");

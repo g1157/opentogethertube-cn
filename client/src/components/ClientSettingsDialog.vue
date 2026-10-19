@@ -123,6 +123,14 @@
 					:label="$t('client-settings.enable-adapter-selector')"
 					v-model="settings.enableAdapterSelector"
 				/>
+				<v-select
+					v-model="settings.seriesProbeLimit"
+					:label="$t('client-settings.series-probe-limit')"
+					:hint="$t('client-settings.series-probe-limit-hint')"
+					:items="seriesProbeLimitOptions"
+					persistent-hint
+					data-cy="series-probe-limit"
+				/>
 			</v-card-text>
 
 			<v-divider />
@@ -155,6 +163,7 @@ import {
 	CONTROLS_HIDE_SECONDS_OPTIONS,
 	HLS_BUFFER_SECONDS_OPTIONS,
 	ROOM_NOTICE_SECONDS_OPTIONS,
+	SERIES_PROBE_LIMIT_OPTIONS,
 	RoomLayoutMode,
 	type SettingsState,
 	Theme,
@@ -196,6 +205,12 @@ const roomNoticeOptions = computed(() =>
 const hlsBufferOptions = computed(() =>
 	HLS_BUFFER_SECONDS_OPTIONS.map(value => ({
 		title: t("player.interactions.seconds", { count: value }),
+		value,
+	})),
+);
+const seriesProbeLimitOptions = computed(() =>
+	SERIES_PROBE_LIMIT_OPTIONS.map(value => ({
+		title: t("client-settings.series-probe-limit-value", { count: value }),
 		value,
 	})),
 );
