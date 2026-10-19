@@ -7,6 +7,7 @@ import { BadApiArgumentException } from "../exceptions.js";
 import InfoExtract from "../infoextractor.js";
 import { consumeRateLimitPoints } from "../rate-limit.js";
 import { counterHttpErrors } from "../metrics.js";
+import { mediaFileStatus } from "../services/media-access.js";
 
 const router = express.Router();
 const log = getLogger("api/data");
@@ -14,7 +15,7 @@ const addPreview: RequestHandler<
 	any,
 	OttResponseBody<OttApiResponseAddPreview>,
 	any,
-	{ input: string; adapter?: string }
+	{ input: string; adapter?: string; verify?: string }
 > = async (req, res, next) => {
 	if (!req.query.input) {
 		throw new BadApiArgumentException("input", "missing");
@@ -34,6 +35,30 @@ const addPreview: RequestHandler<
 			conf.get("add_preview.search.provider"),
 			req.query.adapter,
 		);
+
+		// A direct link whose file is gone must not come back as a video just because
+		// ffprobe failed on it. The same-series probe is strict (only 2xx/3xx counts); a
+		// normal preview still accepts a host that refuses the check, because that refusal
+		// may be anti-hotlink protection on a file that is there.
+		if (result.videos.length === 1) {
+			const video = result.videos[0];
+			if (video.service === "direct") {
+				const status = await mediaFileStatus(video.id);
+				const missing = status === 404 || status === 410;
+				const unverified = status === null || status < 200 || status >= 400;
+				if (req.query.verify === "1" ? unverified : missing) {
+					log.info(`Verified ${video.id} as unavailable (status ${status ?? "none"})`);
+					res.status(404).json({
+						success: false,
+						error: {
+							name: "VideoNotFoundException",
+							message: "The media file does not exist.",
+						},
+					});
+					return;
+				}
+			}
+		}
 
 		res.setHeader(
 			"Cache-Control",

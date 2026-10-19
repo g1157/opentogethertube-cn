@@ -110,3 +110,37 @@ export async function probeMediaAccess(link: string, appOrigin: string): Promise
 	}
 	return {};
 }
+
+/**
+ * The status the source reports for this media, read without downloading it. `null` means
+ * the host could not be reached (or the request failed). Some hosts refuse HEAD, so a
+ * ranged GET is the fallback.
+ *
+ * This is intentionally separate from `fetchVideoInfo`, which degrades a failed ffprobe to
+ * "unknown metadata" so a slow or probe-hostile source can still be queued: only the
+ * callers that must not report a file that is not there ask for the status.
+ */
+export async function mediaFileStatus(link: string): Promise<number | null> {
+	try {
+		await assertPublicMediaUrl(link);
+		let response = await axios.head(link, {
+			timeout: PROBE_TIMEOUT_MS,
+			validateStatus: () => true,
+			// A redirect can turn a public URL into an intranet one; do not follow it.
+			maxRedirects: 0,
+		});
+		if (response.status === 405 || response.status === 501) {
+			response = await axios.get(link, {
+				timeout: PROBE_TIMEOUT_MS,
+				responseType: "stream",
+				headers: { Range: "bytes=0-0" },
+				validateStatus: () => true,
+				maxRedirects: 0,
+			});
+			response.data?.destroy();
+		}
+		return response.status;
+	} catch {
+		return null;
+	}
+}

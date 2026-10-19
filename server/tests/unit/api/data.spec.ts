@@ -1,10 +1,22 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import request from "supertest";
 import { main } from "../../../app.js";
 import InfoExtract, { AddPreview } from "../../../infoextractor.js";
 import tokens from "../../../auth/tokens.js";
+import { mediaFileStatus } from "../../../services/media-access.js";
+
+vi.mock("../../../services/media-access.js", async importOriginal => {
+	const actual = await importOriginal<typeof import("../../../services/media-access.js")>();
+	return { ...actual, mediaFileStatus: vi.fn() };
+});
 
 const JSON_CONTENT_TYPE_REGEX = /json/;
+const DIRECT_VIDEO = {
+	service: "direct" as const,
+	id: "https://example.com/video/110.mp4",
+	title: "110",
+};
+const mockStatus = mediaFileStatus as unknown as ReturnType<typeof vi.fn>;
 
 describe("Data API", () => {
 	let app;
@@ -23,6 +35,76 @@ describe("Data API", () => {
 	afterAll(() => {
 		getSessionInfoSpy.mockRestore();
 		validateSpy.mockRestore();
+	});
+
+	beforeEach(() => {
+		mockStatus.mockReset();
+	});
+
+	it("refuses a direct preview whose file is definitely gone", async () => {
+		const resolveQuerySpy = vi
+			.spyOn(InfoExtract, "resolveVideoQuery")
+			.mockResolvedValue(new AddPreview([DIRECT_VIDEO], 0));
+		mockStatus.mockResolvedValue(404);
+
+		await request(app)
+			.get("/api/data/previewAdd")
+			.set({ Authorization: "Bearer foobar" })
+			.query({ input: DIRECT_VIDEO.id })
+			.expect(404)
+			.then(resp => {
+				expect(resp.body.success).toBe(false);
+				expect(resp.body.error.name).toBe("VideoNotFoundException");
+			});
+
+		resolveQuerySpy.mockRestore();
+	});
+
+	it("keeps a direct preview whose host refuses the check", async () => {
+		const resolveQuerySpy = vi
+			.spyOn(InfoExtract, "resolveVideoQuery")
+			.mockResolvedValue(new AddPreview([DIRECT_VIDEO], 0));
+		mockStatus.mockResolvedValue(403);
+
+		await request(app)
+			.get("/api/data/previewAdd")
+			.set({ Authorization: "Bearer foobar" })
+			.query({ input: DIRECT_VIDEO.id })
+			.expect(200)
+			.then(resp => {
+				expect(resp.body.success).toBe(true);
+				expect(resp.body.result).toHaveLength(1);
+			});
+
+		resolveQuerySpy.mockRestore();
+	});
+
+	it("only accepts a confirmed file when the probe asks for verification", async () => {
+		const resolveQuerySpy = vi
+			.spyOn(InfoExtract, "resolveVideoQuery")
+			.mockResolvedValue(new AddPreview([DIRECT_VIDEO], 0));
+		mockStatus.mockResolvedValue(403);
+
+		await request(app)
+			.get("/api/data/previewAdd")
+			.set({ Authorization: "Bearer foobar" })
+			.query({ input: DIRECT_VIDEO.id, verify: "1" })
+			.expect(404)
+			.then(resp => {
+				expect(resp.body.success).toBe(false);
+			});
+
+		mockStatus.mockResolvedValue(200);
+		await request(app)
+			.get("/api/data/previewAdd")
+			.set({ Authorization: "Bearer foobar" })
+			.query({ input: DIRECT_VIDEO.id, verify: "1" })
+			.expect(200)
+			.then(resp => {
+				expect(resp.body.success).toBe(true);
+			});
+
+		resolveQuerySpy.mockRestore();
 	});
 
 	it("GET /data/previewAdd", async () => {

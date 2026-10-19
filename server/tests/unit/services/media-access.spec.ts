@@ -1,6 +1,10 @@
 import axios from "axios";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { appOriginFromHostname, probeMediaAccess } from "../../../services/media-access.js";
+import {
+	appOriginFromHostname,
+	mediaFileStatus,
+	probeMediaAccess,
+} from "../../../services/media-access.js";
 
 vi.mock("axios");
 // The SSRF guard resolves DNS; the probes must not depend on real hosts in tests.
@@ -80,6 +84,48 @@ describe("media access probe", () => {
 			referrerPolicy: "no-referrer",
 			containerMismatch: true,
 		});
+	});
+});
+
+describe("media existence probe", () => {
+	let mockHead: ReturnType<typeof vi.fn>;
+	let mockGet: ReturnType<typeof vi.fn>;
+
+	beforeEach(() => {
+		mockHead = axios.head as unknown as ReturnType<typeof vi.fn>;
+		mockGet = axios.get as unknown as ReturnType<typeof vi.fn>;
+		mockHead.mockReset();
+		mockGet.mockReset();
+	});
+
+	it("reports the status a served file returns", async () => {
+		mockHead.mockResolvedValueOnce(response(200));
+		expect(await mediaFileStatus(SEGMENT)).toBe(200);
+	});
+
+	it("reports a redirect status without following it", async () => {
+		mockHead.mockResolvedValueOnce(response(302));
+		expect(await mediaFileStatus(SEGMENT)).toBe(302);
+		expect(mockHead.mock.calls[0][1]).toMatchObject({ maxRedirects: 0 });
+	});
+
+	it("reports a missing file", async () => {
+		mockHead.mockResolvedValueOnce(response(404));
+		expect(await mediaFileStatus(SEGMENT)).toBe(404);
+		expect(mockGet).not.toHaveBeenCalled();
+	});
+
+	it("falls back to a ranged GET when the host refuses HEAD", async () => {
+		mockHead.mockResolvedValueOnce(response(405));
+		mockGet.mockResolvedValueOnce(response(206));
+
+		expect(await mediaFileStatus(SEGMENT)).toBe(206);
+		expect(mockGet.mock.calls[0][1]).toMatchObject({ headers: { Range: "bytes=0-0" } });
+	});
+
+	it("reports nothing when the host is unreachable", async () => {
+		mockHead.mockRejectedValue(new Error("getaddrinfo ENOTFOUND"));
+		expect(await mediaFileStatus(SEGMENT)).toBeNull();
 	});
 });
 
