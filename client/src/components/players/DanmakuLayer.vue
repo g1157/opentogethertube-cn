@@ -21,6 +21,7 @@ import {
 	rememberBinding,
 	roomSourceBinding,
 	setDanmakuApiBase,
+	synthesizeMatchQuery,
 	trackUrl,
 	type DanmakuBinding,
 } from "@/util/danmaku/danmu-api";
@@ -37,7 +38,7 @@ const props = defineProps<{
 }>();
 
 const store = useStore();
-const { available, loadedCount, currentVideoUrl } = useDanmaku();
+const { available, loadedCount, currentVideoUrl, matching, matchQuery } = useDanmaku();
 const canvasElem = ref<HTMLCanvasElement | null>(null);
 
 // girigiri's measured proportions, kept so the picture reads the same: ~19.2px text on a
@@ -494,6 +495,9 @@ async function load() {
 	engine?.setItems([]);
 	draw([]);
 	updateRunning();
+	// A previous source's probe must not leave its indicator behind.
+	matching.value = false;
+	matchQuery.value = null;
 	let loaded: DanmakuItem[] | null = null;
 	if (effective) {
 		// A chosen track is final: when it fails, the matcher stands down instead of
@@ -508,7 +512,18 @@ async function load() {
 			return;
 		}
 		if (loaded === null && aggregator) {
-			loaded = await loadFromAggregator();
+			// Make the otherwise invisible probe observable: show the query the aggregator
+			// is asked until the answer arrives (or the source changes under it).
+			matching.value = true;
+			matchQuery.value = synthesizeMatchQuery(props.videoUrl);
+			try {
+				loaded = await loadFromAggregator();
+			} finally {
+				if (generation === loadGeneration) {
+					matching.value = false;
+					matchQuery.value = null;
+				}
+			}
 			if (generation !== loadGeneration) {
 				return;
 			}

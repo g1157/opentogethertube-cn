@@ -309,6 +309,7 @@ export default {
 			"page-basic": "Basics",
 			"page-sources": "Sources",
 			"binding-title": "Current match",
+			matching: "Auto-matching: {query}",
 			"room-source-changed": "Room danmaku source changed: {label}",
 			"room-source-cleared": "Room danmaku source cleared",
 			"room-source-failed": "Could not update the room",

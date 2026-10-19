@@ -9,7 +9,13 @@ import { ref } from "vue";
 const available = ref(false);
 const loadedCount = ref(0);
 const currentVideoUrl = ref("");
+/**
+ * The automatic aggregator probe is otherwise invisible: the settings panel shows the
+ * query being matched while it runs, so "nothing happened" and "matched nothing" differ.
+ */
+const matching = ref(false);
+const matchQuery = ref<string | null>(null);
 
 export function useDanmaku() {
-	return { available, loadedCount, currentVideoUrl };
+	return { available, loadedCount, currentVideoUrl, matching, matchQuery };
 }

@@ -280,6 +280,16 @@
 						{{ $t("room.danmaku.unbind") }}
 					</v-btn>
 				</div>
+				<div
+					v-if="matching"
+					class="danmaku-row danmaku-match-pending"
+					data-cy="danmaku-matching"
+				>
+					<v-progress-circular size="12" width="2" indeterminate color="primary" />
+					<span class="danmaku-match-label">
+						{{ $t("room.danmaku.matching", { query: matchQuery ?? "" }) }}
+					</span>
+				</div>
 				<div v-if="hasSource" class="danmaku-row danmaku-slider-row">
 					<span class="danmaku-row-label">{{ $t("room.danmaku.offset") }}</span>
 					<v-slider
@@ -422,6 +432,9 @@ const danmakuAvailable = computed(() => danmaku.available.value);
 const currentVideoUrl = computed(() => danmaku.currentVideoUrl.value);
 /** Comments the layer actually loaded for the current video. */
 const loadedCount = computed(() => danmaku.loadedCount.value);
+/** Whether the automatic aggregator probe is running, and the query it is asking. */
+const matching = computed(() => danmaku.matching.value);
+const matchQuery = computed(() => danmaku.matchQuery.value);
 /** The panel has two pages: appearance settings and the comment sources. */
 const page = ref<"basic" | "sources">("basic");
 const danmakuOpacity = computed({
@@ -992,6 +1005,16 @@ const blockedTypes = computed({
 
 	.danmaku-match-empty {
 		opacity: 0.55;
+	}
+
+	.danmaku-match-pending {
+		align-items: center;
+		gap: 8px;
+
+		.danmaku-match-label {
+			text-align: left;
+			opacity: 0.65;
+		}
 	}
 
 	.danmaku-page-switch {

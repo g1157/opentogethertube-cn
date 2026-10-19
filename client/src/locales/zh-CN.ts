@@ -301,6 +301,7 @@ export default {
 			"page-basic": "基础",
 			"page-sources": "弹幕源",
 			"binding-title": "当前绑定",
+			matching: "正在自动匹配：{query}",
 			"room-source-changed": "房间弹幕源已切换：{label}",
 			"room-source-cleared": "房间弹幕源已清除",
 			"room-source-failed": "操作失败，请重试",

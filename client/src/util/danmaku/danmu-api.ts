@@ -1,5 +1,6 @@
 import { shallowRef } from "vue";
 import type { RoomDanmakuSource } from "ott-common/models/types";
+import { timeoutSignal } from "@/util/timeout-signal";
 import { loadDanmaku } from "./fetch";
 import type { DanmakuItem } from "./parse";
 import type { DanmakuProvider } from "./provider";
@@ -381,18 +382,34 @@ export function synthesizeMatchQuery(videoUrl: string): string | null {
 }
 
 /**
- * One match request per video per session; a miss is cached too, so a video the matcher
- * cannot place is not re-asked on every remount.
+ * One match request per video at a time. A success is remembered for the session; a miss
+ * is dropped so the next load tries again (an outage or a slow first probe must not leave
+ * the video unmatched until a page reload).
  */
 const autoMatches = new Map<string, Promise<DanmakuBinding | null>>();
+const AUTO_MATCH_CACHE_MAX = 64;
+/** A matching service that hangs must not leave the layer waiting forever. */
+const MATCH_TIMEOUT_MS = 8_000;
 
 export function autoMatch(videoUrl: string): Promise<DanmakuBinding | null> {
 	const cached = autoMatches.get(videoUrl);
 	if (cached) {
 		return cached;
 	}
-	const request = runAutoMatch(videoUrl);
+	const request = runAutoMatch(videoUrl).then(binding => {
+		if (!binding) {
+			autoMatches.delete(videoUrl);
+		}
+		return binding;
+	});
 	autoMatches.set(videoUrl, request);
+	while (autoMatches.size > AUTO_MATCH_CACHE_MAX) {
+		const oldest = autoMatches.keys().next().value;
+		if (oldest === undefined) {
+			break;
+		}
+		autoMatches.delete(oldest);
+	}
 	return request;
 }
 
@@ -406,6 +423,7 @@ async function runAutoMatch(videoUrl: string): Promise<DanmakuBinding | null> {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ fileName: query }),
+			signal: timeoutSignal(MATCH_TIMEOUT_MS),
 		});
 		if (!response.ok) {
 			return null;
@@ -434,6 +452,7 @@ export async function searchAnime(keyword: string): Promise<DanmakuSearchResult[
 	try {
 		const response = await fetch(
 			`${apiBase}/api/v2/search/anime?keyword=${encodeURIComponent(query)}`,
+			{ signal: timeoutSignal(MATCH_TIMEOUT_MS) },
 		);
 		if (!response.ok) {
 			return [];
@@ -459,6 +478,7 @@ export async function fetchEpisodes(animeId: number | string): Promise<DanmakuEp
 	try {
 		const response = await fetch(
 			`${apiBase}/api/v2/bangumi/${encodeURIComponent(String(animeId))}`,
+			{ signal: timeoutSignal(MATCH_TIMEOUT_MS) },
 		);
 		if (!response.ok) {
 			return [];

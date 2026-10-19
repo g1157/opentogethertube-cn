@@ -233,7 +233,7 @@ describe("danmu-api automatic matching", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("caches a miss so a hopeless video is not asked twice", async () => {
+	it("retries a miss on the next load instead of giving up for the session", async () => {
 		const fetchMock = vi.fn(
 			async () =>
 				new Response(JSON.stringify({ isMatched: false, matches: [] }), { status: 200 }),
@@ -243,7 +243,7 @@ describe("danmu-api automatic matching", () => {
 
 		expect(await autoMatch(url)).toBeNull();
 		expect(await autoMatch(url)).toBeNull();
-		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 
 	it("stays silent when the service is unreachable", async () => {
@@ -254,20 +254,25 @@ describe("danmu-api automatic matching", () => {
 		expect(await autoMatch("https://host/media/Anything.S01E01.mp4")).toBeNull();
 	});
 
-	it("drops cached misses when the base changes", async () => {
-		// While the base URL is being typed, early attempts fail and are cached; switching
-		// servers must give the finished address a fresh chance.
+	it("caches a successful match until the base changes", async () => {
 		const fetchMock = vi.fn(
 			async () =>
-				new Response(JSON.stringify({ isMatched: false, matches: [] }), { status: 200 }),
+				new Response(
+					JSON.stringify({
+						isMatched: true,
+						matches: [{ episodeId: 42, animeTitle: "Show", episodeTitle: "EP1" }],
+					}),
+					{ status: 200 },
+				),
 		);
 		vi.stubGlobal("fetch", fetchMock);
 		const url = "https://host/media/Some.Show.S01E03.mkv";
 
-		expect(await autoMatch(url)).toBeNull();
+		expect(await autoMatch(url)).not.toBeNull();
+		expect(await autoMatch(url)).not.toBeNull();
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		setDanmakuApiBase("https://other.example/danmu-api/token");
-		expect(await autoMatch(url)).toBeNull();
+		expect(await autoMatch(url)).not.toBeNull();
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 });
