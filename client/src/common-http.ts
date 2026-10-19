@@ -26,14 +26,27 @@ export const API = axios.create({
 /** Logging in or registering can legitimately return 401; those are not expired sessions. */
 const AUTH_ENDPOINTS = ["/user/login", "/user/register", "/auth/"];
 
+/**
+ * Server error names that mean the stored token itself is unusable. A 401 with any other
+ * name is business logic (a room password check, for one) and must not be refreshed or
+ * replayed — replaying the room password POST would both count the attempt twice and
+ * silently replace a logged-in visitor's token with a fresh guest one.
+ */
+const TOKEN_ERROR_NAMES = new Set(["MissingToken", "InvalidTokenException"]);
+
 interface RetriableConfig extends AxiosRequestConfig {
 	_ottRetried?: boolean;
 }
 
 async function refreshAuthToken(): Promise<string | null> {
 	try {
-		// A bare client: this request must not run through the interceptor below.
-		const response = await axios.get<{ token?: unknown }>(`${baseURL}/auth/grant`);
+		// A bare client: this request must not run through the interceptor below. Send the
+		// current token when there is one so the server reuses a still-valid session
+		// instead of always minting a new guest token.
+		const current = window.localStorage.getItem("token");
+		const response = await axios.get<{ token?: unknown }>(`${baseURL}/auth/grant`, {
+			headers: current ? { Authorization: `Bearer ${current}` } : undefined,
+		});
 		const token = response.data?.token;
 		if (typeof token === "string" && token.length > 0) {
 			window.localStorage.setItem("token", token);
@@ -56,6 +69,11 @@ API.interceptors.response.use(
 		const url = config?.url ?? "";
 		const isAuthEndpoint = AUTH_ENDPOINTS.some(endpoint => url.startsWith(endpoint));
 		if (error.response?.status !== 401 || !config || config._ottRetried || isAuthEndpoint) {
+			return Promise.reject(error);
+		}
+		const errorName = (error.response.data as { error?: { name?: unknown } } | undefined)?.error
+			?.name;
+		if (typeof errorName !== "string" || !TOKEN_ERROR_NAMES.has(errorName)) {
 			return Promise.reject(error);
 		}
 		config._ottRetried = true;
