@@ -165,6 +165,9 @@ function dbToRoomArgs(db: DbRoom): RoomOptions {
 		bufferGateMode: db.bufferGateMode,
 		danmakuSource: db.danmakuSource,
 		passwordHash: db.passwordHash,
+		// A row saved before the revision column existed carries null: treat it like the
+		// old snapshots (revision 0) so the additions are applied exactly once.
+		permissionsRevision: db.permissionsRevision ?? undefined,
 	};
 	for (let i = Role.TrustedUser; i <= 4; i++) {
 		room.userRoles.set(i, new Set(db[`role-${permissions.ROLE_NAMES[i]}`]));
@@ -229,6 +232,7 @@ export function roomToDb(room: RoomStatePersistable): Omit<RoomAttributes, "id">
 		enableVoteSkip: room.enableVoteSkip,
 		bufferGateMode: room.bufferGateMode,
 		danmakuSource: room.danmakuSource ?? null,
+		permissionsRevision: room.permissionsRevision ?? null,
 	};
 	if (room.owner) {
 		db.ownerId = room.owner.id;
@@ -260,6 +264,7 @@ export function roomToDbPartial(
 			enableVoteSkip: room.enableVoteSkip,
 			bufferGateMode: room.bufferGateMode,
 			danmakuSource: room.danmakuSource,
+			permissionsRevision: room.permissionsRevision,
 		},
 		v => v !== undefined,
 	);

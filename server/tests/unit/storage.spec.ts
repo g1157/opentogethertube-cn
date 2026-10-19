@@ -3,7 +3,7 @@ import _ from "lodash";
 import { CachedVideo, Room as DbRoom, User, loadModels } from "../../models/index.js";
 import storage from "../../storage.js";
 import permissions from "ott-common/permissions.js";
-import { Visibility, QueueMode, BufferGateMode } from "ott-common/models/types.js";
+import { Visibility, QueueMode, BufferGateMode, Role } from "ott-common/models/types.js";
 import type { Video } from "ott-common/models/video.js";
 import { Room } from "../../room.js";
 import { roomToDb, roomToDbPartial } from "../../storage/room.js";
@@ -36,6 +36,34 @@ describe(
 			const dbroom = roomToDb(room);
 			const dbroomPartial = roomToDbPartial(room);
 			expect(dbroom).toMatchObject(dbroomPartial);
+		});
+
+		it("persists the permissions revision so a role removal survives a reload", async () => {
+			const permission = permissions.PERMISSIONS.find(
+				p => p.name === "configure-room.set-danmaku-source",
+			);
+			expect(permission).toBeDefined();
+			const grants = new permissions.Grants();
+			grants.setRoleGrants(
+				Role.UnregisteredUser,
+				grants.getMask(Role.UnregisteredUser) & ~permission!.mask,
+			);
+
+			await DbRoom.destroy({ where: { name: "permrevision" } });
+			const room = new Room({
+				name: "permrevision",
+				isTemporary: false,
+				grants,
+				permissionsRevision: permissions.ROOM_PERMISSIONS_REVISION,
+			});
+			expect(await storage.saveRoom(room)).toBe(true);
+
+			const reloaded = await storage.getRoomByName("permrevision");
+			expect(reloaded).not.toBeNull();
+			expect(reloaded!.permissionsRevision).toBe(permissions.ROOM_PERMISSIONS_REVISION);
+			// Loading must not re-apply the additions over the owner's removal.
+			expect(reloaded!.grants.granted(Role.UnregisteredUser, permission!.name)).toBe(false);
+			await DbRoom.destroy({ where: { name: "permrevision" } });
 		});
 
 		it("should return room object without extra properties", async () => {

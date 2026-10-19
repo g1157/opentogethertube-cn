@@ -32,6 +32,8 @@ export interface RoomAttributes {
 	bufferGateMode: BufferGateMode;
 	danmakuSource: RoomDanmakuSource | null;
 	passwordHash?: string | null;
+	/** Which round of default-permission additions this row already knows about. */
+	permissionsRevision: number | null;
 }
 
 type RoomCreationAttributes = Optional<RoomAttributes, "id">;
@@ -58,6 +60,7 @@ export class Room extends Model<RoomAttributes, RoomCreationAttributes> implemen
 	declare bufferGateMode: BufferGateMode;
 	declare danmakuSource: RoomDanmakuSource | null;
 	declare passwordHash: string | null;
+	declare permissionsRevision: number | null;
 }
 
 export const createModel = (sequelize: Sequelize) => {
@@ -146,6 +149,11 @@ export const createModel = (sequelize: Sequelize) => {
 			},
 			passwordHash: {
 				type: DataTypes.STRING,
+				allowNull: true,
+				defaultValue: null,
+			},
+			permissionsRevision: {
+				type: DataTypes.INTEGER,
 				allowNull: true,
 				defaultValue: null,
 			},
