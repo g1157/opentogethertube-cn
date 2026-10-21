@@ -10,6 +10,7 @@ const { API } = vi.hoisted(() => ({
 vi.mock("@/common-http", () => ({ API }));
 
 const NEIGHBOURING_EPISODE = /\/(12|13)\.mp4$/;
+const FIVE_NEXT_EPISODES = /\/(12|13|14|15|16)\.mp4$/;
 
 describe("AddPreview component", () => {
 	beforeEach(() => {
@@ -186,7 +187,7 @@ describe("AddPreview component", () => {
 		const url = "https://example.com/anime/11.mp4";
 		API.get.mockImplementation((request: string) => {
 			const input = new URLSearchParams(request.split("?")[1] ?? "").get("input") ?? "";
-			const found = input === url || NEIGHBOURING_EPISODE.test(input);
+			const found = input === url || FIVE_NEXT_EPISODES.test(input);
 			return Promise.resolve({
 				data: {
 					success: true,
@@ -196,7 +197,7 @@ describe("AddPreview component", () => {
 		});
 		const { wrapper, store } = mountComponent(AddPreview);
 		store.state.production = true;
-		store.state.settings.seriesProbeLimit = 1;
+		store.state.settings.seriesProbeLimit = 5;
 		await wrapper.get('[data-cy="add-preview-input"] textarea').setValue(url);
 		await new Promise(resolve => setTimeout(resolve, 1100));
 		await flush();
@@ -208,9 +209,10 @@ describe("AddPreview component", () => {
 		await flush();
 
 		expect(wrapper.get('[data-cy="same-series"]').text()).toContain(
-			i18n.global.t("add-preview.same-series", { count: 1 }),
+			i18n.global.t("add-preview.same-series", { count: 5 }),
 		);
-		expect(API.get).toHaveBeenCalledTimes(2);
+		// One preview plus exactly five candidate checks.
+		expect(API.get).toHaveBeenCalledTimes(6);
 	});
 
 	it("adds only the chosen probed episodes to the queue", async () => {
