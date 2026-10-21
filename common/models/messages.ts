@@ -225,6 +225,7 @@ export type ClientMessage =
 	| ClientMessageKickMe
 	| ClientMessagePlayerStatus
 	| ClientMessageAuthenticate
+	| ClientMessageReauthenticate
 	| ClientMessageNotify
 	| ClientMessageRoomRequest
 	| ClientMessageVoice
@@ -264,6 +265,19 @@ export interface PlaybackPrepared {
 
 export interface ClientMessageAuthenticate extends ClientMessageBase {
 	action: "auth";
+	token: AuthToken;
+}
+
+/**
+ * Re-authenticate an established socket with a fresh token.
+ *
+ * Logging in (or claiming a room) rotates the token, but the open socket keeps the
+ * identity it authenticated with. Re-authenticating updates the identity in place:
+ * the viewer stays in the room, keeps their place in the queue and picks up their new
+ * role, instead of leaving and rejoining the room.
+ */
+export interface ClientMessageReauthenticate extends ClientMessageBase {
+	action: "reauthenticate";
 	token: AuthToken;
 }
 

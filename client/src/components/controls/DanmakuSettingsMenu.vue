@@ -54,7 +54,18 @@ usePlayerControlsActivity(isMenuOpen);
 @use "./media-controls.scss";
 
 .danmaku-settings-menu {
-	background: media-controls.$menu-background;
+	/* The panel is taller than the menu allows, so it scrolls. The layered background
+	   draws a soft shadow at the edges that still have content, so the reader knows
+	   there is more below instead of assuming the panel ends here. */
+	background: linear-gradient(media-controls.$menu-background 30%, transparent) top / 100% 20px
+			no-repeat local,
+		linear-gradient(transparent, media-controls.$menu-background 70%) bottom / 100% 20px
+			no-repeat local,
+		radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 35%), transparent) top / 100% 10px
+			no-repeat scroll,
+		radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 35%), transparent) bottom / 100% 10px
+			no-repeat scroll,
+		media-controls.$menu-background;
 	border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
 	border-radius: media-controls.$menu-radius;
 	padding: 0;

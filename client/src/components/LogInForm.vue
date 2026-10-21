@@ -181,11 +181,13 @@ import type { VForm } from "vuetify/lib/components/VForm/VForm.mjs";
 import { goLoginDiscord } from "@/util/discord";
 import ForgotPassword from "./ForgotPassword.vue";
 import { serverErrorMessage } from "@/util/server-error";
+import { useConnection } from "@/plugins/connection";
 
 const emit = defineEmits(["shouldClose"]);
 
 const store = useStore();
 const { t } = useI18n();
+const connection = useConnection();
 
 const email = ref("");
 const username = ref("");
@@ -269,6 +271,9 @@ async function login() {
 			if (resp.data.token) {
 				store.commit("users/SET_AUTH_TOKEN", resp.data.token);
 			}
+			// An open room socket still carries the old (guest) identity. Hand it the
+			// new token so the viewer keeps their seat and picks up their new role.
+			connection.reauthenticate();
 			emit("shouldClose");
 			emailOrUsername.value = "";
 			password.value = "";
@@ -319,6 +324,7 @@ async function register() {
 			if (resp.data.token) {
 				store.commit("users/SET_AUTH_TOKEN", resp.data.token);
 			}
+			connection.reauthenticate();
 			emit("shouldClose");
 			email.value = "";
 			username.value = "";

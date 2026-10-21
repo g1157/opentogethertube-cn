@@ -21,8 +21,8 @@ const log = getLogger("client");
 /** Floor between two latency-probe replies for one client; probes are client-driven. */
 const LATENCY_PROBE_INTERVAL_MS = 1000;
 
-export type ClientEvents = "auth" | "message" | "disconnect";
-export type ClientEventHandlers<E> = E extends "auth"
+export type ClientEvents = "auth" | "reauth" | "message" | "disconnect";
+export type ClientEventHandlers<E> = E extends "auth" | "reauth"
 	? (client: Client, token: AuthToken, session: SessionInfo) => void
 	: E extends "message"
 		? (client: Client, msg: ClientMessage) => void
@@ -91,6 +91,32 @@ export abstract class Client {
 		}
 		this.joinStatus = ClientJoinStatus.Joined;
 		this.emit("auth", this, this.token, this.session);
+	}
+
+	/**
+	 * Update the identity of an already joined connection.
+	 *
+	 * A login rotates the token, but the open socket keeps the identity it
+	 * authenticated with, which leaves the viewer stuck with the permissions of their
+	 * old (guest) identity. Re-authenticating swaps the identity in place so the
+	 * viewer keeps their seat and picks up their new role.
+	 */
+	public async reauthenticate(token: AuthToken): Promise<boolean> {
+		if (typeof token !== "string" || !token || token.length > 1024) {
+			log.warn("Client sent an invalid re-authentication token");
+			return false;
+		}
+		let session: SessionInfo;
+		try {
+			session = await getSessionInfo(token);
+		} catch (err) {
+			log.warn(`Client sent an invalid re-authentication token: ${err}`);
+			return false;
+		}
+		this.token = token;
+		this.session = session;
+		this.emit("reauth", this, this.token, this.session);
+		return true;
 	}
 
 	send(msg: ServerMessage) {
@@ -164,6 +190,11 @@ export class DirectClient extends Client {
 			if (msg.action === "auth") {
 				// eslint-disable-next-line promise/prefer-await-to-then -- Synchronous socket callback owns this asynchronous rejection.
 				void this.auth(msg.token).catch(() => this.kick(OttWebsocketError.UNKNOWN));
+				return;
+			}
+			if (msg.action === "reauthenticate") {
+				// A failed re-authentication keeps the old identity; the client can retry.
+				void this.reauthenticate(msg.token);
 				return;
 			}
 			if (this.joinStatus !== ClientJoinStatus.Joined) {

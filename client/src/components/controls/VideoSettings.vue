@@ -1064,6 +1064,23 @@ function closeMenu(): void {
 	}
 }
 
+/*
+ * The menus are taller than the 360px they are allowed to take, so they scroll. Without
+ * a hint the reader assumes the panel ends where the last visible row does and misses
+ * the settings below it. These layers draw a soft shadow at the edges that still have
+ * content (the "local" layers hide it once that end is reached).
+ */
+.settings-menu-container {
+	background: linear-gradient(media-controls.$menu-background 30%, transparent) top / 100% 20px
+			no-repeat local,
+		linear-gradient(transparent, media-controls.$menu-background 70%) bottom / 100% 20px
+			no-repeat local,
+		radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 35%), transparent) top / 100% 10px
+			no-repeat scroll,
+		radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 35%), transparent) bottom / 100% 10px
+			no-repeat scroll;
+}
+
 .menu-item {
 	&-content {
 		display: flex;

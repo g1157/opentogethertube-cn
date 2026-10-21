@@ -268,6 +268,7 @@ export function addClient(client: Client) {
 	log.info(`New ${client.clientType} client (${client.id}) joining room ${client.room}`);
 	connections.push(client);
 	client.on("auth", onClientAuth);
+	client.on("reauth", onClientReauth);
 	client.on("message", onClientMessage);
 	client.on("disconnect", onClientDisconnect);
 }
@@ -285,6 +286,40 @@ async function onClientAuth(client: Client, token: AuthToken, session: SessionIn
 	} finally {
 		pendingRoomJoins.delete(client);
 	}
+}
+
+/**
+ * The identity behind an open socket changed (a login rotates the token, claiming a room
+ * makes the viewer its owner). The viewer keeps their seat: the room learns the new
+ * identity, everyone sees the updated name and role, and the client receives the
+ * current state so its own permissions refresh.
+ */
+async function onClientReauth(client: Client, token: AuthToken, _session: SessionInfo) {
+	const result = await roommanager.getRoom(client.room);
+	if (!result.ok) {
+		return;
+	}
+	const room = result.value;
+	const user = room.getUser(client.id);
+	if (!user) {
+		return;
+	}
+	user.token = token;
+	try {
+		await user.updateInfo(client.getClientInfo());
+	} catch (err) {
+		// A token whose account vanished must not take the connection down; the viewer
+		// keeps the identity they had.
+		log.warn(`Could not update the identity of client ${client.id}: ${String(err)}`);
+	}
+	log.info(`Client ${client.id} re-authenticated in room ${room.name}`);
+	// The room's own view of this viewer changed: publish it so the name and role in the
+	// user list are correct for everyone.
+	await room.syncUser(room.getUserInfo(client.id));
+	// A full sync gives the client its new role and permissions without a reconnect.
+	client.send(
+		Object.assign({ action: "sync" }, room.syncableState()) as unknown as ServerMessageSync,
+	);
 }
 
 async function joinAuthenticatedClient(client: Client, token: AuthToken, session: SessionInfo) {

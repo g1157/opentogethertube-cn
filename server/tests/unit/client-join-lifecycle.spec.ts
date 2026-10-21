@@ -1,11 +1,14 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientInfo, OttWebsocketError } from "ott-common/models/types.js";
+import { Role } from "ott-common/models/types.js";
 import { ok } from "ott-common/result.js";
 import { Client, ClientJoinStatus } from "../../client.js";
 import clientmanager from "../../clientmanager.js";
 import { Room, RoomUser } from "../../room.js";
 import roommanager from "../../roommanager.js";
 import tokens from "../../auth/tokens.js";
+import type { SessionInfo } from "../../auth/tokens.js";
+import { RoomRequestType } from "ott-common/models/messages.js";
 import { buildClients } from "../../redisclient.js";
 
 class JoiningGuest extends Client {
@@ -135,6 +138,88 @@ describe("disconnects while joining a room", () => {
 		]);
 		expect(room.realPlaybackPosition).toBe(125);
 		expect(room.isPlaying).toBe(false);
+	});
+
+	it("does not announce a viewer who refreshes the page as leaving and joining", async () => {
+		const client = authenticate("first");
+		await vi.waitFor(() => expect(room.getUser(client.id)).toBeDefined());
+		const eventTypes = () =>
+			vi
+				.mocked(room.publish)
+				.mock.calls.map(call => (call[0] as { request?: { type?: number } }).request?.type)
+				.filter(type => type !== undefined);
+
+		// The first arrival is announced.
+		expect(eventTypes()).toContain(RoomRequestType.JoinRequest);
+
+		// A refresh: the socket closes and a new one joins with the same session token.
+		await room.leaveRoom(
+			{ type: RoomRequestType.LeaveRequest },
+			{ clientId: client.id, role: Role.UnregisteredUser, username: "first" },
+		);
+		await settle();
+		// The leave event waits: nobody has been told anything yet.
+		expect(eventTypes()).not.toContain(RoomRequestType.LeaveRequest);
+
+		const second = new JoiningGuest(room.name);
+		clients.push(second);
+		second.token = client.token ?? "test-first";
+		second.session = client.session ?? { isLoggedIn: false, username: "first" };
+		second.joinStatus = ClientJoinStatus.Joined;
+		clientmanager.addClient(second);
+		second.emit("auth", second, second.token, second.session);
+		await vi.waitFor(() => expect(room.getUser(second.id)).toBeDefined());
+		await settle();
+
+		// Neither the leave nor the second join is announced.
+		expect(eventTypes()).not.toContain(RoomRequestType.LeaveRequest);
+		expect(eventTypes().filter(type => type === RoomRequestType.JoinRequest)).toHaveLength(1);
+	});
+
+	it("announces a viewer who really leaves", async () => {
+		const client = authenticate("first");
+		await vi.waitFor(() => expect(room.getUser(client.id)).toBeDefined());
+		vi.mocked(room.publish).mockClear();
+
+		await room.leaveRoom(
+			{ type: RoomRequestType.LeaveRequest },
+			{ clientId: client.id, role: Role.UnregisteredUser, username: "first" },
+		);
+		// The event waits a moment before the room tells the others.
+		await vi.waitFor(
+			() => {
+				const types = vi
+					.mocked(room.publish)
+					.mock.calls.map(
+						call => (call[0] as { request?: { type?: number } }).request?.type,
+					);
+				expect(types).toContain(RoomRequestType.LeaveRequest);
+			},
+			{ timeout: 8000 },
+		);
+	}, 10000);
+
+	it("gives a re-authenticated viewer their new identity without leaving the room", async () => {
+		const client = authenticate("first");
+		await vi.waitFor(() => expect(room.getUser(client.id)).toBeDefined());
+		expect(room.getUser(client.id)?.isLoggedIn).toBe(false);
+		expect(room.getRole(room.getUser(client.id))).toBe(Role.UnregisteredUser);
+
+		// A login rotates the token and turns the guest into an account. The socket
+		// re-authenticates in place, so the viewer keeps their seat and picks up the
+		// new role without a reload.
+		const session: SessionInfo = { isLoggedIn: true, user_id: 4242 };
+		vi.mocked(tokens.getSessionInfo).mockResolvedValue(session);
+		client.session = session;
+		client.emit("reauth", client, "user-token", session);
+		await settle();
+
+		const user = room.getUser(client.id);
+		expect(user?.isLoggedIn).toBe(true);
+		expect(room.getRole(user)).toBe(Role.RegisteredUser);
+		expect(room.realusers).toHaveLength(1);
+		const sent = client.sendRaw.mock.calls.map(([message]) => JSON.parse(message));
+		expect(sent.some(msg => msg.action === "sync")).toBe(true);
 	});
 
 	it("preserves resume intent if the only connecting viewer leaves during identity lookup", async () => {

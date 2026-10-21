@@ -26,6 +26,12 @@ export interface OttRoomConnection {
 
 	connect(roomName: string): void;
 	reconnect(): void;
+	/**
+	 * Tell the server that the identity behind this socket changed (a login rotates the
+	 * token). The server updates the viewer in place, so the room keeps its seat and the
+	 * client picks up its new role.
+	 */
+	reauthenticate(): void;
 	disconnect(): void;
 	send(message: ClientMessage): void;
 	addMessageHandler(action: ServerMessageActionType, handler: (msg: ServerMessage) => void): void;
@@ -215,6 +221,26 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 		this.closeSocket();
 		this.removeWindowListeners();
 		this.roomName.value = "";
+	}
+
+	/**
+	 * Hand the server the current token so it can update this connection's identity.
+	 * A socket that is not connected yet authenticates with the current token anyway, so
+	 * there is nothing to send yet.
+	 */
+	reauthenticate() {
+		if (!this.active.value || !this.connected.value) {
+			return;
+		}
+		const token = window.localStorage.getItem("token");
+		if (!token) {
+			return;
+		}
+		try {
+			this.send({ action: "reauthenticate", token });
+		} catch (err) {
+			console.warn("Could not re-authenticate the room connection", err);
+		}
 	}
 
 	private onOpen() {
@@ -465,6 +491,8 @@ export class OttRoomConnectionMock implements OttRoomConnection {
 	public connect(roomName: string) {}
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: biome migration
 	public reconnect() {}
+	// biome-ignore lint/suspicious/noEmptyBlockStatements: biome migration
+	public reauthenticate() {}
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: biome migration
 	public disconnect() {}
 	public send(message: ClientMessage) {

@@ -17,6 +17,12 @@ export const clientMessageSchema = z.discriminatedUnion("action", [
 		action: z.literal("auth"),
 		token: z.string().max(AUTH_TOKEN_MAX_LENGTH),
 	}),
+	// Re-authentication on an open socket: the identity behind the connection changed
+	// (a login rotates the token), but the viewer stays in the room.
+	z.object({
+		action: z.literal("reauthenticate"),
+		token: z.string().max(AUTH_TOKEN_MAX_LENGTH),
+	}),
 	z.object({
 		action: z.literal("kickme"),
 		reason: z.number().optional(),

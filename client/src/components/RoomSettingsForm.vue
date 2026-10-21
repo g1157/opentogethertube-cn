@@ -313,9 +313,11 @@ import { watch } from "vue";
 import { watchDebounced } from "@vueuse/core";
 import AutoSkipSegmentSettings from "./AutoSkipSegmentSettings.vue";
 import { serverErrorMessage } from "@/util/server-error";
+import { useConnection } from "@/plugins/connection";
 
 const store = useStore();
 const { t } = useI18n();
+const connection = useConnection();
 const granted = useGrants();
 const route = useRoute();
 
@@ -507,6 +509,10 @@ async function claimOwnership() {
 		await API.patch(`/room/${route.params.roomId ?? store.state.room.name}`, {
 			claim: true,
 		});
+		// The room now belongs to this account, but the open socket still carries the
+		// guest identity it joined with. Re-authenticate so the new role takes effect
+		// right away instead of after a reload.
+		connection.reauthenticate();
 		toast.add({
 			style: ToastStyle.Success,
 			content: t("room-settings.now-own-the-room", {
@@ -532,13 +538,22 @@ defineExpose({
 
 <!-- biome-ignore lint/nursery/useScopedStyles: biome migration -->
 <style lang="scss">
-.room-settings .submit {
-	position: -webkit-sticky;
-	position: sticky;
-	bottom: 20px;
+.room-settings {
+	/* The action bar sticks to the bottom of the screen and floats over the form, so the
+	   last rows need room to scroll clear of it. */
+	padding-bottom: 88px;
 
-	.v-btn {
-		margin: 10px 0;
+	.submit {
+		position: -webkit-sticky;
+		position: sticky;
+		bottom: 20px;
+		/* Without a background the form shows through the bar and the last row looks
+		   cut in half. */
+		background: var(--card);
+
+		.v-btn {
+			margin: 10px 0;
+		}
 	}
 }
 

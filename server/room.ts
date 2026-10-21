@@ -114,6 +114,12 @@ const TEMPORARY_PLAYBACK_GESTURE_ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
 const NATIVE_ODYSEE_MIME_REGEX = /video\/mp4|application\/(?:vnd\.apple\.mpegurl|x-mpegURL)/;
 /** How many recent room events stay available for undo. */
 const RECENT_EVENTS_LIMIT = 20;
+/**
+ * How long a leave event waits before it is published. A viewer who refreshes the page
+ * or whose connection drops for a moment comes back within this window, and the room
+ * should not announce that they left and returned.
+ */
+const LEAVE_EVENT_GRACE_MS = 5000;
 
 /**
  * Represents a User from the Room's perspective.
@@ -311,6 +317,14 @@ export class Room implements RoomState {
 	 * 15s paused / 30s playing loop for as long as they stay.
 	 */
 	private bufferGateExhausted: Set<ClientId> = new Set();
+	/**
+	 * A viewer that refreshes the page or loses the network for a moment should not look
+	 * like they left and came back: the room would show "X left" and "X joined" to
+	 * everyone else. The leave event waits a moment, and a join with the same session
+	 * token cancels it. The user list itself is not delayed: the viewer disappears from
+	 * it right away and the event is only the notification.
+	 */
+	private pendingLeaveEvents = new Map<AuthToken, ReturnType<typeof setTimeout>>();
 	/** Argon2 hash of the room password; null when the room has no password. Never synced. */
 	passwordHash: string | null = null;
 
@@ -861,12 +875,23 @@ export class Room implements RoomState {
 		request: RoomRequest,
 		context: RoomRequestContext,
 		additional?: RoomEventContext,
+		knownUser?: RoomUserInfo,
 	): Promise<void> {
 		if (context.clientId === undefined) {
 			this.log.warn("context.clientId was undefined, not publishing event");
 			return;
 		}
-		const user = this.getUserInfo(context.clientId);
+		// A delayed event outlives the viewer it is about, so it carries the user info
+		// with it instead of looking it up again.
+		let user = knownUser;
+		if (!user) {
+			try {
+				user = this.getUserInfo(context.clientId);
+			} catch {
+				this.log.warn("Could not find the client for a room event, not publishing");
+				return;
+			}
+		}
 		const message: ServerMessageEvent = {
 			action: "event",
 			request,
@@ -1289,6 +1314,11 @@ export class Room implements RoomState {
 
 	public async onBeforeUnload(): Promise<void> {
 		this.endTemporaryPlaybackSpeed();
+		// A room that goes away must not publish a leave event afterwards.
+		for (const timer of this.pendingLeaveEvents.values()) {
+			clearTimeout(timer);
+		}
+		this.pendingLeaveEvents.clear();
 		if (!this.isTemporary) {
 			// A preparation belongs to a connection, but its paused resume intent may survive in Redis.
 			this.pausePlaybackClock();
@@ -1905,10 +1935,71 @@ export class Room implements RoomState {
 			this.prepareEmptyRoomPlayback();
 		}
 		this.log.info(`${user.username} joined the room`);
-		await this.publishRoomEvent(request, context);
+		// A refresh or a short network drop reconnects with the same session token. That
+		// is a resume, not a new arrival: nobody needs to be told that the viewer left
+		// and came back.
+		const resumed = this.noteJoin(context.auth?.token, user.id);
+		if (!resumed) {
+			await this.publishRoomEvent(request, context);
+		}
 		// The joining client receives the authoritative position directly from the client
 		// manager after this request; publishing it here would seek every other viewer.
 		await this.syncUser(this.getUserInfo(user.id));
+	}
+
+	/**
+	 * Remember a session that just joined and cancel a leave event that is still
+	 * waiting for it. Returns true when the join continues an earlier session.
+	 */
+	private noteJoin(token?: AuthToken, clientId?: ClientId): boolean {
+		if (!token) {
+			return false;
+		}
+		const pending = this.pendingLeaveEvents.get(token);
+		if (pending) {
+			// The viewer left a moment ago and is already back: that was a refresh or a
+			// network blip, not a departure.
+			clearTimeout(pending);
+			this.pendingLeaveEvents.delete(token);
+			return true;
+		}
+		// Another tab of the same browser is already in the room; the session did not
+		// arrive, so there is nothing to announce.
+		return this.sessionInRoom(token, clientId);
+	}
+
+	/** Whether a session (browser tab or login) still has a connection in this room. */
+	private sessionInRoom(token: AuthToken, except?: ClientId): boolean {
+		return this.realusers.some(user => user.token === token && user.id !== except);
+	}
+
+	/**
+	 * Publish the leave event, unless the viewer is about to come back.
+	 */
+	private async publishLeaveEvent(
+		request: LeaveRequest,
+		context: RoomRequestContext,
+		user: RoomUserInfo,
+		token?: AuthToken,
+	): Promise<void> {
+		if (!token) {
+			await this.publishRoomEvent(request, context, { user });
+			return;
+		}
+		if (this.sessionInRoom(token, context.clientId)) {
+			// The session is still here (a refresh or a second tab): nobody left.
+			return;
+		}
+		const timer = setTimeout(() => {
+			this.pendingLeaveEvents.delete(token);
+			if (this.sessionInRoom(token)) {
+				// They came back while the event was waiting.
+				return;
+			}
+			void this.publishRoomEvent(request, context, { user }, user);
+		}, LEAVE_EVENT_GRACE_MS);
+		timer.unref?.();
+		this.pendingLeaveEvents.set(token, timer);
 	}
 
 	public async leaveRoom(request: LeaveRequest, context: RoomRequestContext): Promise<void> {
@@ -1919,8 +2010,14 @@ export class Room implements RoomState {
 			this.endTemporaryPlaybackSpeed();
 		}
 		const removed = this.getUserInfo(context.clientId);
-		// We must publish the event before removing the user, otherwise publishing the event will fail because the user is gone.
-		await this.publishRoomEvent(request, context, { user: removed });
+		// The event waits a moment: a viewer who refreshes the page or whose network
+		// blips comes straight back, and nobody needs to be told that they left.
+		await this.publishLeaveEvent(
+			request,
+			context,
+			removed,
+			this.getUser(context.clientId)?.token,
+		);
 
 		if (this.enableVoteSkip) {
 			this.votesToSkip.delete(context.clientId);
