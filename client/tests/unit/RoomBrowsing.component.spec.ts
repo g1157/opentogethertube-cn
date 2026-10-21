@@ -190,6 +190,18 @@ describe("Room browsing", () => {
 		expect(wrapper.find('[data-cy="room-video-title"]').exists()).toBe(false);
 	});
 
+	it("opens the permanent room form from the owned-rooms page", async () => {
+		// The page only lists permanent rooms, so its button must not create a temporary one.
+		API.get.mockResolvedValueOnce({ data: { success: true, data: [] } });
+		const { wrapper, store } = mountOwnedRooms();
+		await flushPromises();
+
+		expect(store.state.misc.showCreateRoomForm).toBe(false);
+		await wrapper.get('[data-cy="rooms-empty"] button').trigger("click");
+		expect(store.state.misc.showCreateRoomForm).toBe(true);
+		expect(API.post).not.toHaveBeenCalled();
+	});
+
 	it("does not offer permanent deletion for a temporary-room item", async () => {
 		API.get.mockResolvedValueOnce({
 			data: { success: true, data: [room({ isTemporary: true })] },

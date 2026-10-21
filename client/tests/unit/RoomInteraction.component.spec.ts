@@ -631,6 +631,21 @@ describe("room player interactions", () => {
 		expect(page.store.state.room.isPlaying).toBe(true);
 	});
 
+	it("stops offering to join a video that already ended", async () => {
+		installPlayer();
+		page.store.commit("PLAYBACK_STATUS", PlayerStatus.ready);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(page.wrapper.find('[data-cy="join-playback"]').exists()).toBe(true);
+
+		// The room keeps saying "playing" when the server never learned the video's length
+		// (a failed probe, anti-hotlink hosts). Asking the viewer to join it would only
+		// replay the last frame over and over.
+		page.wrapper.findComponent({ name: "OmniPlayer" }).vm.$emit("end");
+		await nextTick();
+		await vi.advanceTimersByTimeAsync(3000);
+		expect(page.wrapper.find('[data-cy="join-playback"]').exists()).toBe(false);
+	});
+
 	it("clears a blocked state on actual playback and ignores a later rejection", async () => {
 		const media = installPlayer();
 		// Every automatic attempt is rejected until a gesture, exactly like a browser.

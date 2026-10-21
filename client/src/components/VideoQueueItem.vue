@@ -94,19 +94,26 @@
 						<span>{{ $t("video.add-explanation") }}</span>
 					</v-tooltip>
 				</v-btn>
-				<v-btn
-					icon
-					variant="flat"
-					:loading="isLoadingAdd"
-					v-if="!isPreview && store.state.room.queueMode !== QueueMode.Dj"
-					:disabled="!granted('manage-queue.remove')"
-					@click="removeFromQueue"
-					:aria-label="$t('common.remove')"
-					data-cy="btn-remove-from-queue"
-				>
-					<v-icon v-if="hasError" :icon="mdiExclamation" />
-					<v-icon v-else :icon="mdiTrashCan" />
-				</v-btn>
+				<v-tooltip location="top" :disabled="granted('manage-queue.remove')">
+					<template #activator="{ props: tipProps }">
+						<span v-bind="tipProps" class="queue-action-hint">
+							<v-btn
+								icon
+								variant="flat"
+								:loading="isLoadingAdd"
+								v-if="!isPreview && store.state.room.queueMode !== QueueMode.Dj"
+								:disabled="!granted('manage-queue.remove')"
+								@click="removeFromQueue"
+								:aria-label="$t('common.remove')"
+								data-cy="btn-remove-from-queue"
+							>
+								<v-icon v-if="hasError" :icon="mdiExclamation" />
+								<v-icon v-else :icon="mdiTrashCan" />
+							</v-btn>
+						</span>
+					</template>
+					{{ $t("video-queue-item.remove-needs-account") }}
+				</v-tooltip>
 				<v-menu
 					v-model="menuOpen"
 					location="bottom end"
@@ -569,6 +576,11 @@ watchEffect(() => {
 
 	> * {
 		display: flex;
+	}
+
+	/* The disabled remove button needs a wrapper to carry its tooltip. */
+	.queue-action-hint {
+		display: inline-flex;
 	}
 
 	.meta-container {

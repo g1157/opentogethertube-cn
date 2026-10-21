@@ -20,6 +20,7 @@ export default {
 		"skip-content": "跳到内容",
 		more: "更多",
 		language: "语言",
+		"partial-translation": "部分翻译",
 		yes: "是",
 		no: "否",
 		ok: "确定",
@@ -579,6 +580,7 @@ export default {
 	"video-queue-item": {
 		experimental: "此服务为实验性支持！预计会经常出问题。",
 		"media-access-warning": "源站只放行来自站内的请求，这里可能无法播放。",
+		"remove-needs-account": "移除队列项需要登录账号，或由房主移除。",
 		"play-next": "下一个播放",
 		"play-last": "最后播放",
 		"probe-series": "探测同剧集",

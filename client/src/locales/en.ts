@@ -21,6 +21,7 @@ export default {
 		"skip-content": "Skip to content",
 		more: "More",
 		language: "Language",
+		"partial-translation": "Partially translated",
 		yes: "Yes",
 		no: "No",
 		ok: "OK",
@@ -599,6 +600,8 @@ export default {
 		experimental: "Experimental support for this service! Expect it to break a lot.",
 		"media-access-warning":
 			"This host only accepts requests that come from its own site, so it may not play here.",
+		"remove-needs-account":
+			"Removing a queue item needs a registered account, or the room owner's permission.",
 		"play-next": "Play Next",
 		"play-last": "Play Last",
 		"probe-series": "Find episodes in this series",

@@ -18,7 +18,14 @@
 		item-title="text"
 		:items="locales"
 		v-model="locale"
-	/>
+	>
+		<template #item="{ props: itemProps, item }">
+			<v-list-item
+				v-bind="itemProps"
+				:subtitle="item.raw.partial ? $t('common.partial-translation') : undefined"
+			/>
+		</template>
+	</v-select>
 </template>
 
 <script lang="ts" setup>
@@ -27,34 +34,43 @@ import { useRoute } from "vue-router";
 import { loadLanguageAsync } from "@/i18n";
 import { useStore } from "@/store";
 
+// English and Simplified Chinese are complete; the other translations only cover a part of
+// the interface, which the menu says out loud instead of pretending otherwise.
 const locales = [
 	{
 		text: "English",
 		value: "en",
+		partial: false,
 	},
 	{
 		text: "Deutsch",
 		value: "de",
+		partial: true,
 	},
 	{
 		text: "Français",
 		value: "fr",
+		partial: true,
 	},
 	{
 		text: "Русский",
 		value: "ru",
+		partial: true,
 	},
 	{
 		text: "Español",
 		value: "es",
+		partial: true,
 	},
 	{
 		text: "Português",
 		value: "pt-br",
+		partial: true,
 	},
 	{
 		text: "简体中文",
 		value: "zh-CN",
+		partial: false,
 	},
 ];
 

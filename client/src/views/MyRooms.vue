@@ -10,10 +10,9 @@
 				color="primary"
 				variant="flat"
 				:prepend-icon="mdiPlus"
-				:loading="isCreating"
-				@click="createTempRoom"
+				@click="openCreateRoomForm"
 			>
-				{{ $t("room-list.create") }}
+				{{ $t("nav.create.perm") }}
 			</v-btn>
 		</PageHeader>
 
@@ -41,10 +40,9 @@
 				size="large"
 				variant="flat"
 				:prepend-icon="mdiPlus"
-				:loading="isCreating"
-				@click="createTempRoom"
+				@click="openCreateRoomForm"
 			>
-				{{ $t("room-list.create") }}
+				{{ $t("nav.create.perm") }}
 			</v-btn>
 		</div>
 		<ul v-else class="owned-room-list">
@@ -155,10 +153,8 @@ import { API } from "@/common-http";
 import PageHeader from "@/components/PageHeader.vue";
 import RoomCardSkeleton from "@/components/RoomCardSkeleton.vue";
 import { useStore } from "@/store";
-import { createRoomHelper } from "@/util/roomcreator";
 
 const isLoading = ref(false);
-const isCreating = ref(false);
 const loadFailed = ref(false);
 const rooms = ref<RoomListItem[]>([]);
 const store = useStore();
@@ -190,18 +186,9 @@ async function loadRooms() {
 	}
 }
 
-async function createTempRoom() {
-	if (isCreating.value) {
-		return;
-	}
-	isCreating.value = true;
-	try {
-		await createRoomHelper(store);
-	} catch {
-		// The shared helper reports creation failures through the application's toast.
-	} finally {
-		isCreating.value = false;
-	}
+/** This page only lists permanent rooms, so its button opens the permanent room form. */
+function openCreateRoomForm() {
+	store.commit("misc/SET_CREATE_ROOM_FORM", true);
 }
 
 function openDeleteDialog(room: RoomListItem) {

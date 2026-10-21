@@ -402,8 +402,8 @@
 							</v-list-item>
 						</v-card>
 					</div>
-					<UserList :users="Array.from(store.state.users.users.values())" />
 					<ShareInvite />
+					<UserList :users="Array.from(store.state.users.users.values())" />
 				</div>
 			</div>
 		</v-container>
@@ -618,6 +618,11 @@ export default defineComponent({
 		const granted = useGrants();
 		const { available: danmakuAvailable } = useDanmaku();
 		const mediaPlaybackBlocked = ref(false);
+		// A source whose length the server never learned (a failed probe, anti-hotlink
+		// hosts) is never dequeued, so the room keeps saying "playing" after the video
+		// ended. Without this the "join playback" prompt comes back every few seconds,
+		// on top of a video that is still running.
+		const mediaEnded = ref(false);
 		const pendingLocalSeek = ref(false);
 		/** Where the in-flight seek is headed: rapid key presses stack from it, and the
 		 * progress bar shows it at once instead of waiting out the round trip. */
@@ -742,6 +747,9 @@ export default defineComponent({
 				store.state.playerStatus !== PlayerStatus.error &&
 				!localPlaying.value &&
 				!pendingLocalSeek.value &&
+				// An ended video is not "playing but not joined": asking the viewer to join
+				// it would only replay the last frame over and over.
+				!mediaEnded.value &&
 				// A latched autoplay rejection must always keep its manual exit visible,
 				// even while a preparation is priming or the player is still loading.
 				(mediaPlaybackBlocked.value ||
@@ -1405,6 +1413,7 @@ export default defineComponent({
 		let mediaEndedTimer: ReturnType<typeof setTimeout> | undefined;
 		function onMediaEnded() {
 			mediaEndedRecently.value = true;
+			mediaEnded.value = true;
 			clearTimeout(mediaEndedTimer);
 			mediaEndedTimer = setTimeout(() => {
 				mediaEndedRecently.value = false;
@@ -1415,6 +1424,7 @@ export default defineComponent({
 			localMediaState.value = state;
 			mediaFrameVersion++;
 			mediaEndedRecently.value = false;
+			mediaEnded.value = false;
 			void playbackPreparation.tick();
 		}
 
@@ -2422,7 +2432,9 @@ $in-video-chat-width-small: 250px;
 .tab-text {
 	margin: 0 8px;
 
-	@media (max-width: variables.$sm-max) {
+	/* Below the phone breakpoint the tabs are icon only; the name stays in the aria-label
+	   so screen readers still announce them. */
+	@media (max-width: variables.$phone-max) {
 		display: none;
 	}
 }
@@ -2609,6 +2621,27 @@ $in-video-chat-width-small: 250px;
 
 	@media screen and (max-width: variables.$sm-max) {
 		flex-direction: column;
+	}
+
+	/* One column on narrow screens: the invite link is the first thing a fresh room
+	   needs, so it goes straight under the player instead of below the queue panel. */
+	@media screen and (max-width: variables.$sm-max) {
+		.user-invite-container {
+			display: contents;
+		}
+
+		.share-invite {
+			order: 1;
+			width: 100%;
+		}
+
+		.under-video-tabs {
+			order: 2;
+		}
+
+		.user-list {
+			order: 3;
+		}
 	}
 }
 

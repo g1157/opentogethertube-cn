@@ -300,7 +300,10 @@ const App = defineComponent({
 			{ immediate: true },
 		);
 
-		const showCreateRoomForm = ref(false);
+		const showCreateRoomForm = computed({
+			get: () => store.state.misc.showCreateRoomForm,
+			set: (value: boolean) => store.commit("misc/SET_CREATE_ROOM_FORM", value),
+		});
 		const showLogin = ref(false);
 		const drawer = ref(false);
 		const showCreateMenu = ref(false);
@@ -356,6 +359,7 @@ const App = defineComponent({
 		};
 		const createPermanentRoom = () => {
 			drawer.value = false;
+			showCreateMenu.value = false;
 			showCreateRoomForm.value = true;
 		};
 		const openLogin = () => {

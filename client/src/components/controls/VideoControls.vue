@@ -57,7 +57,7 @@ import PictureInPictureButton from "./PictureInPictureButton.vue";
 import { computed, inject, onMounted, onUnmounted, ref, watch } from "vue";
 import { useMediaQuery, useResizeObserver } from "@vueuse/core";
 import { PlayerControlsActivityKey } from "@/util/player-controls";
-import { PHONE_MAX_QUERY } from "@/util/breakpoints";
+import { COMPACT_CONTROLS_MAX_QUERY } from "@/util/breakpoints";
 import { useStore } from "@/store";
 
 const emit = defineEmits(["show-shortcuts", "show-stats", "resize"]);
@@ -70,7 +70,7 @@ useResizeObserver(controlsBar, entries => {
 });
 const controls = inject(PlayerControlsActivityKey, undefined);
 const store = useStore();
-const mobilePortrait = useMediaQuery(`${PHONE_MAX_QUERY} and (orientation: portrait)`);
+const mobilePortrait = useMediaQuery(`${COMPACT_CONTROLS_MAX_QUERY} and (orientation: portrait)`);
 const compact = computed(() => mobilePortrait.value && !store.state.fullscreen);
 const hoverKey = Symbol("player:hover");
 const dragKey = Symbol("player:drag");
@@ -208,6 +208,20 @@ $media-control-background: var(--v-theme-media-control-background, (0, 0, 0));
 	&.compact-controls {
 		padding: 6px 8px;
 		min-height: 0;
+	}
+}
+
+/*
+ * On 320px screens the compact row did not fit: the fullscreen button wrapped onto a
+ * second line and the control bar covered a quarter of the picture. The duration next
+ * to the position is the part that can go.
+ */
+@media (max-width: 360px) {
+	.video-controls {
+		.video-length,
+		.video-length-separator {
+			display: none;
+		}
 	}
 }
 </style>

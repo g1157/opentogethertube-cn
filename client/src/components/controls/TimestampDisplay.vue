@@ -6,7 +6,7 @@
 			:value-formatter="secondsToTimestamp"
 			:value-parser="timestampToSeconds"
 		/>
-		<span>/</span>
+		<span class="video-length-separator">/</span>
 		<span class="video-length">
 			{{ lengthDisplay }}
 		</span>

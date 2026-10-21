@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ref } from "vue";
 import BasicControls from "@/components/controls/BasicControls.vue";
 import Room from "@/views/Room.vue";
@@ -68,6 +68,32 @@ describe("player control labels", () => {
  * have to carry their name in an attribute instead.
  */
 describe("room tab names", () => {
+	beforeEach(() => {
+		const saved = new Map<string, string>();
+		vi.stubGlobal("localStorage", {
+			getItem: (key: string) => saved.get(key) ?? null,
+			setItem: (key: string, value: string) => saved.set(key, String(value)),
+			removeItem: (key: string) => saved.delete(key),
+			clear: () => saved.clear(),
+			key: (index: number) => Array.from(saved.keys())[index] ?? null,
+			get length() {
+				return saved.size;
+			},
+		});
+		localStorage.setItem("token", "component-test-token");
+		vi.stubGlobal("matchMedia", () => ({
+			matches: false,
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+		}));
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
 	it("names the queue, add and settings tabs", () => {
 		const page = mountComponent(Room, {
 			global: {
