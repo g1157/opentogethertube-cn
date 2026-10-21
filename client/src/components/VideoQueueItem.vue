@@ -5,6 +5,7 @@
 				:src="thumbnailSource"
 				:lazy-src="placeholderUrl"
 				aspect-ratio="1.8"
+				alt=""
 				@error="onThumbnailError"
 			>
 				<span

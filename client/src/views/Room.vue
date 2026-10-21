@@ -292,7 +292,7 @@
 			<div class="under-video-grid" v-show="!store.state.fullscreen">
 				<div class="under-video-tabs">
 					<v-tabs fixed-tabs v-model="queueTab" color="primary">
-						<v-tab>
+						<v-tab :aria-label="$t('room.tabs.queue')">
 							<v-icon :icon="mdiFormatListBulleted" />
 							<span class="tab-text">{{ $t("room.tabs.queue") }}</span>
 							<v-chip size="x-small" class="room-tab-count">
@@ -306,15 +306,19 @@
 								}}
 							</v-chip>
 						</v-tab>
-						<v-tab>
+						<v-tab :aria-label="$t('common.add')">
 							<v-icon :icon="mdiPlus" />
 							<span class="tab-text">{{ $t("common.add") }}</span>
 						</v-tab>
-						<v-tab>
+						<v-tab :aria-label="$t('room.tabs.settings')">
 							<v-icon :icon="mdiWrench" />
 							<span class="tab-text">{{ $t("room.tabs.settings") }}</span>
 						</v-tab>
-						<v-tab v-if="showNotesTabButton" data-cy="notes-tab">
+						<v-tab
+							v-if="showNotesTabButton"
+							data-cy="notes-tab"
+							:aria-label="$t('room.tabs.notes')"
+						>
 							<v-icon :icon="mdiNoteTextOutline" />
 							<span class="tab-text">{{ $t("room.tabs.notes") }}</span>
 							<v-chip size="x-small" class="room-tab-count">{{ notesCount }}</v-chip>

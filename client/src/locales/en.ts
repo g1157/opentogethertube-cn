@@ -225,8 +225,8 @@ export default {
 	room: {
 		"title-temp": "Temporary Room",
 		"kick-me": "Kick me",
-		rewind: "Rewind 10s",
-		skip: "Skip 10s",
+		rewind: "Rewind {seconds}s",
+		skip: "Skip {seconds}s",
 		"play-pause": "Play/Pause",
 		"next-video": "Next video",
 		"next-video-vote": "Vote to skip video",
@@ -963,6 +963,7 @@ export default {
 	},
 	player: {
 		"now-playing": "Now playing",
+		progress: "Playback position",
 		settings: {
 			disabled: "Unavailable",
 			unknown: "Unknown",

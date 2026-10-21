@@ -61,6 +61,7 @@
 						</template>
 						<v-list role="menu" width="320" max-width="90vw">
 							<NavCreateRoom
+								menu-role="menuitem"
 								@createtemp="createTempRoom"
 								@createperm="createPermanentRoom"
 							/>
@@ -114,7 +115,13 @@
 				</div>
 			</div>
 		</v-app-bar>
-		<v-navigation-drawer v-model="drawer" class="nav-drawer" temporary :width="300">
+		<v-navigation-drawer
+			v-model="drawer"
+			class="nav-drawer"
+			temporary
+			:width="300"
+			:inert="!drawer"
+		>
 			<div class="drawer-heading">
 				<span class="label-mono">{{ $t("common.nav-menu") }}</span
 				><v-btn icon variant="text" :aria-label="$t('common.close')" @click="drawer = false"

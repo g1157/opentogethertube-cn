@@ -5,6 +5,7 @@
 	     The data-player-shortcuts marker keeps it out of the shortcuts' focus guard. -->
 	<vue-slider
 		id="videoSlider"
+		ref="slider"
 		:interval="0.1"
 		:lazy="true"
 		:model-value="currentPosition"
@@ -32,7 +33,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, type Ref, onMounted, onUpdated, computed, inject } from "vue";
+import { ref, type Ref, onMounted, onUpdated, computed, inject, nextTick } from "vue";
 import VueSlider from "vue-slider-component";
 import { useStore } from "@/store";
 import { secondsToTimestamp } from "@/util/timestamp";
@@ -40,6 +41,7 @@ import { resolveVideoLength } from "@/util/video-length";
 import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
 import { PlayerActionsKey } from "@/util/player-actions";
+import { useI18n } from "vue-i18n";
 import "vue-slider-component/theme/default.css";
 import "./slider-tweaks.scss";
 import { useGrants } from "../composables/grants";
@@ -57,6 +59,24 @@ const store = useStore();
 const roomapi = useRoomApi(useConnection());
 const granted = useGrants();
 const actions = inject(PlayerActionsKey, undefined);
+
+/**
+ * vue-slider renders its own `role="slider"` handle and forwards no label to it, so a
+ * screen reader announces an unnamed slider. The library has no prop for it, so the
+ * attribute is set on the handle once it exists.
+ */
+const slider = ref<{ $el?: HTMLElement } | null>(null);
+const { t } = useI18n();
+
+function labelSliderHandle(): void {
+	const handle = slider.value?.$el?.querySelector?.(".vue-slider-dot");
+	if (handle && !handle.getAttribute("aria-label")) {
+		handle.setAttribute("aria-label", t("player.progress"));
+	}
+}
+
+onMounted(() => nextTick(labelSliderHandle));
+onUpdated(labelSliderHandle);
 
 /** The length the slider runs on: the server's value, or the locally measured duration when
  * the source's metadata probe failed (see resolveVideoLength). */

@@ -221,8 +221,8 @@ export default {
 	room: {
 		"title-temp": "临时房间",
 		"kick-me": "踢出我",
-		rewind: "后退 10 秒",
-		skip: "前进 10 秒",
+		rewind: "后退 {seconds} 秒",
+		skip: "前进 {seconds} 秒",
 		"play-pause": "播放/暂停",
 		"next-video": "下一个视频",
 		"next-video-vote": "投票跳过视频",
@@ -920,6 +920,7 @@ export default {
 	},
 	player: {
 		"now-playing": "正在播放",
+		progress: "播放进度",
 		settings: {
 			disabled: "不可用",
 			unknown: "未知",

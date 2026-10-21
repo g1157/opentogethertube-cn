@@ -1,5 +1,5 @@
 <template>
-	<v-list-item role="menuitem" @click="$emit('createtemp')">
+	<v-list-item :role="menuRole" @click="$emit('createtemp')">
 		<template #prepend>
 			<v-icon :icon="mdiPlusBox" />
 		</template>
@@ -8,7 +8,7 @@
 			{{ $t("nav.create.temp-desc") }}
 		</v-list-item-subtitle>
 	</v-list-item>
-	<v-list-item role="menuitem" @click="$emit('createperm')">
+	<v-list-item :role="menuRole" @click="$emit('createperm')">
 		<template #prepend>
 			<v-icon :icon="mdiPlusBox" />
 		</template>
@@ -21,6 +21,19 @@
 
 <script lang="ts" setup>
 import { mdiPlusBox } from "@mdi/js";
+/**
+ * The items live in two different parents: a `role="menu"` dropdown and the navigation
+ * drawer. A `menuitem` is only valid inside a menu, so the role is opt-in and the drawer
+ * leaves it out (its list is a plain navigation list).
+ */
+withDefaults(
+	defineProps<{
+		menuRole?: string;
+	}>(),
+	{
+		menuRole: undefined,
+	},
+);
 defineEmits(["createtemp", "createperm"]);
 </script>
 

@@ -13,6 +13,7 @@
 					ref="inviteLinkText"
 					:value="inviteLink"
 					:title="inviteLink"
+					:aria-label="$t('share-invite.title')"
 					:append-icon="mdiClipboardOutline"
 					:messages="copySuccess ? $t('share-invite.copied') : ''"
 					@focus="onFocusHighlightText"

@@ -1092,19 +1092,20 @@ function closeMenu(): void {
 }
 
 /*
- * The tiers share one row: each button takes an equal share and wraps its own
- * label ("AI 超分（质量）" breaks after the tier name) rather than truncating it,
- * which is why the row stays legible at the menu's 320px width.
+ * The tiers share a 3x2 grid: six tiers in one row inside a 300px menu squeezed every
+ * label into a vertical column of single characters. A grid keeps each label readable
+ * ("AI 超分（质量）" wraps after the tier name) without truncating it.
  */
 .upscale-tiers {
-	display: flex;
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 4px;
 	width: 100%;
 	/* Vuetify's compact density pins the group to a fixed 36px with overflow-y: hidden, while the
 	   buttons below are min-height 40px and their labels wrap, so the row used to clip them. */
 	height: auto !important;
 
 	.v-btn {
-		flex: 1 1 0;
 		min-width: 0;
 		height: auto;
 		min-height: 40px;
@@ -1113,7 +1114,7 @@ function closeMenu(): void {
 	}
 
 	/* Vuetify keeps the label on one line inside the content wrapper; letting it
-	   wrap there is what keeps the four tiers inside the 320px menu. */
+	   wrap there is what keeps the tiers legible inside the menu. */
 	.v-btn__content {
 		white-space: normal;
 		text-align: center;

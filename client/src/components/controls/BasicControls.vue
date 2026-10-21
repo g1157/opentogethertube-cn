@@ -4,14 +4,14 @@
 			v-if="!compact"
 			variant="text"
 			icon
-			@click="seekDelta(-10)"
+			@click="seekDelta(-seekStep)"
 			:disabled="!granted('playback.seek')"
 			class="media-control"
-			:aria-label="$t('room.rewind')"
+			:aria-label="$t('room.rewind', { seconds: seekStep })"
 		>
 			<v-icon :icon="mdiChevronLeft" />
 			<v-tooltip activator="parent" location="bottom">
-				<span>{{ $t("room.rewind") }}</span>
+				<span>{{ $t("room.rewind", { seconds: seekStep }) }}</span>
 			</v-tooltip>
 		</v-btn>
 		<v-btn
@@ -39,15 +39,15 @@
 		<v-btn
 			variant="text"
 			icon
-			@click="seekDelta(10)"
+			@click="seekDelta(seekStep)"
 			v-if="!compact"
 			:disabled="!granted('playback.seek')"
 			class="media-control"
-			:aria-label="$t('room.skip')"
+			:aria-label="$t('room.skip', { seconds: seekStep })"
 		>
 			<v-icon :icon="mdiChevronRight" />
 			<v-tooltip activator="parent" location="bottom">
-				<span>{{ $t("room.skip") }}</span>
+				<span>{{ $t("room.skip", { seconds: seekStep }) }}</span>
 			</v-tooltip>
 		</v-btn>
 		<v-btn
@@ -103,6 +103,9 @@ const roomapi = useRoomApi(useConnection());
 const granted = useGrants();
 const actions = inject(PlayerActionsKey, undefined);
 const needsLocalPlayback = computed(() => actions?.playbackBlocked.value ?? false);
+// The arrow keys, the swipe gesture and these buttons share one step, so the label and
+// the actual jump always agree.
+const seekStep = computed(() => store.state.settings.seekSeconds);
 
 // Setup Media Session API handlers for the controls in PiP
 onMounted(() => {

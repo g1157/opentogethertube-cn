@@ -1,5 +1,5 @@
 <template>
-	<v-dialog v-model="show" width="600" scrollable>
+	<v-dialog v-model="show" width="600" scrollable :aria-label="$t('client-settings.title')">
 		<template v-slot:activator="{ props }">
 			<v-btn v-bind="props" style="margin: 0 20px">
 				{{ $t("client-settings.activator") }}
@@ -85,6 +85,7 @@
 				/>
 				<v-slider
 					:label="$t('client-settings.audio-boost')"
+					:aria-label="$t('client-settings.audio-boost')"
 					:hint="audioBoostHint"
 					:disabled="isAudioBoostUnsupported"
 					persistent-hint
@@ -99,6 +100,7 @@
 				</v-slider>
 				<v-slider
 					:label="$t('client-settings.sfx-volume')"
+					:aria-label="$t('client-settings.sfx-volume')"
 					v-model="settings.sfxVolume"
 					v-if="settings.sfxEnabled"
 					min="0"
