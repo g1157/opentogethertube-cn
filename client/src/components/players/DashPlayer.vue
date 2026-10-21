@@ -446,6 +446,8 @@ function loadVideoSource(resumePosition: number | null = null, resetRecovery = t
 				bufferTimeDefault: store.state.settings.hlsBufferSeconds,
 				bufferTimeAtTopQuality: store.state.settings.hlsBufferSeconds,
 				bufferTimeAtTopQualityLongForm: store.state.settings.hlsBufferSeconds,
+				// Keep the same rewind depth as HLS (dash.js defaults to 30s).
+				bufferToKeep: 180,
 			},
 			abr: {
 				// A device that cannot decode the current rendition cleanly keeps dropping

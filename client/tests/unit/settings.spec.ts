@@ -42,6 +42,8 @@ describe("saved settings and default migrations", () => {
 			defaultThemeVersion: "v1.3.11",
 			defaultDanmakuDensityVersion: "v1.4.2",
 			defaultSeekSecondsVersion: "v1.4.2",
+			defaultHlsBufferVersion: "v1.4.10",
+			hlsBufferSeconds: 300,
 			sfxEnabled: false,
 			danmakuEnabled: false,
 		});
@@ -61,7 +63,7 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.presenceNoticeSeconds).toBe(1);
 		expect(store.state.settings.seekNoticeSeconds).toBe(1);
 		expect(store.state.settings.controlsHideSeconds).toBe(3);
-		expect(store.state.settings.hlsBufferSeconds).toBe(120);
+		expect(store.state.settings.hlsBufferSeconds).toBe(300);
 		expect(store.state.settings.danmakuOpacity).toBe(0.6);
 	});
 
@@ -203,7 +205,7 @@ describe("saved settings and default migrations", () => {
 			presenceNoticeSeconds: 0,
 			seekNoticeSeconds: 2,
 			controlsHideSeconds: 10,
-			hlsBufferSeconds: 120,
+			hlsBufferSeconds: 600,
 		});
 		const nextVisit = newStore();
 		await nextVisit.dispatch("settings/load");
@@ -211,7 +213,19 @@ describe("saved settings and default migrations", () => {
 		expect(nextVisit.state.settings.presenceNoticeSeconds).toBe(0);
 		expect(nextVisit.state.settings.seekNoticeSeconds).toBe(2);
 		expect(nextVisit.state.settings.controlsHideSeconds).toBe(10);
-		expect(nextVisit.state.settings.hlsBufferSeconds).toBe(120);
+		expect(nextVisit.state.settings.hlsBufferSeconds).toBe(600);
+	});
+
+	it("moves the shipped buffer target to 300 seconds once and keeps a chosen one", async () => {
+		saved.set("settings", JSON.stringify({ hlsBufferSeconds: 120 }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.hlsBufferSeconds).toBe(300);
+
+		saved.set("settings", JSON.stringify({ hlsBufferSeconds: 60 }));
+		const picked = newStore();
+		await picked.dispatch("settings/load");
+		expect(picked.state.settings.hlsBufferSeconds).toBe(60);
 	});
 
 	it.each([
@@ -236,7 +250,7 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.presenceNoticeSeconds).toBe(1);
 		expect(store.state.settings.seekNoticeSeconds).toBe(1);
 		expect(store.state.settings.controlsHideSeconds).toBe(3);
-		expect(store.state.settings.hlsBufferSeconds).toBe(120);
+		expect(store.state.settings.hlsBufferSeconds).toBe(300);
 	});
 
 	it("moves the shipped notice durations to the shortest tier once", async () => {

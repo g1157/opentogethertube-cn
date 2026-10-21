@@ -68,16 +68,16 @@ interface Props {
 }
 
 /** Forward buffer while the tab is hidden; the picture nobody is watching needs less. */
-const HIDDEN_TAB_BUFFER_SECONDS = 30;
+const HIDDEN_TAB_BUFFER_SECONDS = 60;
 /** How far past the buffer target hls.js may grow while the connection and memory allow. */
-const MAX_BUFFER_MULTIPLIER = 4;
+const MAX_BUFFER_MULTIPLIER = 6;
 /** Ceiling for buffered media. A room stall pauses everyone, so depth is worth the memory. */
-const MAX_BUFFER_BYTES = 150 * 1024 * 1024;
-/** Devices below this much RAM keep hls.js' own default byte budget instead. */
+const MAX_BUFFER_BYTES = 256 * 1024 * 1024;
+/** Devices below this much RAM keep a smaller byte budget. */
 const LOW_MEMORY_DEVICE_GB = 4;
-const LOW_MEMORY_BUFFER_BYTES = 60 * 1024 * 1024;
+const LOW_MEMORY_BUFFER_BYTES = 96 * 1024 * 1024;
 /** Rewinding is part of watching together; hls.js' 30s default is thinner than a room rewind. */
-const BACK_BUFFER_SECONDS = 90;
+const BACK_BUFFER_SECONDS = 180;
 
 const props = defineProps<Props>();
 const { videoUrl, thumbnail, referrerPolicy } = toRefs(props);

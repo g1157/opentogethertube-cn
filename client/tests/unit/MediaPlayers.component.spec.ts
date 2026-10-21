@@ -368,9 +368,9 @@ describe("native and HLS player reliability", () => {
 		expect(engine.config).toEqual({
 			maxBufferLength: DEFAULT_HLS_BUFFER_SECONDS,
 			// The ceiling sits above the target so a fast connection keeps buffering.
-			maxMaxBufferLength: DEFAULT_HLS_BUFFER_SECONDS * 4,
-			maxBufferSize: 150 * 1024 * 1024,
-			backBufferLength: 90,
+			maxMaxBufferLength: DEFAULT_HLS_BUFFER_SECONDS * 6,
+			maxBufferSize: 256 * 1024 * 1024,
+			backBufferLength: 180,
 			// Level selection follows the size the picture is drawn at, not the source ladder.
 			capLevelToPlayerSize: true,
 			// Loading starts where playback begins, not at zero.
@@ -388,7 +388,7 @@ describe("native and HLS player reliability", () => {
 		page.store.commit("settings/UPDATE", { hlsBufferSeconds: changed });
 		await nextTick();
 		expect(engine.config.maxBufferLength).toBe(changed);
-		expect(engine.config.maxMaxBufferLength).toBe(changed * 4);
+		expect(engine.config.maxMaxBufferLength).toBe(changed * 6);
 		expect(hlsMock.instances).toHaveLength(1);
 	});
 

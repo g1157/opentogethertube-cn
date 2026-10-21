@@ -12,9 +12,9 @@ export const SEEK_SECONDS_OPTIONS = [5, 7, 10, 30] as const;
  * the target, not a hard cap: a fast connection keeps loading past it, up to a byte budget
  * that follows the device's memory. 300s is for long films on a stable line.
  */
-export const HLS_BUFFER_SECONDS_OPTIONS = [30, 60, 120, 300] as const;
+export const HLS_BUFFER_SECONDS_OPTIONS = [60, 120, 300, 600] as const;
 /** Default leans deep: a room stall pauses everyone, and the target is not a hard cap. */
-export const DEFAULT_HLS_BUFFER_SECONDS: (typeof HLS_BUFFER_SECONDS_OPTIONS)[number] = 120;
+export const DEFAULT_HLS_BUFFER_SECONDS: (typeof HLS_BUFFER_SECONDS_OPTIONS)[number] = 300;
 /**
  * How many episodes after the current one the add-preview probe may check in a single
  * manual run. The probe only walks forward, so this is the whole request budget.
@@ -193,6 +193,9 @@ const DEFAULT_THEME_VERSION = "v1.3.11";
 // shipped defaults (密集 / 10s) move once, and a value the visitor picked stays theirs.
 const DEFAULT_DANMAKU_DENSITY_VERSION = "v1.4.2";
 const DEFAULT_SEEK_SECONDS_VERSION = "v1.4.2";
+// The buffer target shipped as 120s; that exact value moves once to 300s, while a value
+// the visitor picked themselves (including 60 or 600) stays theirs.
+const DEFAULT_HLS_BUFFER_VERSION = "v1.4.10";
 type StoredSettings = Partial<SettingsState> & {
 	defaultLocaleVersion?: string;
 	defaultSfxVersion?: string;
@@ -203,6 +206,7 @@ type StoredSettings = Partial<SettingsState> & {
 	defaultThemeVersion?: string;
 	defaultDanmakuDensityVersion?: string;
 	defaultSeekSecondsVersion?: string;
+	defaultHlsBufferVersion?: string;
 };
 
 /** Keeps whatever a caller wrote inside the ranges this release understands. */
@@ -319,6 +323,7 @@ function persistSettings(state: SettingsState) {
 				defaultThemeVersion: DEFAULT_THEME_VERSION,
 				defaultDanmakuDensityVersion: DEFAULT_DANMAKU_DENSITY_VERSION,
 				defaultSeekSecondsVersion: DEFAULT_SEEK_SECONDS_VERSION,
+				defaultHlsBufferVersion: DEFAULT_HLS_BUFFER_VERSION,
 			}),
 		);
 	} catch {
@@ -431,6 +436,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 				defaultThemeVersion,
 				defaultDanmakuDensityVersion,
 				defaultSeekSecondsVersion,
+				defaultHlsBufferVersion,
 				...settings
 			} = loaded;
 			if (
@@ -504,6 +510,14 @@ export const settingsModule: Module<SettingsState, unknown> = {
 				settings.seekSeconds === 10
 			) {
 				settings.seekSeconds = 7;
+			}
+			// The buffer target shipped as 120s; that exact value moves once to the new
+			// default, while another stored value is a choice.
+			if (
+				defaultHlsBufferVersion !== DEFAULT_HLS_BUFFER_VERSION &&
+				settings.hlsBufferSeconds === 120
+			) {
+				settings.hlsBufferSeconds = DEFAULT_HLS_BUFFER_SECONDS;
 			}
 			context.commit("UPDATE", settings);
 			// Record what this store started with: later session-only corrections must not
