@@ -224,29 +224,31 @@ describe("native playback rate correction", () => {
 		vi.useRealTimers();
 	});
 
-	it("starts above 300 ms, remains active below that threshold, and stops at 150 ms", async () => {
+	it("starts above 300 ms, holds one rate, and stops at 150 ms", async () => {
 		getPosition.mockReturnValue(99.71);
 		await sync.tick();
 		expect(setLocalRate).not.toHaveBeenCalled();
 		getPosition.mockReturnValue(99.69);
 		await sync.tick();
-		expect(setLocalRate).toHaveBeenLastCalledWith(expect.closeTo(1.0496, 6));
+		expect(setLocalRate).toHaveBeenLastCalledWith(1.08);
 		getPosition.mockReturnValue(99.8);
 		await sync.tick();
-		expect(setLocalRate).toHaveBeenLastCalledWith(expect.closeTo(1.032, 6));
+		// Still catching up: the held 8% is not re-written as the drift shrinks.
+		expect(setLocalRate).toHaveBeenLastCalledWith(1.08);
+		expect(setLocalRate).toHaveBeenCalledOnce();
 		getPosition.mockReturnValue(99.85);
 		await sync.tick();
 		expect(setLocalRate).toHaveBeenLastCalledWith(1);
 		getPosition.mockReturnValue(99.8);
 		await sync.tick();
-		expect(setLocalRate).toHaveBeenCalledTimes(3);
+		expect(setLocalRate).toHaveBeenCalledTimes(2);
 		expect(setPosition).not.toHaveBeenCalled();
 	});
 
 	it.each([
 		[0.5, 1.08],
 		[0.8, 1.08],
-		[-0.31, 0.9504],
+		[-0.31, 0.92],
 		[-0.5, 0.92],
 		[-0.8, 0.92],
 	])("corrects a %s second drift at a bounded rate of %s", async (drift, rate) => {
@@ -273,18 +275,18 @@ describe("native playback rate correction", () => {
 	it.each([0.25, 1.5, 4])("multiplies the room's %sx speed", async rate => {
 		base = rate;
 		await sync.tick();
-		expect(setLocalRate).toHaveBeenLastCalledWith(expect.closeTo(rate * 1.064, 6));
+		expect(setLocalRate).toHaveBeenLastCalledWith(expect.closeTo(rate * 1.08, 6));
 	});
 
-	it("keeps observing and changing rates during the seek cooldown", async () => {
+	it("keeps observing during the seek cooldown and holds one rate", async () => {
 		for (const position of [99.6, 99.65, 99.7]) {
 			getPosition.mockReturnValue(position);
 			vi.advanceTimersByTime(250);
 			await sync.tick();
 		}
 		expect(getPosition).toHaveBeenCalledTimes(3);
-		expect(setLocalRate).toHaveBeenCalledTimes(3);
-		expect(setLocalRate).toHaveBeenLastCalledWith(expect.closeTo(1.048, 6));
+		expect(setLocalRate).toHaveBeenCalledOnce();
+		expect(setLocalRate).toHaveBeenLastCalledWith(1.08);
 		expect(setPosition).not.toHaveBeenCalled();
 	});
 
@@ -341,7 +343,7 @@ describe("native playback rate correction", () => {
 		state.buffering = false;
 		vi.advanceTimersByTime(250);
 		await sync.tick();
-		expect(setLocalRate).toHaveBeenLastCalledWith(expect.closeTo(1.064, 6));
+		expect(setLocalRate).toHaveBeenLastCalledWith(1.08);
 		expect(setPosition).not.toHaveBeenCalled();
 	});
 
@@ -437,7 +439,7 @@ describe("native playback rate correction", () => {
 		state.temporarySpeed = false;
 		sync.invalidateRate();
 		await sync.tick();
-		expect(setLocalRate).toHaveBeenLastCalledWith(expect.closeTo(1.064, 6));
+		expect(setLocalRate).toHaveBeenLastCalledWith(1.08);
 	});
 
 	it("does not send any rate to an unsupported player, even when seeking", async () => {
@@ -480,7 +482,7 @@ describe("native playback rate correction", () => {
 		getPosition.mockReturnValue(99.6);
 		await sync.tick();
 		expect(setPosition).not.toHaveBeenCalled();
-		expect(setLocalRate).toHaveBeenLastCalledWith(expect.closeTo(1.064, 6));
+		expect(setLocalRate).toHaveBeenLastCalledWith(1.08);
 	});
 
 	it.each([
@@ -512,7 +514,7 @@ describe("native playback rate correction", () => {
 		await pending;
 		expect(setLocalRate).toHaveBeenLastCalledWith(1.5);
 		await sync.tick();
-		expect(setLocalRate).toHaveBeenLastCalledWith(expect.closeTo(1.596, 6));
+		expect(setLocalRate).toHaveBeenLastCalledWith(1.62);
 	});
 
 	it("handles rejected native rate writes", async () => {

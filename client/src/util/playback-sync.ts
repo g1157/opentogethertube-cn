@@ -47,7 +47,6 @@ interface SeekRequestOptions {
 // industry standard. See docs/playback-sync.zh-CN.md.
 const BEND_START = 0.3;
 const BEND_STOP = 0.15;
-const BEND_FULL = 0.5;
 /** Ceiling inside the gentle zone; an 8% rate change is not noticeable on speech or video. */
 const MAX_BEND = 0.08;
 /** Only a seek can close more than this; below it a rate change recovers the drift. */
@@ -97,6 +96,8 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 	let disposed = false;
 	let bendStartedAt: number | null = null;
 	let bendBase: number | null = null;
+	/** Signed rate offset held for the whole bend, so playbackRate is not rewritten every tick. */
+	let bendOffset: number | null = null;
 	let appliedRate: number | null = null;
 	/** Largest drift seen during the current bend; the deadline follows the catch-up size. */
 	let bendPeak = 0;
@@ -151,6 +152,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		}
 		bendStartedAt = null;
 		bendBase = null;
+		bendOffset = null;
 		bendPeak = 0;
 		bendDeadlineAt = 0;
 		appliedRate = null;
@@ -346,15 +348,40 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			// During seek cooldown even a large drift can improve without another range
 			// request. Keep the original deadline while bending; restarting it each tick
 			// would never expire. A growing drift extends it to the new catch-up size.
-			bendStartedAt ??= Date.now();
+			bendBase = base;
+			const sign = Math.sign(drift);
+			if (bendStartedAt === null) {
+				bendStartedAt = Date.now();
+				bendPeak = magnitude;
+				bendDeadlineAt = bendStartedAt + bendDeadlineMs(magnitude, ceiling);
+				bendOffset = sign * ceiling;
+				// Hold this rate for the whole bend. Rewriting playbackRate every tick makes
+				// the browser re-time audio continuously, which is audible as repeated
+				// micro-stutters on the opening catch-up.
+				await writeRate(base * (1 + bendOffset));
+				return;
+			}
+			// A drift that changes direction is a different correction; switch once.
+			if (bendOffset !== null && Math.sign(bendOffset) !== sign) {
+				bendPeak = magnitude;
+				bendDeadlineAt = Date.now() + bendDeadlineMs(magnitude, ceiling);
+				bendOffset = sign * ceiling;
+				await writeRate(base * (1 + bendOffset));
+				return;
+			}
 			if (magnitude > bendPeak) {
 				bendPeak = magnitude;
 				bendDeadlineAt = bendStartedAt + bendDeadlineMs(magnitude, ceiling);
+				const next = sign * ceiling;
+				if (bendOffset === null || Math.abs(next - bendOffset) > RATE_WRITE_THRESHOLD) {
+					bendOffset = next;
+					await writeRate(base * (1 + next));
+				}
+			} else if (appliedRate === null && bendOffset !== null) {
+				// The previous native write was rejected; retry the held rate instead of
+				// silently leaving the element at the room's base speed for the whole bend.
+				await writeRate(base * (1 + bendOffset));
 			}
-			bendBase = base;
-			const bend = Math.max(-1, Math.min(1, drift / BEND_FULL)) * ceiling;
-			// Leave preservesPitch at the browser default (true).
-			await writeRate(base * (1 + bend));
 		} catch (error) {
 			if (!disposed && currentGeneration === generation) {
 				options.onError(error);

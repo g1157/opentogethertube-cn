@@ -350,7 +350,7 @@ describe("room player interactions", () => {
 		roomRate.value = 1;
 		media.getPosition.mockImplementation(() => page.wrapper.vm.truePosition - 0.4);
 		await vi.advanceTimersByTimeAsync(500);
-		expect(media.setPlaybackRate).toHaveBeenLastCalledWith(expect.closeTo(1.064, 6));
+		expect(media.setPlaybackRate).toHaveBeenLastCalledWith(expect.closeTo(1.08, 6));
 		expect(roomRate.value).toBe(1);
 		expect(page.wrapper.get('[data-cy="playback-rate-toggle"]').text()).toBe("1x");
 
@@ -360,7 +360,7 @@ describe("room player interactions", () => {
 		roomRate.value = 1.5;
 		await nextTick();
 		await vi.advanceTimersByTimeAsync(250);
-		expect(media.setPlaybackRate).toHaveBeenLastCalledWith(expect.closeTo(1.596, 6));
+		expect(media.setPlaybackRate).toHaveBeenLastCalledWith(expect.closeTo(1.62, 6));
 		expect(roomRate.value).toBe(1.5);
 		expect(page.wrapper.get('[data-cy="playback-rate-toggle"]').text()).toBe("1.5x");
 

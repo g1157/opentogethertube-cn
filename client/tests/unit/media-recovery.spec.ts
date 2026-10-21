@@ -242,6 +242,16 @@ describe("media error recovery", () => {
 		expect(onError).toHaveBeenLastCalledWith({ type: "network", retryable: false });
 	});
 
+	it("does not seek a fresh source back to zero after it has started", () => {
+		recovery.reset();
+		recovery.setPosition(0.108);
+		media.currentTime = 0;
+		vi.mocked(media.pause).mockClear();
+		expect(recovery.restoreMetadata()).toBe(true);
+		expect(media.currentTime).toBe(0);
+		expect(media.pause).not.toHaveBeenCalled();
+	});
+
 	it("restores position and speed, including a seek and pause received during recovery", () => {
 		media.currentTime = 123.5;
 		media.playbackRate = 1.5;

@@ -16,6 +16,8 @@ const STALL_NUDGE_SECONDS = 0.3;
 const STALL_SKIP_SECONDS = 3;
 /** Wider than a nudge, so a nudged playhead still counts as "the same spot". */
 const STALL_POSITION_EPSILON = 0.5;
+/** Below this, a restore seek is a needless pause/audio flush on an already-playing source. */
+const RESTORE_SEEK_TOLERANCE_SECONDS = 0.25;
 
 interface PlaybackSnapshot {
 	position: number;
@@ -255,7 +257,15 @@ export function createMediaRecovery(options: MediaRecoveryOptions) {
 				? Math.min(snapshot.position, Math.max(0, media.duration - 0.1))
 				: snapshot.position;
 		try {
-			seek.seek(position);
+			// A fresh source is already at its start. Seeking a fraction of a second back after
+			// the element has begun playing pauses and flushes the audio pipeline, which is
+			// audible as a stutter at the opening. A real recovery position is still restored.
+			if (
+				snapshot.position > 0.1 &&
+				Math.abs(media.currentTime - position) > RESTORE_SEEK_TOLERANCE_SECONDS
+			) {
+				seek.seek(position);
+			}
 			media.playbackRate = snapshot.rate;
 			return true;
 		} catch {
