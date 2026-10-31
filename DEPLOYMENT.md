@@ -112,6 +112,19 @@ Compose 示例按直接 HTTP 端口访问设计（`FORCE_INSECURE_COOKIES=true`�
 代理层数设置 `TRUST_PROXY`，并限制外部直接访问后端端口，避免绕过代理。参考
 [上游 HTTPS 配置](docs/how-to-deploy.md#reverse-proxy)。
 
+### 安全边界
+
+-   **Private 房**：通过 API 新建的 Private 房必须同时设置房间密码；把已有房间改为 Private
+    也要求先设置密码。旧的无密码 Private 房保持原行为，重建或改设置时会被拦住。Private
+    的语义不是“不可见即可加入”，而是“不在列表 + 密码访问”。
+-   **WebSocket Origin**：浏览器连接必须与请求的 `Host` 或 `OTT_PUBLIC_HOSTNAME` 同源；
+    反向代理应保留原始 `Host`，否则请确认 `OTT_PUBLIC_HOSTNAME` 是访客实际访问的域名。
+    非浏览器客户端（无 `Origin`）不受此限制，仍由 Bearer token 鉴权。
+-   **出站请求**：应用会校验用户 URL 的协议、解析地址和逐跳重定向，但 ffprobe 与后续连接
+    仍会重新解析 DNS。公开部署建议在主机或云安全组限制出站：只放行公网 80/443，拒绝
+    `10/8`、`127/8`、`169.254/16`、`172.16/12`、`192.168/16`、`100.64/10` 以及 IPv6
+    本地/ULA 段；有条件时使用固定出口代理。
+
 ### 可选：Cloudflare Tunnel 入口（适合没有开放 80/443 的服务器）
 
 本仓库的线上示例使用这种方式：应用只监听 8080，`cloudflared` 以出站连接接入 Cloudflare，

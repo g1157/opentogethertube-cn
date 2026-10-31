@@ -24,6 +24,8 @@ const log = getLogger("infoextract/ffprobe");
 const IPV4_MAPPED_HEX_PATTERN = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/;
 
 const FFPROBE_TIMEOUT_MS = 20000;
+/** Only redirect headers are needed here; keep the resolver's share of the probe budget short. */
+const MEDIA_RESOLVE_TIMEOUT_MS = 5000;
 
 /** Reject private, loopback, link-local and other non-public targets for user supplied URLs. */
 export function isPrivateAddress(address: string): boolean {
@@ -66,10 +68,19 @@ export function isPrivateAddress(address: string): boolean {
 			ip === "::1" ||
 			ip.startsWith("fc") ||
 			ip.startsWith("fd") ||
+			// Link-local (fe80::/10) and deprecated site-local (fec0::/10).
 			ip.startsWith("fe8") ||
 			ip.startsWith("fe9") ||
 			ip.startsWith("fea") ||
 			ip.startsWith("feb") ||
+			ip.startsWith("fec") ||
+			ip.startsWith("fed") ||
+			ip.startsWith("fee") ||
+			ip.startsWith("fef") ||
+			// Transition prefixes can embed a private IPv4 destination: NAT64
+			// (64:ff9b::/96, 64:ff9b:1::/48) and 6to4 (2002::/16).
+			ip.startsWith("64:ff9b:") ||
+			ip.startsWith("2002:") ||
 			ip.startsWith("ff")
 		);
 	}
@@ -107,6 +118,41 @@ interface MediaDownloadOptions {
 	signal: InstanceType<typeof AbortController>["signal"];
 	httpAgent: http.Agent;
 	httpsAgent: https.Agent;
+}
+
+/**
+ * Resolve a media URL's redirect chain under the same guard, returning the final URL for
+ * consumers that fetch it themselves (ffprobe). A HEAD/GET probe is used because some hosts
+ * only redirect GET requests; the body is destroyed as soon as the headers arrive.
+ */
+async function resolvePublicMediaUrl(uri: string): Promise<string> {
+	let current = uri;
+	const signal = AbortSignal.timeout(MEDIA_RESOLVE_TIMEOUT_MS);
+	for (let hop = 0; ; hop++) {
+		await assertPublicMediaUrl(current);
+		const response = await axios.get<Stream>(current, {
+			responseType: "stream",
+			maxRedirects: 0,
+			validateStatus: () => true,
+			headers: { Range: "bytes=0-0" },
+			signal,
+		});
+		(response.data as Readable | undefined)?.destroy?.();
+		if (response.status >= 300 && response.status < 400) {
+			const location = response.headers?.location;
+			if (typeof location !== "string" || !location) {
+				throw new Error(
+					`Media URL redirected without a location (HTTP ${response.status})`,
+				);
+			}
+			if (hop >= MAX_MEDIA_REDIRECTS) {
+				throw new Error("Too many redirects while resolving media");
+			}
+			current = new URL(location, current).href;
+			continue;
+		}
+		return current;
+	}
 }
 
 /**
@@ -413,9 +459,11 @@ export abstract class FfprobeStrategy {
 
 export class RunFfprobe extends FfprobeStrategy {
 	async getFileInfo(uri: string): Promise<any> {
-		await assertPublicMediaUrl(uri);
-		log.debug(`Grabbing file info from ${uri}`);
-		if (uri.includes('"')) {
+		// ffprobe follows redirects on its own, so resolve them here first: the guard must
+		// see every hop, not only the URL the client supplied.
+		const resolvedUri = await resolvePublicMediaUrl(uri);
+		log.debug(`Grabbing file info from ${resolvedUri}`);
+		if (resolvedUri.includes('"')) {
 			// if, by some weird off chance, the uri SOMEHOW contains a quote, don't execute the command
 			// because it'll break, and probably lead to an exploit.
 			log.error(

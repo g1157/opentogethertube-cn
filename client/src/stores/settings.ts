@@ -211,6 +211,29 @@ type StoredSettings = Partial<SettingsState> & {
 
 /** Keeps whatever a caller wrote inside the ranges this release understands. */
 function normalizeSettings(state: SettingsState) {
+	if (!Number.isFinite(state.volume) || state.volume < 0 || state.volume > 100) {
+		state.volume = 100;
+	}
+	if (typeof state.muted !== "boolean") {
+		state.muted = false;
+	}
+	if (!Number.isFinite(state.audioBoost)) {
+		state.audioBoost = 100;
+	} else {
+		state.audioBoost = Math.min(300, Math.max(100, state.audioBoost));
+	}
+	if (
+		state.roomLayout !== RoomLayoutMode.default &&
+		state.roomLayout !== RoomLayoutMode.theater
+	) {
+		state.roomLayout = RoomLayoutMode.default;
+	}
+	if (!ALL_THEMES.includes(state.theme)) {
+		state.theme = Theme.teal;
+	}
+	if (typeof state.enableAdapterSelector !== "boolean") {
+		state.enableAdapterSelector = false;
+	}
 	if (typeof state.sfxEnabled !== "boolean") {
 		state.sfxEnabled = false;
 	}

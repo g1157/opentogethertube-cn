@@ -17,23 +17,29 @@ const addPreview: RequestHandler<
 	any,
 	{ input: string; adapter?: string; verify?: string }
 > = async (req, res, next) => {
-	if (!req.query.input) {
-		throw new BadApiArgumentException("input", "missing");
+	if (typeof req.query.input !== "string" || req.query.input.trim() === "") {
+		throw new BadApiArgumentException("input", "missing or invalid");
 	}
+	const input = req.query.input.trim();
+	const adapter = typeof req.query.adapter === "string" ? req.query.adapter : undefined;
 
-	let points = 5;
-	if (!InfoExtract.isURL(req.query.input)) {
-		points *= 15;
-	}
+	// One request must not become an unbounded probe fan-out: a multi-line add is charged
+	// per URL, and InfoExtract also caps the number of lines it will resolve.
+	const urlLines = input.split("\n").filter(line => InfoExtract.isURL(line.trim())).length;
+	const points = input.includes("\n")
+		? 5 * Math.max(1, urlLines)
+		: InfoExtract.isURL(input)
+			? 5
+			: 75;
 	if (!(await consumeRateLimitPoints(res, req.ip, points))) {
 		return;
 	}
 	try {
-		log.info(`Getting queue add preview for ${req.query.input}`);
+		log.info(`Getting queue add preview for ${input}`);
 		const result = await InfoExtract.resolveVideoQuery(
-			req.query.input.trim(),
+			input,
 			conf.get("add_preview.search.provider"),
-			req.query.adapter,
+			adapter,
 		);
 
 		// A direct link whose file is gone must not come back as a video just because

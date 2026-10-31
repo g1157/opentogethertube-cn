@@ -36,7 +36,11 @@ import {
 import roommanager from "./roommanager.js";
 import { hasRoomAccess } from "./room-password.js";
 import storage from "./storage.js";
-import { ANNOUNCEMENT_CHANNEL, ROOM_NAME_REGEX } from "ott-common/constants.js";
+import {
+	ANNOUNCEMENT_CHANNEL,
+	MAX_CHAT_MESSAGE_LENGTH,
+	ROOM_NAME_REGEX,
+} from "ott-common/constants.js";
 import { RoomSettingsSchema } from "ott-common/models/zod-schemas.js";
 import { Grants } from "ott-common/permissions.js";
 import { fromZodError } from "zod-validation-error";
@@ -542,8 +546,15 @@ async function onClientMessage(client: Client, msg: ClientMessage) {
 				msg.request.settings = settings;
 			} else if (msg.request.type === RoomRequestType.ChatRequest) {
 				const text = (msg.request as { text?: unknown }).text;
-				if (typeof text !== "string" || text.length === 0 || text.length > 300) {
-					throw new LengthOutOfRangeException("chat message", { min: 1, max: 300 });
+				if (
+					typeof text !== "string" ||
+					text.length === 0 ||
+					text.length > MAX_CHAT_MESSAGE_LENGTH
+				) {
+					throw new LengthOutOfRangeException("chat message", {
+						min: 1,
+						max: MAX_CHAT_MESSAGE_LENGTH,
+					});
 				}
 			}
 			await makeRoomRequest(client, msg.request);

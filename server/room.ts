@@ -97,6 +97,7 @@ import { type Result, countEligibleVoters, err, ok, voteSkipThreshold } from "ot
 import type { ClientManagerCommand } from "./clientmanager.js";
 import { canKickUser } from "ott-common/userutils.js";
 import { getSubtitleFormatFromUrl, isPublicSubtitleUrl } from "ott-common/subtitles.js";
+import { assertPublicMediaUrl } from "./ffprobe.js";
 import { conf } from "./ott-config.js";
 import {
 	ALL_SKIP_CATEGORIES,
@@ -107,6 +108,10 @@ import {
 	BUFFER_GATE_COOLDOWN_MS,
 	MAX_NOTES_PER_ROOM,
 	MAX_NOTE_LENGTH,
+	MAX_CHAT_MESSAGE_LENGTH,
+	MAX_QUEUE_ITEMS,
+	MAX_SEEK_SECONDS,
+	MAX_VIDEO_ID_LENGTH,
 } from "ott-common/constants.js";
 import { Mutex } from "@divine/synchronization";
 
@@ -800,7 +805,9 @@ export class Room implements RoomState {
 				return;
 			} else if (this.queueMode === QueueMode.Loop) {
 				this.log.debug(`queue in loop mode, requeuing current item`);
-				await this.queue.enqueue(this.clearQueueItemTrim(this.currentSource));
+				// The dequeue below restores the cap; this internal path is allowed one
+				// transient overflow so a full queue keeps looping.
+				await this.queue.enqueueOverflow(this.clearQueueItemTrim(this.currentSource));
 			}
 		}
 		if (this.queue.length > 0) {
@@ -1774,6 +1781,17 @@ export class Room implements RoomState {
 			this.log.error("seek value was undefined or null");
 			return;
 		}
+		if (
+			typeof request.value !== "number" ||
+			!Number.isFinite(request.value) ||
+			request.value < 0 ||
+			request.value > MAX_SEEK_SECONDS
+		) {
+			throw new BadApiArgumentException(
+				"value",
+				`Expected a finite seek position between 0 and ${MAX_SEEK_SECONDS}`,
+			);
+		}
 		const prev = this.realPlaybackPosition;
 		this.seekRaw(request.value);
 		await this.publishRoomEvent(request, context, { prevPosition: prev });
@@ -1791,12 +1809,32 @@ export class Room implements RoomState {
 	 * extension picks the renderer, and the public-URL check keeps a queue item from
 	 * pointing every viewer at their own network.
 	 */
-	private assertUsableSubtitleUrl(subtitleUrl: string): void {
+	private async assertUsableSubtitleUrl(subtitleUrl: string): Promise<void> {
 		if (getSubtitleFormatFromUrl(subtitleUrl) === null) {
 			throw new UnsupportedSubtitleType();
 		}
 		if (!isPublicSubtitleUrl(subtitleUrl)) {
 			throw new UnsupportedSubtitleUrl();
+		}
+		// The syntactic check cannot see a public-looking name that resolves to loopback or
+		// a LAN address (nip.io and friends). Resolve it here, before every viewer's browser
+		// is told to load it. The raw DNS error is not exposed to the room.
+		try {
+			await assertPublicMediaUrl(subtitleUrl);
+		} catch {
+			throw new UnsupportedSubtitleUrl();
+		}
+	}
+
+	private assertUsableVideoId(video: Partial<VideoId> | null | undefined): void {
+		if (
+			!video ||
+			typeof video.service !== "string" ||
+			typeof video.id !== "string" ||
+			video.id.length === 0 ||
+			video.id.length > MAX_VIDEO_ID_LENGTH
+		) {
+			throw new BadApiArgumentException("video", "Invalid video id");
 		}
 	}
 
@@ -1805,11 +1843,41 @@ export class Room implements RoomState {
 	 * @param request
 	 */
 	public async addToQueue(request: AddRequest, context: RoomRequestContext): Promise<void> {
+		if (
+			request.url !== undefined &&
+			(typeof request.url !== "string" || request.url.length > MAX_VIDEO_ID_LENGTH)
+		) {
+			throw new BadApiArgumentException("url", "Invalid video URL");
+		}
+		if (request.video) {
+			this.assertUsableVideoId(request.video);
+		}
+		if (request.videos !== undefined) {
+			if (!Array.isArray(request.videos)) {
+				throw new BadApiArgumentException("videos", "Expected an array");
+			}
+			for (const video of request.videos) {
+				this.assertUsableVideoId(video);
+			}
+		}
+		const requestedItems = Array.isArray(request.videos)
+			? request.videos.length
+			: request.video || request.url
+				? 1
+				: 0;
+		if (requestedItems > 0 && this.queue.length + requestedItems > MAX_QUEUE_ITEMS) {
+			throw new BadApiArgumentException(
+				"queue",
+				`The queue cannot hold more than ${MAX_QUEUE_ITEMS} items`,
+			);
+		}
+
 		if (request.url) {
 			const adapter = InfoExtract.getServiceAdapterForURL(request.url);
 			request.video = {} as VideoId;
 			request.video.service = adapter.serviceId;
 			request.video.id = adapter.getVideoId(request.url);
+			this.assertUsableVideoId(request.video);
 		}
 
 		if (request.video) {
@@ -1826,10 +1894,10 @@ export class Room implements RoomState {
 				throw new Error("video was undefined");
 			}
 			if (request.video.subtitleUrl) {
-				this.assertUsableSubtitleUrl(request.video.subtitleUrl);
+				await this.assertUsableSubtitleUrl(request.video.subtitleUrl);
 				video.subtitleUrl = request.video.subtitleUrl;
 			}
-			this.queue.enqueue(video);
+			await this.queue.enqueue(video);
 			this.log.info(`Video added: ${JSON.stringify(request.video)}`);
 			this.prevQueue = null;
 			await this.publishRoomEvent(request, context, { video });
@@ -1846,7 +1914,7 @@ export class Room implements RoomState {
 				// Batch adds keep the request's extras on non-cache-safe services; validate
 				// them here too so the REST schema is not the only gate.
 				if (video.subtitleUrl) {
-					this.assertUsableSubtitleUrl(video.subtitleUrl);
+					await this.assertUsableSubtitleUrl(video.subtitleUrl);
 				}
 				if (this.isVideoInQueue(video)) {
 					videos.splice(i--, 1);
@@ -1856,7 +1924,7 @@ export class Room implements RoomState {
 				throw new VideoAlreadyQueuedException();
 			}
 
-			this.queue.enqueue(...videos);
+			await this.queue.enqueue(...videos);
 			this.log.info(`added ${videos.length} videos`);
 			await this.publishRoomEvent(request, context, { videos });
 			for (const vid of videos) {
@@ -1872,11 +1940,13 @@ export class Room implements RoomState {
 		request: UpdateQueueItemRequest,
 		context: RoomRequestContext,
 	): Promise<void> {
-		const update: Partial<QueueItemExtras> = { ...request.update };
+		// The WS envelope is passthrough, so this is the only gate between a client and
+		// Object.assign on a queue item. Never spread the patch: build the allowed fields.
+		const update: Partial<QueueItemExtras> = {};
 		if (Object.hasOwn(request.update, "subtitleUrl")) {
 			const subtitleUrl = (request.update as { subtitleUrl?: string | null }).subtitleUrl;
 			if (typeof subtitleUrl === "string" && subtitleUrl !== "") {
-				this.assertUsableSubtitleUrl(subtitleUrl);
+				await this.assertUsableSubtitleUrl(subtitleUrl);
 				update.subtitleUrl = subtitleUrl;
 			} else {
 				// null (or an empty string from an older client) is an explicit clear;
@@ -1905,6 +1975,17 @@ export class Room implements RoomState {
 	}
 
 	public async reorderQueue(request: OrderRequest, context: RoomRequestContext): Promise<void> {
+		if (
+			!Number.isInteger(request.fromIdx) ||
+			!Number.isInteger(request.toIdx) ||
+			request.fromIdx < 0 ||
+			request.toIdx < 0
+		) {
+			throw new BadApiArgumentException(
+				"indices",
+				"Expected non-negative integer queue positions",
+			);
+		}
 		await this.queue.move(request.fromIdx, request.toIdx);
 	}
 
@@ -2086,6 +2167,15 @@ export class Room implements RoomState {
 		if (context.clientId === undefined) {
 			throw new Error("context.clientId was undefined");
 		}
+		if (typeof request.text !== "string") {
+			throw new BadApiArgumentException("text", "Expected a string");
+		}
+		if (request.text.length > MAX_CHAT_MESSAGE_LENGTH) {
+			throw new BadApiArgumentException(
+				"text",
+				`Expected at most ${MAX_CHAT_MESSAGE_LENGTH} characters`,
+			);
+		}
 		const user = this.getUserInfo(context.clientId);
 		await this.publish({
 			action: "chat",
@@ -2178,7 +2268,7 @@ export class Room implements RoomState {
 				this.grants.check(context.role, "playback.seek");
 				this.grants.check(context.role, "manage-queue.add");
 				this.grants.check(context.role, "manage-queue.play-now");
-				if (this.currentSource) {
+				if (this.currentSource && !this.queue.contains(this.currentSource)) {
 					await this.queue.pushTop(this.currentSource);
 				}
 				if (event.additional.video && event.additional.prevPosition !== undefined) {
@@ -2212,6 +2302,11 @@ export class Room implements RoomState {
 			default:
 				this.log.error(`Event ${event.request.type} is not undoable, ignoring`);
 				break;
+		}
+		// One undo per published event: a replay of the same echo must not apply twice.
+		const appliedIndex = this.recentEvents.indexOf(event);
+		if (appliedIndex >= 0) {
+			this.recentEvents.splice(appliedIndex, 1);
 		}
 	}
 
@@ -2435,6 +2530,11 @@ export class Room implements RoomState {
 		}
 
 		// Now that we've checked permissions, it's now safe to apply the settings.
+		if (request.settings.visibility === Visibility.Private && !this.passwordHash) {
+			// Keep the "private" badge honest for newly configured rooms; legacy rooms
+			// created before this rule keep their current access until changed.
+			throw new BadApiArgumentException("visibility", "Private rooms require a password");
+		}
 
 		// apply the simple ones
 		for (const prop in request.settings) {
@@ -2469,6 +2569,7 @@ export class Room implements RoomState {
 	 * Request that the room play a video immediately, pushing the current video to the queue. If the video is already in the queue, it will be removed from the queue and start playing. If the video is already playing, this will be ignored.
 	 */
 	public async playNow(request: PlayNowRequest, context: RoomRequestContext): Promise<void> {
+		this.assertUsableVideoId(request.video);
 		if (
 			this.currentSource !== null &&
 			this.currentSource.service === request.video.service &&
@@ -2484,6 +2585,17 @@ export class Room implements RoomState {
 			this.grants.check(context.role, "manage-queue.order");
 		} else {
 			this.grants.check(context.role, "manage-queue.add");
+			if (this.queue.length >= MAX_QUEUE_ITEMS) {
+				throw new BadApiArgumentException(
+					"queue",
+					`The queue cannot hold more than ${MAX_QUEUE_ITEMS} items`,
+				);
+			}
+		}
+		// Validate before evicting the target from the queue: a rejected playNow must not
+		// leave the room with the item removed and nothing playing.
+		if (request.video.subtitleUrl) {
+			await this.assertUsableSubtitleUrl(request.video.subtitleUrl);
 		}
 
 		let videoToPlay: Video;
@@ -2494,10 +2606,6 @@ export class Room implements RoomState {
 			videoToPlay = await InfoExtract.getVideoInfo(request.video.service, request.video.id);
 		}
 		if (request.video.subtitleUrl) {
-			if (getSubtitleFormatFromUrl(request.video.subtitleUrl) === null) {
-				this.log.error("subtitle URL has an unsupported extension");
-				throw new UnsupportedSubtitleType();
-			}
 			videoToPlay.subtitleUrl = request.video.subtitleUrl;
 		}
 		if (this.currentSource) {
@@ -2649,6 +2757,12 @@ export class Room implements RoomState {
 			this.prevQueue = null;
 			return;
 		} else {
+			if (this.queue.length + this.prevQueue.length > MAX_QUEUE_ITEMS) {
+				throw new BadApiArgumentException(
+					"queue",
+					`The queue cannot hold more than ${MAX_QUEUE_ITEMS} items`,
+				);
+			}
 			await this.queue.enqueue(...this.prevQueue);
 			this.prevQueue = null;
 		}

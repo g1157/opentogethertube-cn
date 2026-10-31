@@ -154,6 +154,11 @@ const createRoom: RequestHandler<
 	} else if (!body.isTemporary && !conf.get("room.enable_create_permanent")) {
 		throw new FeatureDisabledException("Permanent rooms are disabled.");
 	}
+	if (body.visibility === Visibility.Private && !body.password) {
+		// Private means "not listed" for legacy rooms; a new one must not be created
+		// without the password that turns that label into actual access control.
+		throw new BadApiArgumentException("visibility", "Private rooms require a password");
+	}
 
 	let points = 50;
 
@@ -395,10 +400,18 @@ const undoEvent: RequestHandler<{ name: string }> = async (req, res) => {
 	if (!req.token) {
 		throw new OttException("Missing token");
 	}
+	const data = req.body?.data;
+	const event =
+		data && typeof data === "object" && "event" in data
+			? (data as { event?: unknown }).event
+			: undefined;
+	if (!event || typeof event !== "object") {
+		throw new BadApiArgumentException("event", "Invalid undo event");
+	}
 	const client = clientmanager.getClientByToken(req.token, req.params.name);
 	const request: UndoRequest = {
 		type: RoomRequestType.UndoRequest,
-		event: req.body.data.event,
+		event: event as UndoRequest["event"],
 	};
 
 	await clientmanager.makeRoomRequest(client, request);

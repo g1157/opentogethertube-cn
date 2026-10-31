@@ -3,7 +3,8 @@ import { Mutex } from "@divine/synchronization";
 import { Dirtyable } from "./util/index.js";
 import type { QueueItem, QueueItemExtras, Video, VideoId } from "ott-common/models/video.js";
 import _ from "lodash";
-import { VideoNotFoundException } from "./exceptions.js";
+import { BadApiArgumentException, VideoNotFoundException } from "./exceptions.js";
+import { MAX_QUEUE_ITEMS } from "ott-common/constants.js";
 
 /** A concurrently safe orderable queue for videos. */
 export class VideoQueue extends Dirtyable {
@@ -48,6 +49,12 @@ export class VideoQueue extends Dirtyable {
 			throw new Error("Cannot enqueue null or undefined items");
 		}
 		await this.lock.protect(() => {
+			if (this._items.length + videos.length > MAX_QUEUE_ITEMS) {
+				throw new BadApiArgumentException(
+					"queue",
+					`The queue cannot hold more than ${MAX_QUEUE_ITEMS} items`,
+				);
+			}
 			this._items.push(...videos);
 			this.markDirty();
 		});
@@ -62,6 +69,24 @@ export class VideoQueue extends Dirtyable {
 		});
 	}
 
+	/**
+	 * Re-enqueue during Loop playback. The caller dequeues the next item immediately, so a
+	 * transient +1 at the cap is what keeps a full loop queue cycling instead of failing.
+	 * Never expose this to a client request: those use enqueue() and the cap applies.
+	 */
+	async enqueueOverflow(...videos: (Video | QueueItem)[]) {
+		if (videos.length === 0) {
+			return;
+		}
+		if (!this.isAllVideos(videos)) {
+			throw new Error("Cannot enqueue null or undefined items");
+		}
+		await this.lock.protect(() => {
+			this._items.push(...videos);
+			this.markDirty();
+		});
+	}
+
 	/** Push the given videos on to the top of the queue. */
 	async pushTop(...videos: (Video | QueueItem)[]) {
 		if (videos.length === 0) {
@@ -71,6 +96,12 @@ export class VideoQueue extends Dirtyable {
 			throw new Error("Cannot enqueue null or undefined items");
 		}
 		await this.lock.protect(() => {
+			if (this._items.length + videos.length > MAX_QUEUE_ITEMS) {
+				throw new BadApiArgumentException(
+					"queue",
+					`The queue cannot hold more than ${MAX_QUEUE_ITEMS} items`,
+				);
+			}
 			this._items.unshift(...videos);
 			this.markDirty();
 		});
@@ -85,6 +116,12 @@ export class VideoQueue extends Dirtyable {
 			throw new Error("Cannot enqueue null or undefined items");
 		}
 		await this.lock.protect(() => {
+			if (this._items.length + 1 > MAX_QUEUE_ITEMS) {
+				throw new BadApiArgumentException(
+					"queue",
+					`The queue cannot hold more than ${MAX_QUEUE_ITEMS} items`,
+				);
+			}
 			const newItems = this._items.splice(0, index);
 			newItems.push(video);
 			newItems.push(...this._items);

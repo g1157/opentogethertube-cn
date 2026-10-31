@@ -1,4 +1,9 @@
-import { ALL_VIDEO_SERVICES, ROOM_NAME_REGEX } from "ott-common/constants.js";
+import {
+	ALL_VIDEO_SERVICES,
+	MAX_QUEUE_ITEMS,
+	MAX_VIDEO_ID_LENGTH,
+	ROOM_NAME_REGEX,
+} from "ott-common/constants.js";
 import { BehaviorOption, BufferGateMode, Role } from "ott-common/models/types.js";
 import { Visibility, QueueMode } from "ott-common/models/types.js";
 import { MAX_SUBTITLE_URL_LENGTH, isPublicSubtitleUrl } from "ott-common/subtitles.js";
@@ -48,7 +53,7 @@ export const OttApiRequestRoomCreateSchema = z
 
 const VideoIdSchema = z.object({
 	service: z.enum(ALL_VIDEO_SERVICES),
-	id: z.string(),
+	id: z.string().min(1).max(MAX_VIDEO_ID_LENGTH),
 });
 
 const SubtitleUrlSchema = z
@@ -72,11 +77,11 @@ export const OttApiRequestVoteSchema = z.object({
 
 export const OttApiRequestAddToQueueSchema = z.union([
 	z.object({
-		videos: z.array(VideoAddSchema),
+		videos: z.array(VideoAddSchema).max(MAX_QUEUE_ITEMS),
 	}),
 	VideoAddSchema,
 	z.object({
-		url: z.string(),
+		url: z.string().min(1).max(MAX_VIDEO_ID_LENGTH),
 	}),
 ]);
 
@@ -110,7 +115,7 @@ export const OttApiRequestAccountUpdateSchema = z
 		message: "At least one field must be provided",
 	});
 
-const GrantSchema = z.tuple([z.nativeEnum(Role), z.number()]);
+const GrantSchema = z.tuple([z.nativeEnum(Role), z.number().int().min(0).max(0xffffffff)]);
 
 /**
  * A room's shared danmaku track. Only a structured source is accepted — the girigiri

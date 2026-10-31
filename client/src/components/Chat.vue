@@ -129,6 +129,7 @@ import { useStore } from "@/store";
 import { insertEmoji } from "@/util/chat-emoji";
 import ChatEmojiPanel from "./ChatEmojiPanel.vue";
 import ChatMsg from "./ChatMsg.vue";
+import { MAX_CHAT_MESSAGE_LENGTH } from "ott-common/constants";
 
 const props = withDefaults(defineProps<{ controlsVisible?: boolean; draft?: string }>(), {
 	controlsVisible: true,
@@ -214,10 +215,6 @@ function activateAndFocus(): void {
 }
 
 defineExpose({ setActivated, activateAndFocus, activated });
-
-// The server rejects longer messages outright (see the cap in server/clientmanager.ts);
-// capping the field keeps an over-long paste from turning into a failed send.
-const MAX_CHAT_MESSAGE_LENGTH = 300;
 
 const sfx = useSfx();
 // Keep the rendered history bounded: an all-day watch party would otherwise grow

@@ -13,7 +13,9 @@ import {
 	UnsupportedServiceException,
 	InvalidAddPreviewInputException,
 	FeatureDisabledException,
+	BadApiArgumentException,
 } from "./exceptions.js";
+import { MAX_PREVIEW_LINES } from "ott-common/constants.js";
 import { getLogger } from "./logger.js";
 import { redisClient } from "./redisclient.js";
 import { isSupportedMimeType } from "./mime.js";
@@ -348,6 +350,12 @@ export default {
 				.trim()
 				.split("\n")
 				.filter(line => this.isURL(line));
+			if (lines.length > MAX_PREVIEW_LINES) {
+				throw new BadApiArgumentException(
+					"input",
+					`At most ${MAX_PREVIEW_LINES} links can be resolved at once`,
+				);
+			}
 
 			const videoIds: VideoId[] = [];
 			for (const line of lines) {

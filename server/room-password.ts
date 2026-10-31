@@ -18,6 +18,27 @@ const log = getLogger("room-password");
 
 const GRANT_TTL_SECONDS = 60 * 60 * 24;
 const MAX_WRONG_ATTEMPTS = 10;
+/**
+ * Argon2 needs tens of megabytes per verification. The per-IP limiter bounds attempts but
+ * not concurrency, so ten simultaneous guesses could still exhaust the container; two
+ * slots keep the memory ceiling predictable without making a single viewer wait.
+ */
+const MAX_CONCURRENT_PASSWORD_HASHES = 2;
+let activePasswordHashes = 0;
+const passwordHashWaiters: (() => void)[] = [];
+
+async function withPasswordHashSlot<T>(run: () => Promise<T>): Promise<T> {
+	if (activePasswordHashes >= MAX_CONCURRENT_PASSWORD_HASHES) {
+		await new Promise<void>(resolve => passwordHashWaiters.push(resolve));
+	}
+	activePasswordHashes++;
+	try {
+		return await run();
+	} finally {
+		activePasswordHashes--;
+		passwordHashWaiters.shift()?.();
+	}
+}
 
 /**
  * The grant key carries a short version of the stored hash, so changing or clearing the
@@ -33,7 +54,7 @@ function grantKey(room: Room, token: AuthToken): string {
 }
 
 export async function setRoomPassword(room: Room, password: string | null): Promise<void> {
-	const hash = password === null ? null : await argon2.hash(password);
+	const hash = password === null ? null : await withPasswordHashSlot(() => argon2.hash(password));
 	if (!room.isTemporary) {
 		const updated = await storage.updateRoomPassword(room.name, hash);
 		if (!updated) {
@@ -48,7 +69,7 @@ export async function verifyRoomPassword(room: Room, password: string): Promise<
 		return true;
 	}
 	try {
-		return await argon2.verify(room.passwordHash, password);
+		return await withPasswordHashSlot(() => argon2.verify(room.passwordHash!, password));
 	} catch (e) {
 		log.error(`Failed to verify the room password: ${e}`);
 		return false;
