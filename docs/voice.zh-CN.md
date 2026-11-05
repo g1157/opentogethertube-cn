@@ -52,7 +52,7 @@ TURN，因此服务端只能下发直连 ICE；实际媒体路径由客户端 `g
 
 | 文件 | 职责 |
 | --- | --- |
-| `server/voice.ts` | 能力开关；拆分直连（STUN）与中继（TURN）ICE 列表；`getVoiceIceServers(includeRelay)` |
+| `server/voice.ts` | 能力开关；拆分直连（STUN）与中继（TURN）ICE 列表；Cloudflare 短期凭据签发、缓存与降级；`getVoiceIceServers(includeRelay)` |
 | `server/voice-budget.ts` | 用量记账、预算判定、拒绝原因、对账快照 |
 | `server/clientmanager.ts` | 房间级语音名单；信令定向中继；准入判定；断线/卸载清理；用量累计定时器 |
 | `server/api/status.ts` | `GET /api/status/voice` 对账出口（本机或 apikey） |
@@ -118,7 +118,10 @@ Cloudflare 不提供硬性费用上限，账单告警发生在上量之后。因
 | --- | --- | --- | --- |
 | `enabled` | `ENABLE_VOICE_CHAT` | `false` | 语音总开关 |
 | `ice_servers` | `VOICE_ICE_SERVERS` | 空（内置公共 STUN） | 直连用 ICE 服务器，永不中继、不产生费用 |
-| `turn_ice_servers` | `VOICE_TURN_ICE_SERVERS` | 空 | 中继服务器；预算耗尽后不再下发。留空则完全不提供中继 |
+| `turn_ice_servers` | `VOICE_TURN_ICE_SERVERS` | 空 | 静态中继服务器（如自建 coturn）；预算耗尽后不再下发。留空则完全不提供中继 |
+| `cloudflare_turn.key_id` | `VOICE_CLOUDFLARE_TURN_KEY_ID` | 空 | Cloudflare Realtime TURN Key ID；与 API Token 同时设置时优先签发短期凭据 |
+| `cloudflare_turn.api_token` | `VOICE_CLOUDFLARE_TURN_API_TOKEN` | 空 | TURN Key API Token（敏感）；只放服务端，用于生成凭据 |
+| `cloudflare_turn.ttl_seconds` | `VOICE_CLOUDFLARE_TURN_TTL_SECONDS` | `86400` | 凭据有效期，钳制在 300–172800 秒；应大于最长通话 |
 | `max_participants_per_room` | `VOICE_MAX_PARTICIPANTS_PER_ROOM` | `6` | 单房语音人数上限，`0` 不限 |
 | `max_concurrent_rooms` | `VOICE_MAX_CONCURRENT_ROOMS` | `0` | 同时语音的房间数上限，`0` 不限 |
 | `monthly_relay_mb` | `VOICE_MONTHLY_RELAY_MB` | `500000` | **主刹车**：月度中继预算（500 GB = Cloudflare 1 TB 共享免费额度的一半）。超过即停发中继 |
@@ -127,6 +130,10 @@ Cloudflare 不提供硬性费用上限，账单告警发生在上量之后。因
 | `usage_tick_seconds` | `VOICE_USAGE_TICK_SECONDS` | `15` | 用量累计周期 |
 
 注意：配置系统只支持非负整数，所以预算以 MB 表示（`1 MB = 1e6` 字节），与内部字节记账单位对齐。
+
+Cloudflare TURN 的签发逻辑：服务端启动时预热一次，之后按 TTL 的 80% 后台刷新；凭据缓存在内存，
+失败时保留仍有效的旧凭据，过期或连续失败则回退到静态 `VOICE_TURN_ICE_SERVERS`（若配置），否则
+只下发 STUN。端口 53 的候选会被过滤；API 失败不会阻塞房间加入。
 
 ### 国内部署建议（STUN）
 
@@ -211,13 +218,12 @@ cd server && NODE_ENV=test npx vitest run tests/unit/voice.spec.ts tests/unit/vo
 
 ## 已知短板
 
-- **本部署未配置 TURN**。服务端只能下发 STUN，直连被对称 NAT / 运营商 CGNAT 挡住时
-  无法建立媒体；客户端现在会显示「直连失败（未启用中继）」，但这只是把失败暴露出来，
-  不是修复。稳定化选项见 `voice-stability-2026-11-05.zh-CN.md`。
-- **未对接 Cloudflare TURN 凭据 API**。本实现的刹车是「不下发中继服务器」，在服务端签发
-  ICE 列表这一步生效，不依赖外部 API。Cloudflare 支持带 TTL 的短期凭据与凭据吊销，
-  可作为第二层保险（例如会话中途强制切断），但需要 TURN key 才能实机验证，因此未实现。
-  资源清单与接入方案见 `cloudflare-turn-2026-11-05.zh-CN.md`。
+- **本部署尚未填 Cloudflare 凭据**。代码已支持静态 TURN 与 Cloudflare TURN（v1.4.15 起），
+  但线上 `relayConfigured:false`；直连被对称 NAT / 运营商 CGNAT 挡住时无法建立媒体。客户端会
+  显示「直连失败（未启用中继）」。稳定化选项见 `voice-stability-2026-11-05.zh-CN.md`。
+- **Cloudflare TURN 凭据已接入**：`VOICE_CLOUDFLARE_TURN_KEY_ID` + `VOICE_CLOUDFLARE_TURN_API_TOKEN`
+  设置后自动签发短期凭据并缓存；未设置时回退到静态 `VOICE_TURN_ICE_SERVERS`。资源清单与接入细节见
+  `cloudflare-turn-2026-11-05.zh-CN.md`。
 - **真实音频通路仍需真机验证**。AEC 的表现取决于浏览器与设备。2026-11-05 实机复现发现：
   两台距离很近的设备同时开麦会互相拾音形成回声，并不是单机 AEC 必然失效；当前保留浏览器
   3A，不再做半双工压麦。同室多人时应只开一台麦克风或戴耳机。

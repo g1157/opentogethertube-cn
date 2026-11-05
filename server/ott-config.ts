@@ -342,6 +342,27 @@ export const conf = convict({
 			default: "",
 			env: "VOICE_TURN_ICE_SERVERS",
 		},
+		cloudflare_turn: {
+			key_id: {
+				doc: "Cloudflare Realtime TURN key ID. When this and the API token are set, the server mints short-lived TURN credentials instead of using the static relay list.",
+				format: String,
+				default: "",
+				env: "VOICE_CLOUDFLARE_TURN_KEY_ID",
+			},
+			api_token: {
+				doc: "Cloudflare Realtime TURN key API token. Keep it server-side; it can mint unlimited TURN credentials.",
+				format: String,
+				default: "",
+				env: "VOICE_CLOUDFLARE_TURN_API_TOKEN",
+				sensitive: true,
+			},
+			ttl_seconds: {
+				doc: "Lifetime of a generated TURN credential in seconds. Clamped to 300-172800; it should exceed the longest expected call.",
+				format: "nat",
+				default: 86_400,
+				env: "VOICE_CLOUDFLARE_TURN_TTL_SECONDS",
+			},
+		},
 		max_participants_per_room: {
 			doc: "Maximum simultaneous voice participants per room. 0 disables the limit.",
 			format: "nat",

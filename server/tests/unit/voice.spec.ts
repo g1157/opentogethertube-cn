@@ -1,10 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { conf } from "../../ott-config.js";
 import {
 	getDirectIceServers,
 	getRelayIceServers,
 	getVoiceIceServers,
 	hasRelayConfigured,
+	isCloudflareTurnConfigured,
 	isVoiceEnabled,
 } from "../../voice.js";
 
@@ -21,21 +22,68 @@ const TURN = JSON.stringify([
 	{ urls: "turn:turn.example.test:3478", username: "user", credential: "secret" },
 ]);
 
+function mockCloudflareResponse(iceServers: unknown, status = 200) {
+	const fetchMock = vi.fn().mockResolvedValue({
+		ok: status >= 200 && status < 300,
+		status,
+		json: async () => ({ iceServers }),
+	} as unknown as Response);
+	vi.stubGlobal("fetch", fetchMock);
+	return fetchMock;
+}
+
+function cloudflareIceServers() {
+	return [
+		{ urls: ["stun:stun.cloudflare.com:3478"] },
+		{
+			urls: [
+				"turn:turn.cloudflare.com:3478?transport=udp",
+				"turn:turn.cloudflare.com:53?transport=udp",
+				"turns:turn.cloudflare.com:443?transport=tcp",
+			],
+			username: "cf-user",
+			credential: "cf-secret",
+		},
+	];
+}
+
 describe("voice configuration", () => {
-	let previousIce: string;
-	let previousTurn: string;
-	let previousEnabled: boolean;
+	const previous = {
+		ice: "",
+		turn: "",
+		enabled: false,
+		cloudflareKeyId: "",
+		cloudflareApiToken: "",
+		cloudflareTtl: 0,
+	};
 
 	beforeAll(() => {
-		previousIce = conf.get("voice.ice_servers");
-		previousTurn = conf.get("voice.turn_ice_servers");
-		previousEnabled = conf.get("voice.enabled");
+		previous.ice = conf.get("voice.ice_servers");
+		previous.turn = conf.get("voice.turn_ice_servers");
+		previous.enabled = conf.get("voice.enabled");
+		previous.cloudflareKeyId = conf.get("voice.cloudflare_turn.key_id");
+		previous.cloudflareApiToken = conf.get("voice.cloudflare_turn.api_token");
+		previous.cloudflareTtl = conf.get("voice.cloudflare_turn.ttl_seconds");
 	});
 
 	afterAll(() => {
-		conf.set("voice.ice_servers", previousIce);
-		conf.set("voice.turn_ice_servers", previousTurn);
-		conf.set("voice.enabled", previousEnabled);
+		conf.set("voice.ice_servers", previous.ice);
+		conf.set("voice.turn_ice_servers", previous.turn);
+		conf.set("voice.enabled", previous.enabled);
+		conf.set("voice.cloudflare_turn.key_id", previous.cloudflareKeyId);
+		conf.set("voice.cloudflare_turn.api_token", previous.cloudflareApiToken);
+		conf.set("voice.cloudflare_turn.ttl_seconds", previous.cloudflareTtl);
+	});
+
+	beforeEach(() => {
+		vi.unstubAllGlobals();
+		logger.error.mockClear();
+		logger.warn.mockClear();
+		conf.set("voice.ice_servers", "");
+		conf.set("voice.turn_ice_servers", "");
+		conf.set("voice.cloudflare_turn.key_id", "");
+		conf.set("voice.cloudflare_turn.api_token", "");
+		conf.set("voice.cloudflare_turn.ttl_seconds", 86_400);
 	});
 
 	it("is disabled unless explicitly enabled", () => {
@@ -46,7 +94,6 @@ describe("voice configuration", () => {
 	});
 
 	it("falls back to STUN defaults when nothing is configured", () => {
-		conf.set("voice.ice_servers", "");
 		expect(getDirectIceServers().map(server => server.urls)).toEqual(DEFAULT_STUN);
 	});
 
@@ -57,18 +104,17 @@ describe("voice configuration", () => {
 		]);
 	});
 
-	it("has no relay servers unless configured", () => {
-		conf.set("voice.turn_ice_servers", "");
-		expect(getRelayIceServers()).toEqual([]);
+	it("has no relay servers unless configured", async () => {
+		expect(await getRelayIceServers()).toEqual([]);
 		expect(hasRelayConfigured()).toBe(false);
+		expect(isCloudflareTurnConfigured()).toBe(false);
 	});
 
-	it("withholds relay servers when asked, keeping direct servers", () => {
-		conf.set("voice.ice_servers", "");
+	it("withholds relay servers when asked, keeping direct servers", async () => {
 		conf.set("voice.turn_ice_servers", TURN);
 		expect(hasRelayConfigured()).toBe(true);
-		expect(getVoiceIceServers(false).map(server => server.urls)).toEqual(DEFAULT_STUN);
-		const withRelay = getVoiceIceServers(true);
+		expect((await getVoiceIceServers(false)).map(server => server.urls)).toEqual(DEFAULT_STUN);
+		const withRelay = await getVoiceIceServers(true);
 		expect(withRelay).toHaveLength(DEFAULT_STUN.length + 1);
 		expect(withRelay.at(-1)).toMatchObject({ username: "user", credential: "secret" });
 	});
@@ -90,9 +136,85 @@ describe("voice configuration", () => {
 		expect(getDirectIceServers().map(server => server.urls)).toEqual(DEFAULT_STUN);
 	});
 
-	it("treats malformed relay configuration as no relay at all", () => {
+	it("treats malformed relay configuration as no relay at all", async () => {
 		conf.set("voice.turn_ice_servers", "{ not json");
-		expect(getRelayIceServers()).toEqual([]);
+		expect(await getRelayIceServers()).toEqual([]);
 		expect(hasRelayConfigured()).toBe(false);
+	});
+
+	it("mints Cloudflare TURN credentials and filters the browser-blocked port 53", async () => {
+		conf.set("voice.cloudflare_turn.key_id", "cf-success-1");
+		conf.set("voice.cloudflare_turn.api_token", "cf-token");
+		conf.set("voice.cloudflare_turn.ttl_seconds", 3600);
+		const fetchMock = mockCloudflareResponse(cloudflareIceServers());
+
+		const relay = await getRelayIceServers();
+		expect(relay).toHaveLength(1);
+		expect(relay[0]).toMatchObject({ username: "cf-user", credential: "cf-secret" });
+		expect(relay[0].urls).toEqual([
+			"turn:turn.cloudflare.com:3478?transport=udp",
+			"turns:turn.cloudflare.com:443?transport=tcp",
+		]);
+		expect(hasRelayConfigured()).toBe(true);
+
+		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe(
+			"https://rtc.live.cloudflare.com/v1/turn/keys/cf-success-1/credentials/generate-ice-servers",
+		);
+		expect(init.method).toBe("POST");
+		expect(init.headers).toMatchObject({ Authorization: "Bearer cf-token" });
+		expect(JSON.parse(init.body as string)).toEqual({ ttl: 3600 });
+
+		const all = await getVoiceIceServers(true);
+		expect(all).toHaveLength(DEFAULT_STUN.length + 1);
+	});
+
+	it("reuses a cached Cloudflare credential", async () => {
+		conf.set("voice.cloudflare_turn.key_id", "cf-cache-1");
+		conf.set("voice.cloudflare_turn.api_token", "cf-token");
+		conf.set("voice.cloudflare_turn.ttl_seconds", 3600);
+		const fetchMock = mockCloudflareResponse(cloudflareIceServers());
+
+		await getRelayIceServers();
+		await getRelayIceServers();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("falls back to the static relay list when Cloudflare fails", async () => {
+		conf.set("voice.turn_ice_servers", TURN);
+		conf.set("voice.cloudflare_turn.key_id", "cf-fail-1");
+		conf.set("voice.cloudflare_turn.api_token", "cf-token");
+		mockCloudflareResponse([], 500);
+
+		const relay = await getRelayIceServers();
+		expect(relay).toHaveLength(1);
+		expect(relay[0]).toMatchObject({ username: "user", credential: "secret" });
+		expect(logger.warn).toHaveBeenCalled();
+	});
+
+	it("clamps the Cloudflare credential TTL to the supported range", async () => {
+		conf.set("voice.cloudflare_turn.key_id", "cf-ttl-low");
+		conf.set("voice.cloudflare_turn.api_token", "cf-token");
+		conf.set("voice.cloudflare_turn.ttl_seconds", 0);
+		const lowFetch = mockCloudflareResponse(cloudflareIceServers());
+		await getRelayIceServers();
+		const [, lowInit] = lowFetch.mock.calls[0] as [string, RequestInit];
+		expect(JSON.parse(lowInit.body as string)).toEqual({ ttl: 300 });
+
+		conf.set("voice.cloudflare_turn.key_id", "cf-ttl-high");
+		conf.set("voice.cloudflare_turn.ttl_seconds", 999_999);
+		const highFetch = mockCloudflareResponse(cloudflareIceServers());
+		await getRelayIceServers();
+		const [, highInit] = highFetch.mock.calls[0] as [string, RequestInit];
+		expect(JSON.parse(highInit.body as string)).toEqual({ ttl: 172_800 });
+	});
+
+	it("treats a Cloudflare response without TURN entries as relay unavailable", async () => {
+		conf.set("voice.cloudflare_turn.key_id", "cf-stun-only");
+		conf.set("voice.cloudflare_turn.api_token", "cf-token");
+		mockCloudflareResponse([{ urls: ["stun:stun.cloudflare.com:3478"] }]);
+
+		expect(await getRelayIceServers()).toEqual([]);
+		expect(hasRelayConfigured()).toBe(true);
 	});
 });

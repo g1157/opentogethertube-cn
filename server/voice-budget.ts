@@ -2,7 +2,7 @@ import type { VoiceDeniedReason } from "ott-common/models/messages.js";
 import { conf } from "./ott-config.js";
 import { getLogger } from "./logger.js";
 import { redisClient } from "./redisclient.js";
-import { getRelayIceServers, isVoiceEnabled } from "./voice.js";
+import { hasRelayConfigured, getRelayIceServers, isVoiceEnabled } from "./voice.js";
 
 const log = getLogger("voice-budget");
 
@@ -72,7 +72,7 @@ interface BudgetState {
  * connections keep working either way, because they cost nothing.
  */
 async function evaluateBudget(): Promise<BudgetState> {
-	if (getRelayIceServers().length === 0) {
+	if ((await getRelayIceServers()).length === 0) {
 		return { usageBytes: 0, includeRelay: false, exhausted: false };
 	}
 	let usageBytes: number;
@@ -171,7 +171,7 @@ export async function getVoiceUsageSnapshot(): Promise<VoiceUsageSnapshot> {
 	const usageMb = budget.usageBytes === null ? null : budget.usageBytes / BYTES_PER_MB;
 	return {
 		enabled: isVoiceEnabled(),
-		relayConfigured: getRelayIceServers().length > 0,
+		relayConfigured: hasRelayConfigured(),
 		relayAllowed: budget.includeRelay,
 		monthlyUsageMb: usageMb,
 		softBudgetMb: conf.get("voice.monthly_relay_mb"),

@@ -82,12 +82,6 @@
 											: mdiMicrophoneOff
 									"
 								/>
-								<v-badge
-									v-if="voiceParticipants.length > 0"
-									:content="voiceParticipants.length"
-									color="primary"
-									floating
-								/>
 								<v-tooltip activator="parent" location="top">
 									{{
 										voiceJoined && voiceMuted
@@ -132,23 +126,6 @@
 									{{ voiceErrorText }}
 								</span>
 							</template>
-							<template v-else>
-								<span
-									v-if="voiceStatus"
-									class="voice-status"
-									:class="`voice-status-${voiceStatus.tone}`"
-									:title="voiceStatusDetail"
-									data-cy="voice-status"
-								>
-									{{ voiceStatus.text }}
-								</span>
-								<v-icon
-									v-if="voiceError"
-									class="voice-error-icon"
-									:icon="mdiAlertCircleOutline"
-									:title="voiceErrorText"
-								/>
-							</template>
 							<v-btn
 								variant="plain"
 								size="small"
@@ -163,7 +140,9 @@
 								:data-cy="voiceBarCollapsed ? 'voice-expand' : 'voice-collapse'"
 								@click="toggleVoiceBar()"
 							>
-								<v-icon :icon="voiceBarCollapsed ? mdiChevronUp : mdiChevronDown" />
+								<v-icon
+									:icon="voiceBarCollapsed ? mdiChevronRight : mdiChevronLeft"
+								/>
 								<v-tooltip activator="parent" location="top">
 									{{
 										$t(
@@ -497,14 +476,13 @@ import {
 	mdiEyeOff,
 	mdiLock,
 	mdiChevronDoubleRight,
-	mdiChevronDown,
-	mdiChevronUp,
+	mdiChevronLeft,
+	mdiChevronRight,
 	mdiCircle,
 	mdiNoteTextOutline,
 	mdiMicrophone,
 	mdiMicrophoneOff,
 	mdiPhoneHangup,
-	mdiAlertCircleOutline,
 } from "@mdi/js";
 
 import {
@@ -2231,14 +2209,13 @@ export default defineComponent({
 			mdiPlus,
 			mdiWrench,
 			mdiChevronDoubleRight,
+			mdiChevronLeft,
+			mdiChevronRight,
 			mdiCircle,
 			mdiNoteTextOutline,
 			mdiMicrophone,
 			mdiMicrophoneOff,
 			mdiPhoneHangup,
-			mdiChevronDown,
-			mdiChevronUp,
-			mdiAlertCircleOutline,
 		};
 	},
 });
@@ -2570,10 +2547,6 @@ $in-video-chat-width-small: 250px;
 		max-width: 240px;
 		white-space: normal;
 		line-height: 1.25;
-	}
-
-	.voice-error-icon {
-		color: rgb(var(--v-theme-error));
 	}
 
 	@media (max-width: 800px) {

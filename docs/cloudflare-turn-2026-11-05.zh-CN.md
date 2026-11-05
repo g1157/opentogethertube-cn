@@ -59,38 +59,28 @@ curl -X POST \
 **建议值**：本项目是看片房，单场通常 1–6 小时；用 **TTL 24 小时**，服务端每 12 小时刷新一次
 缓存。这样一场长电影不会中途过期，凭证泄露的窗口也可控。若只想覆盖单场，可用 6 小时。
 
-## 三、接进本仓库需要改什么
+## 三、本仓库的接入实现（v1.4.15 起）
 
-当前实现（v1.4.14）：
+- **配置**（`server/ott-config.ts`）：
+  - `VOICE_CLOUDFLARE_TURN_KEY_ID`（String，默认空）
+  - `VOICE_CLOUDFLARE_TURN_API_TOKEN`（String，`sensitive`，默认空）
+  - `VOICE_CLOUDFLARE_TURN_TTL_SECONDS`（默认 86400，代码钳制 300–172800）
+  - 两者都非空时优先使用 Cloudflare；否则回退到 `VOICE_TURN_ICE_SERVERS`。
+- **凭据**（`server/voice.ts`）：
+  - `getRelayIceServers()` 改为异步：首次/缓存过期时 POST 上面的接口；
+  - 解析并校验 `iceServers`，只保留含 `turn:` / `turns:` 的条目，过滤端口 53；
+  - 内存缓存，按 TTL 的 80% 后台刷新；失败时保留仍有效的旧凭据，过期后回退到静态列表或
+    STUN-only；失败冷却 30 秒，避免 API 抖动时反复请求；
+  - 服务端启动时预热一次（`clientmanager.setup()`），首个语音加入不用等 API。
+- **消息**（`server/clientmanager.ts`）：`buildVoiceMessage()` 改为异步；只有实际拿到 TURN
+  条目时 `relay` 才为 `true`，否则客户端显示「直连失败（未启用中继）」。
+- **预算**（`server/voice-budget.ts`）：`evaluateBudget()` 等待实际中继列表；没有可用中继时
+  不累计中继流量。`relayConfigured` 表示配置是否存在，`relayAllowed` 表示当前是否放行。
+- **客户端**：`client/src/util/voice.ts` 无需改动，继续使用服务端下发的 `iceServers`。
+- **测试**：mock `fetch` 覆盖成功、非 200、无 TURN、端口 53 过滤、TTL 钳制、缓存复用、
+  静态回退；不依赖真实 TURN 凭据。
 
-- `server/ott-config.ts` 的 `voice.turn_ice_servers` 是静态 JSON（`VOICE_TURN_ICE_SERVERS`），
-  适合自建 coturn 的长效凭据。
-- `server/voice.ts` 的 `getRelayIceServers()` 同步读取该配置；`getVoiceIceServers()` 把它拼到
-  直连 STUN 列表后面。
-- `server/clientmanager.ts` 的 `buildVoiceMessage()` 已经是 `async`，按预算决定是否下发中继。
-- 客户端 `client/src/util/voice.ts` 直接使用服务端下发的 `iceServers`，**无需改动**。
-
-建议的最小改动：
-
-1. 配置新增（`server/ott-config.ts`）：
-   - `VOICE_CLOUDFLARE_TURN_KEY_ID`（String，默认空）
-   - `VOICE_CLOUDFLARE_TURN_API_TOKEN`（String，`sensitive`，默认空）
-   - 两者都非空时优先使用 Cloudflare；否则回退到 `VOICE_TURN_ICE_SERVERS`。
-2. `server/voice.ts` 增加 `ensureCloudflareIceServers()`：
-   - 启动/首次使用时 POST 上面的接口，`ttl=86400`；
-   - 解析并校验 `iceServers`，缓存到内存，记录过期时间；
-   - 在 TTL 的 80% 处后台刷新；失败时保留旧值到过期，过期后回退为空（fail closed）；
-   - 返回的列表里过滤端口 53；与现有 STUN 列表按 URL 去重；
-   - 不抛异常：生成失败只记录日志，房间加入继续走 STUN-only。
-3. `getRelayIceServers()` 改为返回缓存快照（或增加异步版本）；`getVoiceIceServers()` 在
-   `includeRelay=false` 时仍然只返回直连 STUN。
-4. 预算：现有 `VOICE_MONTHLY_RELAY_MB=500000`（500 GB）在 1 TB 免费额度内；可提高到
-   `900000`（900 GB）留 10% 余量。硬刹车 `VOICE_MONTHLY_RELAY_MB_MAX` 仍建议保持 0（只降级，
-   不拒绝加入）。
-5. 测试：mock `fetch` 覆盖「成功 / 超时 / 非 200 / 空 iceServers / TTL 过期 / 预算关闭」；
-   不需要真实 TURN 凭据。
-
-改动量估计：服务端约 60–100 行 + 配置 + 测试，客户端 0 行；无数据库迁移、无新增依赖。
+改动量：服务端约 150 行（含解析与缓存）+ 配置 + 测试，客户端 0 行；无数据库迁移、无新增依赖。
 
 ## 四、成本测算
 
@@ -142,7 +132,7 @@ curl -X POST \
 - **统计延迟**：Cloudflare Realtime 用量约 30 秒后才出现在分析里；`/api/status/voice` 是
   估算，用于对账，不是账单。
 
-## 六、上线步骤（建议）
+## 六、上线步骤
 
 1. Cloudflare 控制台创建 TURN Key，保存 Key ID 与 API Token。
 2. 在 `compose.override.yml` 增加两个环境变量（Token 用 secret 管理，不要进 Git）：
@@ -150,13 +140,13 @@ curl -X POST \
    VOICE_CLOUDFLARE_TURN_KEY_ID: "<key-id>"
    VOICE_CLOUDFLARE_TURN_API_TOKEN: "<api-token>"
    ```
-3. 实现并部署上面的服务端凭据缓存（当前尚未落地，v1.4.14 仍只支持静态 TURN 配置）。
-4. 验证：
+   v1.4.15 已包含服务端签发与缓存，填完重启应用容器即可，不需要重新构建镜像。
+3. 验证：
    - `/api/status/voice` 的 `relayConfigured` 变为 `true`；
    - 两个不同网络的客户端加入同一房间，界面显示「直连」或「中继」；
    - 在 UDP 被封锁的网络（手机热点/公司网）验证 TURN/TLS 443 能建立；
    - 观察 Cloudflare Realtime 用量与 `/api/status/voice` 的估算是否接近。
-5. 先在 `VOICE_MONTHLY_RELAY_MB=500000` 下跑 1–2 周，记录 relay 比例与大陆 RTT/丢包，再决定
+4. 先在 `VOICE_MONTHLY_RELAY_MB=500000` 下跑 1–2 周，记录 relay 比例与大陆 RTT/丢包，再决定
    是否提高到 900 GB、是否自建 coturn 或换 TRTC。
 
 ## 参考

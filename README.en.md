@@ -63,8 +63,8 @@ since on WebGPU the quality tier already is that chain. All of it runs on the cl
   handling (picking a candidate with a Chinese IME never sends by accident).
 - **Room notes**: a shared append-only list everyone can add to and delete from, never edit.
 - **Room voice**: peer-to-peer audio; the server relays signaling only and never carries media.
-  The UI reports each peer's actual path (direct, relayed, connecting or failed), and the phone
-  control bar can be collapsed.
+  The UI reports each peer's actual path (direct, relayed, connecting or failed); Cloudflare TURN
+  credentials are minted automatically when a key is configured, and the phone bar can collapse.
 
 ### Chinese-first, with phone details worked out
 

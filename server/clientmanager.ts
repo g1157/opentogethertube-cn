@@ -24,7 +24,7 @@ import {
 	LengthOutOfRangeException,
 	MissingToken,
 } from "./exceptions.js";
-import { getVoiceIceServers, isVoiceEnabled } from "./voice.js";
+import { getRelayIceServers, getVoiceIceServers, isVoiceEnabled } from "./voice.js";
 import { decideVoiceJoin, isRelayAllowedNow, recordUsage } from "./voice-budget.js";
 import {
 	type MySession,
@@ -90,12 +90,22 @@ const roomJoins: Map<string, Client[]> = new Map();
 const pendingRoomJoins = new Map<Client, Promise<void>>();
 const voiceParticipants: Map<string, Set<ClientId>> = new Map();
 
-function buildVoiceMessage(roomName: string, includeRelay: boolean): ServerMessageVoice {
+async function buildVoiceMessage(
+	roomName: string,
+	includeRelay: boolean,
+): Promise<ServerMessageVoice> {
+	const iceServers = await getVoiceIceServers(includeRelay);
+	const relay =
+		includeRelay &&
+		iceServers.some(server => {
+			const urls = typeof server.urls === "string" ? [server.urls] : server.urls;
+			return urls.some(url => url.startsWith("turn:") || url.startsWith("turns:"));
+		});
 	return {
 		action: "voice",
 		participants: [...(voiceParticipants.get(roomName) ?? [])],
-		iceServers: getVoiceIceServers(includeRelay),
-		relay: includeRelay,
+		iceServers,
+		relay,
 	};
 }
 
@@ -123,7 +133,7 @@ function relayVoiceSignal(client: Client, msg: ClientMessageSignal): void {
 async function setVoicePresence(client: Client, joinedVoice: boolean): Promise<void> {
 	if (!isVoiceEnabled() || client.joinStatus !== ClientJoinStatus.Joined) {
 		if (joinedVoice) {
-			client.send({ ...buildVoiceMessage(client.room, false), denied: "disabled" });
+			client.send({ ...(await buildVoiceMessage(client.room, false)), denied: "disabled" });
 		}
 		return;
 	}
@@ -150,7 +160,7 @@ async function setVoicePresence(client: Client, joinedVoice: boolean): Promise<v
 				voiceParticipants.delete(client.room);
 			}
 			client.send({
-				...buildVoiceMessage(client.room, decision.includeRelay),
+				...(await buildVoiceMessage(client.room, decision.includeRelay)),
 				denied: decision.reason,
 			});
 			return;
@@ -162,7 +172,7 @@ async function setVoicePresence(client: Client, joinedVoice: boolean): Promise<v
 	if (participants.size === 0) {
 		voiceParticipants.delete(client.room);
 	}
-	await broadcast(client.room, buildVoiceMessage(client.room, await isRelayAllowedNow()));
+	await broadcast(client.room, await buildVoiceMessage(client.room, await isRelayAllowedNow()));
 }
 
 /**
@@ -178,13 +188,20 @@ async function removeFromVoice(client: Client): Promise<void> {
 		voiceParticipants.delete(client.room);
 	}
 	try {
-		await broadcast(client.room, buildVoiceMessage(client.room, await isRelayAllowedNow()));
+		await broadcast(
+			client.room,
+			await buildVoiceMessage(client.room, await isRelayAllowedNow()),
+		);
 	} catch (e) {
 		log.error(`Failed to broadcast voice presence after ${client.id} left: ${e}`);
 	}
 }
 export async function setup(): Promise<void> {
 	log.debug("setting up client manager...");
+	if (isVoiceEnabled()) {
+		// Warm the Cloudflare credential cache so the first voice join does not wait for the API.
+		void getRelayIceServers();
+	}
 	const server = wss;
 	server.on("connection", async (ws, req: Request & { session: MySession }) => {
 		if (!req.url.startsWith(`${conf.get("base_url")}/api/room/`)) {
@@ -408,7 +425,7 @@ async function joinAuthenticatedClient(client: Client, token: AuthToken, session
 
 	// Let the client know voice exists and who is already in it, before it joins.
 	if (isVoiceEnabled()) {
-		client.send(buildVoiceMessage(room.name, await isRelayAllowedNow()));
+		client.send(await buildVoiceMessage(room.name, await isRelayAllowedNow()));
 	}
 }
 
