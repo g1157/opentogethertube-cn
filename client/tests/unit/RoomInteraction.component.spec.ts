@@ -344,6 +344,28 @@ describe("room player interactions", () => {
 		expect(track.stop).toHaveBeenCalled();
 	});
 
+	it("collapses and expands the voice bar", async () => {
+		page.connection.mockReceive({
+			action: "voice",
+			participants: [],
+			iceServers: [],
+			relay: true,
+		});
+		await nextTick();
+
+		// A pointer-only desktop starts expanded; the chevron folds it down to one pill.
+		expect(page.wrapper.find('[data-cy="voice-collapse"]').exists()).toBe(true);
+		await page.wrapper.get('[data-cy="voice-collapse"]').trigger("click");
+		await nextTick();
+		expect(page.wrapper.find('[data-cy="voice-expand"]').exists()).toBe(true);
+		expect(page.wrapper.find('[data-cy="voice-collapse"]').exists()).toBe(false);
+
+		await page.wrapper.get('[data-cy="voice-expand"]').trigger("click");
+		await nextTick();
+		expect(page.wrapper.find('[data-cy="voice-collapse"]').exists()).toBe(true);
+		expect(page.wrapper.find('[data-cy="voice-expand"]').exists()).toBe(false);
+	});
+
 	it("bends the actual player without changing the speed displayed in the controls", async () => {
 		const media = installPlayer(true, true);
 		const roomRate = usePlaybackRate().playbackRate;

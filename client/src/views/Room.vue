@@ -63,12 +63,17 @@
 						<BufferGateNotice v-if="hasRoomSync" />
 						<div
 							class="voice-bar"
+							:class="{ 'voice-bar-collapsed': voiceBarCollapsed }"
 							v-if="voiceAvailable && controlsVisible"
 							data-cy="voice-bar"
 						>
 							<v-btn
 								:color="voiceSpeaking ? 'primary' : undefined"
-								:variant="voiceJoined && !voiceMuted ? 'flat' : 'plain'"
+								:variant="
+									voiceJoined && !voiceMuted && !voiceEchoSuppressed
+										? 'flat'
+										: 'plain'
+								"
 								size="small"
 								density="comfortable"
 								:data-cy="voiceJoined ? 'voice-mute' : 'voice-join'"
@@ -76,43 +81,130 @@
 							>
 								<v-icon
 									:icon="
-										voiceJoined && !voiceMuted
+										voiceJoined && !voiceMuted && !voiceEchoSuppressed
 											? mdiMicrophone
 											: mdiMicrophoneOff
 									"
 								/>
+								<v-badge
+									v-if="voiceParticipants.length > 0"
+									:content="voiceParticipants.length"
+									color="primary"
+									floating
+								/>
 								<v-tooltip activator="parent" location="top">
 									{{
-										voiceJoined ? $t("room.voice-mute") : $t("room.voice-join")
+										voiceJoined && voiceEchoSuppressed
+											? $t("room.voice-echo-suppressed")
+											: voiceJoined && voiceMuted
+											? $t("room.voice-unmute")
+											: voiceJoined
+											? $t("room.voice-mute")
+											: $t("room.voice-join")
 									}}
 								</v-tooltip>
 							</v-btn>
+							<template v-if="!voiceBarCollapsed">
+								<v-btn
+									v-if="voiceJoined"
+									variant="plain"
+									size="small"
+									density="comfortable"
+									data-cy="voice-leave"
+									@click="leaveVoice()"
+								>
+									<v-icon :icon="mdiPhoneHangup" />
+									<v-tooltip activator="parent" location="top">
+										{{ $t("room.voice-leave") }}
+									</v-tooltip>
+								</v-btn>
+								<span class="voice-count" v-if="voiceParticipants.length > 0">
+									{{
+										$t("room.voice-participants", {
+											count: voiceParticipants.length,
+										})
+									}}
+								</span>
+								<span
+									v-if="voiceStatus"
+									class="voice-status"
+									:class="`voice-status-${voiceStatus.tone}`"
+									:title="voiceStatusDetail"
+									data-cy="voice-status"
+								>
+									{{ voiceStatus.text }}
+								</span>
+								<v-btn
+									v-if="voiceJoined"
+									:color="voiceEchoGuard ? 'primary' : undefined"
+									variant="plain"
+									size="small"
+									density="comfortable"
+									:aria-label="$t('room.voice-echo-guard')"
+									:aria-pressed="voiceEchoGuard"
+									data-cy="voice-echo-guard"
+									@click="toggleVoiceEchoGuard()"
+								>
+									<v-icon
+										:icon="voiceEchoGuard ? mdiEarHearing : mdiEarHearingOff"
+									/>
+									<v-tooltip activator="parent" location="top">
+										{{
+											voiceEchoGuard
+												? $t("room.voice-echo-guard-on")
+												: $t("room.voice-echo-guard-off")
+										}}
+									</v-tooltip>
+								</v-btn>
+								<span class="voice-echo-state" v-if="voiceEchoSuppressed">
+									{{ $t("room.voice-echo-suppressed") }}
+								</span>
+								<span class="voice-error" v-if="voiceError">
+									{{ voiceErrorText }}
+								</span>
+							</template>
+							<template v-else>
+								<span
+									v-if="voiceStatus"
+									class="voice-status"
+									:class="`voice-status-${voiceStatus.tone}`"
+									:title="voiceStatusDetail"
+									data-cy="voice-status"
+								>
+									{{ voiceStatus.text }}
+								</span>
+								<v-icon
+									v-if="voiceError"
+									class="voice-error-icon"
+									:icon="mdiAlertCircleOutline"
+									:title="voiceErrorText"
+								/>
+							</template>
 							<v-btn
-								v-if="voiceJoined"
 								variant="plain"
 								size="small"
 								density="comfortable"
-								data-cy="voice-leave"
-								@click="leaveVoice()"
+								:aria-label="
+									$t(
+										voiceBarCollapsed
+											? 'room.voice-expand'
+											: 'room.voice-collapse',
+									)
+								"
+								:data-cy="voiceBarCollapsed ? 'voice-expand' : 'voice-collapse'"
+								@click="toggleVoiceBar()"
 							>
-								<v-icon :icon="mdiPhoneHangup" />
+								<v-icon :icon="voiceBarCollapsed ? mdiChevronUp : mdiChevronDown" />
 								<v-tooltip activator="parent" location="top">
-									{{ $t("room.voice-leave") }}
+									{{
+										$t(
+											voiceBarCollapsed
+												? "room.voice-expand"
+												: "room.voice-collapse",
+										)
+									}}
 								</v-tooltip>
 							</v-btn>
-							<span class="voice-count" v-if="voiceParticipants.length > 0">
-								{{
-									$t("room.voice-participants", {
-										count: voiceParticipants.length,
-									})
-								}}
-							</span>
-							<span class="voice-count" v-if="voiceJoined && !voiceRelay">
-								{{ $t("room.voice-direct-only") }}
-							</span>
-							<span class="voice-error" v-if="voiceError">
-								{{ $t(`room.voice-error-${voiceError}`) }}
-							</span>
 						</div>
 						<OmniPlayer
 							v-if="hasRoomSync"
@@ -436,11 +528,16 @@ import {
 	mdiEyeOff,
 	mdiLock,
 	mdiChevronDoubleRight,
+	mdiChevronDown,
+	mdiChevronUp,
 	mdiCircle,
 	mdiNoteTextOutline,
 	mdiMicrophone,
 	mdiMicrophoneOff,
 	mdiPhoneHangup,
+	mdiAlertCircleOutline,
+	mdiEarHearing,
+	mdiEarHearingOff,
 } from "@mdi/js";
 
 import {
@@ -611,10 +708,112 @@ export default defineComponent({
 			participants: voiceParticipants,
 			relay: voiceRelay,
 			error: voiceError,
+			summary: voiceSummary,
+			echoGuard: voiceEchoGuard,
+			echoSuppressed: voiceEchoSuppressed,
 			join: joinVoice,
 			leave: leaveVoice,
 			toggleMute: toggleVoiceMute,
+			toggleEchoGuard: toggleVoiceEchoGuard,
 		} = useVoice();
+
+		type VoiceStatusDisplay = {
+			text: string;
+			tone: "direct" | "relay" | "connected" | "connecting" | "failed";
+		};
+
+		// Phones start collapsed: the expanded row was wide enough to crowd the player controls.
+		const voiceBarCollapsed = ref(
+			typeof window !== "undefined" && typeof window.matchMedia === "function"
+				? window.matchMedia("(hover: none) and (pointer: coarse)").matches
+				: false,
+		);
+
+		function toggleVoiceBar() {
+			voiceBarCollapsed.value = !voiceBarCollapsed.value;
+		}
+
+		const voiceStatus = computed<VoiceStatusDisplay | null>(() => {
+			if (!voiceJoined.value) {
+				return null;
+			}
+			const summary = voiceSummary.value;
+			if (summary.failed > 0) {
+				return {
+					text: voiceRelay.value
+						? t("room.voice-status-failed", { count: summary.failed })
+						: t("room.voice-status-failed-no-relay"),
+					tone: "failed",
+				};
+			}
+			if (summary.connecting > 0) {
+				return {
+					text: t("room.voice-status-connecting", { count: summary.connecting }),
+					tone: "connecting",
+				};
+			}
+			if (summary.relay > 0) {
+				return {
+					text:
+						summary.direct > 0
+							? t("room.voice-status-mixed", {
+									direct: summary.direct,
+									relay: summary.relay,
+							  })
+							: t("room.voice-status-relay", { count: summary.relay }),
+					tone: "relay",
+				};
+			}
+			if (summary.direct > 0) {
+				return {
+					text: t("room.voice-status-direct", { count: summary.direct }),
+					tone: "direct",
+				};
+			}
+			if (summary.connected > 0) {
+				return {
+					text: t("room.voice-status-connected", { count: summary.connected }),
+					tone: "connected",
+				};
+			}
+			return null;
+		});
+
+		const voiceStatusDetail = computed(() => {
+			if (!voiceJoined.value) {
+				return "";
+			}
+			const summary = voiceSummary.value;
+			const parts: string[] = [];
+			if (summary.direct > 0) {
+				parts.push(t("room.voice-status-direct", { count: summary.direct }));
+			}
+			if (summary.relay > 0) {
+				parts.push(t("room.voice-status-relay", { count: summary.relay }));
+			}
+			if (summary.connected > 0) {
+				parts.push(t("room.voice-status-connected", { count: summary.connected }));
+			}
+			if (summary.connecting > 0) {
+				parts.push(t("room.voice-status-connecting", { count: summary.connecting }));
+			}
+			if (summary.failed > 0) {
+				parts.push(t("room.voice-status-failed", { count: summary.failed }));
+			}
+			return parts.join(" · ");
+		});
+
+		const voiceErrorText = computed(() =>
+			voiceError.value ? t(`room.voice-error-${voiceError.value}`) : "",
+		);
+
+		watch(voiceError, value => {
+			// A denied join or a microphone problem needs to be readable, not hidden behind the
+			// compact pill the user chose for space.
+			if (value) {
+				voiceBarCollapsed.value = false;
+			}
+		});
 		const granted = useGrants();
 		const { available: danmakuAvailable } = useDanmaku();
 		const mediaPlaybackBlocked = ref(false);
@@ -2014,9 +2213,17 @@ export default defineComponent({
 			voiceParticipants,
 			voiceRelay,
 			voiceError,
+			voiceStatus,
+			voiceStatusDetail,
+			voiceErrorText,
+			voiceBarCollapsed,
+			voiceEchoGuard,
+			voiceEchoSuppressed,
 			joinVoice,
 			leaveVoice,
 			toggleVoiceMute,
+			toggleVoiceEchoGuard,
+			toggleVoiceBar,
 			togglePlayback,
 			onPlayerApiReady,
 			onPlayerReady,
@@ -2068,6 +2275,11 @@ export default defineComponent({
 			mdiMicrophone,
 			mdiMicrophoneOff,
 			mdiPhoneHangup,
+			mdiChevronDown,
+			mdiChevronUp,
+			mdiAlertCircleOutline,
+			mdiEarHearing,
+			mdiEarHearingOff,
 		};
 	},
 });
@@ -2350,22 +2562,79 @@ $in-video-chat-width-small: 250px;
 	bottom: calc(var(--player-controls-height, 0px) + 12px);
 	z-index: 4;
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: 8px;
+	max-width: calc(100% - 24px);
 	padding: 4px;
 	border-radius: 999px;
 	background: rgba(0, 0, 0, 0.55);
 	color: white;
 
+	&.voice-bar-collapsed {
+		flex-wrap: nowrap;
+		gap: 4px;
+		padding: 3px 5px 3px 3px;
+	}
+
 	.voice-count,
+	.voice-status,
+	.voice-echo-state,
 	.voice-error {
-		padding-right: 10px;
+		padding-right: 8px;
 		font-size: 12px;
 		white-space: nowrap;
 	}
 
+	.voice-status {
+		font-weight: 500;
+	}
+
+	.voice-status-direct {
+		color: #81c784;
+	}
+
+	.voice-status-relay {
+		color: #ffd54f;
+	}
+
+	.voice-status-connected,
+	.voice-status-connecting {
+		color: #b0bec5;
+	}
+
+	.voice-status-failed {
+		color: #ff8a80;
+	}
+
+	.voice-echo-state {
+		color: #b0bec5;
+		font-size: 11px;
+	}
+
 	.voice-error {
 		color: rgb(var(--v-theme-error));
+		max-width: 240px;
+		white-space: normal;
+		line-height: 1.25;
+	}
+
+	.voice-error-icon {
+		color: rgb(var(--v-theme-error));
+	}
+
+	@media (max-width: 800px) {
+		left: 8px;
+		bottom: calc(var(--player-controls-height, 0px) + 8px);
+		gap: 4px;
+		padding: 3px 5px 3px 3px;
+
+		.voice-count,
+		.voice-status,
+		.voice-error {
+			padding-right: 4px;
+			font-size: 11px;
+		}
 	}
 }
 
