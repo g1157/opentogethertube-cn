@@ -379,11 +379,6 @@ export default {
 		"voice-status-connecting": "连接中 {count}",
 		"voice-status-failed": "连接失败 {count}",
 		"voice-status-failed-no-relay": "直连失败（未启用中继）",
-		"voice-echo-guard": "回声抑制",
-		"voice-echo-guard-on":
-			"回声抑制已开：别人说话时自动暂停你的麦克风，外放时不易产生回声；戴耳机可关闭。",
-		"voice-echo-guard-off": "回声抑制已关：外放时可能产生回声，建议戴耳机。",
-		"voice-echo-suppressed": "麦克风已暂停（回声抑制）",
 		"voice-expand": "展开语音控制",
 		"voice-collapse": "收起语音控制",
 		"voice-error-mic-permission": "无法使用麦克风",

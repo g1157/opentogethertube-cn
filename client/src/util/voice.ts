@@ -29,17 +29,6 @@ const PATH_POLL_LIMIT = 8;
 /** Bounded, deterministic re-offer schedule used by the smaller client id. */
 const RECONNECT_DELAYS_MS = [1500, 4000, 8000];
 
-/**
- * Half-duplex echo guard. On a phone speaker the browser's AEC cannot cancel a loud remote voice
- * completely, and in a mesh that residual loops back and forth. While any remote stream is above
- * this level the local microphone sends silence; the hold bridges word gaps so the gate does not
- * chatter. It defaults to on for touch devices and can be turned off when using headphones.
- */
-const REMOTE_ECHO_THRESHOLD = 0.01;
-const ECHO_POLL_MS = 80;
-const ECHO_HOLD_MS = 350;
-const TOUCH_PRIMARY_QUERY = "(hover: none) and (pointer: coarse)";
-
 export type VoicePeerState = "connecting" | "connected" | "direct" | "relay" | "failed";
 
 export interface VoicePeerSummary {
@@ -112,29 +101,18 @@ export function useVoice() {
 	const participants = ref<ClientId[]>([]);
 	const error = ref<VoiceDeniedReason | "mic-permission" | null>(null);
 	const peerStates = ref<Record<string, VoicePeerState>>({});
-	const echoGuard = ref(prefersTouchPrimary());
-	const echoSuppressed = ref(false);
 
 	let iceServers: RtcIceServer[] = [];
 	let localStream: MediaStream | null = null;
 	const peers = new Map<ClientId, RTCPeerConnection>();
 	const pendingCandidates = new Map<ClientId, RTCIceCandidateInit[]>();
 	const audioElements = new Map<ClientId, HTMLAudioElement>();
-	const remoteStreams = new Map<ClientId, MediaStream>();
-	const remoteAnalysers = new Map<
-		ClientId,
-		{ source: MediaStreamAudioSourceNode; analyser: AnalyserNode; buffer: Float32Array }
-	>();
 	const connectTimers = new Map<ClientId, ReturnType<typeof setTimeout>>();
 	const pathTimers = new Map<ClientId, ReturnType<typeof setTimeout>>();
 	const retryTimers = new Map<ClientId, ReturnType<typeof setTimeout>>();
 	const reconnectAttempts = new Map<ClientId, number>();
 	let audioContext: AudioContext | null = null;
-	/** Zero-gain sink that keeps analyser graphs rendered without duplicating remote audio. */
-	let echoSink: GainNode | null = null;
 	let speakingTimer: ReturnType<typeof setInterval> | null = null;
-	let echoTimer: ReturnType<typeof setInterval> | null = null;
-	let lastRemoteLoudAt = 0;
 	let duckActive = false;
 	let joining = false;
 	let joinEpoch = 0;
@@ -143,14 +121,6 @@ export function useVoice() {
 
 	function selfId(): ClientId {
 		return store.state.users.you.id;
-	}
-
-	function prefersTouchPrimary(): boolean {
-		return (
-			typeof window !== "undefined" &&
-			typeof window.matchMedia === "function" &&
-			window.matchMedia(TOUCH_PRIMARY_QUERY).matches
-		);
 	}
 
 	function setPeerState(remoteId: ClientId, state: VoicePeerState) {
@@ -370,8 +340,6 @@ export function useVoice() {
 			peers.delete(remoteId);
 		}
 		pendingCandidates.delete(remoteId);
-		removeRemoteAnalyser(remoteId);
-		remoteStreams.delete(remoteId);
 		const el = audioElements.get(remoteId);
 		if (el) {
 			el.srcObject = null;
@@ -382,13 +350,6 @@ export function useVoice() {
 	}
 
 	function attachRemoteAudio(remoteId: ClientId, stream: MediaStream) {
-		if (remoteStreams.get(remoteId) !== stream) {
-			removeRemoteAnalyser(remoteId);
-			remoteStreams.set(remoteId, stream);
-			if (echoGuard.value) {
-				addRemoteAnalyser(remoteId, stream);
-			}
-		}
 		let el = audioElements.get(remoteId);
 		if (!el) {
 			el = document.createElement("audio");
@@ -403,125 +364,6 @@ export function useVoice() {
 			// Autoplay can stay blocked until the page has been interacted with; the join click
 			// normally satisfies that, and unmuting restores playback otherwise.
 		});
-	}
-
-	function addRemoteAnalyser(remoteId: ClientId, stream: MediaStream) {
-		if (!audioContext || remoteAnalysers.has(remoteId)) {
-			return;
-		}
-		try {
-			const source = audioContext.createMediaStreamSource(stream);
-			const analyser = audioContext.createAnalyser();
-			analyser.fftSize = 256;
-			source.connect(analyser);
-			if (echoSink) {
-				// An analyser with no path to the destination is not rendered in every browser.
-				// The sink has zero gain, so this tap never adds audible audio.
-				analyser.connect(echoSink);
-			}
-			remoteAnalysers.set(remoteId, {
-				source,
-				analyser,
-				buffer: new Float32Array(analyser.fftSize),
-			});
-			startEchoPolling();
-		} catch (e) {
-			console.warn("voice: echo monitoring is unavailable for a peer", e);
-		}
-	}
-
-	function removeRemoteAnalyser(remoteId: ClientId) {
-		const entry = remoteAnalysers.get(remoteId);
-		if (!entry) {
-			return;
-		}
-		try {
-			entry.source.disconnect();
-		} catch {
-			// Disconnecting an already-closed stream is not actionable.
-		}
-		remoteAnalysers.delete(remoteId);
-		if (remoteAnalysers.size === 0) {
-			stopEchoPolling();
-		}
-	}
-
-	function startEchoPolling() {
-		if (echoTimer !== null || remoteAnalysers.size === 0) {
-			return;
-		}
-		echoTimer = setInterval(() => {
-			if (echoTimer === null) {
-				return;
-			}
-			let loud = false;
-			for (const { analyser, buffer } of remoteAnalysers.values()) {
-				analyser.getFloatTimeDomainData(buffer);
-				let sum = 0;
-				for (const sample of buffer) {
-					sum += sample * sample;
-				}
-				if (Math.sqrt(sum / buffer.length) > REMOTE_ECHO_THRESHOLD) {
-					loud = true;
-					break;
-				}
-			}
-			if (loud) {
-				lastRemoteLoudAt = Date.now();
-			}
-			setEchoSuppressed(Date.now() - lastRemoteLoudAt < ECHO_HOLD_MS);
-		}, ECHO_POLL_MS);
-	}
-
-	function stopEchoPolling() {
-		if (echoTimer !== null) {
-			clearInterval(echoTimer);
-			echoTimer = null;
-		}
-		for (const entry of remoteAnalysers.values()) {
-			try {
-				entry.source.disconnect();
-			} catch {
-				// Already disconnected.
-			}
-		}
-		remoteAnalysers.clear();
-		lastRemoteLoudAt = 0;
-		setEchoSuppressed(false);
-	}
-
-	function setEchoGuard(enabled: boolean) {
-		echoGuard.value = enabled;
-		if (!enabled) {
-			stopEchoPolling();
-			return;
-		}
-		for (const [remoteId, stream] of remoteStreams) {
-			addRemoteAnalyser(remoteId, stream);
-		}
-	}
-
-	function toggleEchoGuard() {
-		setEchoGuard(!echoGuard.value);
-	}
-
-	function applyMicState() {
-		const enabled = !muted.value && !echoSuppressed.value;
-		for (const track of localStream?.getAudioTracks() ?? []) {
-			track.enabled = enabled;
-		}
-	}
-
-	function setEchoSuppressed(suppress: boolean) {
-		if (echoSuppressed.value === suppress) {
-			return;
-		}
-		echoSuppressed.value = suppress;
-		applyMicState();
-		if (suppress) {
-			speaking.value = false;
-			duck(false);
-		}
 	}
 
 	async function flushCandidates(remoteId: ClientId, pc: RTCPeerConnection) {
@@ -661,18 +503,10 @@ export function useVoice() {
 					// A context created from the join click is normally running already.
 				});
 			}
-			if (typeof audioContext.createGain === "function" && audioContext.destination) {
-				echoSink = audioContext.createGain();
-				echoSink.gain.value = 0;
-				echoSink.connect(audioContext.destination);
-			}
 			const source = audioContext.createMediaStreamSource(localStream);
 			const analyser = audioContext.createAnalyser();
 			analyser.fftSize = 512;
 			source.connect(analyser);
-			if (echoSink) {
-				analyser.connect(echoSink);
-			}
 			const buffer = new Float32Array(analyser.fftSize);
 			speakingTimer = setInterval(() => {
 				// A tick queued before teardown still runs once after clearInterval; without
@@ -687,17 +521,12 @@ export function useVoice() {
 					sum += sample * sample;
 				}
 				const rms = Math.sqrt(sum / buffer.length);
-				const active = !muted.value && !echoSuppressed.value && rms > SPEAKING_THRESHOLD;
+				const active = !muted.value && rms > SPEAKING_THRESHOLD;
 				speaking.value = active;
 				duck(active);
 			}, SPEAKING_POLL_MS);
 		} catch (e) {
 			console.warn("voice: speaking detection is unavailable", e);
-		}
-		if (echoGuard.value) {
-			for (const [remoteId, stream] of remoteStreams) {
-				addRemoteAnalyser(remoteId, stream);
-			}
 		}
 	}
 
@@ -706,8 +535,6 @@ export function useVoice() {
 			clearInterval(speakingTimer);
 			speakingTimer = null;
 		}
-		stopEchoPolling();
-		remoteStreams.clear();
 		duck(false);
 		for (const track of localStream?.getTracks() ?? []) {
 			track.stop();
@@ -719,7 +546,6 @@ export function useVoice() {
 			});
 			audioContext = null;
 		}
-		echoSink = null;
 	}
 
 	async function join() {
@@ -758,15 +584,8 @@ export function useVoice() {
 		localStream = stream;
 		joined.value = true;
 		muted.value = false;
-		echoSuppressed.value = false;
-		applyMicState();
 		startSpeakingDetection();
 		sendPresence(true);
-		const settings = stream.getAudioTracks()[0]?.getSettings?.();
-		if (settings?.echoCancellation === false) {
-			// The guard is the only remaining defense when the browser reports no AEC.
-			setEchoGuard(true);
-		}
 	}
 
 	/** Drops everything local without telling the server, for when the server already decided. */
@@ -774,7 +593,6 @@ export function useVoice() {
 		joined.value = false;
 		muted.value = false;
 		speaking.value = false;
-		echoSuppressed.value = false;
 		teardownMedia();
 		for (const id of [...peers.keys()]) {
 			closePeer(id);
@@ -800,7 +618,9 @@ export function useVoice() {
 
 	function toggleMute() {
 		muted.value = !muted.value;
-		applyMicState();
+		for (const track of localStream?.getAudioTracks() ?? []) {
+			track.enabled = !muted.value;
+		}
 		if (muted.value) {
 			speaking.value = false;
 			duck(false);
@@ -837,12 +657,8 @@ export function useVoice() {
 		participants,
 		error,
 		summary,
-		echoGuard,
-		echoSuppressed,
 		join,
 		leave,
 		toggleMute,
-		setEchoGuard,
-		toggleEchoGuard,
 	};
 }

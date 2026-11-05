@@ -393,12 +393,6 @@ export default {
 		"voice-status-connecting": "Connecting {count}",
 		"voice-status-failed": "Connection failed {count}",
 		"voice-status-failed-no-relay": "Direct connection failed (no relay)",
-		"voice-echo-guard": "Echo guard",
-		"voice-echo-guard-on":
-			"Echo guard is on: your microphone pauses while someone else speaks, which prevents speaker feedback. Turn it off with headphones.",
-		"voice-echo-guard-off":
-			"Echo guard is off. On a speaker this can cause feedback; headphones are recommended.",
-		"voice-echo-suppressed": "Mic paused (echo guard)",
 		"voice-expand": "Expand voice controls",
 		"voice-collapse": "Collapse voice controls",
 		"voice-error-mic-permission": "Microphone unavailable",

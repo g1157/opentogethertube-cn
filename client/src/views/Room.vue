@@ -69,11 +69,7 @@
 						>
 							<v-btn
 								:color="voiceSpeaking ? 'primary' : undefined"
-								:variant="
-									voiceJoined && !voiceMuted && !voiceEchoSuppressed
-										? 'flat'
-										: 'plain'
-								"
+								:variant="voiceJoined && !voiceMuted ? 'flat' : 'plain'"
 								size="small"
 								density="comfortable"
 								:data-cy="voiceJoined ? 'voice-mute' : 'voice-join'"
@@ -81,7 +77,7 @@
 							>
 								<v-icon
 									:icon="
-										voiceJoined && !voiceMuted && !voiceEchoSuppressed
+										voiceJoined && !voiceMuted
 											? mdiMicrophone
 											: mdiMicrophoneOff
 									"
@@ -94,9 +90,7 @@
 								/>
 								<v-tooltip activator="parent" location="top">
 									{{
-										voiceJoined && voiceEchoSuppressed
-											? $t("room.voice-echo-suppressed")
-											: voiceJoined && voiceMuted
+										voiceJoined && voiceMuted
 											? $t("room.voice-unmute")
 											: voiceJoined
 											? $t("room.voice-mute")
@@ -133,31 +127,6 @@
 									data-cy="voice-status"
 								>
 									{{ voiceStatus.text }}
-								</span>
-								<v-btn
-									v-if="voiceJoined"
-									:color="voiceEchoGuard ? 'primary' : undefined"
-									variant="plain"
-									size="small"
-									density="comfortable"
-									:aria-label="$t('room.voice-echo-guard')"
-									:aria-pressed="voiceEchoGuard"
-									data-cy="voice-echo-guard"
-									@click="toggleVoiceEchoGuard()"
-								>
-									<v-icon
-										:icon="voiceEchoGuard ? mdiEarHearing : mdiEarHearingOff"
-									/>
-									<v-tooltip activator="parent" location="top">
-										{{
-											voiceEchoGuard
-												? $t("room.voice-echo-guard-on")
-												: $t("room.voice-echo-guard-off")
-										}}
-									</v-tooltip>
-								</v-btn>
-								<span class="voice-echo-state" v-if="voiceEchoSuppressed">
-									{{ $t("room.voice-echo-suppressed") }}
 								</span>
 								<span class="voice-error" v-if="voiceError">
 									{{ voiceErrorText }}
@@ -536,8 +505,6 @@ import {
 	mdiMicrophoneOff,
 	mdiPhoneHangup,
 	mdiAlertCircleOutline,
-	mdiEarHearing,
-	mdiEarHearingOff,
 } from "@mdi/js";
 
 import {
@@ -709,12 +676,9 @@ export default defineComponent({
 			relay: voiceRelay,
 			error: voiceError,
 			summary: voiceSummary,
-			echoGuard: voiceEchoGuard,
-			echoSuppressed: voiceEchoSuppressed,
 			join: joinVoice,
 			leave: leaveVoice,
 			toggleMute: toggleVoiceMute,
-			toggleEchoGuard: toggleVoiceEchoGuard,
 		} = useVoice();
 
 		type VoiceStatusDisplay = {
@@ -2217,12 +2181,9 @@ export default defineComponent({
 			voiceStatusDetail,
 			voiceErrorText,
 			voiceBarCollapsed,
-			voiceEchoGuard,
-			voiceEchoSuppressed,
 			joinVoice,
 			leaveVoice,
 			toggleVoiceMute,
-			toggleVoiceEchoGuard,
 			toggleVoiceBar,
 			togglePlayback,
 			onPlayerApiReady,
@@ -2278,8 +2239,6 @@ export default defineComponent({
 			mdiChevronDown,
 			mdiChevronUp,
 			mdiAlertCircleOutline,
-			mdiEarHearing,
-			mdiEarHearingOff,
 		};
 	},
 });
@@ -2579,7 +2538,6 @@ $in-video-chat-width-small: 250px;
 
 	.voice-count,
 	.voice-status,
-	.voice-echo-state,
 	.voice-error {
 		padding-right: 8px;
 		font-size: 12px;
@@ -2605,11 +2563,6 @@ $in-video-chat-width-small: 250px;
 
 	.voice-status-failed {
 		color: #ff8a80;
-	}
-
-	.voice-echo-state {
-		color: #b0bec5;
-		font-size: 11px;
 	}
 
 	.voice-error {
