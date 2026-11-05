@@ -104,8 +104,8 @@ curl -X POST \
 | 30 | 900 | 1.46 TB | 458 GB | 约 **$22.9** |
 | 100 | 3,000 | 4.86 TB | 3.86 TB | 约 **$193** |
 
-把「全中继」换成实际 10%–30% 的中继比例，账单大致除以 3–10。当前线上语音用量为 0，
-`/api/status/voice` 显示 `relayConfigured:false`、`monthlyUsageMb:0`，接入后从这里观察真实比例。
+把「全中继」换成实际 10%–30% 的中继比例，账单大致除以 3–10。v1.4.15 上线后实测
+`relayConfigured:true`、`relayAllowed:true`、`monthlyUsageMb:0`；通话后从这里观察真实比例。
 
 ### 与其它方案的单场对比
 

@@ -1,9 +1,9 @@
 # 房间语音：P2P mesh 与中继成本刹车
 
 本文件记录房间语音的实现：它如何工作、如何在服务端限制费用、如何验证，以及尚未完成的
-部分。该实现随 `v0.15.0-cn18` 上线（与房间便签同批），默认开启入口。本部署未配置
-TURN，因此服务端只能下发直连 ICE；实际媒体路径由客户端 `getStats()` 判定并在界面上
-显示（直连 / 中继 / 已连接 / 连接中 / 失败）。稳定化路线的调查见
+部分。该实现随 `v0.15.0-cn18` 上线（与房间便签同批），默认开启入口。v1.4.15 起本部署
+接入 Cloudflare Realtime TURN：服务端签发短期凭据并缓存；实际媒体路径由客户端 `getStats()`
+判定并在界面上显示（直连 / 中继 / 已连接 / 连接中 / 失败）。稳定化路线的调查见
 `voice-stability-2026-11-05.zh-CN.md`。
 
 ## 目标与明确不做的
@@ -218,12 +218,12 @@ cd server && NODE_ENV=test npx vitest run tests/unit/voice.spec.ts tests/unit/vo
 
 ## 已知短板
 
-- **本部署尚未填 Cloudflare 凭据**。代码已支持静态 TURN 与 Cloudflare TURN（v1.4.15 起），
-  但线上 `relayConfigured:false`；直连被对称 NAT / 运营商 CGNAT 挡住时无法建立媒体。客户端会
-  显示「直连失败（未启用中继）」。稳定化选项见 `voice-stability-2026-11-05.zh-CN.md`。
-- **Cloudflare TURN 凭据已接入**：`VOICE_CLOUDFLARE_TURN_KEY_ID` + `VOICE_CLOUDFLARE_TURN_API_TOKEN`
-  设置后自动签发短期凭据并缓存；未设置时回退到静态 `VOICE_TURN_ICE_SERVERS`。资源清单与接入细节见
+- **Cloudflare TURN 已接入并启用**（v1.4.15）：线上 `relayConfigured:true`、
+  `relayAllowed:true`；`VOICE_CLOUDFLARE_TURN_KEY_ID` + `VOICE_CLOUDFLARE_TURN_API_TOKEN`
+  会自动签发短期凭据并缓存，未设置时回退到静态 `VOICE_TURN_ICE_SERVERS`。资源清单与接入细节见
   `cloudflare-turn-2026-11-05.zh-CN.md`。
+- **大陆网络仍需实测**：Cloudflare TURN 从大陆会连到境外节点，延迟/丢包以真机为准；必要时
+  自建 coturn 或换 TRTC。
 - **真实音频通路仍需真机验证**。AEC 的表现取决于浏览器与设备。2026-11-05 实机复现发现：
   两台距离很近的设备同时开麦会互相拾音形成回声，并不是单机 AEC 必然失效；当前保留浏览器
   3A，不再做半双工压麦。同室多人时应只开一台麦克风或戴耳机。

@@ -28,7 +28,7 @@
 
 | 事实 | 位置 | 影响 |
 | --- | --- | --- |
-| 服务端只下发 STUN，未配置 TURN | `docs/voice.zh-CN.md` 配置表；`server/voice.ts` | 对称 NAT / CGNAT 下的 peer 永远连不上 |
+| 修复前只下发 STUN；v1.4.15 起接入 Cloudflare TURN | `docs/voice.zh-CN.md` 配置表；`server/voice.ts` | 对称 NAT / CGNAT 下的 peer 曾无法连接 |
 | mesh 全互联，每对 peer 一条连接 | `client/src/util/voice.ts` | 6 人 15 对，任一对失败即有一路没声音 |
 | 失败以前只 `closePeer`，无 UI | 修复前 `voice.ts` 的 `onconnectionstatechange` | 用户只看到「加入成功」但没有声音 |
 | 语音名单是进程内存态 | `server/clientmanager.ts` | 接 balancer 后跨实例看不到彼此 |
@@ -37,7 +37,8 @@
 
 本次已修的部分：逐 peer 状态（直连/中继/已连接/连接中/失败）、10 秒超时、有界重连、
 可折叠控制条。它们解决「看得见」，但不解决「没有中继」。半双工回声抑制曾短暂加入，
-实机确认回声来自两台近距离设备同时开麦后已移除。
+实机确认回声来自两台近距离设备同时开麦后已移除。v1.4.15 起 Cloudflare TURN 已接入并启用
+（线上 `relayConfigured:true`、`relayAllowed:true`）。
 
 ## 二、为什么直连会失败
 
@@ -57,8 +58,8 @@
 
 | 方案 | 连通性 | 大陆体验 | 源站端口 | 6 人·3h 成本（估算） | 改动量 | 适合 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 现状：STUN only | 仅直连，NAT 后失败 | 取决于 STUN/网络 | 无 | 0 | 已上线 | 2 人同网、临时 |
-| **Cloudflare TURN** | 好；UDP/TCP/TLS 443 | 出境到境外节点，延迟/抖动不确定 | **无需** | **约 $0.08**（1 TB 内免费） | 小：服务端签发短期凭据 | 先修连通性 |
+| 旧状态：STUN only（v1.4.14 及以前） | 仅直连，NAT 后失败 | 取决于 STUN/网络 | 无 | 0 | 已上线 | 2 人同网、临时 |
+| **Cloudflare TURN（v1.4.15 已启用）** | 好；UDP/TCP/TLS 443 | 出境到境外节点，延迟/抖动不确定 | **无需** | **约 $0.08**（1 TB 内免费） | 小：服务端签发短期凭据 | 先修连通性 |
 | 自建 coturn（腾讯云） | 好；可 TLS 443 | **本地转发，最低延迟** | 需开 3478/UDP、5349 或 443/TCP、relay 端口段 | **约 1.3 元** + CVM 带宽 | 中：部署、证书、配额、防滥用 | 大陆长期 |
 | Cloudflare SFU | 好；组网更稳 | 同上，出境 | 无需 | 约 $0.08 起 + 集成 | 中：接 SFU SDK | 4 人以上 |
 | 自建 LiveKit SFU | 好 | 本地转发 | 7880/WS（可走隧道）、7881/TCP、50000–60000/UDP、3478/UDP、5349/TCP | 服务器流量，约 1.3 元 + 运维 | 大 | 需要完全自控 |
