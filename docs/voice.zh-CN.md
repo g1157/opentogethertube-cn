@@ -217,6 +217,7 @@ cd server && NODE_ENV=test npx vitest run tests/unit/voice.spec.ts tests/unit/vo
 - **未对接 Cloudflare TURN 凭据 API**。本实现的刹车是「不下发中继服务器」，在服务端签发
   ICE 列表这一步生效，不依赖外部 API。Cloudflare 支持带 TTL 的短期凭据与凭据吊销，
   可作为第二层保险（例如会话中途强制切断），但需要 TURN key 才能实机验证，因此未实现。
+  资源清单与接入方案见 `cloudflare-turn-2026-11-05.zh-CN.md`。
 - **真实音频通路仍需真机验证**。AEC 的表现取决于浏览器与设备。2026-11-05 实机复现发现：
   两台距离很近的设备同时开麦会互相拾音形成回声，并不是单机 AEC 必然失效；当前保留浏览器
   3A，不再做半双工压麦。同室多人时应只开一台麦克风或戴耳机。

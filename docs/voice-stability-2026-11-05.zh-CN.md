@@ -83,6 +83,9 @@ RTC 的钱买的是大陆节点、3A/AEC、弱网对抗和运维省心，不是�
 
 ### 1. Cloudflare Realtime TURN（推荐第一步）
 
+Cloudflare 侧的资源清单、凭据接口、接入改法与成本测算见
+[cloudflare-turn-2026-11-05.zh-CN.md](cloudflare-turn-2026-11-05.zh-CN.md)。
+
 - 地址与端口：`turn.cloudflare.com`，UDP 3478/443、TCP 3478/80、TLS 5349/443；STUN 免费。
 - 计费：$0.05/GB 出向，1 TB/月与 SFU 共享；只对 Cloudflare→TURN 客户端方向计费。
 - 凭据：服务端调用 Cloudflare 的短期凭据接口，最长 48 小时；`iceServers` 里同时给

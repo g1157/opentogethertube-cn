@@ -112,7 +112,7 @@ address. The full trade-off table is in [deployment options](docs/deployment-opt
 | “Pause while others buffer” | [docs/buffer-gate.zh-CN.md](docs/buffer-gate.zh-CN.md) |
 | Enhancement tiers, render scale and the film tier | [docs/video-enhancement.zh-CN.md](docs/video-enhancement.zh-CN.md) · [live-action filter survey](docs/upscale-for-live-action.zh-CN.md) · [ultra tier vs mpv, block by block](docs/upscale-webgl2-mpv-parity.zh-CN.md) |
 | Playback details panel | [docs/player-stats.zh-CN.md](docs/player-stats.zh-CN.md) |
-| Room voice (P2P, cost brake) | [docs/voice.zh-CN.md](docs/voice.zh-CN.md) · [voice stability survey](docs/voice-stability-2026-11-05.zh-CN.md) |
+| Room voice (P2P, cost brake) | [docs/voice.zh-CN.md](docs/voice.zh-CN.md) · [voice stability survey](docs/voice-stability-2026-11-05.zh-CN.md) · [Cloudflare TURN assessment](docs/cloudflare-turn-2026-11-05.zh-CN.md) |
 | Room notes (append-only, permissions, migration) | [docs/room-notes.zh-CN.md](docs/room-notes.zh-CN.md) |
 | Large MP4 probing | [docs/media-parsing.zh-CN.md](docs/media-parsing.zh-CN.md) |
 | Deployment, upgrades, rollbacks, resource use | [DEPLOYMENT.md](DEPLOYMENT.md) · [docs/deployment-options.zh-CN.md](docs/deployment-options.zh-CN.md) |

@@ -92,7 +92,7 @@ sudo docker compose up -d           # 自动拉取镜像、迁移数据库、启
 | 缓冲联动（一起等待） | [docs/buffer-gate.zh-CN.md](docs/buffer-gate.zh-CN.md) |
 | 画质增强、渲染倍率与影视档 | [docs/video-enhancement.zh-CN.md](docs/video-enhancement.zh-CN.md) · [真人影视滤镜选型](docs/upscale-for-live-action.zh-CN.md) · [极致档与 mpv 的逐块对齐](docs/upscale-webgl2-mpv-parity.zh-CN.md) |
 | 播放详情（视频数据面板） | [docs/player-stats.zh-CN.md](docs/player-stats.zh-CN.md) |
-| 房间语音（P2P、成本刹车） | [docs/voice.zh-CN.md](docs/voice.zh-CN.md) · [稳定语音路线调查](docs/voice-stability-2026-11-05.zh-CN.md) |
+| 房间语音（P2P、成本刹车） | [docs/voice.zh-CN.md](docs/voice.zh-CN.md) · [稳定语音路线调查](docs/voice-stability-2026-11-05.zh-CN.md) · [Cloudflare 中继资源评估](docs/cloudflare-turn-2026-11-05.zh-CN.md) |
 | 房间便签（追加式、权限与迁移） | [docs/room-notes.zh-CN.md](docs/room-notes.zh-CN.md) |
 | 大 MP4 解析与探测策略 | [docs/media-parsing.zh-CN.md](docs/media-parsing.zh-CN.md) |
 | 部署、升级、回退与资源消耗 | [DEPLOYMENT.md](DEPLOYMENT.md) · [docs/deployment-options.zh-CN.md](docs/deployment-options.zh-CN.md) |
