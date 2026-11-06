@@ -1,8 +1,8 @@
 # 房间语音：P2P mesh 与中继成本刹车
 
 本文件记录房间语音的实现：它如何工作、如何在服务端限制费用、如何验证，以及尚未完成的
-部分。该实现随 `v0.15.0-cn18` 上线（与房间便签同批），默认开启入口。v1.4.15 起本部署
-接入 Cloudflare Realtime TURN：服务端签发短期凭据并缓存；实际媒体路径由客户端 `getStats()`
+部分。该实现随 `v0.15.0-cn18` 上线（与房间便签同批），默认开启入口。v1.4.15 起支持接入
+Cloudflare Realtime TURN：服务端签发短期凭据并缓存；实际媒体路径由客户端 `getStats()`
 判定并在界面上显示（直连 / 中继 / 已连接 / 连接中 / 失败）。稳定化路线的调查见
 `voice-stability-2026-11-05.zh-CN.md`。
 
@@ -122,14 +122,32 @@ Cloudflare 不提供硬性费用上限，账单告警发生在上量之后。因
 | `cloudflare_turn.key_id` | `VOICE_CLOUDFLARE_TURN_KEY_ID` | 空 | Cloudflare Realtime TURN Key ID；与 API Token 同时设置时优先签发短期凭据 |
 | `cloudflare_turn.api_token` | `VOICE_CLOUDFLARE_TURN_API_TOKEN` | 空 | TURN Key API Token（敏感）；只放服务端，用于生成凭据 |
 | `cloudflare_turn.ttl_seconds` | `VOICE_CLOUDFLARE_TURN_TTL_SECONDS` | `86400` | 凭据有效期，钳制在 300–172800 秒；应大于最长通话 |
+| `turn_channels` | `VOICE_TURN_CHANNELS` | 空 | 渠道组 JSON；每个 endpoint（账号）有独立月度额度，同一渠道内按顺序粘性切换 |
 | `max_participants_per_room` | `VOICE_MAX_PARTICIPANTS_PER_ROOM` | `6` | 单房语音人数上限，`0` 不限 |
 | `max_concurrent_rooms` | `VOICE_MAX_CONCURRENT_ROOMS` | `0` | 同时语音的房间数上限，`0` 不限 |
-| `monthly_relay_mb` | `VOICE_MONTHLY_RELAY_MB` | `500000` | **主刹车**：月度中继预算（500 GB = Cloudflare 1 TB 共享免费额度的一半）。超过即停发中继 |
-| `monthly_relay_mb_max` | `VOICE_MONTHLY_RELAY_MB_MAX` | `0` | 可选硬阈值：超过直接拒绝加入，而不是降级。默认关闭 |
+| `monthly_relay_mb` | `VOICE_MONTHLY_RELAY_MB` | `0` | **已废弃**的全局月度预算；现在用 `turn_channels` 里的 per-account 额度 |
+| `monthly_relay_mb_max` | `VOICE_MONTHLY_RELAY_MB_MAX` | `0` | **已废弃**的全局硬阈值；现在用 `turn_channels` 里的 per-account 额度 |
 | `audio_bitrate_kbps` | `VOICE_AUDIO_BITRATE_KBPS` | `40` | 仅用于估算的单流码率 |
 | `usage_tick_seconds` | `VOICE_USAGE_TICK_SECONDS` | `15` | 用量累计周期 |
 
 注意：配置系统只支持非负整数，所以预算以 MB 表示（`1 MB = 1e6` 字节），与内部字节记账单位对齐。
+
+### 按账号额度与粘性切换
+
+`VOICE_TURN_CHANNELS` 是一个渠道组，里面可以放同一个提供商的多个账号：
+
+```json
+[{"id":"cloudflare","kind":"cloudflare","keys":[
+  {"id":"cf-a","keyId":"...","apiToken":"...","monthlyLimitMb":700000},
+  {"id":"cf-b","keyId":"...","apiToken":"...","monthlyLimitMb":700000}
+]}]
+```
+
+- **每个账号独立 700 GB/月**（`monthlyLimitMb` 在 key 上）；不是渠道共享 700 GB，渠道合计只用于展示。
+- 按配置顺序**优先 cf-a**；只有它达到自己的 700 GB 或凭据签发失败，才切到 cf-b，不做轮询。
+- 记账按 endpoint 分开：估算 `voice:relay-bytes:<YYYY-MM>:<channel>:<endpoint>`，实际 egress
+  `voice:cloudflare-egress:<YYYY-MM>:<channel>:<endpoint>`；一个账号 quota 用完不会影响另一个。
+- 直连流量免费，不计入任何账号额度。
 
 Cloudflare TURN 的签发逻辑：服务端启动时预热一次，之后按 TTL 的 80% 后台刷新；凭据缓存在内存，
 失败时保留仍有效的旧凭据，过期或连续失败则回退到静态 `VOICE_TURN_ICE_SERVERS`（若配置），否则
@@ -183,7 +201,7 @@ GB/小时 = N × (N − 1) × 码率(kbps) × 3600 ÷ 8 ÷ 1e9
 
 - 一个 6 人房间 3 小时 ≈ **1.62 GB**，约合 **$0.081**
 - 折算约 **0.09 GB / 人·小时**，即约 **$0.0045 / 人·小时**
-- 默认 500 GB 预算 ≈ **5,500 人·小时**；Cloudflare 免费 1 TB ≈ 11,000 人·小时
+- 默认每个账号 700 GB 预算 ≈ **7,700 人·小时**；Cloudflare 每个账号免费 1 TB ≈ 11,000 人·小时
 
 Cloudflare Realtime 的计费事实：SFU 与 TURN 均为 **$0.05/GB 出向流量**，免费额度为
 **1,000 GB 且两者共用一个池子**（不是各自 1 TB）；账单是一条合并项；SFU 只对
@@ -213,14 +231,14 @@ curl -s localhost:8080/api/status/voice | jq
 cd server && NODE_ENV=test npx vitest run tests/unit/voice.spec.ts tests/unit/voice-budget.spec.ts
 ```
 
-覆盖：ICE 配置解析与降级、用量换算、软/硬预算与容量拒绝、无中继配置、读失败时关闭、
-对账快照字段。
+覆盖：ICE 配置解析与降级、按 endpoint 的用量换算、per-account 额度与粘性切换、容量拒绝、
+无中继配置、读失败时关闭、对账快照字段。
 
 ## 已知短板
 
-- **Cloudflare TURN 已接入并启用**（v1.4.15）：线上 `relayConfigured:true`、
-  `relayAllowed:true`；`VOICE_CLOUDFLARE_TURN_KEY_ID` + `VOICE_CLOUDFLARE_TURN_API_TOKEN`
-  会自动签发短期凭据并缓存，未设置时回退到静态 `VOICE_TURN_ICE_SERVERS`。资源清单与接入细节见
+- **Cloudflare TURN 支持多账号**（v1.4.16）：`VOICE_TURN_CHANNELS` 可以在一个渠道内放多个
+  账号，每个账号独立 `monthlyLimitMb`（例如 cf-a / cf-b 各 700 GB），按 cf-a → cf-b 粘性切换；
+  实际状态以 `/api/status/voice` 为准。资源清单与接入细节见
   `cloudflare-turn-2026-11-05.zh-CN.md`。
 - **大陆网络仍需实测**：Cloudflare TURN 从大陆会连到境外节点，延迟/丢包以真机为准；必要时
   自建 coturn 或换 TRTC。

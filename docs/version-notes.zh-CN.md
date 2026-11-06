@@ -4,6 +4,19 @@
 `archive/history` 分支与 `v0.14.1` 标签。`v1.0.0` 起跳出 cn 序列，作为本分支的正式大版本，
 标签与镜像名不再带 cn 编号。
 
+-   **v1.4.16**：Cloudflare TURN 改为按账号独立额度，同渠道粘性切换。
+    **额度**：取消全局 500 GB 刹车与「渠道共享 700 GB」；`VOICE_TURN_CHANNELS` 中每个 key
+    使用自己的 `monthlyLimitMb`（默认 700 GB），渠道合计只用于展示。
+    **选择**：同一渠道内固定优先 cf-a，只有它达到自己的额度或凭据签发失败才切 cf-b；不做
+    轮询；房间在整段语音会话内固定 channel/endpoint，直连流量不计费。
+    **对账**：估算与 Cloudflare 实际 egress 都按 endpoint 分开记录；cron 按 key 查询并写入
+    `voice:cloudflare-egress:<YYYY-MM>:<channel>:<endpoint>`，单个账号查询失败只回退该账号
+    的本地估算，不会把其他账号的额度算到它头上。
+    **文档**：更新 `docs/voice.zh-CN.md` 与 `docs/cloudflare-turn-2026-11-05.zh-CN.md`；
+    文档只描述通用机制与配置，不记录实际部署细节。
+    **测试**：服务端 1016 项通过（新增 per-account cap、粘性、失败切换与按 endpoint 对账）；
+    客户端 1046 项、common 76 项通过；lint 0 error；无数据库迁移、无新增依赖。
+
 -   **v1.4.15**：语音控制条左右箭头与收起态精简；服务端接入 Cloudflare Realtime TURN。
     **控制条**：展开/收起改为左右箭头；收起态只保留麦克风图标，人数、连接状态和错误只在
     展开后显示。

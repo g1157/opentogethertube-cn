@@ -51,6 +51,7 @@ describe("voice configuration", () => {
 	const previous = {
 		ice: "",
 		turn: "",
+		channels: "",
 		enabled: false,
 		cloudflareKeyId: "",
 		cloudflareApiToken: "",
@@ -60,6 +61,7 @@ describe("voice configuration", () => {
 	beforeAll(() => {
 		previous.ice = conf.get("voice.ice_servers");
 		previous.turn = conf.get("voice.turn_ice_servers");
+		previous.channels = conf.get("voice.turn_channels");
 		previous.enabled = conf.get("voice.enabled");
 		previous.cloudflareKeyId = conf.get("voice.cloudflare_turn.key_id");
 		previous.cloudflareApiToken = conf.get("voice.cloudflare_turn.api_token");
@@ -69,6 +71,7 @@ describe("voice configuration", () => {
 	afterAll(() => {
 		conf.set("voice.ice_servers", previous.ice);
 		conf.set("voice.turn_ice_servers", previous.turn);
+		conf.set("voice.turn_channels", previous.channels);
 		conf.set("voice.enabled", previous.enabled);
 		conf.set("voice.cloudflare_turn.key_id", previous.cloudflareKeyId);
 		conf.set("voice.cloudflare_turn.api_token", previous.cloudflareApiToken);
@@ -81,6 +84,7 @@ describe("voice configuration", () => {
 		logger.warn.mockClear();
 		conf.set("voice.ice_servers", "");
 		conf.set("voice.turn_ice_servers", "");
+		conf.set("voice.turn_channels", "");
 		conf.set("voice.cloudflare_turn.key_id", "");
 		conf.set("voice.cloudflare_turn.api_token", "");
 		conf.set("voice.cloudflare_turn.ttl_seconds", 86_400);

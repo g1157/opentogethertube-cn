@@ -337,10 +337,17 @@ export const conf = convict({
 			env: "VOICE_ICE_SERVERS",
 		},
 		turn_ice_servers: {
-			doc: "JSON array of relay (TURN) servers. Withheld from clients once the monthly budget is exhausted, so direct connections stay free and only relayed traffic is braked. Empty disables relay entirely.",
+			doc: "JSON array of relay (TURN) servers. Used by static relay channels. Withheld when no channel is available, so direct connections stay free.",
 			format: String,
 			default: "",
 			env: "VOICE_TURN_ICE_SERVERS",
+		},
+		turn_channels: {
+			doc: 'JSON array of relay channel groups with per-account monthly caps, e.g. [{"id":"cloudflare","kind":"cloudflare","keys":[{"id":"cf-a","keyId":"...","apiToken":"...","monthlyLimitMb":700000},{"id":"cf-b","keyId":"...","apiToken":"...","monthlyLimitMb":700000}]}]. Each key has its own cap; within a group the first working key is used until it reaches its cap or fails, then the next. Direct traffic consumes no quota.',
+			format: String,
+			default: "",
+			env: "VOICE_TURN_CHANNELS",
+			sensitive: true,
 		},
 		cloudflare_turn: {
 			key_id: {
@@ -376,13 +383,13 @@ export const conf = convict({
 			env: "VOICE_MAX_CONCURRENT_ROOMS",
 		},
 		monthly_relay_mb: {
-			doc: "Monthly relay budget in megabytes, and the cost brake: above it, TURN servers are withheld and voice continues over direct connections only, so the relay bill stops growing. Defaults to 500 GB, half of Cloudflare Realtime's 1 TB shared SFU+TURN free tier. 0 disables the brake.",
+			doc: "Deprecated global relay cap in megabytes. 0 disables it; per-account caps are configured in turn_channels instead.",
 			format: "nat",
-			default: 500_000,
+			default: 0,
 			env: "VOICE_MONTHLY_RELAY_MB",
 		},
 		monthly_relay_mb_max: {
-			doc: "Optional hard budget in megabytes: above it new voice joins are refused outright, instead of degrading to direct-only. Leave at 0 unless you would rather stop voice than lose relay.",
+			doc: "Deprecated hard global relay cap in megabytes. 0 disables it; per-account caps are configured in turn_channels instead.",
 			format: "nat",
 			default: 0,
 			env: "VOICE_MONTHLY_RELAY_MB_MAX",

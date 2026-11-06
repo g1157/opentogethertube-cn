@@ -24,8 +24,13 @@ import {
 	LengthOutOfRangeException,
 	MissingToken,
 } from "./exceptions.js";
-import { getRelayIceServers, getVoiceIceServers, isVoiceEnabled } from "./voice.js";
-import { decideVoiceJoin, isRelayAllowedNow, recordUsage } from "./voice-budget.js";
+import {
+	getVoiceIceServers,
+	isVoiceEnabled,
+	warmRelayChannels,
+	type RelaySelection,
+} from "./voice.js";
+import { decideVoiceJoin, recordUsage, selectRelayChannel } from "./voice-budget.js";
 import {
 	type MySession,
 	OttWebsocketError,
@@ -89,24 +94,42 @@ const connections: Client[] = [];
 const roomJoins: Map<string, Client[]> = new Map();
 const pendingRoomJoins = new Map<Client, Promise<void>>();
 const voiceParticipants: Map<string, Set<ClientId>> = new Map();
+const roomRelayChannels: Map<string, RelaySelection> = new Map();
+
+function hasTurnUrl(server: { urls: string | string[] }): boolean {
+	const urls = typeof server.urls === "string" ? [server.urls] : server.urls;
+	return urls.some(url => url.startsWith("turn:") || url.startsWith("turns:"));
+}
 
 async function buildVoiceMessage(
 	roomName: string,
-	includeRelay: boolean,
+	selection: RelaySelection | null,
 ): Promise<ServerMessageVoice> {
-	const iceServers = await getVoiceIceServers(includeRelay);
-	const relay =
-		includeRelay &&
-		iceServers.some(server => {
-			const urls = typeof server.urls === "string" ? [server.urls] : server.urls;
-			return urls.some(url => url.startsWith("turn:") || url.startsWith("turns:"));
-		});
+	const iceServers = await getVoiceIceServers(
+		selection !== null,
+		selection?.channel.id ?? null,
+		selection?.endpoint?.id ?? null,
+	);
 	return {
 		action: "voice",
 		participants: [...(voiceParticipants.get(roomName) ?? [])],
 		iceServers,
-		relay,
+		relay: selection !== null && iceServers.some(hasTurnUrl),
 	};
+}
+
+/** A room keeps one channel/endpoint for the lifetime of its voice session. */
+async function getRoomRelayChannel(roomName: string): Promise<RelaySelection | null> {
+	const existing = roomRelayChannels.get(roomName);
+	if (existing) {
+		return existing;
+	}
+	const selection = await selectRelayChannel();
+	if (selection) {
+		roomRelayChannels.set(roomName, selection);
+		return selection;
+	}
+	return null;
 }
 
 /**
@@ -133,7 +156,7 @@ function relayVoiceSignal(client: Client, msg: ClientMessageSignal): void {
 async function setVoicePresence(client: Client, joinedVoice: boolean): Promise<void> {
 	if (!isVoiceEnabled() || client.joinStatus !== ClientJoinStatus.Joined) {
 		if (joinedVoice) {
-			client.send({ ...(await buildVoiceMessage(client.room, false)), denied: "disabled" });
+			client.send({ ...(await buildVoiceMessage(client.room, null)), denied: "disabled" });
 		}
 		return;
 	}
@@ -158,9 +181,10 @@ async function setVoicePresence(client: Client, joinedVoice: boolean): Promise<v
 			// A set created only to hold this refused join must not linger and count as a room.
 			if (participants.size === 0) {
 				voiceParticipants.delete(client.room);
+				roomRelayChannels.delete(client.room);
 			}
 			client.send({
-				...(await buildVoiceMessage(client.room, decision.includeRelay)),
+				...(await buildVoiceMessage(client.room, null)),
 				denied: decision.reason,
 			});
 			return;
@@ -171,8 +195,10 @@ async function setVoicePresence(client: Client, joinedVoice: boolean): Promise<v
 	}
 	if (participants.size === 0) {
 		voiceParticipants.delete(client.room);
+		roomRelayChannels.delete(client.room);
 	}
-	await broadcast(client.room, await buildVoiceMessage(client.room, await isRelayAllowedNow()));
+	const selection = participants.size > 0 ? await getRoomRelayChannel(client.room) : null;
+	await broadcast(client.room, await buildVoiceMessage(client.room, selection));
 }
 
 /**
@@ -186,12 +212,11 @@ async function removeFromVoice(client: Client): Promise<void> {
 	}
 	if (participants.size === 0) {
 		voiceParticipants.delete(client.room);
+		roomRelayChannels.delete(client.room);
 	}
 	try {
-		await broadcast(
-			client.room,
-			await buildVoiceMessage(client.room, await isRelayAllowedNow()),
-		);
+		const selection = participants.size > 0 ? await getRoomRelayChannel(client.room) : null;
+		await broadcast(client.room, await buildVoiceMessage(client.room, selection));
 	} catch (e) {
 		log.error(`Failed to broadcast voice presence after ${client.id} left: ${e}`);
 	}
@@ -199,8 +224,8 @@ async function removeFromVoice(client: Client): Promise<void> {
 export async function setup(): Promise<void> {
 	log.debug("setting up client manager...");
 	if (isVoiceEnabled()) {
-		// Warm the Cloudflare credential cache so the first voice join does not wait for the API.
-		void getRelayIceServers();
+		// Warm every channel's credential cache so the first voice join does not wait for the API.
+		void warmRelayChannels();
 	}
 	const server = wss;
 	server.on("connection", async (ws, req: Request & { session: MySession }) => {
@@ -425,7 +450,7 @@ async function joinAuthenticatedClient(client: Client, token: AuthToken, session
 
 	// Let the client know voice exists and who is already in it, before it joins.
 	if (isVoiceEnabled()) {
-		client.send(await buildVoiceMessage(room.name, await isRelayAllowedNow()));
+		client.send(await buildVoiceMessage(room.name, roomRelayChannels.get(room.name) ?? null));
 	}
 }
 
@@ -863,6 +888,7 @@ function onRoomUnload(roomName: string, reason: UnloadReason) {
 
 	roomJoins.delete(roomName);
 	voiceParticipants.delete(roomName);
+	roomRelayChannels.delete(roomName);
 }
 
 function onAnnouncement(text: string) {
@@ -944,8 +970,15 @@ setInterval(sweepDeadClients, 10000);
  */
 const voiceUsageTickSeconds = Math.max(1, conf.get("voice.usage_tick_seconds"));
 setInterval(() => {
-	const counts = [...voiceParticipants.values()].map(participants => participants.size);
-	void recordUsage(counts, voiceUsageTickSeconds);
+	const rooms = [...voiceParticipants.entries()].map(([roomName, participants]) => {
+		const selection = roomRelayChannels.get(roomName);
+		return {
+			participants: participants.size,
+			channelId: selection?.channel.id ?? null,
+			endpointId: selection?.endpoint?.id ?? null,
+		};
+	});
+	void recordUsage(rooms, voiceUsageTickSeconds);
 }, voiceUsageTickSeconds * 1000);
 
 export type ClientManagerCommand = CmdKick;

@@ -5,10 +5,12 @@
 
 ## 结论
 
-- **Cloudflare 侧只需要两样东西**：一个 **TURN Key ID** 和一个 **TURN Key API Token**。
-  不需要 Workers、Durable Objects、D1、R2、Queues，也不需要新域名、Tunnel 或源站端口。
-- **费用**：TURN 出向 $0.05/GB，每月 **1 TB 与 SFU 共享免费额度**；STUN 免费。当前项目的
-  500 GB 月度刹车在免费额度以内，不会产生账单；想充分利用免费额度可提高到 900 GB。
+- **Cloudflare 侧**：每个账号一个 **TURN Key ID** 和一个 **TURN Key API Token**；一个
+  `cloudflare` 渠道可以放 cf-a / cf-b 等多个账号的 Key，各账号独立计量。不需要 Workers、
+  Durable Objects、D1、R2、Queues，也不需要新域名、Tunnel 或源站端口。
+- **费用**：TURN 出向 $0.05/GB，**每个账号**每月 **1 TB 与 SFU 共享免费额度**；STUN 免费。
+  本实现默认 **每个账号独立 700 GB/月**（不是多个账号共享 700 GB），都在各自免费额度内；
+  cf-a 用到 700 GB 或不可用后才切 cf-b，不做轮询。
 - **服务器资源**：几乎为零。应用服务器只多一次出站 HTTPS 调用（生成短期凭据）和一小块
   内存缓存；媒体不经过源站，CPU/内存/带宽都不增加。
 - **客户端**：不需要改代码，现有 `iceServers` 下发机制直接可用。
@@ -59,28 +61,34 @@ curl -X POST \
 **建议值**：本项目是看片房，单场通常 1–6 小时；用 **TTL 24 小时**，服务端每 12 小时刷新一次
 缓存。这样一场长电影不会中途过期，凭证泄露的窗口也可控。若只想覆盖单场，可用 6 小时。
 
-## 三、本仓库的接入实现（v1.4.15 起）
+## 三、本仓库的接入实现（v1.4.16 起）
 
+- **账号池**：一个 `cloudflare` 渠道包含多个账号（endpoint）；**每个账号有自己的 700 GB/月
+  独立 cap**，不是渠道共享 700 GB。按配置顺序**优先 cf-a**，只有它达到 700 GB 或不可用
+  （凭据签发失败）时才切到 cf-b；不做轮询、不平均分流。
 - **配置**（`server/ott-config.ts`）：
-  - `VOICE_CLOUDFLARE_TURN_KEY_ID`（String，默认空）
-  - `VOICE_CLOUDFLARE_TURN_API_TOKEN`（String，`sensitive`，默认空）
-  - `VOICE_CLOUDFLARE_TURN_TTL_SECONDS`（默认 86400，代码钳制 300–172800）
-  - 两者都非空时优先使用 Cloudflare；否则回退到 `VOICE_TURN_ICE_SERVERS`。
-- **凭据**（`server/voice.ts`）：
-  - `getRelayIceServers()` 改为异步：首次/缓存过期时 POST 上面的接口；
-  - 解析并校验 `iceServers`，只保留含 `turn:` / `turns:` 的条目，过滤端口 53；
-  - 内存缓存，按 TTL 的 80% 后台刷新；失败时保留仍有效的旧凭据，过期后回退到静态列表或
-    STUN-only；失败冷却 30 秒，避免 API 抖动时反复请求；
-  - 服务端启动时预热一次（`clientmanager.setup()`），首个语音加入不用等 API。
-- **消息**（`server/clientmanager.ts`）：`buildVoiceMessage()` 改为异步；只有实际拿到 TURN
-  条目时 `relay` 才为 `true`，否则客户端显示「直连失败（未启用中继）」。
-- **预算**（`server/voice-budget.ts`）：`evaluateBudget()` 等待实际中继列表；没有可用中继时
-  不累计中继流量。`relayConfigured` 表示配置是否存在，`relayAllowed` 表示当前是否放行。
+  - `VOICE_TURN_CHANNELS`：渠道组 JSON，每个 key 单独设置 `monthlyLimitMb`，例如：
+    ```json
+    [{"id":"cloudflare","kind":"cloudflare","keys":[{"id":"cf-a","keyId":"...","apiToken":"...","monthlyLimitMb":700000},{"id":"cf-b","keyId":"...","apiToken":"...","monthlyLimitMb":700000}]}]
+    ```
+  - `VOICE_MONTHLY_RELAY_MB=0`：取消旧的全局 500 GB 刹车。
+  - `VOICE_CLOUDFLARE_TURN_TTL_SECONDS`（默认 86400，代码钳制 300–172800）：各 Key 共用 TTL。
+- **凭据**（`server/voice.ts`）：每个 endpoint（TURN Key）独立缓存；按 TTL 的 80% 后台刷新；
+  失败冷却 30 秒、保留仍有效的旧凭据；过滤端口 53；启动时预热所有 endpoint。
+- **房间分配**（`server/clientmanager.ts`）：每个语音房间固定一个渠道/endpoint，直到房间语音结束；
+  新房间按「endpoint 自己的额度 → 配置顺序」选择。direct-only 房间不消耗任何账号额度。
+- **预算**（`server/voice-budget.ts`）：每个 endpoint 的 cap 优先读 Cloudflare 实际 egress
+  （cron 写入 Redis 的
+  `voice:cloudflare-egress:<YYYY-MM>:<channelId>:<endpointId>`），实际值缺失/过期时回退到
+  该 endpoint 的本地估算；某个账号达到自己的 700 GB 后，只停发该账号的 TURN，cf-b 仍可用。
+  渠道合计只用于展示，不是共享 cap。实际值由每小时 cron 按 key 汇总。
+- **消息**：`buildVoiceMessage()` 异步化；只有实际拿到 TURN 条目时 `relay` 才为 `true`。
 - **客户端**：`client/src/util/voice.ts` 无需改动，继续使用服务端下发的 `iceServers`。
 - **测试**：mock `fetch` 覆盖成功、非 200、无 TURN、端口 53 过滤、TTL 钳制、缓存复用、
-  静态回退；不依赖真实 TURN 凭据。
+  同渠道 sticky、失败切下一个 endpoint、静态回退；不依赖真实 TURN 凭据。
 
-改动量：服务端约 150 行（含解析与缓存）+ 配置 + 测试，客户端 0 行；无数据库迁移、无新增依赖。
+改动量：服务端约 300 行（渠道/组解析、endpoint 缓存、实际/估算预算）+ 配置 + 测试，客户端
+0 行；无数据库迁移、无新增依赖。
 
 ## 四、成本测算
 
@@ -104,8 +112,8 @@ curl -X POST \
 | 30 | 900 | 1.46 TB | 458 GB | 约 **$22.9** |
 | 100 | 3,000 | 4.86 TB | 3.86 TB | 约 **$193** |
 
-把「全中继」换成实际 10%–30% 的中继比例，账单大致除以 3–10。v1.4.15 上线后实测
-`relayConfigured:true`、`relayAllowed:true`、`monthlyUsageMb:0`；通话后从这里观察真实比例。
+把「全中继」换成实际 10%–30% 的中继比例，账单大致除以 3–10。上线后通过
+`/api/status/voice` 与 Cloudflare 分析页观察真实 relay 比例。
 
 ### 与其它方案的单场对比
 
@@ -146,24 +154,8 @@ curl -X POST \
    - 两个不同网络的客户端加入同一房间，界面显示「直连」或「中继」；
    - 在 UDP 被封锁的网络（手机热点/公司网）验证 TURN/TLS 443 能建立；
    - 观察 Cloudflare Realtime 用量与 `/api/status/voice` 的估算是否接近。
-4. 先在 `VOICE_MONTHLY_RELAY_MB=500000` 下跑 1–2 周，记录 relay 比例与大陆 RTT/丢包，再决定
-   是否提高到 900 GB、是否自建 coturn 或换 TRTC。
-
-## 七、实际用量对账（本部署）
-
-- **只读 Token**：Account Analytics Read，无写权限，限制服务器 IP `150.158.143.199`；存放于
-  `~/.config/ott-secrets/cloudflare-turn-analytics-token`（600），账号/Key ID 在同目录的
-  `cloudflare-analytics.env`。Global API Key 只在本机用于创建这个 Token，不放进服务器。
-- **定时脚本**：`/home/ubuntu/ott-next/cloudflare-turn-usage.sh`，cron `17 */6 * * *` 每 6 小时
-  查询 `callsTurnUsageAdaptiveGroups`（当前月 + TURN Key ID），写入
-  `backups/cloudflare-turn-usage.latest.json` 和 `.jsonl`；cron 日志在
-  `backups/cloudflare-turn-usage.cron.log`。
-- **字段**：`egressBytes`（计费口径）、`ingressBytes`（免费）、`marginalCostUsd`、
-  `billableCostUsd`（1 TB 免费额度之后的费用）、`byDayEgressBytes`、`localEstimateMb`、
-  `maxConcurrentConnections5mAvg`。
-- **2026-11-06 实测**：egress 882,292 B（0.882 MB）、ingress 1,129,517 B（1.13 MB）、本地估算
-  1.65 MB；估算约为实际 egress 的 1.87 倍，偏保守。
-- Global Key 权限过大，建议创建完只读 Token 后轮换；日常对账只需要这个只读 Token。
+4. **每个账号独立 700 GB/月**；cf-a 到 700 GB 或不可用后切 cf-b，cf-b 也有自己的 700 GB。
+   先跑 1–2 周，记录 relay 比例与大陆 RTT/丢包，再决定是否调整 cap、自建 coturn 或换 TRTC。
 
 ## 参考
 

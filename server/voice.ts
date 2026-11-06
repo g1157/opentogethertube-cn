@@ -26,13 +26,32 @@ const CLOUDFLARE_TURN_FAILURE_COOLDOWN_MS = 30_000;
 /** Browsers block the alternate TURN port 53; a candidate on it only times out. */
 const PORT_53_URL_PATTERN = /:53(?:\?|$)/;
 
-interface CloudflareTurnConfig {
-	keyId: string;
-	apiToken: string;
-	ttlSeconds: number;
+/** Default per-account cap inside a Cloudflare channel; each account gets its own 700 GB. */
+export const DEFAULT_CHANNEL_LIMIT_MB = 700_000;
+
+export interface TurnEndpoint {
+	id: string;
+	/** Cap for this account/key; endpoints inside one channel do not share it. */
+	monthlyLimitMb: number;
+	keyId?: string;
+	apiToken?: string;
+	staticIceServers?: RtcIceServer[];
+}
+
+export interface TurnChannel {
+	id: string;
+	kind: "cloudflare" | "static";
+	endpoints: TurnEndpoint[];
+}
+
+export interface RelaySelection {
+	channel: TurnChannel;
+	endpoint: TurnEndpoint | null;
 }
 
 interface CloudflareTurnCache {
+	channelId: string;
+	endpointId: string;
 	keyId: string;
 	ttlSeconds: number;
 	iceServers: RtcIceServer[];
@@ -40,9 +59,11 @@ interface CloudflareTurnCache {
 	expiresAt: number;
 }
 
-let cloudflareTurnCache: CloudflareTurnCache | null = null;
-let cloudflareTurnFetch: Promise<RtcIceServer[]> | null = null;
-let cloudflareTurnFailure: { keyId: string; until: number } | null = null;
+let cachedChannelsKey: string | null = null;
+let cachedChannels: TurnChannel[] = [];
+const cloudflareCaches = new Map<string, CloudflareTurnCache>();
+const cloudflareFetches = new Map<string, Promise<RtcIceServer[]>>();
+const cloudflareFailures = new Map<string, { keyId: string; until: number }>();
 
 export function isVoiceEnabled(): boolean {
 	return conf.get("voice.enabled");
@@ -93,23 +114,178 @@ function getStaticRelayIceServers(): RtcIceServer[] {
 	return parseIceServers(conf.get("voice.turn_ice_servers"), "VOICE_TURN_ICE_SERVERS", []);
 }
 
-export function isCloudflareTurnConfigured(): boolean {
-	const config = getCloudflareTurnConfig();
-	return config.keyId.length > 0 && config.apiToken.length > 0;
-}
-
-function getCloudflareTurnConfig(): CloudflareTurnConfig {
-	const keyId = (conf.get("voice.cloudflare_turn.key_id") ?? "").trim();
-	const apiToken = (conf.get("voice.cloudflare_turn.api_token") ?? "").trim();
+function getCloudflareTurnTtlSeconds(): number {
 	const configuredTtl = Number(conf.get("voice.cloudflare_turn.ttl_seconds"));
 	const effectiveTtl = Number.isFinite(configuredTtl)
 		? configuredTtl
 		: CLOUDFLARE_TURN_DEFAULT_TTL_SECONDS;
-	const ttlSeconds = Math.min(
+	return Math.min(
 		Math.max(effectiveTtl, CLOUDFLARE_TURN_MIN_TTL_SECONDS),
 		CLOUDFLARE_TURN_MAX_TTL_SECONDS,
 	);
-	return { keyId, apiToken, ttlSeconds };
+}
+
+function parseEndpoints(
+	channelId: string,
+	value: Record<string, unknown>,
+	channelLimitMb: number,
+): TurnEndpoint[] {
+	const rawKeys = value.keys;
+	if (Array.isArray(rawKeys)) {
+		if (rawKeys.length === 0) {
+			throw new Error(`channel ${channelId} has an empty keys array`);
+		}
+		const endpoints: TurnEndpoint[] = [];
+		const seen = new Set<string>();
+		for (const [index, entry] of rawKeys.entries()) {
+			if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+				throw new Error(`channel ${channelId} has an invalid key entry`);
+			}
+			const key = entry as Record<string, unknown>;
+			const endpointId =
+				typeof key.id === "string" && key.id.trim()
+					? key.id.trim()
+					: `${channelId}-${index + 1}`;
+			const keyId = typeof key.keyId === "string" ? key.keyId.trim() : "";
+			const apiToken = typeof key.apiToken === "string" ? key.apiToken.trim() : "";
+			if (!keyId || !apiToken) {
+				throw new Error(
+					`channel ${channelId} endpoint ${endpointId} is missing keyId/apiToken`,
+				);
+			}
+			if (seen.has(endpointId)) {
+				throw new Error(`channel ${channelId} has duplicate endpoint id ${endpointId}`);
+			}
+			seen.add(endpointId);
+			const configuredLimit = Number(key.monthlyLimitMb ?? channelLimitMb);
+			const monthlyLimitMb =
+				Number.isFinite(configuredLimit) && configuredLimit > 0
+					? configuredLimit
+					: DEFAULT_CHANNEL_LIMIT_MB;
+			endpoints.push({ id: endpointId, monthlyLimitMb, keyId, apiToken });
+		}
+		return endpoints;
+	}
+
+	// Backward-compatible single-key channel.
+	const keyId = typeof value.keyId === "string" ? value.keyId.trim() : "";
+	const apiToken = typeof value.apiToken === "string" ? value.apiToken.trim() : "";
+	if (!keyId || !apiToken) {
+		throw new Error(`channel ${channelId} is missing keyId/apiToken or keys`);
+	}
+	return [{ id: "default", monthlyLimitMb: channelLimitMb, keyId, apiToken }];
+}
+
+function parseTurnChannels(raw: string): TurnChannel[] {
+	const trimmed = (raw ?? "").trim();
+	if (trimmed) {
+		try {
+			const parsed: unknown = JSON.parse(trimmed);
+			if (!Array.isArray(parsed) || parsed.length === 0) {
+				throw new Error("expected a non-empty array");
+			}
+			const channels: TurnChannel[] = [];
+			const seen = new Set<string>();
+			for (const entry of parsed) {
+				if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+					throw new Error("entry is not an object");
+				}
+				const value = entry as Record<string, unknown>;
+				const id = typeof value.id === "string" ? value.id.trim() : "";
+				if (!id || seen.has(id)) {
+					throw new Error(`invalid or duplicate channel id: ${id}`);
+				}
+				const configuredLimit = Number(value.monthlyLimitMb ?? DEFAULT_CHANNEL_LIMIT_MB);
+				const monthlyLimitMb =
+					Number.isFinite(configuredLimit) && configuredLimit > 0
+						? configuredLimit
+						: DEFAULT_CHANNEL_LIMIT_MB;
+				const kind = value.kind === "static" ? "static" : "cloudflare";
+				if (kind === "cloudflare") {
+					channels.push({
+						id,
+						kind,
+						endpoints: parseEndpoints(id, value, monthlyLimitMb),
+					});
+				} else {
+					const staticIceServers = getStaticRelayIceServers();
+					if (staticIceServers.length === 0) {
+						throw new Error(`static channel ${id} has no VOICE_TURN_ICE_SERVERS`);
+					}
+					channels.push({
+						id,
+						kind,
+						endpoints: [
+							{
+								id: "static",
+								monthlyLimitMb,
+								staticIceServers,
+							},
+						],
+					});
+				}
+				seen.add(id);
+			}
+			return channels;
+		} catch (e) {
+			// A malformed channel list is a configuration error; fail closed rather than silently
+			// falling back to a different channel with different billing.
+			log.error(`VOICE_TURN_CHANNELS is invalid, disabling relay channels: ${e}`);
+			return [];
+		}
+	}
+
+	const channels: TurnChannel[] = [];
+	const keyId = (conf.get("voice.cloudflare_turn.key_id") ?? "").trim();
+	const apiToken = (conf.get("voice.cloudflare_turn.api_token") ?? "").trim();
+	if (keyId && apiToken) {
+		channels.push({
+			id: "cloudflare",
+			kind: "cloudflare",
+			endpoints: [
+				{ id: "default", monthlyLimitMb: DEFAULT_CHANNEL_LIMIT_MB, keyId, apiToken },
+			],
+		});
+	}
+	const staticIceServers = getStaticRelayIceServers();
+	if (staticIceServers.length > 0) {
+		channels.push({
+			id: "static",
+			kind: "static",
+			endpoints: [
+				{
+					id: "static",
+					monthlyLimitMb: DEFAULT_CHANNEL_LIMIT_MB,
+					staticIceServers,
+				},
+			],
+		});
+	}
+	return channels;
+}
+
+export function getTurnChannels(): TurnChannel[] {
+	const raw = conf.get("voice.turn_channels") ?? "";
+	// The fallback channel is built from the single Cloudflare/static settings, so those are part
+	// of the cache key too; otherwise a config change would keep using the old channel list.
+	const cacheKey = [
+		raw,
+		conf.get("voice.cloudflare_turn.key_id") ?? "",
+		conf.get("voice.cloudflare_turn.api_token") ?? "",
+		conf.get("voice.turn_ice_servers") ?? "",
+	].join("\u0000");
+	if (cacheKey === cachedChannelsKey) {
+		return cachedChannels;
+	}
+	cachedChannelsKey = cacheKey;
+	cachedChannels = parseTurnChannels(raw);
+	return cachedChannels;
+}
+
+export function isCloudflareTurnConfigured(): boolean {
+	return getTurnChannels().some(
+		channel => channel.kind === "cloudflare" && channel.endpoints.length > 0,
+	);
 }
 
 function iceServerUrls(server: RtcIceServer): string[] {
@@ -172,23 +348,29 @@ function parseCloudflareIceServers(value: unknown): RtcIceServer[] {
 	return servers;
 }
 
+function endpointCacheKey(channelId: string, endpointId: string): string {
+	return `${channelId}:${endpointId}`;
+}
+
 async function fetchCloudflareTurnIceServers(
-	config: CloudflareTurnConfig,
+	channel: TurnChannel,
+	endpoint: TurnEndpoint,
+	ttlSeconds: number,
 ): Promise<RtcIceServer[]> {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), CLOUDFLARE_TURN_TIMEOUT_MS);
 	try {
 		const response = await fetch(
 			`${CLOUDFLARE_TURN_CREDENTIALS_URL}/${encodeURIComponent(
-				config.keyId,
+				endpoint.keyId ?? "",
 			)}/credentials/generate-ice-servers`,
 			{
 				method: "POST",
 				headers: {
-					Authorization: `Bearer ${config.apiToken}`,
+					Authorization: `Bearer ${endpoint.apiToken ?? ""}`,
 					"Content-Type": "application/json",
 				},
-				body: JSON.stringify({ ttl: config.ttlSeconds }),
+				body: JSON.stringify({ ttl: ttlSeconds }),
 				signal: controller.signal,
 			},
 		);
@@ -208,92 +390,163 @@ async function fetchCloudflareTurnIceServers(
 	}
 }
 
-async function refreshCloudflareTurnCache(config: CloudflareTurnConfig): Promise<RtcIceServer[]> {
-	if (cloudflareTurnFetch) {
-		return cloudflareTurnFetch;
+async function refreshCloudflareTurnCache(
+	channel: TurnChannel,
+	endpoint: TurnEndpoint,
+	ttlSeconds: number,
+): Promise<RtcIceServer[]> {
+	const cacheKey = endpointCacheKey(channel.id, endpoint.id);
+	const existingFetch = cloudflareFetches.get(cacheKey);
+	if (existingFetch) {
+		return existingFetch;
 	}
 	const fetchPromise = (async () => {
 		try {
-			const iceServers = await fetchCloudflareTurnIceServers(config);
+			const iceServers = await fetchCloudflareTurnIceServers(channel, endpoint, ttlSeconds);
 			const now = Date.now();
-			cloudflareTurnCache = {
-				keyId: config.keyId,
-				ttlSeconds: config.ttlSeconds,
+			cloudflareCaches.set(cacheKey, {
+				channelId: channel.id,
+				endpointId: endpoint.id,
+				keyId: endpoint.keyId ?? "",
+				ttlSeconds,
 				iceServers,
-				refreshAt: now + config.ttlSeconds * 1000 * CLOUDFLARE_TURN_REFRESH_RATIO,
-				expiresAt: now + config.ttlSeconds * 1000,
-			};
-			cloudflareTurnFailure = null;
+				refreshAt: now + ttlSeconds * 1000 * CLOUDFLARE_TURN_REFRESH_RATIO,
+				expiresAt: now + ttlSeconds * 1000,
+			});
+			cloudflareFailures.delete(cacheKey);
 			return iceServers;
 		} catch (e) {
-			log.warn(`Cloudflare TURN credentials are unavailable: ${e}`);
-			cloudflareTurnFailure = {
-				keyId: config.keyId,
+			log.warn(
+				`Cloudflare TURN credentials are unavailable for ${channel.id}/${endpoint.id}: ${e}`,
+			);
+			cloudflareFailures.set(cacheKey, {
+				keyId: endpoint.keyId ?? "",
 				until: Date.now() + CLOUDFLARE_TURN_FAILURE_COOLDOWN_MS,
-			};
-			const cache = cloudflareTurnCache;
-			if (cache && cache.keyId === config.keyId && cache.expiresAt > Date.now()) {
+			});
+			const cache = cloudflareCaches.get(cacheKey);
+			if (cache && cache.keyId === endpoint.keyId && cache.expiresAt > Date.now()) {
 				return cache.iceServers;
 			}
 			return [];
 		} finally {
-			cloudflareTurnFetch = null;
+			cloudflareFetches.delete(cacheKey);
 		}
 	})();
-	cloudflareTurnFetch = fetchPromise;
+	cloudflareFetches.set(cacheKey, fetchPromise);
 	return fetchPromise;
 }
 
-async function getCloudflareTurnIceServers(): Promise<RtcIceServer[]> {
-	const config = getCloudflareTurnConfig();
-	if (config.keyId.length === 0 || config.apiToken.length === 0) {
-		return [];
-	}
+async function getCloudflareTurnIceServers(
+	channel: TurnChannel,
+	endpoint: TurnEndpoint,
+): Promise<RtcIceServer[]> {
+	const ttlSeconds = getCloudflareTurnTtlSeconds();
 	const now = Date.now();
-	const cache = cloudflareTurnCache;
+	const cacheKey = endpointCacheKey(channel.id, endpoint.id);
+	const cache = cloudflareCaches.get(cacheKey);
 	const cacheMatches =
-		cache !== null && cache.keyId === config.keyId && cache.ttlSeconds === config.ttlSeconds;
+		cache !== undefined && cache.keyId === endpoint.keyId && cache.ttlSeconds === ttlSeconds;
 	if (cacheMatches && now < cache.refreshAt) {
 		return cache.iceServers;
 	}
 	if (cacheMatches && now < cache.expiresAt) {
 		// Keep using the still-valid credential while a fresh one is fetched in the background.
-		void refreshCloudflareTurnCache(config);
+		void refreshCloudflareTurnCache(channel, endpoint, ttlSeconds);
 		return cache.iceServers;
 	}
-	if (cloudflareTurnFailure?.keyId === config.keyId && now < cloudflareTurnFailure.until) {
+	const failure = cloudflareFailures.get(cacheKey);
+	if (failure && failure.keyId === endpoint.keyId && now < failure.until) {
 		return [];
 	}
-	return refreshCloudflareTurnCache(config);
+	return refreshCloudflareTurnCache(channel, endpoint, ttlSeconds);
 }
 
-/**
- * Relay candidates. Cloudflare's short-lived credentials are preferred when configured; a static
- * `VOICE_TURN_ICE_SERVERS` list (for example a self-hosted coturn) remains the fallback. An empty
- * list is valid: the deployment then only supports direct connections.
- */
+export function findChannel(channelId: string): TurnChannel | undefined {
+	return getTurnChannels().find(channel => channel.id === channelId);
+}
+
+export async function getChannelRelayIceServers(
+	channelId: string,
+	endpointId?: string | null,
+): Promise<RtcIceServer[]> {
+	const channel = findChannel(channelId);
+	if (!channel) {
+		return [];
+	}
+	const endpoint =
+		(endpointId
+			? channel.endpoints.find(candidate => candidate.id === endpointId)
+			: undefined) ?? channel.endpoints[0];
+	if (!endpoint) {
+		return [];
+	}
+	if (endpoint.staticIceServers) {
+		return endpoint.staticIceServers;
+	}
+	return getCloudflareTurnIceServers(channel, endpoint);
+}
+
+/** First channel/endpoint that can produce credentials; kept for the single-channel callers. */
 export async function getRelayIceServers(): Promise<RtcIceServer[]> {
-	if (isCloudflareTurnConfigured()) {
-		const cloudflareIceServers = await getCloudflareTurnIceServers();
-		if (cloudflareIceServers.length > 0) {
-			return cloudflareIceServers;
+	for (const channel of getTurnChannels()) {
+		for (const endpoint of channel.endpoints) {
+			const iceServers = await getChannelRelayIceServers(channel.id, endpoint.id);
+			if (iceServers.length > 0) {
+				return iceServers;
+			}
 		}
 	}
-	return getStaticRelayIceServers();
+	return [];
 }
 
 export function hasRelayConfigured(): boolean {
-	return isCloudflareTurnConfigured() || getStaticRelayIceServers().length > 0;
+	return getTurnChannels().length > 0;
+}
+
+/** Fetch every channel endpoint's credentials in the background so the first join does not wait. */
+export async function warmRelayChannels(): Promise<void> {
+	const work: Promise<RtcIceServer[]>[] = [];
+	for (const channel of getTurnChannels()) {
+		for (const endpoint of channel.endpoints) {
+			work.push(getChannelRelayIceServers(channel.id, endpoint.id));
+		}
+	}
+	await Promise.all(work);
 }
 
 /**
  * The list handed to clients. Withholding relay candidates is the cost brake: direct connections
  * keep working for free, while peers that would need a relay simply fail to connect.
  */
-export async function getVoiceIceServers(includeRelay: boolean): Promise<RtcIceServer[]> {
+export async function getVoiceIceServers(
+	includeRelay: boolean,
+	channelId?: string | null,
+	endpointId?: string | null,
+): Promise<RtcIceServer[]> {
 	const direct = getDirectIceServers();
 	if (!includeRelay) {
 		return direct;
 	}
-	return [...direct, ...(await getRelayIceServers())];
+	if (channelId) {
+		const channel = findChannel(channelId);
+		if (!channel) {
+			return direct;
+		}
+		return [
+			...direct,
+			...(await getChannelRelayIceServers(
+				channel.id,
+				endpointId ?? channel.endpoints[0]?.id ?? null,
+			)),
+		];
+	}
+	for (const channel of getTurnChannels()) {
+		for (const endpoint of channel.endpoints) {
+			const iceServers = await getChannelRelayIceServers(channel.id, endpoint.id);
+			if (iceServers.length > 0) {
+				return [...direct, ...iceServers];
+			}
+		}
+	}
+	return direct;
 }
