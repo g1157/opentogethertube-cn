@@ -51,6 +51,8 @@ interface NextMediaPrefetchOptions {
 	/** Seconds left on the current item, or null when the length is unknown. */
 	getRemainingSeconds: () => number | null;
 	getNext: () => QueueItem | null | undefined;
+	/** Skip the warm-up while the current player is already short on buffer. */
+	canWarm?: () => boolean;
 	fetchImpl?: typeof fetch;
 }
 
@@ -62,11 +64,15 @@ interface NextMediaPrefetchOptions {
 export function createNextMediaPrefetch(options: NextMediaPrefetchOptions) {
 	const fetchImpl: typeof fetch = options.fetchImpl ?? fetch;
 	let attemptedKey: string | null = null;
+	let inFlight: AbortController | null = null;
 
 	async function warm(candidate: MediaCandidate) {
 		if (!candidate.url) {
 			return;
 		}
+		const controller = new AbortController();
+		inFlight = controller;
+		const signal = controller.signal;
 		const policy = referrerPolicyValue(candidate.referrerPolicy);
 		try {
 			if (candidate.service === "direct" || candidate.service === "googledrive") {
@@ -74,22 +80,32 @@ export function createNextMediaPrefetch(options: NextMediaPrefetchOptions) {
 				// An ordinary source keeps exactly the request it made before the probe existed.
 				await fetchImpl(
 					candidate.url,
-					policy ? { headers, referrerPolicy: policy } : { headers },
+					policy ? { headers, referrerPolicy: policy, signal } : { headers, signal },
 				);
 				return;
 			}
-			await (policy
-				? fetchImpl(candidate.url, { referrerPolicy: policy })
-				: fetchImpl(candidate.url));
+			await fetchImpl(
+				candidate.url,
+				policy ? { referrerPolicy: policy, signal } : { signal },
+			);
 		} catch {
 			// A prefetch that fails is simply a prefetch that did not help.
+		} finally {
+			if (inFlight === controller) {
+				inFlight = null;
+			}
 		}
 	}
 
 	return {
 		tick() {
 			const remaining = options.getRemainingSeconds();
-			if (remaining === null || remaining < 0 || remaining > PREFETCH_LEAD_SECONDS) {
+			if (
+				remaining === null ||
+				remaining < 0 ||
+				remaining > PREFETCH_LEAD_SECONDS ||
+				(options.canWarm && !options.canWarm())
+			) {
 				return;
 			}
 			const candidate = resolveMediaCandidate(options.getNext());
@@ -99,8 +115,10 @@ export function createNextMediaPrefetch(options: NextMediaPrefetchOptions) {
 			attemptedKey = candidate.key;
 			void warm(candidate);
 		},
-		/** The room moved on; a later queue entry may warm again. */
+		/** The room moved on; abort the old warm-up and allow the next item to warm. */
 		reset() {
+			inFlight?.abort();
+			inFlight = null;
 			attemptedKey = null;
 		},
 	};

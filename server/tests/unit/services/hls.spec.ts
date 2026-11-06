@@ -88,6 +88,21 @@ describe("HlsVideoAdapter access probe", () => {
 		expect(video.cors).toBe(true);
 	});
 
+	it("marks a playlist without ENDLIST as live and gives it no VOD duration", async () => {
+		const livePlaylist = MEDIA_PLAYLIST.replace("#EXT-X-ENDLIST", "");
+		mockGet.mockImplementation(async (url: string) => {
+			if (url === PLAYLIST_URL) {
+				return playlistResponse(livePlaylist);
+			}
+			return probeResponse(206, { "access-control-allow-origin": "*" });
+		});
+
+		const video = await adapter.fetchVideoInfo(PLAYLIST_URL);
+
+		expect(video.isLive).toBe(true);
+		expect(video.length).toBeUndefined();
+	});
+
 	it("keeps the playlist's own duration and header verdict", async () => {
 		mockGet.mockImplementation(async (url: string) => {
 			if (url === PLAYLIST_URL) {

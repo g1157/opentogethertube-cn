@@ -140,6 +140,12 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
 - **同步**：`util/playback-sync.ts`（常量与状态机见架构文档 §5.4，**不要凭记忆改数值**）；
   `views/Room.vue` 每 250ms tick 一次；首帧对齐 `playback-preparation.ts`、恢复 `media-recovery.ts`、
   seek `media-seek.ts`、延迟 `connection-latency.ts`（8 样本，`min/2`）。
+- **换片就绪（Playback Start v2）**：`server/room.ts` 的 `playbackPreparation` 现在是准备轮次
+  （`eligible` / `ready` / `deadlineAt` / `hardDeadlineAt` / `fallback`）；所有 eligible 客户端在
+  “首帧 + 缓冲跑道”后上报 ready，多人全体 ready 走 +1 秒定时开始，8 秒未齐则 partial，
+  20 秒无人 ready 则 forced。客户端 `playback-preparation.ts` 负责上报与失败/后台标签页回执；
+  `playback-sync.ts` 有 8 秒初始冷却、“缓冲不足不硬跳”和 live 源跳过 VOD 硬跳。
+  改阈值时同步更新 `docs/playback-sync.zh-CN.md`。
 - **播放器**：接口 `components/composables/media-player.ts`；实现 `components/players/*`；
   分发 `OmniPlayer.vue`；只有 Direct/HLS/DASH 支持速率微调（`supportsRateBend()`）。
 - **画质增强**：`util/upscale/*`（档位、渲染器选择、WebGPU 探针、目标池、自动降档、帧节奏判据

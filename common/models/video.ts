@@ -26,6 +26,8 @@ export interface VideoMetadata {
 	title: string;
 	description: string;
 	length: number;
+	/** A live playlist has no finite duration and must not be treated as VOD. */
+	isLive?: boolean;
 	thumbnail: string;
 	mime: string;
 	/** Source resolution in pixels, when the adapter could read it. */

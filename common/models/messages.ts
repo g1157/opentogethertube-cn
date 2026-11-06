@@ -253,14 +253,43 @@ export interface ClientMessagePlayerStatus extends ClientMessageBase {
 
 export interface PlaybackPreparation {
 	id: string;
+	/** The first eligible viewer; kept for older clients and for telemetry. */
 	clientId: ClientId;
 	video: VideoId;
 	position: number;
+	/** Viewers that must report ready before the room starts, snapshotted at round start. */
+	eligible?: ClientId[];
+	/** Readiness reports received for this round. */
+	ready?: PlaybackReadyInfo[];
+	/** Wall-clock (server) deadline for waiting for all eligible viewers. */
+	deadlineAt?: number;
+	/** Wall-clock (server) deadline for forcing playback even when nobody is ready. */
+	hardDeadlineAt?: number;
+	/** When set, clients may start at this server time; the room clock starts with it. */
+	startAt?: number | null;
+	/** "partial" started without everyone, "none" is waiting for a manual start, "forced" timed out. */
+	fallback?: "partial" | "none" | "forced" | null;
+}
+
+export interface PlaybackReadyInfo {
+	clientId: ClientId;
+	firstFrame: boolean;
+	bufferAhead: number | null;
+	at: number;
 }
 
 export interface PlaybackPrepared {
 	id: string;
 	position: number;
+	/** Seconds buffered ahead of the first frame; omitted by older clients. */
+	bufferAhead?: number | null;
+	/** Whether the client actually rendered a frame. Older clients imply true. */
+	firstFrame?: boolean;
+	playerKind?: "native" | "embedded";
+	visible?: boolean;
+	/** The client could not prepare; the room should not wait for it. */
+	failed?: boolean;
+	reason?: string;
 }
 
 export interface ClientMessageAuthenticate extends ClientMessageBase {

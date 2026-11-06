@@ -950,6 +950,11 @@ export default {
 			action: "点击加入播放",
 			hint: "浏览器需要你先点击一次，才能开始播放。",
 		},
+		"start-round": {
+			title: "片源已加载，但还没有人确认画面",
+			action: "开始播放",
+			hint: "点击后房间会从当前位置开始；如果画面还没准备好，会继续缓冲。",
+		},
 		episode: "第 {episode} 集",
 		"season-episode": "第 {season} 季 · 第 {episode} 集",
 		interactions: {

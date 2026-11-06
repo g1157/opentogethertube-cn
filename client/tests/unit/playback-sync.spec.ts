@@ -1,3 +1,4 @@
+import { PLAYBACK_INITIAL_SYNC_COOLDOWN_MS } from "ott-common/constants";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { createPlaybackSync } from "@/util/playback-sync";
 
@@ -90,6 +91,14 @@ describe("room playback synchronization", () => {
 		vi.advanceTimersByTime(10000);
 		await sync.tick();
 		expect(setPosition).toHaveBeenCalledTimes(1);
+		expect(getPosition).not.toHaveBeenCalled();
+	});
+
+	it("leaves live media on its own timeline instead of seeking it to the VOD clock", async () => {
+		state.live = true;
+		getPosition.mockReturnValue(0);
+		await sync.tick();
+		expect(setPosition).not.toHaveBeenCalled();
 		expect(getPosition).not.toHaveBeenCalled();
 	});
 
@@ -300,6 +309,8 @@ describe("native playback rate correction", () => {
 
 	it("cancels the bend before a drift larger than three seconds triggers a seek", async () => {
 		await sync.tick();
+		// Leave the post-join grace period so the normal three-second threshold applies.
+		vi.advanceTimersByTime(PLAYBACK_INITIAL_SYNC_COOLDOWN_MS + 100);
 		getPosition.mockReturnValue(96);
 		vi.advanceTimersByTime(2000);
 		await sync.tick();

@@ -84,7 +84,12 @@ describe("first viewer playback preparation", () => {
 		expect(input.playing).toBe(false);
 		expect(status.phase).toBe("waiting-ack");
 		expect(sendReady).toHaveBeenCalledOnce();
-		expect(sendReady).toHaveBeenCalledWith({ id: "resume-one", position: 125.05 });
+		expect(sendReady).toHaveBeenCalledWith({
+			id: "resume-one",
+			position: 125.05,
+			firstFrame: true,
+			bufferAhead: 8,
+		});
 		for (let i = 0; i < 20; i++) {
 			await preparation.tick();
 		}
@@ -94,6 +99,20 @@ describe("first viewer playback preparation", () => {
 		input.preparation = null;
 		await preparation.tick();
 		expect(status.active).toBe(false);
+	});
+
+	it("waits for the buffer runway before acknowledging readiness", async () => {
+		await preparation.tick();
+		position = 125.05;
+		input.playing = true;
+		input.loading = { phase: null, currentTime: 125.05, bufferAhead: 1 };
+		await preparation.tick();
+		expect(sendReady).not.toHaveBeenCalled();
+		expect(status.phase).toBe("preparing");
+
+		input.loading = { phase: null, currentTime: 125.05, bufferAhead: 5 };
+		await preparation.tick();
+		expect(sendReady).toHaveBeenCalledOnce();
 	});
 
 	it.each([
@@ -110,7 +129,12 @@ describe("first viewer playback preparation", () => {
 		input.clientId = "alice";
 		await preparation.tick();
 		expect(sendReady).toHaveBeenCalledOnce();
-		expect(sendReady).toHaveBeenCalledWith({ id: "resume-one", position: 125.05 });
+		expect(sendReady).toHaveBeenCalledWith({
+			id: "resume-one",
+			position: 125.05,
+			firstFrame: true,
+			bufferAhead: 8,
+		});
 	});
 
 	it.each([
@@ -264,6 +288,8 @@ describe("first viewer playback preparation", () => {
 		expect(sendReady).toHaveBeenCalledWith({
 			id: "next-preparation",
 			position: 125.05,
+			firstFrame: true,
+			bufferAhead: 8,
 		});
 	});
 

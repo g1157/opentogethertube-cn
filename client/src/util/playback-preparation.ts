@@ -1,3 +1,4 @@
+import { playbackReadyBufferSeconds } from "ott-common/constants";
 import type { PlaybackPreparation, PlaybackPrepared } from "ott-common/models/messages";
 import type { VideoId } from "ott-common/models/video";
 import type { MediaLoadingState } from "./media-loading-state";
@@ -24,6 +25,8 @@ interface PreparationInput {
 	recovering: boolean;
 	loading: MediaLoadingState | null;
 	frameVersion: number;
+	/** A background tab should not become the room's readiness blocker. */
+	visible?: boolean;
 }
 
 interface PreparationOptions {
@@ -32,6 +35,7 @@ interface PreparationOptions {
 	setPosition(position: number): void | Promise<void>;
 	pause(): void | Promise<void>;
 	sendReady(prepared: PlaybackPrepared): void;
+	sendFailed?(preparationId: string, reason: string): void;
 	onChange(state: PlaybackPreparationState): void;
 	onError(error: unknown): void;
 }
@@ -65,14 +69,18 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 
 	function isOwner(state: PreparationInput) {
 		const preparation = state.preparation;
+		const eligible = preparation?.eligible
+			? preparation.eligible.includes(state.clientId)
+			: preparation?.clientId === state.clientId;
 		return (
 			!disposed &&
 			state.connected &&
+			state.visible !== false &&
 			!state.roomPlaying &&
 			!!state.clientId &&
 			!!preparation &&
 			preparation.id !== cancelledId &&
-			preparation.clientId === state.clientId &&
+			eligible &&
 			preparation.video.service === state.source?.service &&
 			preparation.video.id === state.source?.id &&
 			Number.isFinite(preparation.position) &&
@@ -130,12 +138,22 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 	}
 
 	function fail(error: unknown) {
-		if (!matches(options.getState())) {
+		const state = options.getState();
+		if (!matches(state)) {
 			return;
 		}
 		generation++;
 		inFlight = null;
 		publish("failed");
+		const preparation = state.preparation;
+		if (preparation) {
+			const reason = error instanceof Error ? error.message : String(error);
+			try {
+				options.sendFailed?.(preparation.id, reason);
+			} catch (sendError) {
+				options.onError(sendError);
+			}
+		}
 		options.onError(error);
 		try {
 			void Promise.resolve(options.pause()).catch(options.onError);
@@ -198,6 +216,14 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 			if (!usable(latest) || !latest.playing || latest.blocked || !hasFrame(latest)) {
 				return;
 			}
+			const bufferAhead = latest.loading?.bufferAhead ?? null;
+			const requiredBuffer = playbackReadyBufferSeconds(latest.source?.service);
+			if (bufferAhead !== null && bufferAhead < requiredBuffer) {
+				// The picture is up, but starting now would immediately drain the buffer.
+				// Stay paused in the room clock and wait for the runway to fill.
+				publish("preparing");
+				return;
+			}
 
 			// Freeze this browser too while the ready message makes its round trip. Otherwise
 			// a slow connection would silently consume more of the saved scene before resume.
@@ -224,7 +250,13 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 				publish("preparing");
 				return;
 			}
-			options.sendReady({ id: preparation.id, position: pausedPosition });
+			options.sendReady({
+				id: preparation.id,
+				position: pausedPosition,
+				firstFrame: true,
+				bufferAhead: options.getState().loading?.bufferAhead ?? null,
+				...(options.getState().visible === false ? { visible: false } : {}),
+			});
 		} catch (error) {
 			if (current()) {
 				fail(error);

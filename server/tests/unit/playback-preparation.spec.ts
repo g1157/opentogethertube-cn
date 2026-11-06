@@ -133,9 +133,14 @@ describe("preparing playback after a room was empty", () => {
 		await Promise.all([join("first"), join("second")]);
 		const preparation = room.playbackPreparation!;
 		expect(preparation.clientId).toBe("first");
+		preparation.eligible = ["first", "second"];
 		await report("second", { id: preparation.id, position: 125 });
 		expect(room.isPlaying).toBe(false);
 		await report("first", { id: preparation.id, position: 125 });
+		// Two viewers use the one-second lead so both clients can apply the same start.
+		expect(room.isPlaying).toBe(false);
+		advanceTime(1);
+		await room.update();
 		expect(room.isPlaying).toBe(true);
 	});
 
@@ -311,6 +316,43 @@ describe("preparing playback after a room was empty", () => {
 		expect(room.realPlaybackPosition).toBe(125);
 	});
 
+	it("waits for a buffer runway, not just the first frame", async () => {
+		await watchThenLeave();
+		await join("first");
+		const preparation = room.playbackPreparation!;
+		await report("first", { id: preparation.id, position: 125, bufferAhead: 1 });
+		expect(room.isPlaying).toBe(false);
+		await report("first", { id: preparation.id, position: 125, bufferAhead: 5 });
+		expect(room.isPlaying).toBe(true);
+	});
+
+	it("removes a viewer that reports a preparation failure and starts for the rest", async () => {
+		await watchThenLeave();
+		await join("first");
+		const preparation = room.playbackPreparation!;
+		await join("second");
+		// The round was started before the second viewer arrived; make it part of the
+		// snapshot so the failure path can hand the room to them.
+		preparation.eligible = ["first", "second"];
+		await report("first", { id: preparation.id, position: 125, failed: true });
+		expect(room.isPlaying).toBe(false);
+		await report("second", { id: preparation.id, position: 125, bufferAhead: 5 });
+		expect(room.isPlaying).toBe(true);
+		expect(room.playbackPreparation).toBeNull();
+	});
+
+	it("shows a fallback after the ready deadline and forces playback at the hard deadline", async () => {
+		await watchThenLeave();
+		await join("first");
+		advanceTime(8);
+		await room.update();
+		expect(room.isPlaying).toBe(false);
+		expect(room.playbackPreparation?.fallback).toBe("none");
+		advanceTime(12);
+		await room.update();
+		expect(room.isPlaying).toBe(true);
+	});
+
 	it("requires a nonnegative frame position when resuming at the start of a video", async () => {
 		room.playbackPosition = 0;
 		await join("previous");
@@ -383,14 +425,16 @@ describe("preparing playback after a room was empty", () => {
 	it("keeps an occupied preparing room alive, then allows normal eviction after that viewer leaves", async () => {
 		await watchThenLeave();
 		await join("preparing");
-		const preparation = room.playbackPreparation!;
 		roommanager.rooms.push(room);
 		const expiry = vi.spyOn(redisClient, "expire");
 		advanceTime(conf.get("room.unload_after") + 2);
 		await updateRooms();
 		expect(roommanager.rooms).toContain(room);
 		expect(room.isStale).toBe(false);
-		expect(room.playbackPreparation).toEqual(preparation);
+		// The hard fallback starts the room instead of holding it forever for a viewer
+		// that never reports a frame.
+		expect(room.playbackPreparation).toBeNull();
+		expect(room.isPlaying).toBe(true);
 		expect(expiry).toHaveBeenCalledWith(`room:${room.name}`, conf.get("room.expire_after"));
 		await leave("preparing");
 		advanceTime(conf.get("room.unload_after") + 2);
@@ -477,11 +521,14 @@ describe("advancing to the next video", () => {
 		expect(room.currentSource).toEqual(next);
 		expect(room.isPlaying).toBe(false);
 		expect(room.realPlaybackPosition).toBe(0);
-		expect(room.playbackPreparation).toEqual({
+		expect(room.playbackPreparation).toMatchObject({
 			id: expect.any(String),
 			clientId: "viewer",
 			video: { service: "direct", id: "episode-04.mp4" },
 			position: 0,
+			eligible: ["viewer"],
+			ready: [],
+			startAt: null,
 		});
 
 		// Loading time is not counted against the opening: the clock stays where it is.

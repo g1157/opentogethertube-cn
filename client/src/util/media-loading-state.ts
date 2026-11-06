@@ -44,7 +44,13 @@ export function getBufferAhead(buffered: TimeRanges, position: number): number |
 				break;
 			}
 		}
-		return end === undefined ? 0 : Math.max(0, end - position);
+		if (end === undefined) {
+			// An empty TimeRanges means the browser did not expose a buffer (some native
+			// HLS/embedded implementations). Treat it as unknown instead of "zero runway";
+			// a real range that does not cover the position still returns 0.
+			return buffered.length === 0 ? null : 0;
+		}
+		return Math.max(0, end - position);
 	} catch {
 		// A detached/changing media source can invalidate a TimeRanges read.
 		return null;

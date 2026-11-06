@@ -184,7 +184,12 @@ describe("room first viewer preparation integration", () => {
 			{
 				action: "status",
 				status: PlayerStatus.ready,
-				playbackPrepared: { id: token.id, position: 125.05 },
+				playbackPrepared: {
+					id: token.id,
+					position: 125.05,
+					firstFrame: true,
+					bufferAhead: 8,
+				},
 			},
 		]);
 		expect(page.wrapper.vm.playbackPreparationState.phase).toBe("waiting-ack");

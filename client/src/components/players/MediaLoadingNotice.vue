@@ -154,4 +154,41 @@ onBeforeUnmount(() => clearInterval(timer));
 		padding: 12px;
 	}
 }
+
+/* A phone portrait player is small: keep the notice a compact chip above the controls
+   instead of letting the card fill most of the picture. */
+@media (max-width: 600px) {
+	.media-loading-notice {
+		align-items: flex-end;
+		padding: 8px 8px max(8px, var(--player-controls-height, 0px));
+	}
+
+	.media-loading-card {
+		gap: 5px;
+		width: auto;
+		max-width: min(260px, 100%);
+		padding: 10px 12px;
+		border-radius: 10px;
+		font-size: 0.75rem;
+	}
+
+	.media-loading-card strong {
+		font-size: 0.85rem;
+	}
+
+	/* The long explanation is useful on desktop but turns the phone overlay into a wall
+	   of text. Keep the title, elapsed time, slow warning and retry action. */
+	.media-loading-card p:not(.loading-timing):not(.loading-slow) {
+		display: none;
+	}
+
+	.media-loading-card .loading-timing {
+		font-size: 0.7rem;
+	}
+
+	.media-loading-card .v-btn {
+		min-height: 32px;
+		font-size: 0.75rem;
+	}
+}
 </style>

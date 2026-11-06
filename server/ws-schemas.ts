@@ -10,6 +10,17 @@ const AUTH_TOKEN_MAX_LENGTH = 1024;
 const playbackPreparedSchema = z.object({
 	id: z.string().max(100),
 	position: z.number().finite(),
+	bufferAhead: z
+		.number()
+		.finite()
+		.min(0)
+		.max(24 * 60 * 60)
+		.nullish(),
+	firstFrame: z.boolean().optional(),
+	playerKind: z.enum(["native", "embedded"]).optional(),
+	visible: z.boolean().optional(),
+	failed: z.boolean().optional(),
+	reason: z.string().max(200).optional(),
 });
 
 export const clientMessageSchema = z.discriminatedUnion("action", [

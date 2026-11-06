@@ -112,6 +112,10 @@ import {
 	MAX_QUEUE_ITEMS,
 	MAX_SEEK_SECONDS,
 	MAX_VIDEO_ID_LENGTH,
+	PLAYBACK_READY_WAIT_MS,
+	PLAYBACK_HARD_FALLBACK_MS,
+	PLAYBACK_START_LEAD_MS,
+	playbackReadyBufferSeconds,
 } from "ott-common/constants.js";
 import { Mutex } from "@divine/synchronization";
 
@@ -364,6 +368,7 @@ export class Room implements RoomState {
 	_playbackSpeed = 1;
 	private temporarySpeed: (TemporaryPlaybackSpeed & { previousSpeed: number }) | null = null;
 	private temporarySpeedTimer: ReturnType<typeof setTimeout> | null = null;
+	private playbackStartTimer: ReturnType<typeof setTimeout> | null = null;
 	playbackPreparation: PlaybackPreparation | null = null;
 	resumeOnNextJoin = false;
 	realusers: RoomUser[] = [];
@@ -1052,11 +1057,33 @@ export class Room implements RoomState {
 		// RoomManager already ticks once per second; no detached gate timers to leak on unload.
 		await this.evaluateBufferGate();
 		if (this.playbackPreparation) {
-			const owner = this.getUser(this.playbackPreparation.clientId);
-			if (!owner || !this.grants.granted(this.getRole(owner), "playback.play-pause")) {
-				this.playbackPreparation = null;
-				this.markDirty("playbackPreparation");
-				this.prepareEmptyRoomPlayback();
+			this.refreshPlaybackPreparation();
+			const preparation = this.playbackPreparation;
+			if (
+				preparation &&
+				(preparation.startAt === undefined || preparation.startAt === null)
+			) {
+				const now = Date.now();
+				if (this.allEligibleReady(preparation)) {
+					this.schedulePlaybackStart(null);
+				} else if (now >= (preparation.deadlineAt ?? Infinity)) {
+					const readyCount = preparation.ready?.length ?? 0;
+					if (readyCount > 0) {
+						this.schedulePlaybackStart("partial");
+					} else if (now >= (preparation.hardDeadlineAt ?? Infinity)) {
+						this.schedulePlaybackStart("forced");
+					} else if (preparation.fallback !== "none") {
+						preparation.fallback = "none";
+						this.markDirty("playbackPreparation");
+					}
+				}
+			}
+			if (
+				this.playbackPreparation?.startAt !== undefined &&
+				this.playbackPreparation?.startAt !== null &&
+				Date.now() >= this.playbackPreparation.startAt
+			) {
+				await this.startPreparedPlayback();
 			}
 		}
 		if (this.temporarySpeed) {
@@ -1074,7 +1101,10 @@ export class Room implements RoomState {
 		// none, and reading it as 0 made the next tick dequeue them right after starting.
 		const currentEnd = current?.endAt ?? current?.length;
 		const currentHasEnd =
-			typeof currentEnd === "number" && Number.isFinite(currentEnd) && currentEnd > 0;
+			!current?.isLive &&
+			typeof currentEnd === "number" &&
+			Number.isFinite(currentEnd) &&
+			currentEnd > 0;
 		const currentEnded =
 			current !== null &&
 			this.isPlaying &&
@@ -1320,6 +1350,7 @@ export class Room implements RoomState {
 	}
 
 	public async onBeforeUnload(): Promise<void> {
+		this.clearPlaybackStartTimer();
 		this.endTemporaryPlaybackSpeed();
 		// A room that goes away must not publish a leave event afterwards.
 		for (const timer of this.pendingLeaveEvents.values()) {
@@ -1573,6 +1604,7 @@ export class Room implements RoomState {
 	}
 
 	private cancelPlaybackPreparation(): void {
+		this.clearPlaybackStartTimer();
 		if (this.playbackPreparation) {
 			this.playbackPreparation = null;
 			this.markDirty("playbackPreparation");
@@ -1584,11 +1616,157 @@ export class Room implements RoomState {
 		}
 	}
 
-	/** The viewer who primes a held source: a present viewer who may start playback. */
-	private findPreparer(): RoomUser | undefined {
-		return this.realusers.find(user =>
+	private clearPlaybackStartTimer(): void {
+		if (this.playbackStartTimer) {
+			clearTimeout(this.playbackStartTimer);
+			this.playbackStartTimer = null;
+		}
+	}
+
+	/** The viewers who can report readiness for a held source, snapshotted at round start. */
+	private eligiblePreparers(): RoomUser[] {
+		return this.realusers.filter(user =>
 			this.grants.granted(this.getRole(user), "playback.play-pause"),
 		);
+	}
+
+	private playbackEligibleIds(preparation: PlaybackPreparation): ClientId[] {
+		const eligible = preparation.eligible ?? [preparation.clientId];
+		return eligible.filter(id => {
+			const user = this.getUser(id);
+			return !!user && this.grants.granted(this.getRole(user), "playback.play-pause");
+		});
+	}
+
+	private allEligibleReady(preparation: PlaybackPreparation): boolean {
+		const eligible = this.playbackEligibleIds(preparation);
+		if (eligible.length === 0) {
+			return false;
+		}
+		const ready = new Set((preparation.ready ?? []).map(report => report.clientId));
+		return eligible.every(id => ready.has(id));
+	}
+
+	private readyBufferIsEnough(
+		preparation: PlaybackPreparation,
+		prepared: PlaybackPrepared,
+	): boolean {
+		if (prepared.bufferAhead === undefined || prepared.bufferAhead === null) {
+			// Older clients only report the first frame. Accept them rather than deadlocking
+			// a mixed-version room; new clients always include the buffer runway.
+			return true;
+		}
+		return prepared.bufferAhead >= playbackReadyBufferSeconds(preparation.video.service);
+	}
+
+	private schedulePlaybackStart(fallback: PlaybackPreparation["fallback"]): void {
+		const preparation = this.playbackPreparation;
+		if (!preparation || (preparation.startAt !== undefined && preparation.startAt !== null)) {
+			return;
+		}
+		const now = Date.now();
+		const eligible = this.playbackEligibleIds(preparation);
+		preparation.fallback = fallback;
+		if (eligible.length <= 1) {
+			// A single viewer has nobody to wait for; there is no reason to add the lead.
+			preparation.startAt = now;
+			this.markDirty("playbackPreparation");
+			void this.startPreparedPlayback();
+			return;
+		}
+		preparation.startAt = now + PLAYBACK_START_LEAD_MS;
+		this.markDirty("playbackPreparation");
+		this.clearPlaybackStartTimer();
+		this.playbackStartTimer = setTimeout(
+			() => void this.startPreparedPlayback(),
+			Math.max(0, preparation.startAt - now),
+		);
+		this.playbackStartTimer.unref?.();
+	}
+
+	private async startPreparedPlayback(): Promise<void> {
+		const preparation = this.playbackPreparation;
+		if (!preparation || preparation.startAt === undefined || preparation.startAt === null) {
+			return;
+		}
+		if (Date.now() + 50 < preparation.startAt) {
+			return;
+		}
+		const startAt = preparation.startAt;
+		counterPlaybackStart.inc({
+			result: preparation.fallback ?? "all-ready",
+			service: preparation.video.service,
+		});
+		this.clearPlaybackStartTimer();
+		this.playbackPreparation = null;
+		this.resumeOnNextJoin = false;
+		this.playbackPosition = preparation.position;
+		this.isPlaying = true;
+		this._playbackStart = dayjs(startAt);
+		this.markDirty("playbackPreparation");
+		this.markDirty("isPlaying");
+		this.markDirty("playbackPosition");
+	}
+
+	private dropPlaybackParticipant(clientId: ClientId): void {
+		const preparation = this.playbackPreparation;
+		if (!preparation) {
+			return;
+		}
+		const eligible = preparation.eligible ?? [preparation.clientId];
+		if (!eligible.includes(clientId)) {
+			return;
+		}
+		preparation.eligible = eligible.filter(id => id !== clientId);
+		preparation.ready = (preparation.ready ?? []).filter(
+			report => report.clientId !== clientId,
+		);
+		if (preparation.eligible.length === 0) {
+			// Keep the round visible so the room can show an explicit start button and
+			// eventually force playback; cancelling here would leave a paused room with no
+			// explanation and no exit.
+			preparation.fallback = "none";
+			this.markDirty("playbackPreparation");
+			return;
+		}
+		preparation.clientId = preparation.eligible[0];
+		this.markDirty("playbackPreparation");
+		if (this.allEligibleReady(preparation)) {
+			this.schedulePlaybackStart(null);
+		}
+	}
+
+	private refreshPlaybackPreparation(): void {
+		const preparation = this.playbackPreparation;
+		if (!preparation) {
+			return;
+		}
+		const eligible = this.playbackEligibleIds(preparation);
+		const previous = preparation.eligible ?? [preparation.clientId];
+		const changed =
+			eligible.length !== previous.length ||
+			eligible.some((id, index) => id !== previous[index]);
+		if (!changed) {
+			return;
+		}
+		preparation.eligible = eligible;
+		preparation.ready = (preparation.ready ?? []).filter(report =>
+			eligible.includes(report.clientId),
+		);
+		if (eligible.length === 0) {
+			// No eligible viewer and nobody in the room can even start playback: there is
+			// nothing the button could do. If a permitted viewer is still present but was
+			// removed after a failure, keep the round so the button can start the room.
+			if (this.eligiblePreparers().length === 0) {
+				this.cancelPlaybackPreparation();
+				return;
+			}
+			preparation.fallback = "none";
+			this.markDirty("playbackPreparation");
+			return;
+		}
+		preparation.clientId = eligible[0];
+		this.markDirty("playbackPreparation");
 	}
 
 	/**
@@ -1596,7 +1774,7 @@ export class Room implements RoomState {
 	 * positioned and confirmed, and someone present has to be able to prime it.
 	 */
 	private canHoldPlaybackForPreparation(): boolean {
-		return this.canPreparePlayback() && !!this.findPreparer();
+		return this.canPreparePlayback() && this.eligiblePreparers().length > 0;
 	}
 
 	/**
@@ -1621,7 +1799,12 @@ export class Room implements RoomState {
 
 	private canPreparePlayback(): boolean {
 		const source = this.currentSource;
-		if (!source || !Number.isFinite(source.length) || (source.length ?? 0) <= 0) {
+		if (
+			!source ||
+			source.isLive ||
+			!Number.isFinite(source.length) ||
+			(source.length ?? 0) <= 0
+		) {
 			return false;
 		}
 		return (
@@ -1648,7 +1831,7 @@ export class Room implements RoomState {
 		this.markDirty("isPlaying");
 	}
 
-	/** Hold the saved position until the first eligible viewer has actually rendered playback. */
+	/** Hold the saved position until the eligible viewers have rendered playback. */
 	private prepareEmptyRoomPlayback(): void {
 		if (
 			!this.resumeOnNextJoin ||
@@ -1661,15 +1844,22 @@ export class Room implements RoomState {
 		) {
 			return;
 		}
-		const viewer = this.findPreparer();
-		if (!viewer) {
+		const eligible = this.eligiblePreparers().map(user => user.id);
+		if (eligible.length === 0) {
 			return;
 		}
+		const now = Date.now();
 		this.playbackPreparation = {
 			id: randomUUID(),
-			clientId: viewer.id,
+			clientId: eligible[0],
 			video: { service: this.currentSource.service, id: this.currentSource.id },
 			position: this.playbackPosition,
+			eligible,
+			ready: [],
+			deadlineAt: now + PLAYBACK_READY_WAIT_MS,
+			hardDeadlineAt: now + PLAYBACK_HARD_FALLBACK_MS,
+			startAt: null,
+			fallback: null,
 		};
 		this._playbackStart = null;
 		this.markDirty("playbackPreparation");
@@ -1684,13 +1874,9 @@ export class Room implements RoomState {
 		if (
 			!preparation ||
 			!prepared ||
-			status !== PlayerStatus.ready ||
-			preparation.clientId !== clientId ||
 			typeof prepared.id !== "string" ||
 			prepared.id !== preparation.id ||
-			!Number.isFinite(prepared.position) ||
-			prepared.position < 0 ||
-			Math.abs(prepared.position - preparation.position) > 1 ||
+			!this.playbackEligibleIds(preparation).includes(clientId) ||
 			this.currentSource?.service !== preparation.video.service ||
 			this.currentSource?.id !== preparation.video.id ||
 			this.playbackPosition !== preparation.position ||
@@ -1698,13 +1884,33 @@ export class Room implements RoomState {
 		) {
 			return;
 		}
-		const viewer = this.getUser(clientId);
-		if (!viewer || !this.grants.granted(this.getRole(viewer), "playback.play-pause")) {
+		if (prepared.failed || prepared.visible === false) {
+			this.dropPlaybackParticipant(clientId);
 			return;
 		}
-		await this.play();
-		// Receivers must anchor playback to this newly started clock, not an earlier receipt time.
-		this.markDirty("playbackPosition");
+		if (
+			status !== PlayerStatus.ready ||
+			prepared.firstFrame === false ||
+			!Number.isFinite(prepared.position) ||
+			prepared.position < 0 ||
+			Math.abs(prepared.position - preparation.position) > 1 ||
+			!this.readyBufferIsEnough(preparation, prepared)
+		) {
+			return;
+		}
+		preparation.ready = (preparation.ready ?? []).filter(
+			report => report.clientId !== clientId,
+		);
+		preparation.ready.push({
+			clientId,
+			firstFrame: true,
+			bufferAhead: prepared.bufferAhead ?? null,
+			at: Date.now(),
+		});
+		this.markDirty("playbackPreparation");
+		if (this.allEligibleReady(preparation)) {
+			this.schedulePlaybackStart(null);
+		}
 	}
 
 	/**
@@ -2134,10 +2340,18 @@ export class Room implements RoomState {
 			this._keepAlivePing = dayjs();
 			await this.sync();
 			await this.saveStateToRedisDebounced.flush();
-		} else if (this.playbackPreparation?.clientId === context.clientId) {
-			this.playbackPreparation = null;
-			this.markDirty("playbackPreparation");
-			this.prepareEmptyRoomPlayback();
+		} else if (this.playbackPreparation) {
+			const eligible = this.playbackPreparation.eligible ?? [
+				this.playbackPreparation.clientId,
+			];
+			if (eligible.includes(context.clientId)) {
+				// Rebuild the round so a stale acknowledgement cannot be attributed to the
+				// replacement viewer. The remaining viewers get a fresh deadline.
+				this.cancelPlaybackPreparation();
+				this.resumeOnNextJoin = true;
+				this.markDirty("isPlaying");
+				this.prepareEmptyRoomPlayback();
+			}
 		}
 		await this.evaluateBufferGate();
 	}
@@ -2812,4 +3026,10 @@ const counterRoomRequests = new Counter({
 	name: "ott_room_requests_received",
 	help: "The number of room requests that have been received",
 	labelNames: ["type"],
+});
+
+const counterPlaybackStart = new Counter({
+	name: "ott_playback_start_total",
+	help: "Playback start rounds by how they were released.",
+	labelNames: ["result", "service"],
 });

@@ -1,3 +1,9 @@
+import {
+	PLAYBACK_INITIAL_MAX_DRIFT_SECONDS,
+	PLAYBACK_INITIAL_SYNC_COOLDOWN_MS,
+	PLAYBACK_MIN_SEEK_BUFFER_SECONDS,
+} from "ott-common/constants";
+
 interface PlaybackSyncState {
 	source: object | null;
 	player: object | null;
@@ -7,6 +13,9 @@ interface PlaybackSyncState {
 	seeking: boolean;
 	recovering: boolean;
 	buffering: boolean;
+	bufferAhead?: number | null;
+	/** Live sources follow their own edge; the VOD room clock must not seek them. */
+	live?: boolean;
 	playing: boolean;
 	temporarySpeed?: boolean;
 	position: number;
@@ -89,6 +98,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 	let generation = 0;
 	let lastSeekAt = -Infinity;
 	let bufferedSinceLastSeek = false;
+	let initialSyncUntil = 0;
 	let pendingSeek = false;
 	let pendingSeekToleratesDrift = false;
 	let pendingSeekReason = "";
@@ -175,6 +185,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		invalidateRate();
 		lastSeekAt = -Infinity;
 		bufferedSinceLastSeek = false;
+		initialSyncUntil = Date.now() + PLAYBACK_INITIAL_SYNC_COOLDOWN_MS;
 		pendingSeek = true;
 		pendingSeekToleratesDrift = false;
 		pendingSeekReason = "reset";
@@ -209,6 +220,14 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			!state.seeking &&
 			!state.recovering &&
 			!state.buffering
+		);
+	}
+
+	function hasSeekBuffer(state: PlaybackSyncState) {
+		return (
+			state.bufferAhead === undefined ||
+			state.bufferAhead === null ||
+			state.bufferAhead >= PLAYBACK_MIN_SEEK_BUFFER_SECONDS
 		);
 	}
 
@@ -247,7 +266,13 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		// as the sync message instead of deferring it by a microtask.
 		const position = read instanceof Promise ? await read : read;
 		const latest = options.getState();
-		if (disposed || source !== latest.source || player !== latest.player || !canSeek(latest)) {
+		if (
+			disposed ||
+			latest.live ||
+			source !== latest.source ||
+			player !== latest.player ||
+			!canSeek(latest)
+		) {
 			return;
 		}
 		const drift = Math.abs(latest.position - position);
@@ -256,7 +281,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		// A room sync must not freeze playback for a drift the rate bend can absorb; without
 		// a rate setter (or while paused) only the 300 ms dead band is forgiven.
 		const limit = canBend ? HARD_SEEK_DRIFT : BEND_START;
-		if (!Number.isFinite(position) || drift > limit) {
+		if ((!Number.isFinite(position) || drift > limit) && hasSeekBuffer(latest)) {
 			await seek(latest, reason);
 		}
 	}
@@ -270,6 +295,12 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			source = state.source;
 			player = state.player;
 			reset();
+		}
+		if (state.live) {
+			// Live HLS owns its timeline (sliding window/live edge). Treating its currentTime
+			// as a VOD position would hard-seek it backwards on every sync message.
+			cancelBend();
+			return;
 		}
 		bufferedSinceLastSeek ||= state.buffering;
 		if (!canObserve(state) || !state.playing || state.temporarySpeed) {
@@ -318,10 +349,18 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			maxAbsDrift = Math.max(maxAbsDrift, magnitude);
 			const base = getBendBase();
 			const canBend = latest.playing && !latest.temporarySpeed && base !== null;
+			// A viewer that just joined or switched sources gets a short grace period. During
+			// it, only a very large drift may seek; otherwise we would discard the buffer that
+			// is still filling and start the seek/rebuffer loop.
+			const initialSync = Date.now() < initialSyncUntil;
 			// While playing, a rate change absorbs up to HARD_SEEK_DRIFT; a paused room or a
 			// player without a rate setter still seeks as soon as the drift is visible.
-			const seekLimit = canBend ? HARD_SEEK_DRIFT : 1;
-			if (magnitude > seekLimit && canSeekNow(latest)) {
+			const seekLimit = canBend
+				? initialSync
+					? PLAYBACK_INITIAL_MAX_DRIFT_SECONDS
+					: HARD_SEEK_DRIFT
+				: 1;
+			if (magnitude > seekLimit && canSeekNow(latest) && hasSeekBuffer(latest)) {
 				await seek(latest, "drift-large");
 				return;
 			}
@@ -340,7 +379,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			const ceiling = bendCeiling(magnitude);
 			if (bendStartedAt !== null && Date.now() >= bendDeadlineAt) {
 				cancelBend();
-				if (canSeekNow(latest)) {
+				if (canSeekNow(latest) && hasSeekBuffer(latest)) {
 					await seek(latest, "bend-deadline");
 				}
 				return;

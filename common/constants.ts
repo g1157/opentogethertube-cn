@@ -9,6 +9,34 @@ export const TEMPORARY_PLAYBACK_SPEED_RENEW_MS = 1000;
 export const BUFFER_GATE_MAX_WAIT_MS = 15000;
 export const BUFFER_GATE_START_GRACE_MS = 2000;
 export const BUFFER_GATE_COOLDOWN_MS = 30000;
+
+/**
+ * How long a room waits for its foreground viewers to render the first frame and build a
+ * small buffer runway before starting the new source. A room never waits indefinitely.
+ */
+export const PLAYBACK_READY_WAIT_MS = 8000;
+/** When nobody is ready, show an explicit start button before this hard fallback fires. */
+export const PLAYBACK_HARD_FALLBACK_MS = 20000;
+/** A scheduled start gives clients a moment to apply the play command at the same time. */
+export const PLAYBACK_START_LEAD_MS = 1000;
+/**
+ * Buffer runway required before a native player counts as ready. Segmented sources need a
+ * little more because the next segment fetch is not instantaneous.
+ */
+export const PLAYBACK_READY_BUFFER_DIRECT_SECONDS = 3;
+export const PLAYBACK_READY_BUFFER_STREAM_SECONDS = 6;
+/** A late joiner gets this long to settle before normal hard-seek rules apply. */
+export const PLAYBACK_INITIAL_SYNC_COOLDOWN_MS = 8000;
+/** During the initial cooldown only a drift this large may force a seek. */
+export const PLAYBACK_INITIAL_MAX_DRIFT_SECONDS = 10;
+/** Do not hard-seek while a native player has less than this much buffer ahead. */
+export const PLAYBACK_MIN_SEEK_BUFFER_SECONDS = 1.5;
+
+export function playbackReadyBufferSeconds(service: string | undefined): number {
+	return service === "hls" || service === "dash"
+		? PLAYBACK_READY_BUFFER_STREAM_SECONDS
+		: PLAYBACK_READY_BUFFER_DIRECT_SECONDS;
+}
 export const ALL_VIDEO_SERVICES = [
 	"youtube",
 	"vimeo",

@@ -140,7 +140,12 @@ describe("first viewer native MP4 event chain", () => {
 			{
 				action: "status",
 				status: "ready",
-				playbackPrepared: { id: "native-resume", position: 125 },
+				playbackPrepared: {
+					id: "native-resume",
+					position: 125,
+					firstFrame: true,
+					bufferAhead: null,
+				},
 			},
 		]);
 		page.connection.mockReceive({

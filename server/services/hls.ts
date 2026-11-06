@@ -67,6 +67,8 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 		let title: string | undefined;
 		let width: number | undefined;
 		let height: number | undefined;
+		let isLive = false;
+		let selectedPlaylist = String(resp.data ?? "");
 		// The media playlist lists the segments the browser will actually fetch; remember
 		// where it lives so relative segment URLs can be resolved against it.
 		const mediaPlaylist = { url: url.href, segments: manifest.segments };
@@ -113,12 +115,15 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 			const manifest2 = parser2.manifest;
 			// log.silly(`Got m3u8 manifest with ${JSON.stringify(manifest2)}`);
 			duration = manifest2.segments.reduce((acc, cur) => acc + cur.duration, 0);
-			title = manifest2.segments[0].title;
+			title = manifest2.segments[0]?.title;
+			selectedPlaylist = String(respStreams.data ?? "");
+			isLive = !selectedPlaylist.includes("#EXT-X-ENDLIST");
 			mediaPlaylist.url = playlistUrl;
 			mediaPlaylist.segments = manifest2.segments;
 		} else {
 			duration = manifest.segments.reduce((acc, cur) => acc + cur.duration, 0);
-			title = manifest.segments[0].title;
+			title = manifest.segments[0]?.title;
+			isLive = !selectedPlaylist.includes("#EXT-X-ENDLIST");
 		}
 
 		if (duration === 0) {
@@ -133,7 +138,8 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 			title: title ?? url.href,
 			description: `Full Link: ${url.href}`,
 			mime: "application/x-mpegURL",
-			length: duration,
+			length: isLive ? undefined : duration,
+			...(isLive ? { isLive: true } : {}),
 			width,
 			height,
 			// A segment is what the browser actually downloads, so its answer beats the

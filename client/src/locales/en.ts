@@ -994,6 +994,11 @@ export default {
 			action: "Click to join playback",
 			hint: "Your browser needs a click here before it can start playing.",
 		},
+		"start-round": {
+			title: "The source is loaded, but nobody has confirmed a frame",
+			action: "Start playback",
+			hint: "The room starts from the current position. If the picture is not ready, it keeps buffering.",
+		},
 		episode: "Episode {episode}",
 		"season-episode": "Season {season} · Episode {episode}",
 		interactions: {

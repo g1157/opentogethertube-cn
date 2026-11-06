@@ -64,7 +64,9 @@ describe("next media prefetch", () => {
 		prefetch.tick();
 		prefetch.tick();
 		expect(fetchImpl).toHaveBeenCalledOnce();
-		expect(fetchImpl).toHaveBeenCalledWith("https://cdn.example.com/master.m3u8");
+		expect(fetchImpl).toHaveBeenCalledWith("https://cdn.example.com/master.m3u8", {
+			signal: expect.anything(),
+		});
 	});
 
 	it("stays idle until the lead window", () => {
@@ -87,7 +89,23 @@ describe("next media prefetch", () => {
 		prefetch.tick();
 		expect(fetchImpl).toHaveBeenCalledWith("https://cdn/movie.mp4", {
 			headers: { Range: "bytes=0-262143" },
+			signal: expect.anything(),
 		});
+	});
+
+	it("skips the warm-up while the current player is short on buffer", () => {
+		let healthy = false;
+		prefetch = createNextMediaPrefetch({
+			getRemainingSeconds: () => remaining,
+			getNext: () => next,
+			canWarm: () => healthy,
+			fetchImpl: fetchImpl as unknown as typeof fetch,
+		});
+		prefetch.tick();
+		expect(fetchImpl).not.toHaveBeenCalled();
+		healthy = true;
+		prefetch.tick();
+		expect(fetchImpl).toHaveBeenCalledOnce();
 	});
 
 	it("does not warm the same item twice, but does warm the next one", () => {
@@ -102,6 +120,7 @@ describe("next media prefetch", () => {
 		prefetch.tick();
 		expect(fetchImpl).toHaveBeenCalledWith("https://cdn.example.com/master.m3u8", {
 			referrerPolicy: "no-referrer",
+			signal: expect.anything(),
 		});
 	});
 
@@ -110,5 +129,18 @@ describe("next media prefetch", () => {
 		prefetch.tick();
 		await Promise.resolve();
 		expect(fetchImpl).toHaveBeenCalledOnce();
+	});
+
+	it("aborts an in-flight warm-up when the room switches source", () => {
+		let signal: AbortSignal | undefined;
+		fetchImpl.mockImplementation((_url: string, init: RequestInit) => {
+			signal = init.signal ?? undefined;
+			// Keep the request pending so reset() is what settles it.
+			return new Promise(() => undefined);
+		});
+		prefetch.tick();
+		expect(signal?.aborted).toBe(false);
+		prefetch.reset();
+		expect(signal?.aborted).toBe(true);
 	});
 });

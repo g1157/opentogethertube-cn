@@ -593,7 +593,7 @@ describe("continuous media buffer ahead", () => {
 		expect(getBufferAhead(buffered, 110)).toBe(20);
 		expect(getBufferAhead(buffered, 130)).toBe(0);
 		expect(getBufferAhead(buffered, 140)).toBe(60);
-		expect(getBufferAhead(ranges([]), 0)).toBe(0);
+		expect(getBufferAhead(ranges([]), 0)).toBeNull();
 	});
 
 	it("returns unknown for invalid positions, nonfinite ranges or invalidated reads", () => {

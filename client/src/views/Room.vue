@@ -191,6 +191,28 @@
 							aria-hidden="true"
 						></div>
 						<div
+							v-if="showStartRoundPrompt"
+							class="join-playback"
+							role="status"
+							data-cy="start-round"
+						>
+							<span class="join-playback-title">{{
+								$t("player.start-round.title")
+							}}</span>
+							<v-btn
+								color="primary"
+								size="large"
+								:prepend-icon="mdiPlay"
+								data-cy="start-round-btn"
+								@click.stop="startPreparedRound"
+							>
+								{{ $t("player.start-round.action") }}
+							</v-btn>
+							<span class="join-playback-hint">{{
+								$t("player.start-round.hint")
+							}}</span>
+						</div>
+						<div
 							v-if="shouldJoinPlayback"
 							class="join-playback"
 							role="status"
@@ -904,6 +926,18 @@ export default defineComponent({
 		const needsLocalPlayback = computed(
 			() => mediaPlaybackBlocked.value || shouldJoinPlayback.value,
 		);
+		const showStartRoundPrompt = computed(
+			() =>
+				hasRoomSync.value &&
+				!store.state.room.isPlaying &&
+				store.state.room.playbackPreparation?.fallback === "none",
+		);
+		function startPreparedRound() {
+			if (!connection.connected.value) {
+				return;
+			}
+			roomapi.play();
+		}
 		provide(PlayerActionsKey, {
 			playbackBlocked: needsLocalPlayback,
 			togglePlayback,
@@ -925,12 +959,24 @@ export default defineComponent({
 				recovering: player.isRecovering(),
 				loading: localMediaState.value,
 				frameVersion: mediaFrameVersion,
+				visible: !document.hidden,
 			}),
 			getPosition: () => player.getPosition(),
 			setPosition: position => player.setPosition(position),
 			pause: () => player.pause(),
 			sendReady: playbackPrepared =>
 				connection.send({ action: "status", status: PlayerStatus.ready, playbackPrepared }),
+			sendFailed: (preparationId, reason) =>
+				connection.send({
+					action: "status",
+					status: PlayerStatus.ready,
+					playbackPrepared: {
+						id: preparationId,
+						position: 0,
+						failed: true,
+						reason,
+					},
+				}),
 			onChange: state => {
 				playbackPreparationState.value = state;
 			},
@@ -946,6 +992,7 @@ export default defineComponent({
 				connection.connected,
 				player.apiReady,
 				mediaPlaybackBlocked,
+				localMediaState,
 			],
 			() => void playbackPreparation.tick(),
 			{ flush: "post" },
@@ -980,6 +1027,8 @@ export default defineComponent({
 				seeking: player.isSeeking(),
 				recovering: player.isRecovering(),
 				buffering: store.state.playerStatus === PlayerStatus.buffering,
+				bufferAhead: localMediaState.value?.bufferAhead ?? null,
+				live: currentSource.value?.isLive === true,
 				playing: store.state.room.isPlaying,
 				temporarySpeed: store.state.room.temporaryPlaybackSpeed != null,
 				position: roomPosition(),
@@ -1095,7 +1144,25 @@ export default defineComponent({
 				return length !== null ? length - truePosition.value : null;
 			},
 			getNext: () => store.state.room.queue[0],
+			canWarm: () => {
+				const ahead = localMediaState.value?.bufferAhead;
+				return (
+					store.state.playerStatus !== PlayerStatus.buffering &&
+					(ahead === undefined || ahead === null || ahead >= 5)
+				);
+			},
 		});
+		// The prefetch is only a cache warm-up. Once the room switches sources, the player
+		// needs that bandwidth for the first frame and the buffer runway; abort the old
+		// request instead of letting it compete with the real load.
+		watch(
+			() => currentSource.value?.id,
+			() => nextPrefetch.reset(),
+		);
+		watch(
+			() => store.state.room.queue.length,
+			() => nextPrefetch.reset(),
+		);
 
 		/**
 		 * Refresh everything that follows the clock. Returns whether it already applied the
@@ -2196,6 +2263,8 @@ export default defineComponent({
 			mediaPlaybackBlocked,
 			pendingLocalSeek,
 			shouldJoinPlayback,
+			showStartRoundPrompt,
+			startPreparedRound,
 			onClickUnblockPlayback,
 			secondsToTimestamp,
 
