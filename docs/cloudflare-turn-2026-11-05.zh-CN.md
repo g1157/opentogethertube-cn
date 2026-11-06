@@ -149,6 +149,22 @@ curl -X POST \
 4. 先在 `VOICE_MONTHLY_RELAY_MB=500000` 下跑 1–2 周，记录 relay 比例与大陆 RTT/丢包，再决定
    是否提高到 900 GB、是否自建 coturn 或换 TRTC。
 
+## 七、实际用量对账（本部署）
+
+- **只读 Token**：Account Analytics Read，无写权限，限制服务器 IP `150.158.143.199`；存放于
+  `~/.config/ott-secrets/cloudflare-turn-analytics-token`（600），账号/Key ID 在同目录的
+  `cloudflare-analytics.env`。Global API Key 只在本机用于创建这个 Token，不放进服务器。
+- **定时脚本**：`/home/ubuntu/ott-next/cloudflare-turn-usage.sh`，cron `17 */6 * * *` 每 6 小时
+  查询 `callsTurnUsageAdaptiveGroups`（当前月 + TURN Key ID），写入
+  `backups/cloudflare-turn-usage.latest.json` 和 `.jsonl`；cron 日志在
+  `backups/cloudflare-turn-usage.cron.log`。
+- **字段**：`egressBytes`（计费口径）、`ingressBytes`（免费）、`marginalCostUsd`、
+  `billableCostUsd`（1 TB 免费额度之后的费用）、`byDayEgressBytes`、`localEstimateMb`、
+  `maxConcurrentConnections5mAvg`。
+- **2026-11-06 实测**：egress 882,292 B（0.882 MB）、ingress 1,129,517 B（1.13 MB）、本地估算
+  1.65 MB；估算约为实际 egress 的 1.87 倍，偏保守。
+- Global Key 权限过大，建议创建完只读 Token 后轮换；日常对账只需要这个只读 Token。
+
 ## 参考
 
 - [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/)
