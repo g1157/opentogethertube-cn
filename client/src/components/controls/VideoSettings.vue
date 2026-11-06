@@ -187,6 +187,59 @@
 						<v-list-item link :prepend-icon="mdiInformationOutline" @click="showStats">
 							{{ $t("player.stats.title") }}
 						</v-list-item>
+						<v-divider class="menu-divider" />
+						<v-list-item class="rate-bend-item">
+							<div class="rate-bend-row">
+								<div class="rate-bend-copy">
+									<div class="rate-bend-title">
+										<v-list-item-title>{{
+											$t("player.stats.rate-bend")
+										}}</v-list-item-title>
+										<v-menu
+											:attach="preferenceMenuProps.attach"
+											:open-on-hover="hoverToOpen"
+											:open-delay="120"
+											:close-delay="150"
+											:close-on-content-click="false"
+											location="bottom end"
+											:offset="6"
+											:max-width="300"
+											content-class="settings-help-popover"
+										>
+											<template #activator="{ props: helpProps }">
+												<v-btn
+													v-bind="helpProps"
+													icon
+													size="x-small"
+													variant="text"
+													data-cy="rate-bend-help"
+													:aria-label="$t('player.stats.rate-bend-help')"
+													@click.stop
+												>
+													<v-icon
+														:icon="mdiInformationOutline"
+														size="small"
+													/>
+												</v-btn>
+											</template>
+											<div class="settings-help">
+												<p>{{ $t("player.stats.rate-bend-help-text") }}</p>
+											</div>
+										</v-menu>
+									</div>
+								</div>
+								<div class="rate-bend-controls">
+									<v-switch
+										v-model="rateBendEnabled"
+										density="compact"
+										hide-details
+										color="primary"
+										data-cy="rate-bend-toggle"
+										:aria-label="$t('player.stats.rate-bend')"
+									/>
+								</div>
+							</div>
+						</v-list-item>
 					</v-list>
 
 					<v-list
@@ -652,6 +705,7 @@ import type { VideoTrack, CaptionTrack } from "@/models/media-tracks";
 import { ToastStyle } from "@/models/toast";
 import toast from "@/util/toast";
 import { usePlayerControlsActivity } from "@/util/player-controls";
+import { rateBendDisabled } from "@/util/playback-sync-diagnostics";
 import { useStore } from "@/store";
 import {
 	AUDIO_EQ_PRESETS,
@@ -834,6 +888,13 @@ const seekSeconds = computed({
 	get: () => store.state.settings.seekSeconds,
 	set: value => store.commit("settings/UPDATE", { seekSeconds: value }),
 });
+const rateBendEnabled = computed({
+	get: () => !rateBendDisabled.value,
+	set: enabled => {
+		// biome-ignore lint/nursery/noVueRefAsOperand: computed setter receives a plain boolean.
+		rateBendDisabled.value = !enabled;
+	},
+});
 const sfxEnabled = computed({
 	get: () => store.state.settings.sfxEnabled,
 	set: value => store.commit("settings/UPDATE", { sfxEnabled: value }),
@@ -998,6 +1059,10 @@ function closeMenu(): void {
 }
 
 /* The phone sheet hugs the bottom edge, so its panel squares off there. */
+.player-settings-sheet {
+	background: media-controls.$menu-background;
+}
+
 .player-settings-sheet .settings-menu-container {
 	border-radius: 14px 14px 0 0;
 	border-bottom: 0;
@@ -1040,6 +1105,53 @@ function closeMenu(): void {
 	white-space: normal;
 }
 
+.rate-bend-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+}
+
+.rate-bend-copy {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.rate-bend-title {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	min-width: 0;
+}
+
+.rate-bend-controls {
+	display: flex;
+	align-items: center;
+	flex: 0 0 auto;
+}
+
+.rate-bend-controls .v-switch {
+	flex: 0 0 auto;
+}
+
+.settings-help-popover {
+	background: rgb(var(--v-theme-surface));
+	border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+	border-radius: media-controls.$menu-radius;
+	box-shadow: 0 6px 20px rgb(0 0 0 / 35%);
+}
+
+.settings-help {
+	padding: 12px 14px;
+
+	p {
+		margin: 0;
+		font-size: 0.8rem;
+		line-height: 1.6;
+		opacity: 0.85;
+	}
+}
+
 .compact-playback-options {
 	display: flex;
 	align-items: center;
@@ -1071,8 +1183,11 @@ function closeMenu(): void {
  * content (the "local" layers hide it once that end is reached).
  */
 .settings-menu-container {
-	background: linear-gradient(media-controls.$menu-background 30%, transparent) top / 100% 20px
-			no-repeat local,
+	/* The gradients below paint the scroll shadows; this solid colour keeps the panel
+	   itself opaque, so the video never shows through between rows. */
+	background-color: media-controls.$menu-background;
+	background-image: linear-gradient(media-controls.$menu-background 30%, transparent) top / 100%
+			20px no-repeat local,
 		linear-gradient(transparent, media-controls.$menu-background 70%) bottom / 100% 20px
 			no-repeat local,
 		radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 35%), transparent) top / 100% 10px

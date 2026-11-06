@@ -174,6 +174,13 @@ const { sections } = usePlayerStats(
 		bottom: calc(var(--player-controls-height, 90px) + 0.5rem);
 		max-width: min(13.5rem, calc(100% - 1.25rem));
 		max-height: calc(100% - var(--player-controls-height, 90px) - 1rem);
+		/* Phones have less vertical room than the panel needs for every row. Let the
+		   panel own the touch while it is open so the content can be scrolled instead of
+		   being clipped by overflow: hidden. */
+		overflow-y: auto;
+		pointer-events: auto;
+		overscroll-behavior: contain;
+		-webkit-overflow-scrolling: touch;
 	}
 }
 </style>

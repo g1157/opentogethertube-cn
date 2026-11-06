@@ -18,6 +18,7 @@ import {
 import type { MediaPlayer } from "@/components/composables";
 import { useStore } from "@/store";
 import { PlayerFullscreenKey } from "@/util/player-fullscreen";
+import { rateBendDisabled } from "@/util/playback-sync-diagnostics";
 import { mountComponent } from "./component-test-utils";
 
 type MenuKind = "settings" | "rate";
@@ -189,6 +190,7 @@ describe("player menu placement", () => {
 	afterEach(() => {
 		menuControls?.setPlayer(null);
 		menuControls = undefined;
+		rateBendDisabled.value = false;
 		page?.wrapper.unmount();
 		page = undefined;
 		TestResizeObserver.instances.clear();
@@ -386,6 +388,25 @@ describe("player menu placement", () => {
 		document.querySelector<HTMLElement>('[data-cy="player-more-toggle"]')!.click();
 		await settle();
 		expect(document.querySelector('[data-cy="player-preferences-toggle"]')).not.toBeNull();
+		expect(document.querySelector('[data-cy="rate-bend-toggle"]')).not.toBeNull();
+		expect(document.querySelector('[data-cy="rate-bend-help"]')).not.toBeNull();
+	});
+
+	it("toggles the session-only rate bend from 更多设置", async () => {
+		rateBendDisabled.value = false;
+		const { wrapper } = await mountMenu("settings");
+		await wrapper.get(selectors.settings).trigger("click");
+		await settle();
+		document.querySelector<HTMLElement>('[data-cy="player-more-toggle"]')!.click();
+		await settle();
+
+		const toggle = document.querySelector<HTMLInputElement>(
+			'[data-cy="rate-bend-toggle"] input',
+		)!;
+		expect(toggle.checked).toBe(true);
+		toggle.click();
+		await settle();
+		expect(rateBendDisabled.value).toBe(true);
 	});
 
 	it("offers every enhancement tier and highlights whichever one is running", async () => {
