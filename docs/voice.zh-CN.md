@@ -156,7 +156,7 @@ Cloudflare TURN 的签发逻辑：服务端启动时预热一次，之后按 TTL
 ### 国内部署建议（STUN）
 
 默认的内置 STUN 是 Google / Cloudflare，境内可达性不稳定；把发现的服务器换成国内节点能明显提高
-「拿到公网映射、直连成功」的比例，且**不产生任何费用**。线上实测（2026-09-13，本地与腾讯云各测一次）：
+「拿到公网映射、直连成功」的比例，且**不产生任何费用**。实测（2026-09-13，两个网络）：
 
 | STUN | 结果 |
 | --- | --- |
@@ -254,6 +254,5 @@ cd server && NODE_ENV=test npx vitest run tests/unit/voice.spec.ts tests/unit/vo
 
 ## 与部署的关系
 
-本次改动**没有触碰线上服务**，也没有改变任何入口：没有新增公网端口、没有新增常驻服务、
-没有修改 Cloudflare Tunnel 配置。开启语音只需要设置 `ENABLE_VOICE_CHAT` 与
-`VOICE_TURN_ICE_SERVERS` 两个环境变量并重建应用容器。
+本次改动不改变服务入口：没有新增公网端口、没有新增常驻服务、没有修改 Cloudflare Tunnel 配置。
+开启语音只需要设置 `ENABLE_VOICE_CHAT` 与 `VOICE_TURN_ICE_SERVERS` 两个环境变量并重建应用容器。

@@ -24,8 +24,8 @@
     `VOICE_CLOUDFLARE_TURN_TTL_SECONDS`；服务端签发短期凭据并缓存（TTL 80% 后台刷新、失败冷却
     30 秒、端口 53 过滤、静态 TURN 回退、启动预热）。`buildVoiceMessage` 异步化，只有实际拿到
     TURN 条目时 `relay` 才为 true。
-    **部署**：线上在 `compose.override.yml` 填入 Cloudflare Key/Token（不提交）；上线后
-    `/api/status/voice` 应为 `relayConfigured:true`、`relayAllowed:true`。
+    **配置**：在 `compose.override.yml` 填入 Cloudflare Key/Token（不提交）；重启后通过
+    `/api/status/voice` 检查 `relayConfigured` / `relayAllowed`。
     **文档**：更新 `docs/voice.zh-CN.md` 与 `docs/cloudflare-turn-2026-11-05.zh-CN.md`。
     **测试**：服务端 1010 项（新增 5 项 Cloudflare 签发/缓存/回退/TTL/端口过滤）；其中 ffprobe
     尾索引与 IPv6 URL 两项首轮受环境/边界波动，单文件重跑 96 项通过；客户端 1046 项；lint
