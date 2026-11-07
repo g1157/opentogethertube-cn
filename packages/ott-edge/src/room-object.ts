@@ -33,6 +33,9 @@ const messageSchema = z.discriminatedUnion("action", [
 			.object({ id: z.string().max(64), position: z.number().finite().min(0) })
 			.optional(),
 	}),
+	// The preview backend has no buffer gate to diagnose; accept and ignore the snapshot
+	// so a client heartbeat is not rejected as an unknown message.
+	z.object({ action: z.literal("diagnostics"), diagnostics: z.unknown() }),
 	z.object({ action: z.literal("req"), request: commandSchema }),
 	z.object({ action: z.literal("notify"), message: z.literal("usernameChanged") }),
 	z.object({ action: z.literal("kickme"), reason: z.number().int().optional() }),

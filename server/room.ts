@@ -58,6 +58,7 @@ import {
 	type AuthToken,
 	BehaviorOption,
 	BufferGateMode,
+	type PlaybackDiagnostics,
 } from "ott-common/models/types.js";
 import type { User } from "./models/user.js";
 import type { QueueItem, QueueItemExtras, Video, VideoId } from "ott-common/models/video.js";
@@ -140,6 +141,8 @@ export class RoomUser {
 	unregisteredUsername = "";
 	user: User | null;
 	playerStatus: PlayerStatus = PlayerStatus.none;
+	/** Latest ephemeral health snapshot; logged when this viewer holds the gate. */
+	diagnostics?: PlaybackDiagnostics;
 
 	constructor(id: ClientId, token: AuthToken) {
 		this.id = id;
@@ -171,6 +174,10 @@ export class RoomUser {
 		}
 		if (info.status) {
 			this.playerStatus = info.status;
+		}
+		if (info.diagnostics) {
+			// Server time is what freshness checks use; a client clock may be far off.
+			this.diagnostics = { ...info.diagnostics, receivedAt: Date.now() };
 		}
 	}
 }
@@ -700,6 +707,39 @@ export class Room implements RoomState {
 		}
 	}
 
+	/**
+	 * A one-line, bounded view of why the waiting viewers are buffering. This is the
+	 * difference between "we are waiting for X" and knowing whether X is on a 1 Mbps link,
+	 * has a 2 s RTT, is in a hidden tab, or is dropping decoded frames.
+	 */
+	private bufferGateDiagnostics(waiting: RoomUser[]): string {
+		const now = Date.now();
+		return JSON.stringify(
+			waiting.map(user => {
+				const d = user.diagnostics;
+				return {
+					user: user.username,
+					sampleAgeMs: d ? now - (d.receivedAt ?? d.sampledAt) : null,
+					hidden: d?.hidden,
+					paused: d?.paused,
+					bufferAhead: d?.bufferAhead,
+					bufferGrowth: d?.bufferGrowth,
+					readyState: d?.readyState,
+					networkState: d?.networkState,
+					wsRttMs: d?.wsRttMs,
+					netType: d?.connectionEffectiveType,
+					downlinkMbps: d?.connectionDownlinkMbps,
+					netRttMs: d?.connectionRttMs,
+					hlsBandwidthKbps: d?.hlsBandwidthKbps,
+					totalFrames: d?.totalFrames,
+					droppedFrames: d?.droppedFrames,
+					autoplayBlocked: d?.autoplayBlocked,
+					errorCode: d?.errorCode,
+				};
+			}),
+		);
+	}
+
 	private async evaluateBufferGate(): Promise<void> {
 		if (this.bufferGate && Date.now() - this.bufferGate.startedAt >= BUFFER_GATE_MAX_WAIT_MS) {
 			await this.releaseBufferGate(true);
@@ -751,7 +791,9 @@ export class Room implements RoomState {
 			pausedByGate: true,
 		};
 		this.log.info(
-			`buffer gate engaged: holding playback for ${waiting.map(user => user.username).join(", ")}`,
+			`buffer gate engaged: holding playback for ${waiting
+				.map(user => user.username)
+				.join(", ")}; diagnostics=${this.bufferGateDiagnostics(waiting)}`,
 		);
 		await this.pause(true);
 	}

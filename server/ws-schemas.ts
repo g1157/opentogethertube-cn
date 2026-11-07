@@ -23,6 +23,70 @@ const playbackPreparedSchema = z.object({
 	reason: z.string().max(200).optional(),
 });
 
+/**
+ * Bounded explicitly: every value is logged when a viewer holds the buffer gate, so a
+ * crafted client must not be able to inject a huge string or a nonsensical number.
+ * `receivedAt` is deliberately absent: the server stamps it locally.
+ */
+const playbackDiagnosticsSchema = z.object({
+	sampledAt: z.number().finite().min(0),
+	service: z.string().max(32).optional(),
+	sourceHost: z.string().max(255).optional(),
+	playerKind: z.enum(["native", "embedded"]).optional(),
+	hidden: z.boolean().optional(),
+	paused: z.boolean().optional(),
+	readyState: z.number().int().min(0).max(4).optional(),
+	networkState: z.number().int().min(0).max(3).optional(),
+	bufferAhead: z
+		.number()
+		.finite()
+		.min(0)
+		.max(24 * 60 * 60)
+		.nullish(),
+	bufferGrowth: z.number().finite().min(-100).max(100).nullish(),
+	startup: z
+		.number()
+		.finite()
+		.min(0)
+		.max(24 * 60 * 60)
+		.nullish(),
+	rebuffers: z.number().int().min(0).max(1_000_000).optional(),
+	rebufferSeconds: z
+		.number()
+		.finite()
+		.min(0)
+		.max(24 * 60 * 60)
+		.optional(),
+	playSeconds: z
+		.number()
+		.finite()
+		.min(0)
+		.max(7 * 24 * 60 * 60)
+		.optional(),
+	rateWrites: z.number().int().min(0).max(1_000_000).optional(),
+	deadlineSeeks: z.number().int().min(0).max(1_000_000).optional(),
+	maxDrift: z
+		.number()
+		.finite()
+		.min(0)
+		.max(24 * 60 * 60)
+		.optional(),
+	totalFrames: z.number().int().min(0).max(1_000_000_000_000).optional(),
+	droppedFrames: z.number().int().min(0).max(1_000_000_000_000).optional(),
+	wsRttMs: z.number().finite().min(0).max(60_000).nullish(),
+	connectionEffectiveType: z.string().max(16).optional(),
+	connectionDownlinkMbps: z.number().finite().min(0).max(10_000).optional(),
+	connectionRttMs: z.number().finite().min(0).max(60_000).optional(),
+	connectionSaveData: z.boolean().optional(),
+	hlsBandwidthKbps: z.number().finite().min(0).max(1_000_000).optional(),
+	hlsLevelHeight: z.number().int().min(0).max(10_000).optional(),
+	hlsLevelCount: z.number().int().min(0).max(1000).optional(),
+	autoplayBlocked: z.boolean().optional(),
+	recovering: z.boolean().optional(),
+	seeking: z.boolean().optional(),
+	errorCode: z.number().int().min(0).max(4).nullish(),
+});
+
 export const clientMessageSchema = z.discriminatedUnion("action", [
 	z.object({
 		action: z.literal("auth"),
@@ -42,6 +106,11 @@ export const clientMessageSchema = z.discriminatedUnion("action", [
 		action: z.literal("status"),
 		status: z.nativeEnum(PlayerStatus),
 		playbackPrepared: playbackPreparedSchema.optional(),
+		diagnostics: playbackDiagnosticsSchema.optional(),
+	}),
+	z.object({
+		action: z.literal("diagnostics"),
+		diagnostics: playbackDiagnosticsSchema,
 	}),
 	z.object({
 		action: z.literal("notify"),

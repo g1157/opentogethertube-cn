@@ -611,6 +611,8 @@ defineExpose({
 	setVideoTrack,
 	isAutoQualitySupported,
 	getCurrentActiveQuality,
+	/** hls.js' current throughput estimate; 0/undefined until the first fragment. */
+	getBandwidthEstimate: () => hls?.bandwidthEstimate ?? null,
 	getAvailablePlaybackRates,
 	getPlaybackRate,
 	setPlaybackRate,

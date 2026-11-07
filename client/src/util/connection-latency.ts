@@ -33,6 +33,14 @@ export function getOneWayDelayMs(now = Date.now()): number {
 	return Math.min(...samples) / 2;
 }
 
+/** Smallest recent round trip, or null before a probe / after the samples age out. */
+export function getRttEstimateMs(now = Date.now()): number | null {
+	if (samples.length === 0 || now - lastSampleAt > SAMPLE_MAX_AGE_MS) {
+		return null;
+	}
+	return Math.min(...samples);
+}
+
 export function resetLatencySamples() {
 	samples = [];
 	lastSampleAt = 0;

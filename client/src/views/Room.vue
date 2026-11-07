@@ -561,7 +561,10 @@ import {
 	usePlaybackRate,
 	useVolume,
 } from "@/components/composables";
-import type { MediaPlayerWithPlaybackRate } from "@/components/composables/media-player";
+import type {
+	MediaPlayerWithPlaybackRate,
+	MediaPlayerWithQuality,
+} from "@/components/composables/media-player";
 import { useGrants } from "@/components/composables/grants";
 import { PlayerStatus, Visibility, OttWebsocketError } from "ott-common/models/types";
 import { createPlayerFullscreen, PlayerFullscreenKey } from "@/util/player-fullscreen";
@@ -589,6 +592,8 @@ import { useVoice } from "@/util/voice";
 import { createPlaybackQuality, sendPlaybackQualityReport } from "@/util/playback-quality";
 import { installMediaSession } from "@/util/media-session";
 import { createNextMediaPrefetch } from "@/util/next-media-prefetch";
+import { getRttEstimateMs } from "@/util/connection-latency";
+import { collectPlaybackDiagnostics } from "@/util/playback-diagnostics";
 
 // biome-ignore lint/nursery/noVueOptionsApi: TODO: convert to setup
 export default defineComponent({
@@ -873,6 +878,8 @@ export default defineComponent({
 		const iTimestampUpdater: Ref<ReturnType<typeof setInterval> | null> = ref(null);
 		let disposed = false;
 		let playbackApplication = 0;
+		let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
+		let lastDiagnosticsSample: { at: number; bufferAhead: number | null } | null = null;
 		const localPlaying = ref(false);
 		const localMediaState = ref<MediaLoadingState | null>(null);
 		let mediaFrameVersion = 0;
@@ -1079,6 +1086,7 @@ export default defineComponent({
 				mediaFrameVersion++;
 				mediaPlaybackBlocked.value = false;
 				clearPendingLocalSeek();
+				lastDiagnosticsSample = null;
 				playbackSync.reset();
 			},
 			{ flush: "sync" },
@@ -1103,6 +1111,61 @@ export default defineComponent({
 				}
 			},
 		});
+
+		/**
+		 * The server only knows "this viewer reports buffering". This heartbeat carries the
+		 * why: buffer runway and growth, the browser's link estimate/RTT, the room socket
+		 * RTT, decoder drops, hidden-tab/autoplay state, and the HLS estimate/level. It is
+		 * ephemeral and is logged by the server only when a buffer gate engages.
+		 */
+		function sendPlaybackDiagnostics() {
+			if (disposed || !connection.connected.value) {
+				return;
+			}
+			const source = currentSource.value;
+			const instance = player.player.value;
+			if (!source?.id || !instance) {
+				return;
+			}
+			const video = statsVideoElement.value;
+			const qualityPlayer = instance as Partial<MediaPlayerWithQuality> & {
+				getBandwidthEstimate?: () => number | null;
+			};
+			const bandwidth = qualityPlayer.getBandwidthEstimate?.() ?? null;
+			const levelIndex = qualityPlayer.getCurrentActiveQuality?.() ?? -1;
+			const tracks = qualityPlayer.getVideoTracks?.() ?? [];
+			const level = levelIndex >= 0 ? tracks[levelIndex] : undefined;
+			const bufferAhead = localMediaState.value?.bufferAhead ?? null;
+			const diagnostics = collectPlaybackDiagnostics({
+				video,
+				source,
+				playerKind: ["youtube", "vimeo", "peertube", "bilibili"].includes(source.service)
+					? "embedded"
+					: "native",
+				hidden: document.hidden,
+				autoplayBlocked: mediaPlaybackBlocked.value,
+				recovering: player.isRecovering(),
+				seeking: player.isSeeking(),
+				bufferAhead,
+				previous: lastDiagnosticsSample,
+				quality: playbackQuality.snapshot(),
+				sync: playbackSync.getMetrics(),
+				wsRttMs: getRttEstimateMs(),
+				hls:
+					bandwidth !== null || level
+						? {
+								bandwidthKbps:
+									bandwidth === null ? undefined : Math.round(bandwidth / 1000),
+								levelHeight: level?.height,
+								levelCount: tracks.length,
+						  }
+						: null,
+			});
+			lastDiagnosticsSample = { at: diagnostics.sampledAt, bufferAhead };
+			// A separate action: diagnostics must never rewrite playerStatus, which is what
+			// the buffer gate uses to decide whether this viewer is waiting for data.
+			connection.send({ action: "diagnostics", diagnostics });
+		}
 
 		const mediaSession = installMediaSession({
 			getMetadata: () => {
@@ -1225,6 +1288,7 @@ export default defineComponent({
 		});
 		onMounted(() => {
 			iTimestampUpdater.value = setInterval(timestampUpdate, 250);
+			diagnosticsTimer = setInterval(sendPlaybackDiagnostics, 5000);
 			syncFullscreenNoticeHost();
 			playbackStatusUnsub = store.subscribe(mutation => {
 				if (mutation.type !== "PLAYBACK_STATUS") {
@@ -1234,6 +1298,11 @@ export default defineComponent({
 				playbackQuality.noteBuffering(status === PlayerStatus.buffering);
 				if (status === PlayerStatus.error) {
 					playbackQuality.noteError();
+				}
+				// The gate evaluates on this status change; send the why with it instead of
+				// waiting for the next 5 s heartbeat.
+				if (status === PlayerStatus.buffering) {
+					sendPlaybackDiagnostics();
 				}
 			});
 			// A closed tab must not take its measurements with it.
@@ -1255,6 +1324,10 @@ export default defineComponent({
 			mediaSession.dispose();
 			if (iTimestampUpdater.value) {
 				clearInterval(iTimestampUpdater.value);
+			}
+			if (diagnosticsTimer !== null) {
+				clearInterval(diagnosticsTimer);
+				diagnosticsTimer = null;
 			}
 		});
 

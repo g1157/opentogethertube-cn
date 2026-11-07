@@ -52,11 +52,61 @@ export type MySession = Session & {
 	postLoginRedirect?: string;
 };
 
+/**
+ * A compact, per-viewer snapshot of why playback is (or is not) healthy. Sent alongside
+ * the status heartbeat so the server can log it when a viewer holds the buffer gate,
+ * instead of only knowing that the viewer is buffering. It is ephemeral: never stored in
+ * Redis or the sync payload, and it carries only the source host, never the full URL.
+ */
+export interface PlaybackDiagnostics {
+	/** Client wall-clock time when this snapshot was sampled. */
+	sampledAt: number;
+	/** Server receive time; set by the server, ignored from the wire. */
+	receivedAt?: number;
+	service?: string;
+	/** Host only (no path, query or fragment). */
+	sourceHost?: string;
+	playerKind?: "native" | "embedded";
+	hidden?: boolean;
+	paused?: boolean;
+	readyState?: number;
+	networkState?: number;
+	/** Seconds buffered ahead of the current playback position. */
+	bufferAhead?: number | null;
+	/** Seconds of media buffered per wall second since the previous snapshot. */
+	bufferGrowth?: number | null;
+	startup?: number | null;
+	rebuffers?: number;
+	rebufferSeconds?: number;
+	playSeconds?: number;
+	rateWrites?: number;
+	deadlineSeeks?: number;
+	maxDrift?: number;
+	totalFrames?: number;
+	droppedFrames?: number;
+	/** Round-trip estimate to the room server, from its ping/pong probes. */
+	wsRttMs?: number | null;
+	/** navigator.connection, Chromium-only; absent elsewhere. */
+	connectionEffectiveType?: string;
+	connectionDownlinkMbps?: number;
+	connectionRttMs?: number;
+	connectionSaveData?: boolean;
+	/** hls.js only. */
+	hlsBandwidthKbps?: number;
+	hlsLevelHeight?: number;
+	hlsLevelCount?: number;
+	autoplayBlocked?: boolean;
+	recovering?: boolean;
+	seeking?: boolean;
+	errorCode?: number | null;
+}
+
 export type ClientInfo = {
 	id: ClientId;
 	username?: string;
 	user_id?: number;
 	status?: PlayerStatus;
+	diagnostics?: PlaybackDiagnostics;
 };
 
 /**

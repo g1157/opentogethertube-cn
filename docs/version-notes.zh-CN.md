@@ -4,6 +4,18 @@
 `archive/history` 分支与 `v0.14.1` 标签。`v1.0.0` 起跳出 cn 序列，作为本分支的正式大版本，
 标签与镜像名不再带 cn 编号。
 
+-   **v1.4.18**：播放诊断遥测与“新版本”提示循环修复。
+    **诊断遥测**：客户端每 5 秒及进入缓冲瞬间通过独立的 `diagnostics` WebSocket 动作上报每观众快照；
+    服务端在缓冲门触发日志追加 `diagnostics=[...]`，包含缓冲前瞻/增长、`readyState`/`networkState`、
+    隐藏标签/暂停/自动播放受阻、起播与重缓冲、房间 RTT、`navigator.connection`、HLS 带宽/档位、丢帧与错误码。
+    独立动作不改写 `playerStatus`，快照只存在房间内存，来源只记录 host。
+    **版本提示**：v1.4.17 镜像里的客户端 dist 仍来自 `52a5c1fc`，而服务端 revision 是 `a7802ef3`，
+    版本检查因此每次刷新后再次提示；根因是本地打镜像时复用了旧 `client/dist`。新增
+    `scripts/check-client-revision.mjs`，CI 与本地构建都会校验 bundle 内嵌 revision 是否等于发布 commit，
+    不一致直接失败。
+    **测试**：客户端 1056 项通过（24 skip）、服务端 1022 项、common 76 项、edge 28 项通过；lint 0 error；
+    `yarn build` 通过；无数据库迁移、无新增依赖。
+
 -   **v1.4.17**：换片就绪轮次、直播处理与设置界面修复。
     **换片就绪**：换片、自动下一集、跳过和“立即播放”改为准备轮次；回合开始时快照有播放权限的
     观众，客户端在首帧渲染且缓冲前瞻达到跑道后上报 ready（直链 3 秒，HLS/DASH 6 秒）。

@@ -146,7 +146,20 @@ export function createPlaybackQuality(options: PlaybackQualityOptions) {
 		}
 	}
 
+	/** Current per-source counters without resetting the reporting window. */
+	function snapshot() {
+		const livePlaySeconds =
+			playingSince === null ? playSeconds : playSeconds + (now() - playingSince) / 1000;
+		return {
+			startup: startup === null ? null : Math.round(startup * 1000) / 1000,
+			rebuffers,
+			rebufferSeconds: Math.round(rebufferSeconds * 1000) / 1000,
+			playSeconds: Math.round(livePlaySeconds),
+		};
+	}
+
 	return {
+		snapshot,
 		noteSourceChanged(nextService: string | null) {
 			if (service !== null) {
 				flush();

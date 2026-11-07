@@ -13,6 +13,7 @@ import type {
 	AuthToken,
 	BehaviorOption,
 	BufferGateMode,
+	PlaybackDiagnostics,
 } from "./types.js";
 import type { QueueItem, QueueItemExtras, VideoId, VideoAdd } from "./video.js";
 
@@ -224,6 +225,7 @@ export interface UserInfo extends RoomUserInfo {
 export type ClientMessage =
 	| ClientMessageKickMe
 	| ClientMessagePlayerStatus
+	| ClientMessageDiagnostics
 	| ClientMessageAuthenticate
 	| ClientMessageReauthenticate
 	| ClientMessageNotify
@@ -249,6 +251,18 @@ export interface ClientMessagePlayerStatus extends ClientMessageBase {
 	status: PlayerStatus;
 	/** Sent only after local playback has produced a frame for this preparation. */
 	playbackPrepared?: PlaybackPrepared;
+	/** Ephemeral per-viewer health snapshot; the server logs it when a gate engages. */
+	diagnostics?: PlaybackDiagnostics;
+}
+
+/**
+ * The periodic health snapshot, separate from the status message so it never changes the
+ * playback state the buffer gate reads. On a buffering transition it is sent immediately,
+ * before the debounced status update, so the gate's engage log already has the why.
+ */
+export interface ClientMessageDiagnostics extends ClientMessageBase {
+	action: "diagnostics";
+	diagnostics: PlaybackDiagnostics;
 }
 
 export interface PlaybackPreparation {

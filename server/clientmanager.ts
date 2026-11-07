@@ -538,8 +538,16 @@ async function onClientMessage(client: Client, msg: ClientMessage) {
 				info: {
 					id: client.id,
 					status: msg.status,
+					diagnostics: msg.diagnostics,
 				},
 				playbackPrepared: msg.playbackPrepared,
+			};
+			await makeRoomRequest(client, request);
+		} else if (msg.action === "diagnostics") {
+			// Diagnostics alone never change the player status the buffer gate reads.
+			const request: RoomRequest = {
+				type: RoomRequestType.UpdateUser,
+				info: { id: client.id, diagnostics: msg.diagnostics },
 			};
 			await makeRoomRequest(client, request);
 		} else if (msg.action === "req") {

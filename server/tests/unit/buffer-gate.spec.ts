@@ -80,6 +80,61 @@ describe("room buffering gate", () => {
 		expect(room.bufferingGateHeld).toBe(true);
 	});
 
+	it("stores diagnostics without changing the player status or engaging the gate", async () => {
+		await start();
+		const before = room.realusers.find(user => user.id === "bob")?.playerStatus;
+		await room.updateUser(
+			{
+				type: RoomRequestType.UpdateUser,
+				info: {
+					id: "bob",
+					diagnostics: { sampledAt: Date.now(), bufferAhead: 0.2 },
+				},
+			},
+			context("bob"),
+		);
+		const bob = room.realusers.find(user => user.id === "bob");
+		expect(bob?.playerStatus).toBe(before);
+		expect(bob?.diagnostics?.bufferAhead).toBe(0.2);
+		expect(room.isPlaying).toBe(true);
+	});
+
+	it("logs the waiting viewer's latest diagnostics when the gate engages", async () => {
+		await start();
+		const info = vi.spyOn(room.log, "info");
+		await room.updateUser(
+			{
+				type: RoomRequestType.UpdateUser,
+				info: {
+					id: "bob",
+					status: PlayerStatus.buffering,
+					diagnostics: {
+						sampledAt: Date.now(),
+						sourceHost: "media.example.test",
+						bufferAhead: 0.2,
+						bufferGrowth: 0.4,
+						hidden: false,
+						readyState: 2,
+						networkState: 2,
+						wsRttMs: 42,
+						connectionEffectiveType: "4g",
+						connectionDownlinkMbps: 1.5,
+						connectionRttMs: 180,
+					},
+				},
+			},
+			context("bob"),
+		);
+		const line = info.mock.calls
+			.map(call => String(call[0]))
+			.find(message => message.includes("buffer gate engaged"));
+		expect(line).toBeDefined();
+		expect(line ?? "").toContain('"user":"bob"');
+		expect(line ?? "").toContain('"bufferGrowth":0.4');
+		expect(line ?? "").toContain('"downlinkMbps":1.5');
+		expect(line ?? "").toContain('"netRttMs":180');
+	});
+
 	it("gates a single viewer", async () => {
 		// A solo viewer's own stall pauses the room clock too, so the position does not
 		// drift ahead while their buffer refills.

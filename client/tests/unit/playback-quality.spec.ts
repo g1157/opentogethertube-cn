@@ -38,6 +38,17 @@ describe("playback quality measurement", () => {
 		expect(sent[0]).toMatchObject({ service: "hls", startup: 2.5, playSeconds: 10 });
 	});
 
+	it("snapshots live counters without consuming the reporting window", () => {
+		quality.noteSourceChanged("hls");
+		now += 1000;
+		quality.notePlaying(true);
+		now += 4000;
+		expect(quality.snapshot()).toMatchObject({ startup: 1, playSeconds: 4 });
+		now += 1000;
+		quality.flush();
+		expect(sent[0].playSeconds).toBe(5);
+	});
+
 	it("counts a stall after playback started but not the first load", () => {
 		playFromFirstFrame();
 		quality.noteBuffering(true);

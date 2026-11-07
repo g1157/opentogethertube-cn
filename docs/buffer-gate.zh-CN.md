@@ -20,6 +20,21 @@
 自动播放受阻、播放错误和还没上报状态的观众不作为等待方。不具备播放 / 暂停权限的观众
 也不能冻结房间。浏览器可能限制后台下载，这是排除后台等待的明确取舍。
 
+## 诊断遥测（v1.4.18）
+
+服务端原来只知道“某观众在缓冲”，不知道原因。现在客户端每 5 秒、以及刚进入缓冲的瞬间，通过独立的
+`diagnostics` WebSocket 动作上报一份快照；服务端在 `buffer gate engaged` 日志行追加
+`diagnostics=[{...}]`，每个等待观众一条。
+
+快照包含：缓冲前瞻与 `bufferGrowth`（每秒墙钟实际缓冲的媒体秒数，判断真实吞吐）、`readyState` /
+`networkState`、隐藏标签页 / 暂停 / 自动播放受阻、起播与重缓冲计数、房间 WebSocket RTT、
+`navigator.connection` 的类型/下行/RTT（仅 Chromium）、HLS 带宽估计与当前档位、总帧/丢帧、错误码。
+来源只记录 host，不记录完整 URL、签名或查询串；快照只存在房间内存，不进 Redis、数据库或同步载荷，
+并且作为独立动作发送，**不会改写 `playerStatus`**，因此不会提前释放或抖动缓冲门。
+
+这组字段能区分：下行不足（`bufferGrowth` 远小于 1）、RTT 高（`wsRttMs` / `connectionRttMs`）、后台
+标签页（`hidden`）、自动播放受阻（`autoplayBlocked`）、解码吃力（`droppedFrames`）以及 HLS 选档偏低。
+
 ## 保存与部署
 
 `bufferGateMode` 使用 `off` / `pause` 两个值，贯穿设置 API、房间同步、Redis 和持久房间。
