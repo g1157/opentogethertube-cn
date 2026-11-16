@@ -20,12 +20,12 @@
 				</span>
 			</div>
 		</div>
-		<!-- The A/B step of the slow-device investigation: bending off (session-only) makes
-		     the same clip play without the continuous rate re-timing. -->
+		<!-- The A/B step: bending off makes the same clip play without the continuous rate
+		     re-timing. The choice is saved on this device, so it stays off after a reload. -->
 		<div class="player-stats-row player-stats-action-row">
 			<button type="button" class="player-stats-bend-toggle" @click="toggleRateBend">
 				{{ $t("player.stats.rate-bend") }}：{{
-					$t(rateBendDisabled ? "common.off" : "common.on")
+					$t(rateBendEnabled ? "common.on" : "common.off")
 				}}
 			</button>
 		</div>
@@ -33,17 +33,20 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue";
+import { useStore } from "@/store";
 import { usePlayerStats } from "./composables/player-stats";
-import { rateBendDisabled } from "@/util/playback-sync-diagnostics";
 
 const props = defineProps<{
 	/** The live media element, when the current player owns one. */
 	videoElement?: HTMLVideoElement;
 }>();
 const emit = defineEmits(["close"]);
+const store = useStore();
+const rateBendEnabled = computed(() => store.state.settings.rateBendEnabled);
 
 function toggleRateBend() {
-	rateBendDisabled.value = !rateBendDisabled.value;
+	store.commit("settings/UPDATE", { rateBendEnabled: !rateBendEnabled.value });
 }
 
 // Sampling only runs while the panel is mounted.

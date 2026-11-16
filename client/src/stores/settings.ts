@@ -115,6 +115,8 @@ export interface SettingsState {
 	seekNoticeSeconds: (typeof ROOM_NOTICE_SECONDS_OPTIONS)[number];
 	controlsHideSeconds: (typeof CONTROLS_HIDE_SECONDS_OPTIONS)[number];
 	hlsBufferSeconds: (typeof HLS_BUFFER_SECONDS_OPTIONS)[number];
+	/** Rate bending while catching up with the room; a per-device preference, on by default. */
+	rateBendEnabled: boolean;
 	/** Maximum episodes one manual same-series probe checks, counting forward only. */
 	seriesProbeLimit: (typeof SERIES_PROBE_LIMIT_OPTIONS)[number];
 	upscaleMode: UpscaleMode;
@@ -258,6 +260,9 @@ function normalizeSettings(state: SettingsState) {
 	if (!HLS_BUFFER_SECONDS_OPTIONS.includes(state.hlsBufferSeconds)) {
 		state.hlsBufferSeconds = DEFAULT_HLS_BUFFER_SECONDS;
 	}
+	if (typeof state.rateBendEnabled !== "boolean") {
+		state.rateBendEnabled = true;
+	}
 	if (!SERIES_PROBE_LIMIT_OPTIONS.includes(state.seriesProbeLimit)) {
 		state.seriesProbeLimit = DEFAULT_SERIES_PROBE_LIMIT;
 	}
@@ -387,6 +392,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		seekNoticeSeconds: 1,
 		controlsHideSeconds: 3,
 		hlsBufferSeconds: DEFAULT_HLS_BUFFER_SECONDS,
+		rateBendEnabled: true,
 		seriesProbeLimit: DEFAULT_SERIES_PROBE_LIMIT,
 		upscaleMode: "off",
 		upscaleStrength: DEFAULT_UPSCALE_STRENGTH,

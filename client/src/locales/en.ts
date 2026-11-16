@@ -1065,10 +1065,10 @@ export default {
 			"value-count": "{value} times",
 			"rate-writes": "Rate writes",
 			"deadline-seeks": "Deadline seeks",
-			"rate-bend": "Rate bend (diagnostic)",
+			"rate-bend": "Rate bend",
 			"rate-bend-help": "About rate bending",
 			"rate-bend-help-text":
-				"Rate bending catches up with the room without interrupting playback, usually by changing the playback rate by 8-15%. If the picture judders, the audio changes pitch, or the device is old, turn it off: sync falls back to direct seeks, usually keeping drift under one second. This switch affects only the current session and resets on reload.",
+				"Rate bending catches up with the room without interrupting playback, usually by changing the playback rate by 8-15%. If the picture judders, the audio changes pitch, or the device is old, turn it off: sync falls back to direct seeks, usually keeping drift under one second. The setting is saved on this device and stays across reloads; the same switch is available here and in the playback details panel.",
 			drift: "Room drift",
 			mode: "Enhancement mode",
 			"render-target": "Render target",

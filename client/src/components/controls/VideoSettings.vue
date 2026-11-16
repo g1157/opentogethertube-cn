@@ -705,7 +705,6 @@ import type { VideoTrack, CaptionTrack } from "@/models/media-tracks";
 import { ToastStyle } from "@/models/toast";
 import toast from "@/util/toast";
 import { usePlayerControlsActivity } from "@/util/player-controls";
-import { rateBendDisabled } from "@/util/playback-sync-diagnostics";
 import { useStore } from "@/store";
 import {
 	AUDIO_EQ_PRESETS,
@@ -889,11 +888,8 @@ const seekSeconds = computed({
 	set: value => store.commit("settings/UPDATE", { seekSeconds: value }),
 });
 const rateBendEnabled = computed({
-	get: () => !rateBendDisabled.value,
-	set: enabled => {
-		// biome-ignore lint/nursery/noVueRefAsOperand: computed setter receives a plain boolean.
-		rateBendDisabled.value = !enabled;
-	},
+	get: () => store.state.settings.rateBendEnabled,
+	set: enabled => store.commit("settings/UPDATE", { rateBendEnabled: enabled }),
 });
 const sfxEnabled = computed({
 	get: () => store.state.settings.sfxEnabled,
@@ -1128,6 +1124,8 @@ function closeMenu(): void {
 	display: flex;
 	align-items: center;
 	flex: 0 0 auto;
+	/* The switch thumb overhangs its layout box; keep it off the menu's right edge. */
+	margin-right: 6px;
 }
 
 .rate-bend-controls .v-switch {

@@ -49,6 +49,17 @@ describe("playback details panel", () => {
 		expect(wrapper.text()).toContain("嵌入播放器");
 	});
 
+	it("switches the persisted rate-bend preference", async () => {
+		const { wrapper, store } = mountComponent(PlayerStatsPanel, {
+			props: { videoElement: fakeVideo() },
+		});
+		await Promise.resolve();
+
+		expect(store.state.settings.rateBendEnabled).toBe(true);
+		await wrapper.find(".player-stats-bend-toggle").trigger("click");
+		expect(store.state.settings.rateBendEnabled).toBe(false);
+	});
+
 	it("closes from its own button", async () => {
 		// The overlay itself is pointer-events: none (see the component styles) so the
 		// picture and the playback gestures underneath stay reachable; only this button

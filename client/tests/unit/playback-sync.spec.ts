@@ -412,7 +412,7 @@ describe("native playback rate correction", () => {
 		expect(sync.getMetrics()).toEqual({ rateWrites: 0, deadlineSeeks: 0, maxAbsDrift: 0 });
 	});
 
-	it("does not write rates at all when the diagnostic switch disables bending", async () => {
+	it("does not write rates at all when the preference disables bending", async () => {
 		const local = createPlaybackSync({
 			getState: () => ({ ...state }),
 			getPosition,

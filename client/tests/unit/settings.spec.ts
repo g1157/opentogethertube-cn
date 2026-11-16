@@ -44,6 +44,7 @@ describe("saved settings and default migrations", () => {
 			defaultSeekSecondsVersion: "v1.4.2",
 			defaultHlsBufferVersion: "v1.4.10",
 			hlsBufferSeconds: 300,
+			rateBendEnabled: true,
 			sfxEnabled: false,
 			danmakuEnabled: false,
 		});
@@ -64,6 +65,7 @@ describe("saved settings and default migrations", () => {
 		expect(store.state.settings.seekNoticeSeconds).toBe(1);
 		expect(store.state.settings.controlsHideSeconds).toBe(3);
 		expect(store.state.settings.hlsBufferSeconds).toBe(300);
+		expect(store.state.settings.rateBendEnabled).toBe(true);
 		expect(store.state.settings.danmakuOpacity).toBe(0.6);
 	});
 
@@ -195,6 +197,24 @@ describe("saved settings and default migrations", () => {
 		const nextVisit = newStore();
 		await nextVisit.dispatch("settings/load");
 		expect(nextVisit.state.settings.danmakuEnabled).toBe(true);
+	});
+
+	it("keeps the rate-bend preference per device across visits", async () => {
+		const firstVisit = newStore();
+		await firstVisit.dispatch("settings/load");
+		expect(firstVisit.state.settings.rateBendEnabled).toBe(true);
+		firstVisit.commit("settings/UPDATE", { rateBendEnabled: false });
+
+		const nextVisit = newStore();
+		await nextVisit.dispatch("settings/load");
+		expect(nextVisit.state.settings.rateBendEnabled).toBe(false);
+	});
+
+	it.each([null, "false", 0])("repairs a damaged rate-bend setting: %s", async value => {
+		saved.set("settings", JSON.stringify({ rateBendEnabled: value }));
+		const store = newStore();
+		await store.dispatch("settings/load");
+		expect(store.state.settings.rateBendEnabled).toBe(true);
 	});
 
 	it("persists viewing preferences across visits, including disabled message overlays", async () => {

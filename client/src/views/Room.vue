@@ -575,7 +575,7 @@ import { PlayerControlsActivityKey, usePlayerControls } from "@/util/player-cont
 import { createPlayerGestures, type LevelSide } from "@/util/player-gestures";
 import { usePlayerBrightness } from "@/util/player-brightness";
 import { createPlaybackSync } from "@/util/playback-sync";
-import { rateBendDisabled, syncMetrics } from "@/util/playback-sync-diagnostics";
+import { syncMetrics } from "@/util/playback-sync-diagnostics";
 import { PlayerActionsKey } from "@/util/player-actions";
 import {
 	createPlaybackPreparation,
@@ -1046,9 +1046,9 @@ export default defineComponent({
 				return player.setPosition(position);
 			},
 			getBendBase: () => (player.supportsRateBend() ? store.state.room.playbackSpeed : null),
-			// Session-only A/B switch from the slow-device investigation; see
-			// util/playback-sync-diagnostics.ts.
-			allowRateBend: () => !rateBendDisabled.value,
+			// A per-device preference: a viewer who sees judder can turn bending off once
+			// and keep it off on this browser.
+			allowRateBend: () => store.state.settings.rateBendEnabled,
 			setLocalRate: rate => {
 				const instance = player.player.value;
 				if (instance?.supportsRateBend === true) {
@@ -1332,13 +1332,16 @@ export default defineComponent({
 		});
 
 		// Mirror the sync engine's counters for the playback details panel. Flipping the
-		// diagnostic switch zeroes them so the A/B reads as "same clip, bend on vs off".
-		watch(rateBendDisabled, () => {
-			playbackSync.resetMetrics();
-			syncMetrics.rateWrites = 0;
-			syncMetrics.deadlineSeeks = 0;
-			syncMetrics.maxAbsDrift = 0;
-		});
+		// preference zeroes them so the A/B reads as "same clip, bend on vs off".
+		watch(
+			() => store.state.settings.rateBendEnabled,
+			() => {
+				playbackSync.resetMetrics();
+				syncMetrics.rateWrites = 0;
+				syncMetrics.deadlineSeeks = 0;
+				syncMetrics.maxAbsDrift = 0;
+			},
+		);
 
 		// connection status
 		const isConnected = computed(() => connection.connected.value);
