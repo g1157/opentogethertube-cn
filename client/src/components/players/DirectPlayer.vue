@@ -87,7 +87,7 @@ import { enhancementLayerMode, type AudioEqPreset } from "@/stores/settings";
 interface Props {
 	service: string;
 	videoUrl: string;
-	videoMime: string;
+	videoMime?: string;
 	thumbnail?: string;
 	subtitleUrl?: string;
 	/** Probed requirement of the source's host, when it differs from the browser default. */
@@ -102,7 +102,7 @@ interface SubtitleSource {
 	default?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), { videoMime: "" });
 const { videoUrl, videoMime, thumbnail, subtitleUrl, referrerPolicy } = toRefs(props);
 const videoElem = ref<HTMLVideoElement | undefined>();
 const subtitleCanvasHost = ref<HTMLDivElement | undefined>();

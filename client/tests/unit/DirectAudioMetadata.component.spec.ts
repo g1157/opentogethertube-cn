@@ -49,6 +49,8 @@ describe("direct media stream metadata", () => {
 		["webm", "audio/webm", null],
 		["mp4", "video/mp4", "waiting-frame"],
 		["webm", "video/webm", "waiting-frame"],
+		["mp4", undefined, "waiting-frame"],
+		["webm", "", "waiting-frame"],
 	] as const)("honors probed %s / %s metadata without inferring audio from missing dimensions", async (extension, mime, phase) => {
 		page = mountComponent(OmniPlayer, {
 			props: {
@@ -63,7 +65,7 @@ describe("direct media stream metadata", () => {
 		await flushPromises();
 		const player = page.wrapper.getComponent(DirectPlayer);
 		const element = page.wrapper.get("video");
-		expect(player.props("videoMime")).toBe(mime);
+		expect(player.props("videoMime") ?? "").toBe(mime ?? "");
 		readyState = 1;
 		await element.trigger("loadedmetadata");
 		const metadataOnly = page.wrapper

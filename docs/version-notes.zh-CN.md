@@ -14,6 +14,7 @@
     同名房间按小写名字加锁，装载成功后才公开。WebSocket 重认证走消息预算并串行更新身份，
     失败保留原身份，断开后异步结果失效；单连接发送积压超过 8 MiB 时终止该慢连接。
     正在播放的视频也能更新 / 清空字幕，队列提升竞争不再返回 VideoNotFound，元数据变化不重置时钟；
+    直链缺少 MIME 时按未知类型等待视频帧，不再抛错并留下“准备中”提示；
     队列导出覆盖全部 13 种服务，并验证各适配器的导入往返。
     **缓冲**：DASH 的三项时间缓冲目标即时跟随共享偏好；HLS 清单识别对象形式的 RESOLUTION。
     ffprobe 使用已校验最终 URL，DNS / 读取 / 子进程采用分阶段期限，pipe 尊重背压并清理资源。
@@ -28,7 +29,7 @@
     **文档**：新增 [完整审查与 20 项剩余完善清单](project-review-2026-11-17.zh-CN.md) 和
     [同类产品与媒体管线详细对比](watch-party-comparison-2026-11-17.zh-CN.md)，同步更新手册、
     架构、增强、播放、解析与部署机制；主观画质和未测设备保留明确验收边界。
-    **测试**：客户端 1094 项通过（24 skip），服务端 SQLite / PostgreSQL 各 1089 项、common 78 项、Edge 30 项、
+    **测试**：客户端 1096 项通过（24 skip），服务端 SQLite / PostgreSQL 各 1089 项、common 78 项、Edge 30 项、
     Grafana core / datasource / panel 分别 2 / 6 / 30 项；lint 0 error（25 既有 warning）。
     Rust 71 项单元 / harness 与 1 项 doc test、严格 clippy / rustdoc 和协议生成校验已通过。
     无新增数据库迁移；发布提交、最终镜像摘要与线上验收以

@@ -69,6 +69,7 @@ Rust 多实例组件不在当前生产 Compose 中；Edge 是独立能力子集�
 | F25 / P1 | 用户确认字幕 PATCH 与每秒 tick 竞争：队列条目提升为当前视频后返回 400，正在播放的源不能编辑字幕 | 更新在锁内定位队列或当前源；保留权限和 URL 防护，元数据变化不重置时钟 / 准备轮次 | S；DNS 受控等待期间显式 tick、当前源清空 / 更新 / 切源、内网解析拒绝 |
 | F26 / P2 | Grafana 查询取消留下 timer / socket / HTTP 订阅；hidden 仍查询，坏 JSON 未隔离 | teardown 关闭资源、取消 HTTP 订阅、跳过 hidden、坏 JSON error；移除无测试也成功的选项 | S；6 项真实 datasource 生命周期测试，panel / core 检查 |
 | F27 / P2 | 稳定文档写旧快照、旧门禁、旧 parser、笼统漂移阈值和“AMD CAS”等错误机制 | 同步更新手册、架构、媒体 / 播放 / 增强 / 部署文档；修 Rust rustdoc 链接，保留历史审查 | S；文档链接、数字、codegen、严格 rustdoc / lint |
+| F28 / P1 | 直链 MIME 缺失时 startsWith 抛错，中断加载状态通知，实际已有画面仍显示准备中 | MIME 作为可选输入归一为空字符串；未知类型继续等待视频首帧，不按零尺寸误判音频 | S；浏览器异常栈与准备提示实测，回归 1 fail / 5 pass + unhandled → 6 pass；含空 / 缺失 MIME |
 
 旧镜像残留 202 个上游应用文件（含 33 个旧前端资源）的数量为维护者实测；已经排除残留迁移或运行模块。本报告不把“残留文件”夸大为旧运行代码被执行。新镜像运行层从干净 Node 层只复制本仓应用产物；镜像检查核实应用目录与测试产物边界。
 
@@ -115,7 +116,7 @@ HQ 闲置 15 s 后纹理 390.23 → 3.52 MiB、framebuffer 28 → 0；S 为 59.7
 | 检查 | 已取得的结果 |
 | --- | --- |
 | `yarn lint-ci` | exit 0；Biome / Prettier / TypeScript / ESLint，0 error、25 既有 warning |
-| 客户端 | 100 个运行 spec 通过，1094 passed / 24 skipped，无 unhandled |
+| 客户端 | 100 个运行 spec 通过，1096 passed / 24 skipped，无 unhandled |
 | 服务端 SQLite | 66 个运行 / 类型 spec 通过，1089 passed，类型无错误，exit 0 |
 | 服务端 PostgreSQL 15 | 同套 1089 passed，类型无错误，exit 0；27 个迁移已应用且重复执行无新变更 |
 | common / Edge | 78 / 30 passed；common 类型无错误，Edge 包含真实 12 秒取消回归 |
@@ -126,6 +127,19 @@ HQ 闲置 15 s 后纹理 390.23 → 3.52 MiB、framebuffer 28 → 0；S 为 59.7
 字幕测试收尾中另定位了两处夹具时序：前端在初始源尚未写入 src 时模拟 canplay，服务端在真实 tick 已提升队列后仍读取队列首项。前者等待初始异步加载，后者用稳定当前源保留队列；没有暂停真实 tick，也没有删除显式提升竞争回归。
 
 Rust 既有严格验证为 fmt、check / clippy（warnings 为 error）、rustdoc、71 项单元 / harness 与 1 项 doc test，共 72 项通过；协议生成物无漂移。Rust 源码随后没有功能改动；标签发布仍复用 Rust 工作流检查对应提交。
+
+### 5.1 实际生产安装树与公告
+
+Linux 镜像按生产 focus 安装后清点为 344 个包名，锁文件 SHA-256 与本仓一致；ws 7.5.14、Sequelize 6.37.8、Axios 1.21.1，限流补丁实际生效。Vite / Vitest 不在该安装树，旧 xmldom / DashMPD 已移除。应用以 UID 1000 在只读文件系统运行，迁移、健康接口和系统 CA / HTTPS 验证通过。
+
+兼容范围内刷新前的本批安装树有 14 个带公告的包、46 行公告；刷新后为 6 个包、23 行。消除的是 brace-expansion、diff、es5-ext、ip、lodash、moment、proxy-addr、underscore。该对照是本批新镜像安装树的前后变化，不是旧生产镜像的完整公告计数。不能把 23 行称为 23 条匿名远程漏洞，也不能宣称公告已经清零。
+
+| 剩余包 | 安装 / 调用位置与下一步 |
+| --- | --- |
+| tar / glob / minimatch | 主要由 node-gyp、cacache、js-beautify 带入；公告涉及解包、CLI shell、模式放大和取消。已核实应用没有向这些 API 传递观众提供的归档或 glob；安装 / 迁移工具仍需单独升级或从运行层裁掉。 |
+| toml | 服务端固定本地配置文件的解析器；不能把本地受信配置入口当作匿名上传入口。剩余原型污染 / 递归 / 二次时间公告需要更换解析器或验证新的修复线。 |
+| uuid | 服务端直接依赖为 14.0.0；旧版本由 Sequelize 带入。公告针对 v3 / v5 / v6 的调用方输出 buffer 边界，与项目使用的 v4 路径分别核对。 |
+| Zod | 应用确实用它校验不可信输入；公告涉及超大受限集合的验证内存。传输字节与现有数组限制不能等同于解析前资源拒绝；Zod 4 迁移或逐层验证前预算保留为 R08 / P1，不用开发工具的公告替代该实际风险。 |
 
 ## 6. 完善清单：剩余事项、成本与验收
 
