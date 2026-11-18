@@ -26,6 +26,7 @@ node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48f
 ```
 
 运行镜像使用非 root 的 `node` 用户，不携带本仓单元测试、测试夹具或上游旧前端资源。
+系统层通过 Debian 签名索引安装 CA 证书、curl 与 ffmpeg；ffprobe 的 HTTPS 读取使用系统信任链。
 发布前执行 `scripts/check-runtime-dependencies.mjs --image`，检查安装版本与锁文件一致、
 限流补丁实际生效、旧 DASH parser 不存在以及应用目录边界。锁文件更新会进入新的生产安装树，
 但不代表所有依赖通告都已消除；剩余项见 [审查完善清单](docs/project-review-2026-11-17.zh-CN.md#6-完善清单剩余事项成本与验收)。

@@ -36,10 +36,11 @@ LABEL org.opencontainers.image.source="https://github.com/g1157/opentogethertube
 LABEL org.opencontainers.image.revision=$SOURCE_COMMIT
 
 WORKDIR /app
-ARG DEBIAN_MIRROR=https://deb.debian.org
+ARG DEBIAN_MIRROR=http://deb.debian.org
+# Bootstrap the system CA store through Debian's signed package indexes.
 RUN sed -i "s|http://deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends curl ffmpeg \
+    && apt-get -o APT::Update::Error-Mode=any update \
+    && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=application --chown=node:node /app /app
 USER node
