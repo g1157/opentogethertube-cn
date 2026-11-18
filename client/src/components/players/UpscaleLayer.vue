@@ -47,6 +47,7 @@ const BAD_WINDOWS_BEFORE_DEGRADE = 2;
 let renderer: UpscaleRenderer | null = null;
 let canvas: HTMLCanvasElement | null = null;
 let generation = 0;
+let startAbort: AbortController | undefined;
 let captionTimer: ReturnType<typeof setInterval> | undefined;
 let monitorFrame = 0;
 /** The element the pending monitor callback was registered on; props.video may be newer. */
@@ -109,8 +110,12 @@ function sizeCanvas(video: HTMLVideoElement, target: HTMLCanvasElement) {
 		cnnUpscale: isCnnUpscaleTier(props.mode) && canAffordCnnUpscale(),
 		fillMode: store.state.settings.videoFillMode,
 	});
-	target.width = size.width;
-	target.height = size.height;
+	if (target.width !== size.width) {
+		target.width = size.width;
+	}
+	if (target.height !== size.height) {
+		target.height = size.height;
+	}
 }
 
 function updateCaptions() {
@@ -177,6 +182,7 @@ function monitorPerformance(_now: number, metadata: VideoFrameCallbackMetadata) 
 	if (video.paused) {
 		// Paused videos produce no frames; counting that time would look like 0 fps.
 		resetMonitorWindow(0);
+		monitorBadWindows = 0;
 		scheduleMonitor();
 		return;
 	}
@@ -193,6 +199,7 @@ function monitorPerformance(_now: number, metadata: VideoFrameCallbackMetadata) 
 		// check above may never run; this is what actually catches it. Without it, resuming
 		// after a pause scores the whole pause as one window and degrades on the first frame.
 		resetMonitorWindow(now);
+		monitorBadWindows = 0;
 	}
 	lastFrameAt = now;
 	// One presented frame, unless the browser is re-presenting the same media frame (a
@@ -343,6 +350,7 @@ function handleViewportChange() {
 	if (props.mode === "sharpen") {
 		// The sharpen pass reads the canvas size every frame, so a resize is enough.
 		sizeCanvas(video, canvas);
+		renderer.redraw?.();
 		return;
 	}
 	// Anime4K captures its target size when the pipeline is built, so entering fullscreen
@@ -359,12 +367,15 @@ function handleViewportChange() {
 
 function stopRenderers() {
 	generation++;
+	startAbort?.abort();
+	startAbort = undefined;
 	if (viewportTimer !== undefined) {
 		clearTimeout(viewportTimer);
 		viewportTimer = undefined;
 	}
 	renderer?.stop();
 	renderer = null;
+	canvas = null;
 	if (captionTimer !== undefined) {
 		clearInterval(captionTimer);
 		captionTimer = undefined;
@@ -414,12 +425,14 @@ function failureFallback(): { settings: Partial<SettingsState>; message: string 
 
 function fallBackFromFailure(): void {
 	const { settings, message } = failureFallback();
+	stopRenderers();
+	reportEnhancementTarget(null);
 	toast.add({
 		style: ToastStyle.Error,
 		content: i18n.global.t(message),
 		duration: 6000,
 	});
-	store.commit("settings/UPDATE", settings);
+	store.commit("settings/UPDATE_TRANSIENT", settings);
 }
 
 async function start() {
@@ -437,6 +450,21 @@ async function start() {
 	}
 	sizeCanvas(video, element);
 	const current = ++generation;
+	const abort = new AbortController();
+	startAbort = abort;
+	const onFatal = (message: string) => {
+		if (current !== generation) {
+			return;
+		}
+		// A lost WebGL context cannot serve the lighter tier either. Let it take a fresh
+		// canvas instead of installing another renderer on the same dead context.
+		if (element === canvases.webgl2 && element.getContext("webgl2")?.isContextLost()) {
+			canvases.webgl2 = null;
+			element.remove();
+		}
+		reportEnhancementError(message);
+		fallBackFromFailure();
+	};
 	// Hold the result locally until the generation check: assigning straight to `renderer`
 	// lets a slow start clobber the renderer a newer one already installed, after which
 	// nothing holds a reference to stop it and its frame loop and device leak.
@@ -445,7 +473,7 @@ async function start() {
 		if (props.mode === "anime4k-ultra") {
 			// Offered only where WebGPU is unavailable, so this is the heavy chain on WebGL2.
 			const { startAnime4KUltraRenderer } = await import("@/util/upscale/anime4k-ultra");
-			created = startAnime4KUltraRenderer(video, element);
+			created = startAnime4KUltraRenderer(video, element, onFatal);
 		} else if (props.mode === "anime4k" || props.mode === "anime4k-quality") {
 			const variant = props.mode === "anime4k-quality" ? "quality" : "fast";
 			// Probe the WebGPU path before importing the driver: the driver pulls a 3.4 MB chunk,
@@ -465,15 +493,13 @@ async function start() {
 					return;
 				}
 				try {
-					created = await startAnime4KRenderer(video, element, variant, message => {
-						// WebGPU gave up on its own: a lost device, or a validation failure the
-						// error scope caught. Step down instead of leaving a dead canvas.
-						if (current !== generation) {
-							return;
-						}
-						reportEnhancementError(message);
-						fallBackFromFailure();
-					});
+					created = await startAnime4KRenderer(
+						video,
+						element,
+						variant,
+						onFatal,
+						abort.signal,
+					);
 				} catch (err) {
 					// The same network runs on WebGL2, which every browser has. Only reachable
 					// for the tiers that need a GPU: the plain tiers above are already WebGL2.
@@ -501,27 +527,33 @@ async function start() {
 					const { startAnime4KUltraRenderer } = await import(
 						"@/util/upscale/anime4k-ultra"
 					);
-					created = startAnime4KUltraRenderer(video, webglCanvas);
+					created = startAnime4KUltraRenderer(video, webglCanvas, onFatal);
 				} else {
 					const { startAnime4KWebGLRenderer } = await import(
 						"@/util/upscale/anime4k-webgl"
 					);
-					created = startAnime4KWebGLRenderer(video, webglCanvas);
+					created = startAnime4KWebGLRenderer(video, webglCanvas, undefined, onFatal);
 				}
 				element = webglCanvas;
 			}
 		} else if (props.mode === "film") {
 			// Live action: clean the source's compression artifacts before the upscale.
 			const { startFilmRenderer } = await import("@/util/upscale/film");
-			created = startFilmRenderer(video, element, {
-				getStrength: () => store.state.settings.upscaleStrength,
-			});
+			created = startFilmRenderer(
+				video,
+				element,
+				{
+					getStrength: () => store.state.settings.upscaleStrength,
+				},
+				onFatal,
+			);
 		} else {
 			const { startSharpenRenderer } = await import("@/util/upscale/cas");
 			created = startSharpenRenderer(
 				video,
 				element,
 				() => store.state.settings.upscaleStrength,
+				onFatal,
 			);
 		}
 	} catch (err) {
@@ -609,22 +641,28 @@ watch(
 		}
 		// The sharpen/film passes read the canvas size every frame, so a resize is enough.
 		sizeCanvas(video, canvas);
+		renderer?.redraw?.();
 	},
 );
 
-// A fit change only crops the displayed picture; re-sizing is cheap for the WebGL2
-// tiers, while the CNN pipelines capture their target size at build time and a rebuild
-// would freeze playback for a moment. They keep their render target and let the CSS
-// crop do the work — the canvas shares the video's aspect, so the crop stays aligned.
+watch(
+	() => store.state.settings.upscaleStrength,
+	() => renderer?.redraw?.(),
+);
+
+// Cover changes the displayed pixel size as well as the crop. WebGL chains re-plan for
+// the new canvas in place; WebGPU presets capture their output size and must be rebuilt.
 watch(
 	() => store.state.settings.videoFillMode,
 	() => {
-		if (isCnnUpscaleTier(props.mode)) {
-			return;
-		}
 		const video = props.video;
 		if (video && canvas) {
+			if (props.mode === "anime4k" || props.mode === "anime4k-quality") {
+				void start();
+				return;
+			}
 			sizeCanvas(video, canvas);
+			renderer?.redraw?.();
 		}
 	},
 );

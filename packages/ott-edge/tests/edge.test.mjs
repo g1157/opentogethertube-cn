@@ -38,6 +38,9 @@ let outboundCalls = [];
 let slowGate;
 let slowStarted;
 
+let headerProbeGate;
+let headerProbeStarted;
+
 function box(type, payload) {
 	const header = Buffer.alloc(8);
 	header.writeUInt32BE(payload.length + 8);
@@ -148,6 +151,28 @@ async function outbound(request) {
 	if (url.pathname === "/master.m3u8") {
 		return new Response("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=400000\nchild/vod.m3u8\n");
 	}
+	if (url.pathname === "/live.m3u8") {
+		return new Response("#EXTM3U\n#EXTINF:6.0,\none.ts\n");
+	}
+	if (url.pathname === "/probe-timeout.m3u8") {
+		return new Response("#EXTM3U\n#EXTINF:12,\nprobe-stall.ts\n#EXT-X-ENDLIST\n");
+	}
+	if (url.pathname === "/live.json") {
+		return new Response(
+			JSON.stringify({
+				title: "Live fixture",
+				duration: 0,
+				live: true,
+				sources: [
+					{
+						url: `${mediaOrigin}/one.mp4`,
+						contentType: "video/mp4",
+						quality: 720,
+					},
+				],
+			}),
+		);
+	}
 	if (url.pathname === "/protected/master.m3u8") {
 		return new Response("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=400000\nchild/vod.m3u8\n");
 	}
@@ -183,6 +208,11 @@ async function outbound(request) {
 	if (url.pathname === "/slow.mp4") {
 		slowStarted?.resolve();
 		await slowGate?.promise;
+	}
+	if (url.pathname === "/probe-stall.ts") {
+		headerProbeStarted?.resolve();
+		await headerProbeGate?.promise;
+		return new Response(null, { headers: { "Content-Type": "video/mp2t" } });
 	}
 	if (url.pathname === "/broken.mp4") {
 		return new Response("not a movie", { status: 404 });
@@ -611,6 +641,43 @@ it("MP4 tail indexes, HLS variants, DASH and custom manifests produce bounded me
 		assert.equal(outboundCalls.length, count, "cache avoids repeated external probes");
 	}
 	assert.ok(outboundCalls.some(call => call.range?.startsWith("bytes=8220-")));
+});
+
+it("live HLS and custom manifests preserve the live marker without a VOD duration", async () => {
+	const owner = await identity();
+	for (const file of ["live.m3u8", "live.json"]) {
+		const response = await request(
+			`/data/previewAdd?input=${encodeURIComponent(`${mediaOrigin}/${file}`)}`,
+			owner,
+		);
+		assert.equal(response.status, 200, JSON.stringify(await response.clone().json()));
+		const video = (await response.json()).result[0];
+		assert.equal(video.isLive, true);
+		assert.equal(video.length, undefined);
+	}
+});
+
+it("cancels a stalled segment header probe and keeps valid HLS metadata", {
+	timeout: 18_000,
+}, async t => {
+	const owner = await identity();
+	headerProbeGate = Promise.withResolvers();
+	headerProbeStarted = Promise.withResolvers();
+	t.after(() => {
+		headerProbeGate.resolve();
+		headerProbeGate = undefined;
+		headerProbeStarted = undefined;
+	});
+	const response = request(
+		`/data/previewAdd?input=${encodeURIComponent(`${mediaOrigin}/probe-timeout.m3u8`)}`,
+		owner,
+	);
+	await headerProbeStarted.promise;
+	// The outbound fixture stays blocked. The worker must cancel its own fetch instead
+	// of waiting indefinitely or dropping an otherwise valid playlist on a probe failure.
+	const result = await response;
+	assert.equal(result.status, 200, JSON.stringify(await result.clone().json()));
+	assert.equal((await result.json()).result[0].length, 12);
 });
 
 it("a stream whose segments refuse a Referer is marked so the player can ask without one", async () => {

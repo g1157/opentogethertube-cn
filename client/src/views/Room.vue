@@ -551,7 +551,6 @@ import VideoControls from "@/components/controls/VideoControls.vue";
 import RestoreQueue from "@/components/RestoreQueue.vue";
 import VoteSkip from "@/components/VoteSkip.vue";
 import { waitForToken } from "@/util/token";
-import { useSfx } from "@/plugins/sfx";
 import { secondsToTimestamp } from "@/util/timestamp";
 import { resolveVideoLength } from "@/util/video-length";
 import {
@@ -2242,11 +2241,6 @@ export default defineComponent({
 		// debug mode
 		const debugMode = ref(!unref(production));
 		provide("debugMode", debugMode);
-
-		const sfx = useSfx();
-		onMounted(async () => {
-			await sfx.loadSfx();
-		});
 
 		return {
 			store,

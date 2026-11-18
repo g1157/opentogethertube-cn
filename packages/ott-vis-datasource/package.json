@@ -10,8 +10,8 @@
 	"scripts": {
 		"build": "webpack -c ./.config/webpack/webpack.config.ts --env production",
 		"dev": "webpack -w -c ./.config/webpack/webpack.config.ts --env development",
-		"test": "jest --passWithNoTests --maxWorkers 4 --coverage",
-		"test:ci": "jest --passWithNoTests --maxWorkers 4",
+		"test": "jest --maxWorkers 4 --coverage",
+		"test:ci": "jest --maxWorkers 4",
 		"typecheck": "tsc --noEmit",
 		"lint": "tsc --noEmit && eslint --cache --ignore-path ./.gitignore --ext .js,.jsx,.ts,.tsx . --fix",
 		"lint-ci": "tsc --noEmit && eslint --cache --ignore-path ./.gitignore --ext .js,.jsx,.ts,.tsx .",

@@ -27,7 +27,7 @@ vi.mock("@/util/upscale/webgpu-probe", () => ({
 let clock = 0;
 
 function renderer() {
-	return { stop: vi.fn() };
+	return { stop: vi.fn(), redraw: vi.fn() };
 }
 
 /**
@@ -123,6 +123,103 @@ describe("enhancement layer lifecycle", () => {
 		Reflect.deleteProperty(navigator, "gpu");
 		vi.restoreAllMocks();
 		vi.clearAllMocks();
+	});
+
+	it("redraws a paused WebGL picture after changing its render scale", async () => {
+		const live = renderer();
+		drivers.sharpen.mockReturnValueOnce(live);
+		const { video } = fakeVideo();
+		Object.defineProperty(video, "paused", { value: true });
+		const { wrapper, store } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "sharpen" },
+		});
+		await settle();
+		store.commit("settings/UPDATE", { upscaleScale: 2 });
+		await settle();
+
+		expect(wrapper.find("canvas").element.width).toBe(3840);
+		expect(live.redraw).toHaveBeenCalledTimes(1);
+	});
+
+	it("redraws a paused sharpen picture after a viewport resize", async () => {
+		const live = renderer();
+		drivers.sharpen.mockReturnValueOnce(live);
+		const { wrapper } = mountComponent(UpscaleLayer, {
+			props: { video: fakeVideo().video, mode: "sharpen" },
+		});
+		await settle();
+		window.dispatchEvent(new Event("resize"));
+		await settle();
+
+		expect(live.redraw).toHaveBeenCalledTimes(1);
+		expect(drivers.sharpen).toHaveBeenCalledTimes(1);
+		wrapper.unmount();
+	});
+
+	it("resizes and redraws a paused WebGL CNN target when the fit changes to cover", async () => {
+		const live = renderer();
+		drivers.anime4kUltra.mockReturnValueOnce(live);
+		const { video } = fakeVideo();
+		Object.defineProperties(video, {
+			paused: { value: true },
+			videoWidth: { value: 1280 },
+			videoHeight: { value: 720 },
+		});
+		resizeVideo(video, 1000, 1000);
+		const { wrapper, store } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "anime4k-ultra" },
+		});
+		await settle();
+		const canvas = wrapper.find("canvas").element;
+		expect(canvas.height).toBeLessThan(1000);
+		store.commit("settings/UPDATE", { videoFillMode: "cover" });
+		await settle();
+
+		expect([canvas.width, canvas.height]).toEqual([1778, 1000]);
+		expect(live.redraw).toHaveBeenCalledTimes(1);
+		expect(drivers.anime4kUltra).toHaveBeenCalledTimes(1);
+	});
+
+	it("rebuilds a WebGPU CNN at the cover target instead of stretching its old picture", async () => {
+		const { video } = fakeVideo();
+		Object.defineProperties(video, {
+			paused: { value: true },
+			videoWidth: { value: 1280 },
+			videoHeight: { value: 720 },
+		});
+		resizeVideo(video, 1000, 1000);
+		const { wrapper, store } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "anime4k" },
+		});
+		await settle();
+		expect(drivers.anime4k).toHaveBeenCalledTimes(1);
+		store.commit("settings/UPDATE", { videoFillMode: "cover" });
+		await settle();
+
+		expect(drivers.anime4k).toHaveBeenCalledTimes(2);
+		const canvas = wrapper.find("canvas").element;
+		expect([canvas.width, canvas.height]).toEqual([1778, 1000]);
+	});
+
+	it("drops a failed WebGL renderer instead of leaving its frozen canvas enabled", async () => {
+		let fatal: ((message: string) => void) | undefined;
+		const live = renderer();
+		drivers.sharpen.mockImplementationOnce((_video, _canvas, _amount, onFatal) => {
+			fatal = onFatal;
+			return live;
+		});
+		const { wrapper, store } = mountComponent(UpscaleLayer, {
+			props: { video: fakeVideo().video, mode: "sharpen" },
+		});
+		store.commit("settings/UPDATE", { upscaleMode: "sharpen" });
+		await settle();
+
+		expect(fatal).toBeTypeOf("function");
+		fatal?.("WebGL context lost");
+		await settle();
+		expect(store.state.settings.upscaleMode).toBe("off");
+		expect(live.stop).toHaveBeenCalledTimes(1);
+		wrapper.unmount();
 	});
 
 	it("keeps one canvas per context kind so a rebuild can reuse its programs", async () => {

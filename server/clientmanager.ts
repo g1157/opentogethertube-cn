@@ -63,6 +63,8 @@ import {
 import usermanager from "./usermanager.js";
 import { conf } from "./ott-config.js";
 import { UnloadReason } from "./generated.js";
+import { InvalidTokenException } from "ott-common/exceptions.js";
+import { RoomUser } from "./room.js";
 
 const log = getLogger("clientmanager");
 
@@ -93,8 +95,10 @@ const CLIENT_ROOM_REQUEST_TYPES = new Set<RoomRequestType>([
 const connections: Client[] = [];
 const roomJoins: Map<string, Client[]> = new Map();
 const pendingRoomJoins = new Map<Client, Promise<void>>();
+const pendingIdentityUpdates = new WeakMap<Client, Promise<boolean>>();
 const voiceParticipants: Map<string, Set<ClientId>> = new Map();
 const roomRelayChannels: Map<string, RelaySelection> = new Map();
+const pendingRelayChannels = new Map<string, Promise<RelaySelection | null>>();
 
 function hasTurnUrl(server: { urls: string | string[] }): boolean {
 	const urls = typeof server.urls === "string" ? [server.urls] : server.urls;
@@ -124,12 +128,30 @@ async function getRoomRelayChannel(roomName: string): Promise<RelaySelection | n
 	if (existing) {
 		return existing;
 	}
-	const selection = await selectRelayChannel();
-	if (selection) {
-		roomRelayChannels.set(roomName, selection);
-		return selection;
+	const pending = pendingRelayChannels.get(roomName);
+	if (pending) {
+		return pending;
 	}
-	return null;
+	const participants = voiceParticipants.get(roomName);
+	const selecting = (async () => {
+		const selection = await selectRelayChannel();
+		// A departed voice session cannot assign a channel to the next session in that room.
+		if (voiceParticipants.get(roomName) !== participants || !participants?.size) {
+			return null;
+		}
+		if (selection) {
+			roomRelayChannels.set(roomName, selection);
+		}
+		return selection;
+	})();
+	pendingRelayChannels.set(roomName, selecting);
+	try {
+		return await selecting;
+	} finally {
+		if (pendingRelayChannels.get(roomName) === selecting) {
+			pendingRelayChannels.delete(roomName);
+		}
+	}
 }
 
 /**
@@ -154,6 +176,18 @@ function relayVoiceSignal(client: Client, msg: ClientMessageSignal): void {
 }
 
 async function setVoicePresence(client: Client, joinedVoice: boolean): Promise<void> {
+	const result = await roommanager.getRoom(client.room, { mustAlreadyBeLoaded: true });
+	if (!connections.includes(client) || !result.ok || !result.value.getUser(client.id)) {
+		return;
+	}
+	if (!client.token || !(await tokens.validate(client.token))) {
+		await removeFromVoice(client);
+		client.kick(OttWebsocketError.MISSING_TOKEN);
+		return;
+	}
+	if (!connections.includes(client)) {
+		return;
+	}
 	if (!isVoiceEnabled() || client.joinStatus !== ClientJoinStatus.Joined) {
 		if (joinedVoice) {
 			client.send({ ...(await buildVoiceMessage(client.room, null)), denied: "disabled" });
@@ -172,7 +206,8 @@ async function setVoicePresence(client: Client, joinedVoice: boolean): Promise<v
 				otherVoiceRooms++;
 			}
 		}
-		const decision = await decideVoiceJoin({
+		// Budget checks and reservation are synchronous, so two joins cannot spend the same seat.
+		const decision = decideVoiceJoin({
 			roomParticipants: participants.size,
 			roomAlreadyInVoice: participants.size > 0,
 			voiceRoomCount: otherVoiceRooms,
@@ -182,6 +217,7 @@ async function setVoicePresence(client: Client, joinedVoice: boolean): Promise<v
 			if (participants.size === 0) {
 				voiceParticipants.delete(client.room);
 				roomRelayChannels.delete(client.room);
+				pendingRelayChannels.delete(client.room);
 			}
 			client.send({
 				...(await buildVoiceMessage(client.room, null)),
@@ -196,6 +232,7 @@ async function setVoicePresence(client: Client, joinedVoice: boolean): Promise<v
 	if (participants.size === 0) {
 		voiceParticipants.delete(client.room);
 		roomRelayChannels.delete(client.room);
+		pendingRelayChannels.delete(client.room);
 	}
 	const selection = participants.size > 0 ? await getRoomRelayChannel(client.room) : null;
 	await broadcast(client.room, await buildVoiceMessage(client.room, selection));
@@ -213,6 +250,7 @@ async function removeFromVoice(client: Client): Promise<void> {
 	if (participants.size === 0) {
 		voiceParticipants.delete(client.room);
 		roomRelayChannels.delete(client.room);
+		pendingRelayChannels.delete(client.room);
 	}
 	try {
 		const selection = participants.size > 0 ? await getRoomRelayChannel(client.room) : null;
@@ -340,28 +378,47 @@ async function onClientAuth(client: Client, token: AuthToken, session: SessionIn
  * identity, everyone sees the updated name and role, and the client receives the
  * current state so its own permissions refresh.
  */
-async function onClientReauth(client: Client, token: AuthToken, _session: SessionInfo) {
-	const result = await roommanager.getRoom(client.room);
-	if (!result.ok) {
-		return;
+async function onClientReauth(client: Client, token: AuthToken, session: SessionInfo) {
+	await pendingRoomJoins.get(client);
+	const result = await roommanager.getRoom(client.room, { mustAlreadyBeLoaded: true });
+	if (!connections.includes(client) || !result.ok) {
+		throw new InvalidTokenException();
 	}
 	const room = result.value;
 	const user = room.getUser(client.id);
 	if (!user) {
-		return;
+		throw new InvalidTokenException();
 	}
-	user.token = token;
-	try {
-		await user.updateInfo(client.getClientInfo());
-	} catch (err) {
-		// A token whose account vanished must not take the connection down; the viewer
-		// keeps the identity they had.
-		log.warn(`Could not update the identity of client ${client.id}: ${String(err)}`);
+	// Validate the replacement without mutating the member's current permissions.
+	const replacement = new RoomUser(client.id, token);
+	await replacement.updateInfo(client.getClientInfo());
+	if (
+		!connections.includes(client) ||
+		client.token !== token ||
+		client.session !== session ||
+		room.getUser(client.id) !== user
+	) {
+		throw new InvalidTokenException();
 	}
+	Object.assign(user, {
+		token,
+		user_id: replacement.user_id,
+		user: replacement.user,
+		unregisteredUsername: replacement.unregisteredUsername,
+	});
 	log.info(`Client ${client.id} re-authenticated in room ${room.name}`);
 	// The room's own view of this viewer changed: publish it so the name and role in the
 	// user list are correct for everyone.
-	await room.syncUser(room.getUserInfo(client.id));
+	try {
+		await room.syncUser(room.getUserInfo(client.id));
+	} catch (error) {
+		// Identity is already valid and committed; a broadcast failure must not roll
+		// the socket back to a token that no longer matches its room membership.
+		log.warn(`Could not publish the identity of client ${client.id}: ${String(error)}`);
+	}
+	if (!connections.includes(client)) {
+		return;
+	}
 	// A full sync gives the client its new role and permissions without a reconnect.
 	client.send(
 		Object.assign({ action: "sync" }, room.syncableState()) as unknown as ServerMessageSync,
@@ -380,6 +437,9 @@ async function joinAuthenticatedClient(client: Client, token: AuthToken, session
 	const room = result.value;
 	if (!(await hasRoomAccess(room, token, session))) {
 		client.kick(OttWebsocketError.ROOM_PASSWORD_REQUIRED);
+		return;
+	}
+	if (!connections.includes(client)) {
 		return;
 	}
 	client.room = room.name;
@@ -410,6 +470,7 @@ async function joinAuthenticatedClient(client: Client, token: AuthToken, session
 		});
 	} catch (e) {
 		log.error(`Failed to process join request for client ${client.id}: ${e}`);
+		throw e;
 	}
 	if (!connections.includes(client)) {
 		// Disconnect waits for this operation, then removes the member that joinRoom may have added.
@@ -532,7 +593,40 @@ async function onClientMessage(client: Client, msg: ClientMessage) {
 		if (msg.action === "kickme") {
 			client.kick(msg.reason ?? OttWebsocketError.UNKNOWN);
 			return;
-		} else if (msg.action === "status") {
+		}
+		// Keep early one-shot frame acknowledgements, but never run them before membership exists.
+		await pendingRoomJoins.get(client);
+		if (msg.action !== "reauthenticate") {
+			await pendingIdentityUpdates.get(client);
+		}
+		if (!connections.includes(client)) {
+			return;
+		}
+		if (client.joinStatus !== ClientJoinStatus.Joined) {
+			client.kick(OttWebsocketError.MISSING_TOKEN);
+			return;
+		}
+		if (msg.action === "reauthenticate") {
+			if (pendingIdentityUpdates.has(client)) {
+				sendClientError(client, {
+					action: "error",
+					name: "TooManyRequests",
+					message: "An identity update is already in progress.",
+				});
+				return;
+			}
+			const pending = client.reauthenticate(msg.token);
+			pendingIdentityUpdates.set(client, pending);
+			try {
+				if (!(await pending)) {
+					throw new InvalidTokenException();
+				}
+			} finally {
+				pendingIdentityUpdates.delete(client);
+			}
+			return;
+		}
+		if (msg.action === "status") {
 			const request: RoomRequest = {
 				type: RoomRequestType.UpdateUser,
 				info: {
@@ -669,6 +763,7 @@ async function onClientDisconnect(client: Client) {
 	// the pending join adds the member, leaving a disconnected playback preparer in the room.
 	try {
 		await pendingRoomJoins.get(client);
+		await pendingIdentityUpdates.get(client);
 	} catch {
 		// onClientAuth owns reporting the failed join; any partially added member still needs cleanup.
 	}
@@ -761,11 +856,8 @@ async function onBalancerMessage(conn: BalancerConnection, message: MsgB2M) {
 		join: async message => {
 			const msg = message.payload;
 			const client = new BalancerClient(msg.room, msg.client, conn);
-			connections.push(client);
-			client.on("auth", onClientAuth);
-			client.on("message", onClientMessage);
-			client.on("disconnect", onClientDisconnect);
-			client.auth(msg.token);
+			addClient(client);
+			await client.auth(msg.token);
 		},
 		leave: async message => {
 			const msg = message.payload;
@@ -897,6 +989,7 @@ function onRoomUnload(roomName: string, reason: UnloadReason) {
 	roomJoins.delete(roomName);
 	voiceParticipants.delete(roomName);
 	roomRelayChannels.delete(roomName);
+	pendingRelayChannels.delete(roomName);
 }
 
 function onAnnouncement(text: string) {

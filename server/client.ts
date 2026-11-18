@@ -6,7 +6,7 @@ import {
 } from "ott-common/models/types.js";
 import { clientMessageSchema } from "./ws-schemas.js";
 import type { ClientMessage, ServerMessage } from "ott-common/models/messages.js";
-import type WebSocket from "ws";
+import WebSocket from "ws";
 import { type SessionInfo, setSessionInfo } from "./auth/tokens.js";
 import { v4 as uuidv4 } from "uuid";
 import EventEmitter from "node:events";
@@ -20,10 +20,11 @@ const log = getLogger("client");
 
 /** Floor between two latency-probe replies for one client; probes are client-driven. */
 const LATENCY_PROBE_INTERVAL_MS = 1000;
+const MAX_WEBSOCKET_BUFFERED_BYTES = 8 * 1024 * 1024;
 
 export type ClientEvents = "auth" | "reauth" | "message" | "disconnect";
 export type ClientEventHandlers<E> = E extends "auth" | "reauth"
-	? (client: Client, token: AuthToken, session: SessionInfo) => void
+	? (client: Client, token: AuthToken, session: SessionInfo) => void | Promise<void>
 	: E extends "message"
 		? (client: Client, msg: ClientMessage) => void
 		: E extends "disconnect"
@@ -48,6 +49,8 @@ export abstract class Client {
 	isReconnect = false;
 
 	private bus: EventEmitter;
+	private disconnected = false;
+	private reauthenticating = false;
 
 	constructor(room: string) {
 		this.id = uuidv4();
@@ -62,6 +65,12 @@ export abstract class Client {
 	}
 
 	emit<E extends ClientEvents>(event: E, ...args: Parameters<ClientEventHandlers<E>>) {
+		if (event === "disconnect") {
+			if (this.disconnected) {
+				return;
+			}
+			this.disconnected = true;
+		}
 		this.bus.emit(event, ...args);
 	}
 
@@ -76,6 +85,9 @@ export abstract class Client {
 	}
 
 	public async auth(token: AuthToken): Promise<void> {
+		if (this.disconnected) {
+			return;
+		}
 		if (typeof token !== "string" || !token || token.length > 1024 || this.token !== null) {
 			log.warn("Client sent empty auth token, kicking");
 			this.kick(OttWebsocketError.MISSING_TOKEN);
@@ -87,6 +99,9 @@ export abstract class Client {
 		} catch (err) {
 			log.warn(`Client sent invalid auth token, kicking: ${err}`);
 			this.kick(OttWebsocketError.MISSING_TOKEN);
+			return;
+		}
+		if (this.disconnected) {
 			return;
 		}
 		this.joinStatus = ClientJoinStatus.Joined;
@@ -102,21 +117,40 @@ export abstract class Client {
 	 * viewer keeps their seat and picks up their new role.
 	 */
 	public async reauthenticate(token: AuthToken): Promise<boolean> {
-		if (typeof token !== "string" || !token || token.length > 1024) {
+		if (
+			typeof token !== "string" ||
+			!token ||
+			token.length > 1024 ||
+			this.joinStatus !== ClientJoinStatus.Joined ||
+			!this.token ||
+			!this.session ||
+			this.disconnected ||
+			this.reauthenticating
+		) {
 			log.warn("Client sent an invalid re-authentication token");
 			return false;
 		}
-		let session: SessionInfo;
+		this.reauthenticating = true;
+		const previousToken = this.token;
+		const previousSession = this.session;
 		try {
-			session = await getSessionInfo(token);
+			const session = await getSessionInfo(token);
+			if (this.disconnected) {
+				return false;
+			}
+			this.token = token;
+			this.session = session;
+			const handlers = this.bus.listeners("reauth") as ClientEventHandlers<"reauth">[];
+			await Promise.all(handlers.map(handler => handler(this, token, session)));
+			return !this.disconnected;
 		} catch (err) {
+			this.token = previousToken;
+			this.session = previousSession;
 			log.warn(`Client sent an invalid re-authentication token: ${err}`);
 			return false;
+		} finally {
+			this.reauthenticating = false;
 		}
-		this.token = token;
-		this.session = session;
-		this.emit("reauth", this, this.token, this.session);
-		return true;
 	}
 
 	send(msg: ServerMessage) {
@@ -156,6 +190,7 @@ export class DirectClient extends Client {
 	isAlive = true;
 	private authTimeout: ReturnType<typeof setTimeout>;
 	private lastLatencyReplyAt = 0;
+	private terminated = false;
 
 	constructor(room: string, socket: WebSocket) {
 		super(room);
@@ -190,11 +225,6 @@ export class DirectClient extends Client {
 			if (msg.action === "auth") {
 				// eslint-disable-next-line promise/prefer-await-to-then -- Synchronous socket callback owns this asynchronous rejection.
 				void this.auth(msg.token).catch(() => this.kick(OttWebsocketError.UNKNOWN));
-				return;
-			}
-			if (msg.action === "reauthenticate") {
-				// A failed re-authentication keeps the old identity; the client can retry.
-				void this.reauthenticate(msg.token);
 				return;
 			}
 			if (this.joinStatus !== ClientJoinStatus.Joined) {
@@ -242,17 +272,57 @@ export class DirectClient extends Client {
 	}
 
 	sendRaw(msg: string) {
-		this.socket.send(msg);
+		if (this.terminated || this.socket.readyState !== WebSocket.OPEN) {
+			return;
+		}
+		if (
+			this.socket.bufferedAmount + Buffer.byteLength(msg, "utf8") >
+			MAX_WEBSOCKET_BUFFERED_BYTES
+		) {
+			log.warn(`Terminating slow websocket client ${this.id}`);
+			this.terminate();
+			return;
+		}
+		try {
+			this.socket.send(msg, error => {
+				if (error) {
+					this.onError(error);
+					this.terminate();
+				}
+			});
+		} catch (error) {
+			log.warn(`Failed to write to websocket client ${this.id}: ${String(error)}`);
+			this.terminate();
+		}
+	}
+
+	private terminate() {
+		if (this.terminated) {
+			return;
+		}
+		this.terminated = true;
+		clearTimeout(this.authTimeout);
+		this.socket.terminate();
+		this.onClose();
 	}
 
 	kick(code: OttWebsocketError) {
 		clearTimeout(this.authTimeout);
 		this.socket.close(code);
+		this.onClose();
 		counterWebsocketCloseCodes.inc({ code: OttWebsocketError[code] });
 	}
 
 	ping() {
-		this.socket.ping();
+		if (this.terminated || this.socket.readyState !== WebSocket.OPEN) {
+			return;
+		}
+		try {
+			this.socket.ping();
+		} catch (error) {
+			log.warn(`Failed to ping websocket client ${this.id}: ${String(error)}`);
+			this.terminate();
+		}
 	}
 }
 

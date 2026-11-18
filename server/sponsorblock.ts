@@ -36,8 +36,8 @@ export async function getSponsorBlock(): Promise<SponsorBlock> {
 	return sponsorblock;
 }
 
-/** A hung segment fetch runs inside the room's 1s tick and stalls every room; fail fast. */
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+/** Bound external metadata work and clear its deadline after either outcome. */
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 	let timer: NodeJS.Timeout | undefined;
 	const timeout = new Promise<T>((_resolve, reject) => {
 		timer = setTimeout(
@@ -46,7 +46,11 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 		);
 	});
 	timer?.unref();
-	return Promise.race([promise, timeout]);
+	try {
+		return await Promise.race([promise, timeout]);
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 export async function fetchSegments(videoId: string): Promise<Segment[]> {

@@ -15,7 +15,6 @@
 	],
 	"type": "module",
 	"scripts": {
-		"postinstall": "patch-package",
 		"start": "yarn workspace ott-server start",
 		"serve": "yarn workspace ott-client serve",
 		"build": "yarn workspaces foreach --all run build",
@@ -33,11 +32,9 @@
 	},
 	"dependencies": {
 		"ansi-colors": "^4.1.1",
-		"axios": "1.13.5",
+		"axios": "1.21.1",
 		"dayjs": "^1.10.4",
 		"lodash": "^4.18.1",
-		"patch-package": "^7.0.1",
-		"postinstall-postinstall": "^2.1.0",
 		"ts-essentials": "^9.3.0",
 		"typescript": "5.4.5",
 		"validator": "^13.15.20",
@@ -63,5 +60,8 @@
 		"supertest": "6.3.3",
 		"ts-node": "^10.9.1"
 	},
-	"packageManager": "yarn@4.1.0"
+	"packageManager": "yarn@4.1.0",
+	"resolutions": {
+		"rate-limiter-flexible@npm:^2.2.1": "patch:rate-limiter-flexible@npm%3A2.4.1#./.yarn/patches/rate-limiter-flexible-npm-2.4.1.patch"
+	}
 }

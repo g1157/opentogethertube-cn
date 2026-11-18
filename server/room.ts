@@ -164,9 +164,10 @@ export class RoomUser {
 
 	public async updateInfo(info: ClientInfo): Promise<void> {
 		if (info.user_id) {
-			this.user_id = info.user_id;
 			// Cached lookup: status heartbeats call this every few seconds per viewer.
-			this.user = await usermanager.getUserCachedById(info.user_id);
+			const user = await usermanager.getUserCachedById(info.user_id);
+			this.user_id = info.user_id;
+			this.user = user;
 		} else if (info.username) {
 			this.unregisteredUsername = info.username;
 			this.user_id = undefined;
@@ -397,6 +398,8 @@ export class Room implements RoomState {
 	 * Used to defer grabbing sponsorblock segments to keep video dequeueing from blocking.
 	 */
 	wantSponsorBlock = false;
+	private sponsorBlockFetch: Promise<void> | null = null;
+	private sponsorBlockRequestId = 0;
 	dontSkipSegmentsUntil: number | null = null;
 	loadEpoch: number = -1;
 
@@ -480,6 +483,8 @@ export class Room implements RoomState {
 		if (this.permissionsRevision < permissions.ROOM_PERMISSIONS_REVISION) {
 			permissions.applyPermissionAdditions(this.grants, this.permissionsRevision);
 			this.permissionsRevision = permissions.ROOM_PERMISSIONS_REVISION;
+			// The grants and their revision form one checkpoint, including after a cold DB load.
+			this.markDirty("grants");
 		}
 		if (options.userRoles) {
 			if (options.userRoles instanceof Map) {
@@ -860,7 +865,9 @@ export class Room implements RoomState {
 		if (this.queue.length > 0) {
 			this.log.debug(`queue has items in it, dequeuing`);
 
-			this.currentSource = (await this.queue.dequeue()) ?? null;
+			await this.queue.dequeue(item => {
+				this.currentSource = item ?? null;
+			});
 			this.playbackPosition = this.currentSource?.startAt ?? 0;
 			this._playbackStart = dayjs();
 			if (this.videoSegments.length > 0) {
@@ -1182,25 +1189,10 @@ export class Room implements RoomState {
 		}
 
 		if (conf.get("video.sponsorblock.enabled") && this.autoSkipSegmentCategories.length > 0) {
-			if (this.wantSponsorBlock) {
-				this.wantSponsorBlock = false; // Disable this before the request to avoid spamming the sponsorblock if the request takes too long.
-				try {
-					await this.fetchSponsorBlockSegments();
-				} catch (e) {
-					if (e instanceof SponsorblockResponseError) {
-						if (e.status === 429) {
-							this.log.error(`Request to sponsorblock was ratelimited. ${e.message}`);
-						} else if (e.status === 404) {
-							this.log.debug("No sponsorblock segments available for this video.");
-						} else {
-							this.log.error(
-								`Failed to grab sponsorblock segments: ${e.name} ${e.status} ${e.message}`,
-							);
-						}
-					} else {
-						this.log.error(`Failed to grab sponsorblock segments`);
-					}
-				}
+			if (this.wantSponsorBlock && !this.sponsorBlockFetch) {
+				this.wantSponsorBlock = false;
+				// External metadata must not stall this room's clock or the other rooms' ticks.
+				this.sponsorBlockFetch = this.refreshSponsorBlockSegments();
 			}
 
 			if (
@@ -1345,6 +1337,9 @@ export class Room implements RoomState {
 			this,
 			persistentSettings.filter(prop => this._dirty.has(prop as keyof RoomStateSyncable)),
 		);
+		if (this._dirty.has("grants")) {
+			settings.permissionsRevision = this.permissionsRevision;
+		}
 		if (this._dirty.has("hasOwner")) {
 			settings.owner = this.owner;
 		}
@@ -1392,6 +1387,7 @@ export class Room implements RoomState {
 	}
 
 	public async onBeforeUnload(): Promise<void> {
+		this.sponsorBlockRequestId++;
 		this.clearPlaybackStartTimer();
 		this.endTemporaryPlaybackSpeed();
 		// A room that goes away must not publish a leave event afterwards.
@@ -1433,16 +1429,39 @@ export class Room implements RoomState {
 	 * Grabs video segments from Sponsorblock for the current video.
 	 */
 	async fetchSponsorBlockSegments(): Promise<void> {
-		if (!this.currentSource || this.currentSource.service !== "youtube") {
+		const requestId = ++this.sponsorBlockRequestId;
+		const source = this.currentSource;
+		if (!source || source.service !== "youtube") {
 			if (this.videoSegments.length > 0) {
 				this.videoSegments = [];
 			}
 			return;
 		}
-		this.log.info(
-			`fetching sponsorblock segments for ${this.currentSource.service}:${this.currentSource.id}`,
-		);
-		this.videoSegments = await fetchSegments(this.currentSource.id);
+		this.log.info(`fetching sponsorblock segments for ${source.service}:${source.id}`);
+		const segments = await fetchSegments(source.id);
+		if (this.currentSource === source && this.sponsorBlockRequestId === requestId) {
+			this.videoSegments = segments;
+		}
+	}
+
+	private async refreshSponsorBlockSegments(): Promise<void> {
+		try {
+			await this.fetchSponsorBlockSegments();
+		} catch (e) {
+			if (e instanceof SponsorblockResponseError) {
+				if (e.status === 404) {
+					this.log.debug("No sponsorblock segments available for this video.");
+				} else {
+					this.log.error(
+						`Failed to grab sponsorblock segments: ${e.name} ${e.status} ${e.message}`,
+					);
+				}
+			} else {
+				this.log.error(`Failed to grab sponsorblock segments: ${String(e)}`);
+			}
+		} finally {
+			this.sponsorBlockFetch = null;
+		}
 	}
 
 	/** Updates playbackPosition according to the computed value, and resets _playbackStart */
@@ -1465,9 +1484,14 @@ export class Room implements RoomState {
 	public async deriveRequestContext(
 		authorization: RoomRequestAuthorization,
 	): Promise<RoomRequestContext> {
+		// A cached member is an identity, not proof that its session still exists.
+		const session = await tokens.getSessionInfo(authorization.token);
+		if (!session) {
+			throw new Error("Invalid token, unauthorized request");
+		}
 		if (authorization.clientId) {
 			const user = this.getUser(authorization.clientId);
-			if (user) {
+			if (user && user.token === authorization.token) {
 				return {
 					username: user.username,
 					role: this.getRole(user),
@@ -1478,11 +1502,6 @@ export class Room implements RoomState {
 		}
 
 		// the user is not in the room, but they may have a valid session
-
-		const session = await tokens.getSessionInfo(authorization.token);
-		if (!session) {
-			throw new Error("Invalid token, unauthorized request");
-		}
 
 		let username: string;
 		if (session.isLoggedIn) {
@@ -1841,12 +1860,7 @@ export class Room implements RoomState {
 
 	private canPreparePlayback(): boolean {
 		const source = this.currentSource;
-		if (
-			!source ||
-			source.isLive ||
-			!Number.isFinite(source.length) ||
-			(source.length ?? 0) <= 0
-		) {
+		if (!source || source.isLive) {
 			return false;
 		}
 		return (
@@ -2202,7 +2216,11 @@ export class Room implements RoomState {
 				update.subtitleUrl = undefined;
 			}
 		}
-		await this.queue.update(request.video, update);
+		const target = await this.queue.update(request.video, update, () => this.currentSource);
+		if (target === this.currentSource) {
+			// Extras do not select a new source: keep the clock and preparation generation.
+			this.markDirty("currentSource");
+		}
 		this.log.info(`Queue item updated: ${JSON.stringify(request.video)}`);
 		await this.publishRoomEvent(request, context);
 	}

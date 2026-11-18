@@ -450,7 +450,7 @@ describe("preparing playback after a room was empty", () => {
 		expect(room.playbackPreparation).toBeNull();
 		expect(room.isPlaying).toBe(false);
 		await leave("embedded-viewer");
-		room.currentSource = { service: "hls", id: "live.m3u8" };
+		room.currentSource = { service: "hls", id: "live.m3u8", isLive: true };
 		await join("live-viewer");
 		await room.play();
 		await leave("live-viewer");
@@ -540,6 +540,21 @@ describe("advancing to the next video", () => {
 		expect(room.isPlaying).toBe(true);
 		advanceTime(3);
 		expect(room.realPlaybackPosition).toBe(3);
+	});
+
+	it("holds a native source with unknown duration until its first decoded frame is confirmed", async () => {
+		await join("viewer");
+		await room.play();
+		room.queue = new VideoQueue([{ service: "direct", id: "unprobed-episode.mp4" }]);
+		await room.dequeueNext();
+		expect(room.isPlaying).toBe(false);
+		expect(room.playbackPreparation?.video).toEqual({
+			service: "direct",
+			id: "unprobed-episode.mp4",
+		});
+		const preparation = room.playbackPreparation!;
+		await confirm("viewer", { id: preparation.id, position: 0 });
+		expect(room.isPlaying).toBe(true);
 	});
 
 	it("keeps a viewer's confirmed position when the held episode starts", async () => {

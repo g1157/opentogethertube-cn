@@ -569,6 +569,14 @@
 							</template>
 						</v-list-item>
 
+						<v-list-item
+							v-if="!enhancementSupported"
+							data-cy="upscale-source-unavailable"
+						>
+							<v-list-item-subtitle class="settings-note">
+								{{ $t("room.upscale.source-unsupported-hint") }}
+							</v-list-item-subtitle>
+						</v-list-item>
 						<v-list-item class="upscale-tiers-item">
 							<v-btn-toggle
 								v-model="upscaleMode"
@@ -582,6 +590,7 @@
 									v-for="option in upscaleOptions"
 									:key="option.value"
 									:value="option.value"
+									:disabled="!enhancementSupported && option.value !== 'off'"
 									size="small"
 									:data-cy="`upscale-tier-${option.value}`"
 								>
@@ -603,7 +612,10 @@
 								:min="MIN_UPSCALE_STRENGTH"
 								:max="MAX_UPSCALE_STRENGTH"
 								:step="0.05"
-								:disabled="!SLIDER_STRENGTH_MODES.includes(upscaleMode)"
+								:disabled="
+									!enhancementSupported ||
+									!SLIDER_STRENGTH_MODES.includes(upscaleMode)
+								"
 								density="compact"
 								thumb-label
 								data-cy="upscale-strength"
@@ -612,6 +624,7 @@
 						<v-list-item>
 							<v-select
 								v-model="upscaleScale"
+								:disabled="!enhancementSupported"
 								:label="$t('room.upscale.scale')"
 								:hint="$t('room.upscale.scale-hint')"
 								:items="upscaleScaleOptions"
@@ -625,6 +638,7 @@
 						<v-list-item>
 							<v-checkbox
 								v-model="upscaleAutoDegrade"
+								:disabled="!enhancementSupported"
 								:label="$t('room.upscale.auto-degrade')"
 								:hint="$t('room.upscale.auto-degrade-hint')"
 								persistent-hint
@@ -739,11 +753,19 @@ const hoverToOpen =
 	!window.matchMedia("(pointer: coarse)").matches;
 
 type UpscaleMode = (typeof UPSCALE_MODES)[number];
-// Every tier is offered on every device; which one actually runs is the layer's call
-// (WebGPU where it works, the WebGL2 chain everywhere else). Hiding a button here — the
-// WebGPU probe used to swap "quality" for "ultra" — left a running tier with no button to
-// highlight the moment the probe's answer changed.
-const upscaleLabel = computed(() => t(`room.upscale.${store.state.settings.upscaleMode}`));
+// Keep every tier visible; the layer selects a backend and reports GPU failures.
+// Source support is separate: iframe and no-CORS playback cannot upload video textures.
+const controls = useMediaPlayer();
+const enhancementSupported = computed(
+	() =>
+		controls.checkForPlayer(controls.player.value) &&
+		controls.player.value?.isVideoEnhancementSupported?.() === true,
+);
+const upscaleLabel = computed(() =>
+	enhancementSupported.value
+		? t(`room.upscale.${store.state.settings.upscaleMode}`)
+		: t("room.upscale.source-unsupported"),
+);
 const upscaleOptions = computed(() =>
 	UPSCALE_MODES.map(mode => ({
 		value: mode,
@@ -784,7 +806,6 @@ const danmakuLabel = computed(() => {
 	}
 	return store.state.settings.danmakuEnabled ? t("common.on") : t("common.off");
 });
-const controls = useMediaPlayer();
 
 function implementsAudioBoost(p: MediaPlayer | null): p is MediaPlayerWithAudioBoost {
 	return !!p && "setAudioBoost" in p;

@@ -17,14 +17,19 @@
 需要 Docker Engine、Compose v2 和 Git（只用来取部署文件）。发布镜像是 **linux/amd64**，适配常见
 云服务器；`docker compose pull` 从公开的 `ghcr.io/g1157/opentogethertube-cn` 拉取，不需要登录
 （部分网络访问 ghcr.io 可能缓慢或超时；可配置可用代理，或在其他机器 `docker save` 后传输导入）。
-镜像内的运行依赖沿用固定基础镜像：
+从 `v1.4.20` 起，镜像采用独立多阶段构建：按本仓 `yarn.lock` 和 Yarn 补丁执行
+`workspaces focus ott-server --production`，再从干净的 Node 官方层只复制本仓运行产物。
+固定的系统基础镜像是：
 
 ```text
-dyc3/opentogethertube@sha256:feec95f418e7d438b632bb05311bfa522d5e40f13d019e2146216a49e5b53d93
+node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
 ```
 
-生产运行依赖沿用该 Linux 镜像，未完成全面升级。需要自行修改代码时见文末
-[从源码构建镜像](#从源码构建镜像可选)。
+运行镜像使用非 root 的 `node` 用户，不携带本仓单元测试、测试夹具或上游旧前端资源。
+发布前执行 `scripts/check-runtime-dependencies.mjs --image`，检查安装版本与锁文件一致、
+限流补丁实际生效、旧 DASH parser 不存在以及应用目录边界。锁文件更新会进入新的生产安装树，
+但不代表所有依赖通告都已消除；剩余项见 [审查完善清单](docs/project-review-2026-11-17.zh-CN.md#6-完善清单剩余事项成本与验收)。
+需要自行修改代码时见 [从源码构建镜像](#从源码构建镜像可选)。
 
 ## 新机器部署
 
@@ -72,9 +77,9 @@ sudo docker compose up -d --no-deps --no-build ott
 
 ## 从源码构建镜像（可选）
 
-需要在自己的提交上部署时，可在有 **Node.js 24** 的机器上本地构建；发布镜像包含的编译步骤
-与此一致（基础镜像内的运行依赖不会因本地 `node_modules` 改变，仅更新 lockfile 不能证明
-生产依赖已更新）：
+需要在自己的提交上部署时，可在有 **Node.js 24** 的机器上本地构建。先提交代码与版本记录，
+通过 lint 和受影响测试；发布流水线还会复用完整 CI 与 Rust 门禁。运行依赖由 Docker 构建
+按锁文件独立安装，不复制开发机的 `node_modules`：
 
 ```sh
 cd source
@@ -82,10 +87,14 @@ node .yarn/releases/yarn-4.1.0.cjs install --immutable
 node .yarn/releases/yarn-4.1.0.cjs workspace ott-common build
 node .yarn/releases/yarn-4.1.0.cjs workspace ott-server build
 GIT_COMMIT=$(git rev-parse HEAD) node .yarn/releases/yarn-4.1.0.cjs workspace ott-client build
+node scripts/check-client-revision.mjs "$(git rev-parse HEAD)"
 git archive --format=tar.gz -o client/dist/source-code.tar.gz HEAD
 docker build --platform linux/amd64 -f deploy/next.Dockerfile \
   --build-arg SOURCE_COMMIT=$(git rev-parse HEAD) \
+  --build-arg OTT_VERSION=local \
   -t ghcr.io/g1157/opentogethertube-cn:local .
+docker run --rm --platform linux/amd64 --network none --read-only --entrypoint node \
+  ghcr.io/g1157/opentogethertube-cn:local /app/scripts/check-runtime-dependencies.mjs --image
 cd ..
 ```
 
@@ -257,7 +266,10 @@ HTML、源码包和 `/api/status/version` 使用 `Cache-Control: no-store`，前
 媒体通常由浏览器从原片源加载，应用带宽主要用于页面、控制消息和元信息探测；平台解析、ffprobe、
 代理配置及外部服务可能改变 CPU/网络消耗，应按实际启用能力测量。
 `run` 在源站支持时使用 Range 跳读；它没有固定下载字节上限，不能当作所有片源恒定只读几 KiB。
-单次网络读取超时为约 12 秒，探测进程总上限 35 秒，避免慢源长期占用子进程。
+启动前 DNS 检查上限为约 5 秒；单次网络读取超时约 12 秒，探测子进程总上限 20 秒，
+超时后终止子进程并清理资源。这些是分阶段预算，不是整个 HTTP 请求统一 20 秒。
+HLS / DASH / 自定义 JSON 清单响应另有 2 MiB 大小与 5 秒主动取消边界；DASH 元数据解析有
+深度 / 元素预算并分块让出事件循环。
 
 默认每个服务的 Docker 日志为 10 MB × 3 文件，三个服务约 90 MB 的日志轮转预算；它不限制数据库、
 Redis AOF、镜像、源码包或备份占用。按实际数据和保留周期规划磁盘与备份，不要把容器内存上限当成磁盘上限。

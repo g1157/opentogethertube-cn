@@ -6,10 +6,14 @@
 // (Mode A+A: the same twice, the highest perceptual quality the port offers).
 import type { Anime4KPipeline } from "anime4k-webgpu";
 import { reportEnhancementError, reportEnhancementTarget } from "./status";
+import {
+	startVideoRenderLoop,
+	waitForDecodedFrame,
+	type VideoRenderLoop,
+} from "./video-render-loop";
+import type { UpscaleRenderer } from "./upscale-renderer";
 
-export interface UpscaleRenderer {
-	stop(): void;
-}
+export type { UpscaleRenderer } from "./upscale-renderer";
 
 export type Anime4KVariant = "fast" | "quality";
 
@@ -62,12 +66,9 @@ export async function startAnime4KRenderer(
 	variant: Anime4KVariant = "fast",
 	/** Called when WebGPU stops the tier on its own: a lost device or a failed setup. */
 	onFatal?: (message: string) => void,
+	signal?: AbortSignal,
 ): Promise<UpscaleRenderer> {
-	if (video.readyState < video.HAVE_FUTURE_DATA) {
-		await new Promise<void>(resolve => {
-			video.addEventListener("loadeddata", () => resolve(), { once: true });
-		});
-	}
+	await waitForDecodedFrame(video, signal);
 	const width = video.videoWidth;
 	const height = video.videoHeight;
 
@@ -78,22 +79,21 @@ export async function startAnime4KRenderer(
 	if (!adapter) {
 		throw new Error("WebGPU adapter unavailable");
 	}
+	signal?.throwIfAborted();
 	const device = await adapter.requestDevice();
-	let frameRequest = 0;
+	let loop: VideoRenderLoop | undefined;
+	let context: GPUCanvasContext | null = null;
 	let stopped = false;
 	let frames = 0;
-	/** Media time of the frame the last loop callback drew; a repeated presentation of the
-	 * same frame (a rate-change re-time, a redraw after a seek) is skipped, not drawn twice. */
-	let lastFrameMediaTime = Number.NaN;
-	let drawFailures = 0;
 	let drawFrame: () => void = () => undefined;
 	try {
+		signal?.throwIfAborted();
 		// WebGPU reports most setup mistakes through error scopes instead of exceptions. A
 		// browser with a partial implementation would otherwise keep "rendering" with
 		// nothing on screen and never let the layer fall back to a tier that works.
 		device.pushErrorScope("validation");
 		// @webgpu/types supplies the WebGPU globals; the DOM lib has no overload for this context id.
-		const context = canvas.getContext("webgpu") as GPUCanvasContext | null;
+		context = canvas.getContext("webgpu") as GPUCanvasContext | null;
 		if (!context) {
 			throw new Error("WebGPU canvas context unavailable");
 		}
@@ -101,6 +101,7 @@ export async function startAnime4KRenderer(
 		context.configure({ device, format: presentationFormat, alphaMode: "premultiplied" });
 
 		const { ModeA, ModeAA } = await import("anime4k-webgpu");
+		signal?.throwIfAborted();
 
 		const videoFrameTexture = device.createTexture({
 			size: [width, height, 1],
@@ -156,25 +157,18 @@ export async function startAnime4KRenderer(
 			throw new Error(`WebGPU rejected the ${variant} pipeline: ${validationError.message}`);
 		}
 
-		const fail = (message: string) => {
-			console.error(`[video-enhancement] ${message}`);
-			reportEnhancementError(message);
-			onFatal?.(message);
-		};
-
 		void device.lost.then(info => {
-			if (stopped) {
-				return;
+			if (!stopped) {
+				loop?.fail(
+					`WebGPU device lost (${info.reason})${info.message ? `: ${info.message}` : ""}`,
+				);
 			}
-			stopped = true;
-			video.cancelVideoFrameCallback(frameRequest);
-			fail(`WebGPU device lost (${info.reason})${info.message ? `: ${info.message}` : ""}`);
 		});
 		device.onuncapturederror = event => {
-			// The tier may still be drawing, so this only records the cause; the playback
-			// details panel shows it, and the console keeps the full message.
-			console.error("[video-enhancement] uncaptured WebGPU error:", event.error.message);
-			reportEnhancementError(event.error.message);
+			if (!stopped) {
+				reportEnhancementError(event.error.message);
+				loop?.fail(event.error.message);
+			}
 		};
 
 		/**
@@ -198,7 +192,7 @@ export async function startAnime4KRenderer(
 			const passEncoder = commandEncoder.beginRenderPass({
 				colorAttachments: [
 					{
-						view: context.getCurrentTexture().createView(),
+						view: context!.getCurrentTexture().createView(),
 						clearValue: { r: 0, g: 0, b: 0, a: 1 },
 						loadOp: "clear",
 						storeOp: "store",
@@ -221,58 +215,25 @@ export async function startAnime4KRenderer(
 			frames++;
 		};
 
-		const frame = (_now: number, metadata: VideoFrameCallbackMetadata) => {
-			if (stopped) {
-				return;
-			}
-			try {
-				const mediaTime = metadata?.mediaTime;
-				if (mediaTime === undefined || !(Math.abs(mediaTime - lastFrameMediaTime) < 1e-4)) {
-					lastFrameMediaTime = mediaTime ?? Number.NaN;
-					drawFrame();
-				}
-				drawFailures = 0;
-			} catch (error) {
-				// A draw that throws used to end the loop silently, freezing the canvas under a
-				// tier that still looked enabled. Three failures in a row stand the renderer
-				// down and surface the reason in the playback details panel.
-				drawFailures++;
-				if (drawFailures >= 3) {
-					stopped = true;
-					reportEnhancementError(error instanceof Error ? error.message : String(error));
-					return;
-				}
-			}
-			frameRequest = video.requestVideoFrameCallback(frame);
-		};
-		// A paused video presents no frames, so nothing would redraw the picture the viewer is
-		// looking at — including the case of a tier that started while the video was paused.
-		video.addEventListener("pause", drawFrame);
-		video.addEventListener("seeked", drawFrame);
-		drawFrame();
-		frameRequest = video.requestVideoFrameCallback(frame);
+		loop = startVideoRenderLoop(
+			video,
+			canvas,
+			drawFrame,
+			() => {
+				stopped = true;
+				context?.unconfigure();
+				device.destroy();
+			},
+			onFatal,
+		);
 	} catch (err) {
-		// A setup that fails halfway — a browser that cannot upload a <video> frame (Firefox),
-		// or a driver that rejects the pipeline — must not leave its device, textures and
-		// listeners behind: the tier is retried on every tier switch and fullscreen toggle, so
-		// each failure would otherwise leak a GPU device until the process runs out of memory.
-		stopped = true;
-		if (frameRequest) {
-			video.cancelVideoFrameCallback(frameRequest);
+		if (!stopped) {
+			stopped = true;
+			context?.unconfigure();
+			device.destroy();
 		}
-		video.removeEventListener("pause", drawFrame);
-		video.removeEventListener("seeked", drawFrame);
-		device.destroy();
 		throw err;
 	}
 
-	return {
-		stop() {
-			stopped = true;
-			video.cancelVideoFrameCallback(frameRequest);
-			video.removeEventListener("pause", drawFrame);
-			video.removeEventListener("seeked", drawFrame);
-			device.destroy();
-		},
-	};
+	return loop;
 }

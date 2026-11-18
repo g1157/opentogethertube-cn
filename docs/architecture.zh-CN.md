@@ -4,8 +4,8 @@
 同步引擎、服务端与客户端内部结构、数据与配置、测试与发布流程。面向想深入代码的贡献者与运维者；
 "改哪里、有哪些坑"的速查版见配套的 [AI 工作手册](./ai-handbook.zh-CN.md)。
 
-**版本快照**：`feat/ass-subtitles` @ v1.4.6 之后的修复批次（2026-10-19；未发版）。
-涉及具体行为时以工作区代码为准。
+**版本快照**：`v1.4.20` 的实现；审查基线为 `e3c6e832`（`v1.4.19`），发布身份以 Git 标签与镜像 revision 为准。
+[本轮审查与完善清单](project-review-2026-11-17.zh-CN.md)记录验证范围与剩余风险，具体行为以代码为准。
 
 ---
 
@@ -20,7 +20,7 @@
 
 - **不托管、不转码、不代理媒体**。播放源是第三方直链（MP4/HLS/DASH/自定义清单）或平台的
   iframe 嵌入；画质增强整条链路在客户端（WebGPU/WebGL2），**服务器不需要 GPU**。
-- **单实例是完整的部署形态**。Rust 负载均衡器设计完备但在本分支生产未启用（§9），
+- **单实例是完整的部署形态**。Rust 多实例组件在本分支生产未启用（§9），
   多机扩展是"备而不用"的能力。
 - **Cloudflare 预览版是能力子集**：无账号体系、无语音、无 SponsorBlock 等，见 §10。
 
@@ -109,7 +109,8 @@ docs/              中文专题文档（本文件所在处）
 - 客户端连接 `ws(s)://<host>/api/room/<name>[?reconnect=true]`。
 - **首消息必须是 `auth`**：10 秒内未完成认证即被踢（`OttWebsocketError.MISSING_TOKEN`）；
   token 来自 Redis 会话（`auth:<token>`），最长 1024 字符（真实 token 约 684 字符）。
-- 认证后客户端发 `JoinRequest`；服务端先回一条完整 `sync`（权威状态），再按需补发便签与语音名单。
+- 认证后处理 `JoinRequest`；服务端先回完整 `sync`，再补便签 / 语音。早到的普通消息等待 pending join，
+  成员建立后才处理；断开后停止，密码异步校验结束也重核连接。登录 / 认领可用 `reauthenticate` 原地更新身份。
 - `connected` 语义：客户端在**收到第一条 `sync`** 时才认为连接成功（见 §7.3）。
 - 心跳：服务端每 10s 扫一遍连接，`isAlive` 为 false 直接 `terminate()`，否则发 WS ping；收到 pong 置 alive。
 - 应用层延迟探测：客户端每 15s 发 `{action:"ping", t0}`，服务端回 `pong`（每连接限 1 次/秒）。
@@ -158,8 +159,10 @@ docs/              中文专题文档（本文件所在处）
 - 广播只包含脏字段（增量 `sync`），客户端按字段逐项应用。
 - Redis：storable 脏字段触发 5s debounce 保存；房间卸载时 flush；写失败只记日志，脏集合保留待下次重试
   （v1.2.6 修复了"Redis 写失败变成未捕获 rejection"）。
-- Postgres：仅永久房间，脏设置变化时 `storage.updateRoom()`。
-- 1s tick（`roommanager.runUpdate`，带单飞守卫）：`room.update()`（缓冲门、保活、出队、投票排序、SponsorBlock）
+- Postgres：仅永久房间，脏设置变化时 `storage.updateRoom()`；grants 与 permissionsRevision 同一 checkpoint。
+  当前 pause / seek 等仍可能附带整条 prevQueue 快照，全局 tick 仍串行 await 房间落盘，属于性能改善项。
+- SponsorBlock 以单飞异步任务刷新，不再 await 在全局 tick 内；返回结果绑定 source 和 requestId，卸载使旧结果失效。
+- 1s tick（`roommanager.runUpdate`，带单飞守卫）：`room.update()`（缓冲门、保活、出队、投票排序）
   + `room.sync()`；超过 `room.unload_after`（默认 300s）无活动的房间被卸载。
 
 ### 5.4 客户端纠偏状态机（`client/src/util/playback-sync.ts`）
@@ -169,10 +172,11 @@ docs/              中文专题文档（本文件所在处）
 | 常量 | 值 | 含义 |
 | --- | --- | --- |
 | `BEND_START` / `BEND_STOP` | 0.3s / 0.15s | 进入/退出微调的迟滞死区 |
-| `BEND_FULL` | 0.5s | 漂移达到该值时速率修正拉满 |
+| `CATCHUP_FULL` | 1s | 温和 ±8% 区上界，之后到 3s 线性增至 ±15% |
 | `MAX_BEND` | ±8% | 温和微调上限（可 bend 的播放器） |
 | `CATCHUP_MAX_BEND` | ±15% | 1–3s 漂移时的追赶区上限 |
-| `HARD_SEEK_DRIFT` | 3s（不可 bend 时 1s） | 硬跳阈值 |
+| 周期 tick 硬跳阈值 | 可 bend 播放中 3s，初始 8s 冷却期 10s；不可 bend / 关闭开关 1s | 周期被动纠偏 |
+| 收到 sync 的纠偏阈值 | 可 bend 播放中 3s；暂停 / 不可 bend / 关闭开关 300ms | `seekIfDriftIsLarge`，与 tick 不同 |
 | `BEND_DEADLINE_MS` / `MAX_BEND_DEADLINE_MS` | 8s / 30s | 收敛期限，超期回退硬跳 |
 | seek 冷却 | 2s；上次 seek 后有缓冲则 8s | 防 seek 风暴 |
 | `RATE_WRITE_THRESHOLD` | 0.002 | 速率写入死区 |
@@ -180,13 +184,15 @@ docs/              中文专题文档（本文件所在处）
 | 单程延迟 | 最近 8 个样本的 `min(RTT)/2`（>5s 丢弃、>180s 老化） | 锚点前移量 |
 
 **能力分层**：Direct / HLS / DASH 是原生 `<video>`，可写 `playbackRate` → 支持速率微调；
-YouTube / Vimeo / PeerTube / Bilibili 只能 seek。纠偏层通过 `supportsRateBend()` 运行时探测。
+YouTube / Vimeo / PeerTube 依平台 API seek；Bilibili 无控制 API，只能重载和估算位置。
+纠偏层通过 `supportsRateBend()` 运行时探测；开关是按设备保存的普通偏好。
 
 ### 5.5 三个配套机制
 
-- **首帧对齐**（`playback-preparation.ts` + 服务端 `holdPlaybackForPreparation`）：换片/出队/立即播放时，
-  房间先停在新视频片头，选一名有播放权限的观众 prime，客户端确认 `ready` 且位置误差 ≤1s 后才 `play()` 并启动时钟；
-  从数据库恢复的房间保持"无播放意图"，进入房间不会自动开播。
+- **首帧准备轮次**（`playback-preparation.ts` + `server/room.ts`）：换片 / 出队 / 立即播放时快照 eligible，
+  客户端在首帧与缓冲跑道（MP4 3s、HLS / DASH 6s）后回执；多人全体 ready 走 +1s 起播，8s partial，20s forced。
+  未知时长的原生点播仍进入准备，明确 `isLive` 的直播跳过；后台 / 失败成员不无限阻塞。
+  从存储恢复的房间保持暂停。详见 [playback-sync](playback-sync.zh-CN.md)。
 - **媒体恢复**（`media-recovery.ts`）：网络错误 1s/3s/6s 三次重试，解码错误一次；卡顿阶梯 = 等待（HLS 交给 hls.js 自愈，不重建 MSE；无引擎级重试的源走重载）→ +0.3s 跳转 → +3s 跳转（超时 8s 触发）；MSE 重建只发生在错误路径。
 - **seek 语义**（`media-seek.ts`）：50ms 容差，先暂停再写 `currentTime`，`readyState ≥ 2` 且位置收敛才算完成。
 
@@ -217,7 +223,7 @@ YouTube / Vimeo / PeerTube / Bilibili 只能 seek。纠偏层通过 `supportsRat
 
 - 原生 `ws`（`noServer` + HTTP `upgrade`）+ `server/clientmanager.ts` 路由；帧级 Zod 校验（`server/ws-schemas.ts`）。
 - 客户端 → 服务端消息：`auth`、`kickme`、`status`（播放状态 + 首帧确认）、`notify`、`req`（房间请求）、
-  `voice`、`signal`、`ping`。
+  `voice`、`signal`、`ping`、`diagnostics`、`reauthenticate`。
 - 服务端 → 客户端消息：`sync`、`user`、`you`、`notes`、`event`、`eventcustom`、`chat`、`announcement`、
   `voice`、`signal`、`pong`、`error`、`unload`。
 - **房间请求白名单**：内部请求类型（如 UpdateUser 的成员变更路径）不可由客户端直接发起。
@@ -231,7 +237,8 @@ YouTube / Vimeo / PeerTube / Bilibili 只能 seek。纠偏层通过 `supportsRat
 - 生命周期：内存 → Redis 快照（崩溃恢复播放进度）→ Postgres（永久房间设置）；房间懒加载，重启不恢复风暴。
 - 永久房间每次设置变更落库，且只有永久房间允许便签；临时房间不碰 Postgres。
 - `roommanager` 用 EventEmitter 总线（`publish`/`command`/`load`/`unload`）与传输层解耦；
-  `INCR roommanager:load_epoch` 为多机场景提供全局装载序号（balancer 用）。
+  `INCR roommanager:load_epoch` 为多机场景提供装载序号（balancer 用），成功后才把实例公开到 rooms。
+  建房 / 装载 / 卸载按小写名字加 Mutex，避免大小写变体重复装载，锁随使用者归零释放。
 
 ### 6.4 认证、限流
 
@@ -241,7 +248,8 @@ YouTube / Vimeo / PeerTube / Bilibili 只能 seek。纠偏层通过 `supportsRat
 - **全局限流**：`rate-limiter-flexible`，1000 点/小时/IP，超限封 120s；按端点扣点（建房 50/200、
   队列 5（批量 ×3/视频）、搜索 5/75、`auth/grant` 20、注册 100、密码找回 100/10、账号 10、CSP 25）。
 - **登录爆破**：IP 维度 100 次失败/24h（封 24h）+ 用户名×IP 维度 10 次连续失败（封 1h，成功清零）。
-- API key 校验用 `timingSafeEqual`（`server/admin.ts`）。
+- API key 校验用 `timingSafeEqual`（`server/admin.ts`）。房间请求先验证 token 会话，再使用 token 匹配的缓存成员。
+  语音加入的预算判断与座位保留同步执行；relay 选择单飞并绑定当前参与者 Set，旧会话结果不能落入新会话。
 
 ### 6.5 信息提取与媒体源适配器
 
@@ -261,9 +269,10 @@ YouTube / Vimeo / PeerTube / Bilibili 只能 seek。纠偏层通过 `supportsRat
 ### 6.6 直链探测（`server/ffprobe.ts`）
 
 三种策略（`info_extractor.direct.ffprobe_strategy`）：`run`（默认，把 URL 直接交给 ffprobe，Range 读取）、
-`stream`（自行下载字节流入管道）、`disk`（下载到临时文件）。统一 20s 硬超时、最多 5 次重定向；
-每次重定向都过一次 SSRF 私网地址检查（已知缺口：`run` 路径的 DNS rebinding，见修复报告）。
-HLS/DASH 不走 ffprobe，分别用 `m3u8-parser` / `dash-mpd-parser` 解析清单。
+`stream`（自行下载字节流入管道）、`disk`（下载到临时文件）。子进程硬截止 20s、ffprobe I/O 12s，启动前解析最多 5 次重定向；
+每次启动前解析的重定向都过公网检查，DNS 与解析请求有 5s 边界，ffprobe 使用最终 `resolvedUri`。
+子进程仍会独立解析 DNS、读取后续 HTTP 资源，完整出站闭环尚未实现，见审查清单。
+HLS/DASH 不走 ffprobe，分别用 `m3u8-parser` / `saxes` 解析清单；DASH 只提取有界预览元数据，不展开完整 DOM 或时间线。
 
 ### 6.7 存储
 
@@ -282,7 +291,7 @@ HLS/DASH 不走 ffprobe，分别用 `m3u8-parser` / `dash-mpd-parser` 解析清�
 | `voice:relay-bytes:<YYYY-MM>` | 语音中继月度用量 | 62 天 |
 | `announcement`（pub/sub 频道） | 全局公告扇出 | — |
 
-**Postgres**（Sequelize；迁移在 `server/migrations/`，当前 22 个）：
+**Postgres**（Sequelize；迁移在 `server/migrations/`，当前 27 个）：
 
 | 模型 | 表 | 关键内容 |
 | --- | --- | --- |
@@ -354,7 +363,7 @@ HLS/DASH 不走 ffprobe，分别用 `m3u8-parser` / `dash-mpd-parser` 解析清�
 
 ### 7.5 Room.vue 与 250ms 循环
 
-`views/Room.vue`（约 2468 行）是房间编排器：连接、RoomApi、播放器 composable、播放同步/首帧准备/
+`views/Room.vue`（约 3056 行）是房间编排器：连接、RoomApi、播放器 composable、播放同步/首帧准备/
 媒体恢复/画质上报、语音、手势、快捷键、全屏、聊天/队列/便签/设置等全部在此接线。
 每 250ms 的 `setInterval` 更新真实位置、Media Session、下一集预取、首帧准备与 `playbackSync.tick()`。
 播放器事件 → `applyIsPlaying()`/`applySeek()`；服务端 sync → 重算锚点再应用。
@@ -377,25 +386,26 @@ HLS/DASH 不走 ffprobe，分别用 `m3u8-parser` / `dash-mpd-parser` 解析清�
 
 ### 7.7 画质增强（全部在客户端）
 
-档位：`off` / `sharpen`（清晰化）/ `film`（影视）/ `anime4k`（AI 快速）/ `anime4k-quality`（AI 质量）/
-`anime4k-ultra`（极致，仅无 WebGPU 设备显示）。渲染器选择在 `components/players/UpscaleLayer.vue`：
+档位：off、sharpen、film、anime4k、anime4k-quality、anime4k-ultra。全部保留在菜单里；
+片源能力由 `MediaPlayer.isVideoEnhancementSupported` 提供，iframe / Direct 无 CORS 回退不支持纹理读取，
+控件明确禁用并保留全局偏好。GPU 可用性另外实测，失败由增强层报告和降级。
 
 | 档位 | 实现 | 说明 |
 | --- | --- | --- |
-| 清晰化 | WebGL2 + FSR1 EASU/CAS（`util/upscale/cas.ts`） | 12 抽头边缘自适应放大 + 对比自适应锐化 |
-| 影视 | WebGL2（`film.ts`） | 保边去噪去块 → 压平色带 + 抖动 → EASU → 0.6 系数锐化 |
-| AI 快速/质量 | WebGPU（`anime4k.ts`，anime4k-webgpu 的 ModeA / A+A） | 拿不到 WebGPU 时质量档改走 WebGL2 A+A 链 |
-| AI 极致 | WebGL2（`anime4k-ultra.ts`，55 段，2× 下 46 pass） | 官方 Anime4K v4.0.1 GLSL 逐字生成，与 mpv A+A (HQ) 对齐 |
+| 清晰化 | WebGL2（`cas.ts`） | FSR1 EASU → 自有邻域限幅锐化，不是 AMD CAS / RCAS |
+| 影视 | WebGL2（`film.ts`） | 去噪 / 去带 / 抖动 → EASU → 0.6 系数锐化 |
+| AI 快速 | WebGPU Mode A 或 WebGL2 S | 探针成功后才导入 WebGPU 库 |
+| AI 质量 | WebGPU A+A 或 WebGL2 A+A (HQ) | 目标尺寸闸门决定实际执行链 |
+| AI 极致 | 显式 WebGL2 A+A (HQ) | 55 段 shader 定义；本轮 1.5× 目标实际 47 pass（含呈现） |
 
-- 尺寸与倍率：`scale.ts` 统一计算画布；autos 跟随显示盒，仅 CNN 档有 1.25× 下界；
-  电脑（指针设备）默认按 2× 源分辨率渲染，触屏贴合显示尺寸。
-- WebGPU 探针（`webgpu-probe.ts`）真正跑一遍存储纹理读写 + 视频上传校验，只有确证不支持才排除 WebGPU 档；
-  失败不缓存。
-- 性能与降档：渲染目标池化复用、程序按 GL 上下文缓存；自动降档按 档位 → 倍率（下限 `min(1, 显示盒倍率)`）→ 关闭 的阶梯，
-  **连续两个** 6 秒判定窗口都判坏（缺帧 >8%、<18fps、管线丢帧 >8%）才降一级；`seeking`、暂停、缓冲与后台标签页会重置窗口且不计入，
-  降档只影响本次会话（`settings/UPDATE_TRANSIENT`）。
-- 生成物 `anime4k-glsl.ts` / `anime4k-ultra-glsl.ts` **不要手改**，由
-  `scripts/anime4k-glsl-to-webgl2.mjs` + `.sh` 从官方 GLSL 生成（Biome 已排除这两个文件）。
+- `scale.ts` 为唯一尺寸来源：自动按 contain / cover、显示框与 DPR（≤3）计算，正常源至少 1×；
+  CNN 在精细指针设备有 1.25× 下界，自动像素预算为 4K、最大 3×，显式 0.25×–3× 不受自动预算约束。
+- 共用 `video-render-loop.ts`：rVFC 按 mediaTime 去重、后台跳过、暂停 / seek / resize 重绘、fatal 释放。
+  WebGPU 首帧等待 4s 可取消；generation 与原元素回调归属防止慢启动覆盖新实例。
+- GL program 按 context 缓存，链接后释放 shader；WebGL CNN 闲置 15s 释放中间纹理 / framebuffer，重绘再创建。
+- 降档观察 video 呈现节奏 / <18fps / 管线丢帧；两个 6s 坏窗口才降级，重建首窗口不评分，
+  暂停 / seek / 缓冲 / 后台重置；`UPDATE_TRANSIENT` 不覆写偏好。该判据不是 GPU 完成测量。
+- 生成 GLSL 禁止手改。机制、实测与限制见 [video-enhancement](video-enhancement.zh-CN.md)。
 
 ### 7.8 i18n 与构建
 
@@ -403,6 +413,9 @@ HLS/DASH 不走 ffprobe，分别用 `m3u8-parser` / `dash-mpd-parser` 解析清�
   切换语言同时更新 `Accept-Language`。非中英语言目前普遍缺数百个键（已知项）。
 - 构建（`client/vite.config.js`）：Vite；`hls.js`/`dashjs`/`three`/`anime4k-webgpu` 保持异步分块（动态 import），
   其余依赖进 `vendor`；生产剥离 `console.log/info`；dev server 8080 代理 `/api` 到 3000（含 WS）。
+- Service Worker 按 registration scope 隔离缓存，只缓存 assets，清理自己的旧缓存，限制 128 条；
+  写入交给 waitUntil，quota 错误不改变成功网络响应。条目上限不是字节上限。
+- 消息音效在第一次启用后的播放时才加载，单飞、请求 5s、错误被捕获；入房不预先下载或创建 AudioContext。
 - 更新检查：`util/client-update.ts` 每 120s + `pageshow/online/visibilitychange` 拉 `/api/status/version`，
   比对 revision（git hash 或 `cloudflare-preview-N.N.N`），提示刷新且避免打断输入。
 
@@ -410,7 +423,7 @@ HLS/DASH 不走 ffprobe，分别用 `m3u8-parser` / `dash-mpd-parser` 解析清�
 
 ## 8. 共享层 `common/`
 
-- `models/messages.ts`：全部 WS 消息类型（服务端→客户端 13 种、客户端→服务端 8 种、房间请求 23 种），
+- `models/messages.ts`：全部 WS 消息类型（服务端→客户端 13 种、客户端→服务端 10 种、房间请求 23 种），
   是前后端协议的唯一定义；服务端另有 Zod 校验 `server/ws-schemas.ts`。
 - `permissions.ts`：28 个权限位、角色继承、`Grants` 序列化（始终强制 Owner/Administrator 全权限）。
 - `exceptions.ts`：`OttException` + 权限/角色/token 三个基础异常；服务端子类在 `server/exceptions.ts`。
@@ -423,7 +436,7 @@ HLS/DASH 不走 ffprobe，分别用 `m3u8-parser` / `dash-mpd-parser` 解析清�
 
 ---
 
-## 9. Rust 层（设计完备，生产未启用）
+## 9. Rust 层（多实例组件，生产未启用）
 
 | crate | 职责 |
 | --- | --- |
@@ -454,6 +467,8 @@ D1 存身份/房间索引/媒体缓存/限流，`MaintenanceObject` 每 6h 清�
 - 支持：永久/临时房间、公开房间列表、昵称与权限、踢人、MP4/HLS/DASH/自定义清单直链、同步播放/聊天/队列/投票、恢复。
 - 不支持：账号登录、跨浏览器身份、DJ 模式、SponsorBlock、undo、语音。
 - 限制：每房间 100 连接、每身份 4 连接、每身份 20 房间、单消息 64KB、队列 ≤200 项、媒体解析 2MiB/16 请求。
+- 媒体 / 分片 probe 使用 AbortController，期限取 12s 与剩余总预算较小者，完成后清 timer；
+  live HLS / 自定义清单保留 isLive，header probe 超时不会丢掉有效 HLS 元数据。
 - 配额与费用见 [cloudflare-quotas.zh-CN.md](./cloudflare-quotas.zh-CN.md)，部署见
   [DEPLOYMENT-CLOUDFLARE.md](../DEPLOYMENT-CLOUDFLARE.md)。
 
@@ -465,9 +480,9 @@ D1 存身份/房间索引/媒体缓存/限流，`MaintenanceObject` 每 6h 清�
 
 | 位置 | 规模 | 运行 |
 | --- | --- | --- |
-| `server/tests/unit/**` | 50 个 `*.spec.ts`（+1 类型测试，828 项） | `yarn workspace ott-server test`（需 `NODE_ENV=test` 与已迁移的测试库） |
-| `client/tests/unit/**` | 91 个 `*.spec.ts`（+3 个旧 `.js`，约 1005 项） | `yarn workspace ott-client test`（脚本已带 `NODE_ENV=test`） |
-| `common/tests/unit/**` | 9 个 `*.spec.ts`（+1 类型测试，76 项） | `yarn workspace ott-common test` |
+| `server/tests/unit/**` | 65 个 runtime spec + 1 个 type spec | `yarn workspace ott-server test`（需 `NODE_ENV=test` 与已迁移的测试库） |
+| `client/tests/unit/**` | 100 个 `*.spec.ts` + 3 个旧 `.spec.js`（skip） | `yarn workspace ott-client test`（脚本已带 `NODE_ENV=test`） |
+| `common/tests/unit/**` | 8 个 runtime spec + 1 个 type spec | `yarn workspace ott-common test` |
 | `tests/e2e/integration/*.spec.ts` | 9 个 Cypress 用例 | `yarn cy:run`（本地运行，**不在 CI**；含上游英文选择器） |
 | `crates/**` | Rust 单元 + harness 集成测试 | `cargo test` |
 | `tests/load/*.js` | 7 个 k6 脚本 | `k6 run <script>`（需手动准备房间） |
@@ -481,10 +496,15 @@ D1 存身份/房间索引/媒体缓存/限流，`MaintenanceObject` 每 6h 清�
   typos；Grafana 插件兼容检查。`docs/**`、`env/**`、`*.md` 的改动不触发。
 - `rust.yml`：Rust 1.84，fmt/check/clippy/doc/test。
 - `codeql-analysis.yml`：JS/TS 静态分析。
-- `publish-image.yml`：推送 `v*` 标签触发，构建并推 `ghcr.io/g1157/opentogethertube-cn:<tag>` 与 `:latest`。
+- `publish-image.yml`：推送 `v*` 标签触发；通过 `workflow_call` 复用上述 Node / PostgreSQL / typos /
+  Grafana / codegen 与 Rust 全部门禁，只有全部成功后才构建并校验 client revision。
+  镜像按本仓 `yarn.lock` 安装服务端生产依赖，核验版本与补丁、非 root 身份和应用目录边界后，
+  推 `ghcr.io/g1157/opentogethertube-cn:<tag>` 与 `:latest`。
 
-**发布流程**：本地打 `vX.Y.Z` 标签并推送 → Actions 构建镜像 → 服务器拉取新镜像（改 `.env` 的
-`OTT_IMAGE`）→ 先在 18080 验收、同一镜像晋升 8080；回退 = 改回旧 tag + `up -d --no-deps`。
+**发布流程**：只提交本批代码与版本记录 → 本地 lint / 测试 / 生产构建通过 → 推送已验证 revision →
+打并推 annotated tag → Actions 镜像 → 备份 / 导入同一镜像 / 独立端口验收 / 正式更新与端到端验证。
+标签不移动，回退保留旧镜像、数据库与环境备份，实际流程见 [DEPLOYMENT.md](../DEPLOYMENT.md)。
+具体发布提交、镜像摘要与上线验收见对应版本的 GitHub Release。
 版本记录在[version-notes.zh-CN.md](./version-notes.zh-CN.md)。
 
 ---

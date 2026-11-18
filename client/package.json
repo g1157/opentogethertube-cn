@@ -20,7 +20,7 @@
 		"@vimeo/player": "^2.20.1",
 		"@vueuse/core": "^9.6.0",
 		"anime4k-webgpu": "^1.0.0",
-		"axios": "1.13.5",
+		"axios": "1.21.1",
 		"dashjs": "5.0.3",
 		"dayjs": "^1.10.4",
 		"hls.js": "1.6.12",

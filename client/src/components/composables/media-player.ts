@@ -91,6 +91,8 @@ export interface MediaPlayer {
 	 * panel reads live statistics from it; iframe players (YouTube, Vimeo) have none.
 	 */
 	getVideoElement?(): HTMLVideoElement | undefined;
+	/** The source permits video texture uploads; reads reactive CORS fallback state. */
+	isVideoEnhancementSupported?(): boolean;
 
 	isCaptionsSupported(): boolean;
 	isQualitySupported(): boolean;

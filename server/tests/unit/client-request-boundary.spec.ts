@@ -15,6 +15,7 @@ import {
 } from "ott-common/models/messages.js";
 import { OttWebsocketError, PlayerStatus, Role } from "ott-common/models/types.js";
 import permissions from "ott-common/permissions.js";
+import tokens from "../../auth/tokens.js";
 
 class ConnectedGuest extends Client {
 	sendRaw = vi.fn();
@@ -46,6 +47,7 @@ describe("client room request authorization boundary", () => {
 		vi.spyOn(roommanager, "getRoom").mockResolvedValue(ok(room));
 		vi.spyOn(room, "publish").mockResolvedValue(undefined);
 		vi.spyOn(usermanager, "getUser").mockResolvedValue(owner);
+		vi.spyOn(tokens, "getSessionInfo").mockResolvedValue(client.session);
 		clientmanager.addClient(client);
 	});
 	afterEach(async () => {

@@ -257,11 +257,11 @@ export interface VoiceJoinDecision {
 	includeRelay: boolean;
 }
 
-export async function decideVoiceJoin(input: {
+export function decideVoiceJoin(input: {
 	roomParticipants: number;
 	roomAlreadyInVoice: boolean;
 	voiceRoomCount: number;
-}): Promise<VoiceJoinDecision> {
+}): VoiceJoinDecision {
 	const maxParticipants = conf.get("voice.max_participants_per_room");
 	if (maxParticipants > 0 && input.roomParticipants >= maxParticipants) {
 		return { allowed: false, reason: "room-full", includeRelay: false };

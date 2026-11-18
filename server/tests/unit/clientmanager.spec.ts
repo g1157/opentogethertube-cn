@@ -13,7 +13,7 @@ import {
 	balancerManager,
 } from "../../balancer.js";
 import { BalancerClient, Client, DirectClient } from "../../client.js";
-import type WebSocket from "ws";
+import WebSocket from "ws";
 import type { OttWebsocketError } from "ott-common/models/types.js";
 import { buildClients } from "../../redisclient.js";
 import { type Result, ok } from "ott-common/result.js";
@@ -23,6 +23,7 @@ import type { Request } from "express";
 import { loadConfigFile, conf } from "../../ott-config.js";
 import { type M2BInit, UnloadReason, type MsgB2M } from "../../generated.js";
 import { RoomRequestType } from "ott-common/models/messages.js";
+import tokens, { type SessionInfo } from "../../auth/tokens.js";
 
 class TestClient extends Client {
 	sendRawMock = vi.fn();
@@ -40,6 +41,11 @@ class TestClient extends Client {
 		this.kickMock(code);
 		this.emit("disconnect", this);
 	}
+}
+
+async function authenticate(client: Client, token: string, session: SessionInfo) {
+	await tokens.setSessionInfo(token, session);
+	await client.auth(token);
 }
 
 class BalancerConnectionMock extends BalancerConnection {
@@ -132,7 +138,7 @@ describe("ClientManager", () => {
 	it("should add clients to roomJoins when they auth", async () => {
 		const client = new TestClient("foo");
 		clientmanager.addClient(client);
-		client.emit("auth", client, "token", { isLoggedIn: false, username: "foo" });
+		await authenticate(client, "token", { isLoggedIn: false, username: "foo" });
 		await new Promise(resolve => setTimeout(resolve, 100));
 		const joins = clientmanager.getClientsInRoom("foo");
 		expect(joins).toHaveLength(1);
@@ -148,7 +154,7 @@ describe("ClientManager", () => {
 	it("should remove clients from roomJoins when they disconnect", async () => {
 		const client = new TestClient("foo");
 		clientmanager.addClient(client);
-		client.emit("auth", client, "token", { isLoggedIn: false, username: "foo" });
+		await authenticate(client, "token", { isLoggedIn: false, username: "foo" });
 		await new Promise(resolve => setTimeout(resolve, 100));
 		const joins = clientmanager.getClientsInRoom("foo");
 		expect(joins).toHaveLength(1);
@@ -161,7 +167,7 @@ describe("ClientManager", () => {
 	it("should name an over-long chat message so the client can explain it", async () => {
 		const client = new TestClient("foo");
 		clientmanager.addClient(client);
-		client.emit("auth", client, "token", { isLoggedIn: false, username: "foo" });
+		await authenticate(client, "token", { isLoggedIn: false, username: "foo" });
 		await new Promise(resolve => setTimeout(resolve, 100));
 
 		client.emit("message", client, {
@@ -182,7 +188,7 @@ describe("ClientManager", () => {
 		await mockBalancerCon.emitInit();
 		const client = new BalancerClient("foo", "foo", mockBalancerCon);
 		clientmanager.addClient(client);
-		client.emit("auth", client, "token", { isLoggedIn: false, username: "foo" });
+		await authenticate(client, "token", { isLoggedIn: false, username: "foo" });
 		await new Promise(resolve => setTimeout(resolve, 100));
 		const joins = clientmanager.getClientsInRoom("foo");
 		expect(joins).toHaveLength(1);
@@ -209,7 +215,7 @@ describe("ClientManager", () => {
 		const clients = [client1, client2, client3, client4, client5];
 		for (const [i, client] of clients.entries()) {
 			clientmanager.addClient(client);
-			client.emit("auth", client, `token${i}`, { isLoggedIn: false, username: `foo${i}` });
+			await authenticate(client, `token${i}`, { isLoggedIn: false, username: `foo${i}` });
 		}
 		await new Promise(resolve => setTimeout(resolve, 100));
 		const joins = clientmanager.getClientsInRoom("foo");
@@ -306,6 +312,7 @@ describe("dead connection sweep", () => {
 	it("terminates a direct socket that stops answering pings", async () => {
 		const handlers = new Map<string, (...args: unknown[]) => void>();
 		const socket = {
+			readyState: WebSocket.OPEN,
 			on: (event: string, handler: (...args: unknown[]) => void) => {
 				handlers.set(event, handler);
 			},

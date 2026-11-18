@@ -112,6 +112,28 @@ describe("websocket boundary", () => {
 		}
 	});
 
+	it("applies the shared message budget before a re-authentication lookup", async () => {
+		const client = new BudgetClient("budget-room");
+		client.joinStatus = ClientJoinStatus.Joined;
+		client.token = "guest-token";
+		client.session = { isLoggedIn: false, username: "guest" };
+		const reauthenticate = vi.spyOn(client, "reauthenticate").mockResolvedValue(false);
+		clientmanager.addClient(client);
+		try {
+			for (let index = 0; index < 40; index++) {
+				client.emit("message", client, { action: "ping", t0: index });
+			}
+			client.emit("message", client, { action: "reauthenticate", token: "new-token" });
+			await settle();
+			expect(reauthenticate).not.toHaveBeenCalled();
+			const responses = client.sendRaw.mock.calls.map(([message]) => JSON.parse(message));
+			expect(responses.some(message => message.name === "TooManyRequests")).toBe(true);
+		} finally {
+			client.emit("disconnect", client);
+			await settle();
+		}
+	});
+
 	it.each([
 		RoomRequestType.UpdateUser,
 		RoomRequestType.JoinRequest,

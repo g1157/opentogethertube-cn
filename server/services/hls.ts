@@ -82,13 +82,19 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 				// The parser types do not cover every attribute it forwards.
 				const resolution = (playlist.attributes as Record<string, unknown> | undefined)
 					?.RESOLUTION;
-				if (typeof resolution !== "string") {
-					continue;
-				}
-				const [candidateWidth, candidateHeight] = resolution.split("x").map(Number);
+				const dimensions =
+					typeof resolution === "object" && resolution !== null
+						? (resolution as { width?: unknown; height?: unknown })
+						: undefined;
+				const [candidateWidth, candidateHeight] =
+					typeof resolution === "string"
+						? resolution.split("x").map(Number)
+						: [Number(dimensions?.width), Number(dimensions?.height)];
 				if (
 					Number.isFinite(candidateWidth) &&
 					Number.isFinite(candidateHeight) &&
+					candidateWidth > 0 &&
+					candidateHeight > 0 &&
 					(!width || candidateWidth > width)
 				) {
 					width = candidateWidth;

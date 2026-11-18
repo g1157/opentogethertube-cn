@@ -23,7 +23,7 @@ MP4 的 `moov` 保存时长、轨道和采样索引，`mdat` 保存音视频数�
 
 | 部署方式 | 当前实现 | 资源与等待边界 |
 | --- | --- | --- |
-| Docker / Node.js | 默认 `run`，ffprobe 直接读取 HTTP(S) URL，允许 Range 跳到尾部索引 | 单次网络 I/O 最多等待约 12 秒；探测进程总上限 35 秒；没有固定的下载字节预算 |
+| Docker / Node.js | 默认 `run`，ffprobe 直接读取 HTTP(S) URL，允许 Range 跳到尾部索引 | ffprobe 单次 I/O 约 12 秒、子进程硬截止 20 秒；启动前 URL 解析 / DNS / 请求另有 5 秒边界；没有固定下载字节预算或统一全链路 20 秒上限 |
 | Cloudflare | 不运行 ffprobe；以最多 4 KiB 的块读取必要的 MP4 结构、时长和轨道，跳过音视频数据及大的采样表 | 每操作/批次总预算 2 MiB、16 次实际 fetch（含重定向）、20 秒；每次读取最多约 12 秒 |
 | 共用添加面板 | 展示读取信息和慢响应提示；超时后提供重试 | 请求开始后最多等待 45 秒；输入变化、清空或组件卸载会取消旧请求，旧结果不能覆盖新链接 |
 
@@ -38,6 +38,23 @@ Cloudflare 曾对本案例返回片源读取超时；单独诊断时同一源的
 两版都不会通过应用持续中转完整视频，也没有视频转码功能。Node.js 的 `run` 依赖片源支持合理的 HTTP
 读取和跳转；对不支持 Range、持续慢响应或特殊容器的源，仍可能读取较多字节或超时。不能将其描述为
 “所有 MP4 恒定只读头部”或承诺每条链接一秒完成。
+
+## 2026-11-17：解析与取消边界
+
+本批尚未发布；完整审查见 [project-review-2026-11-17.zh-CN.md](project-review-2026-11-17.zh-CN.md)。
+
+- 公网校验直接处理 IPv4 / IPv6 literal（去掉 WHATWG IPv6 方括号后判断），DNS lookup 最多等 5 秒；
+  请求也有期限，不把永远无响应的解析拖到下一步。DNS Promise 本身不能通过这层计时器取消。
+- `RunFfprobe` 使用逐跳校验后得到的 `resolvedUri`，不再重新把原始 URL 传给子进程。
+  这修复了已验证地址被弃用的问题，**尚未封闭 ffprobe 独立 DNS 解析、后续重定向与嵌套 HTTP 资源的出站边界**。
+  部署出站限制仍然必要；不能把这次修复称为完整消除 DNS rebinding。
+- Stream 策略使用 pipe 背压；下载 / spawn 失败销毁流并清除定时器，Disk 策略失败仍释放临时文件。
+- Node 自定义 JSON 清单使用严格 JSON / Zod 校验、2 MiB 上限、5 秒请求期限，不自动跟随重定向；
+  `live` 清单标记为 `isLive`，不伪造点播时长。当前 sources 的 MIME 由共享 schema 决定，不能用
+  任意 HLS MIME 绕过校验。
+- HLS 的 `RESOLUTION` 兼容解析器返回的 `{ width, height }` 对象与旧字符串格式，保留正确分辨率。
+- Edge 的 metadata 和分片 header probe 用 AbortController 真正取消出站 fetch，期限取 12 秒与剩余总预算的较小值，
+  timer 在结束后释放。有效清单的访问探测超时继续 fail-open，不会因为未知访问结论丢掉 HLS 元数据。
 
 ## 防盗链 CDN 与 Referrer 策略
 
@@ -107,8 +124,9 @@ sudo docker exec YOUR_APP_CONTAINER printenv FFPROBE_STRATEGY
 | 出现 429 或大量 API 同时失败 | 区分应用限流和 Cloudflare 账户额度，参照 [用量文档](cloudflare-quotas.zh-CN.md) |
 
 源站应返回正确的 `Content-Type`，支持需要的 Range，分段响应的 `Content-Range` 必须与请求一致。
-HTTPS 页面应使用可访问的 HTTPS 媒体地址。播放器使用 `crossorigin="anonymous"`，因此原生 MP4 同样需要
-片源允许跨域；直接打开链接能播放，不证明嵌入其他站点时的跨域访问也被允许。
+HTTPS 页面应使用可访问的 HTTPS 媒体地址。Direct 优先使用 `crossorigin="anonymous"`；跨域加载失败且满足回退条件时可以去掉该属性保留原生播放，
+同时关闭像素 / WebAudio 访问能力，增强菜单明确显示当前片源不支持。HLS / DASH 的脚本加载仍需片源允许 CORS。
+直接打开链接能播放，不证明嵌入网页时的跨域纹理访问也被允许。
 
 诊断下载应优先使用 HEAD 和受限 Range，避免为了查看响应头先下载整个文件。测试 ffprobe 时，保留完整
 JSON 和真实退出码；将输出接到 `head` 可能引发 SIGPIPE，不能仅凭被截断的输出判断整个探测过程成功。

@@ -4,6 +4,36 @@
 `archive/history` 分支与 `v0.14.1` 标签。`v1.0.0` 起跳出 cn 序列，作为本分支的正式大版本，
 标签与镜像名不再带 cn 编号。
 
+-   **v1.4.20**：全项目审查后的资源生命周期、媒体边界与发布链修复。
+    **画质增强**：WebGL / WebGPU 共用按视频帧调度、暂停 / seek / resize 重绘和后台跳过；
+    首帧等待 4 秒可取消，切源后迟到回调不再作用于新视频，设备 / context 丢失明确降级并释放。
+    shader 链接后释放，program 按 context 复用，CNN 中间纹理与 framebuffer 闲置 15 秒回收；
+    720p → 1080p 的 HQ 纹理申请存储从约 390.23 MiB 回落到 3.52 MiB。
+    不可读取像素的片源和 iframe 禁用增强并解释原因，保留用户档位偏好；cover 目标预览与渲染一致。
+    **播放**：未知时长的原生 VOD 参与首帧准备，直播排除；SponsorBlock 请求单飞、脱离房间 tick，
+    同名房间按小写名字加锁，装载成功后才公开。WebSocket 重认证走消息预算并串行更新身份，
+    失败保留原身份，断开后异步结果失效；单连接发送积压超过 8 MiB 时终止该慢连接。
+    正在播放的视频也能更新 / 清空字幕，队列提升竞争不再返回 VideoNotFound，元数据变化不重置时钟；
+    队列导出覆盖全部 13 种服务，并验证各适配器的导入往返。
+    **缓冲**：DASH 的三项时间缓冲目标即时跟随共享偏好；HLS 清单识别对象形式的 RESOLUTION。
+    ffprobe 使用已校验最终 URL，DNS / 读取 / 子进程采用分阶段期限，pipe 尊重背压并清理资源。
+    HLS / DASH / JSON 清单限制 2 MiB / 5 秒主动取消；DASH 改为有界严格 SAX 元数据解析，
+    移除旧 DashMPD / xmldom，Invidious 同步迁移；Edge 探测主动 Abort 并保留有效直播元数据。
+    **聊天与语音**：音效首次需要时才单飞加载，网络 / 解码 / 播放失败被捕获，入房不预加载；
+    语音额度同步判断与预留，TURN 请求单飞并绑定当前参与者，离开后的旧结果失效。
+    **交付**：发布标签复用完整 Node 22/24/26、PostgreSQL、typos、codegen、Grafana 与 Rust 门禁。
+    镜像从固定 Node 官方层独立安装本仓生产依赖，推送前检查锁文件、补丁、非 root 身份、
+    client revision 与运行产物；更新 ws / Sequelize / Axios 等依赖和兼容范围内的传递依赖。
+    SW 缓存按 scope 隔离、限制 128 条，quota 失败不破坏成功响应；Grafana 查询取消清理资源。
+    **文档**：新增 [完整审查与 20 项剩余完善清单](project-review-2026-11-17.zh-CN.md) 和
+    [同类产品与媒体管线详细对比](watch-party-comparison-2026-11-17.zh-CN.md)，同步更新手册、
+    架构、增强、播放、解析与部署机制；主观画质和未测设备保留明确验收边界。
+    **测试**：客户端 1094 项通过（24 skip），服务端 SQLite / PostgreSQL 各 1089 项、common 78 项、Edge 30 项、
+    Grafana core / datasource / panel 分别 2 / 6 / 30 项；lint 0 error（25 既有 warning）。
+    Rust 71 项单元 / harness 与 1 项 doc test、严格 clippy / rustdoc 和协议生成校验已通过。
+    无新增数据库迁移；发布提交、最终镜像摘要与线上验收以
+    [GitHub Release](https://github.com/g1157/opentogethertube-cn/releases/tag/v1.4.20) 为准。
+
 -   **v1.4.19**：速率弯曲改为按设备保存的偏好。
     **播放**：速率弯曲从会话级诊断开关改为普通用户设置，默认在所有设备开启；开关写入
     `localStorage["settings"]` 的 `rateBendEnabled`，刷新或重新进入房间后保持，关闭后同步只做

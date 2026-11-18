@@ -22,7 +22,7 @@ function allowedOriginsForHost(host: string | undefined): Set<string> {
 		try {
 			allowed.add(new URL(`${protocol}//${bareHost}`).origin);
 		} catch {
-			// An unparseable configured host simply contributes no origin.
+			// An invalid configured host simply contributes no origin.
 		}
 	}
 	return allowed;

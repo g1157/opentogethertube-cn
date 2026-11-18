@@ -20,26 +20,21 @@ export function computeRenderedTarget(options: {
 	requestedScale: number | "auto";
 	/** Mirrors the layer's device rule, so the preview matches what is rendered. */
 	cnnUpscale?: boolean;
+	fillMode?: "contain" | "cover";
 }): RenderedTarget | null {
 	const { nativeWidth, nativeHeight } = options;
 	if (!nativeWidth || !nativeHeight || options.boxWidth <= 0 || options.boxHeight <= 0) {
 		return null;
 	}
-	const aspect = nativeWidth / nativeHeight;
-	let boxWidth = options.boxWidth;
-	let boxHeight = boxWidth / aspect;
-	if (boxHeight > options.boxHeight) {
-		boxHeight = options.boxHeight;
-		boxWidth = boxHeight * aspect;
-	}
 	const size = computeCanvasSize({
 		nativeWidth,
 		nativeHeight,
-		boxWidth,
-		boxHeight,
+		boxWidth: options.boxWidth,
+		boxHeight: options.boxHeight,
 		dpr: options.dpr,
 		requestedScale: options.requestedScale,
 		cnnUpscale: options.cnnUpscale,
+		fillMode: options.fillMode,
 	});
 	return { width: size.width, height: size.height, scale: size.width / nativeWidth };
 }

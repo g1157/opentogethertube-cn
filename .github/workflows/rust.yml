@@ -1,6 +1,7 @@
 name: Rust
 
 on:
+  workflow_call:
   push:
     branches: [ "main" ]
   pull_request:
@@ -9,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: rust-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

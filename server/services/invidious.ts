@@ -3,7 +3,8 @@ import maxBy from "lodash/maxBy.js";
 import { getLogger } from "../logger.js";
 import { ServiceAdapter } from "../serviceadapter.js";
 import { Parser as M3U8Parser } from "m3u8-parser";
-import { DashMPD } from "@liveinstantly/dash-mpd-parser";
+import { parseDashMetadata } from "./parsing/dash-metadata.js";
+import { fetchManifestText } from "./parsing/manifest-fetch.js";
 import { conf } from "../ott-config.js";
 import type { Video, VideoMetadata, VideoService } from "ott-common/models/video.js";
 import { InvalidVideoIdException, UpstreamInvidiousException } from "../exceptions.js";
@@ -41,9 +42,6 @@ interface InvidiousApiVideo {
 // Keeping as a constant makes intent clear and avoids magic numbers in the hot path.
 const SCORE_RES_WEIGHT = 1_000_000;
 const QUALITY_LABEL_NUMBER_REGEX = /(\d+)/;
-const REPRESENTATION_BANDWIDTH_REGEX = /(?:^|\s)bandwidth\s*=\s*["'](\d+)["']/i;
-const REPRESENTATION_WIDTH_REGEX = /(?:^|\s)width\s*=\s*["'](\d+)["']/i;
-const REPRESENTATION_HEIGHT_REGEX = /(?:^|\s)height\s*=\s*["'](\d+)["']/i;
 
 // Keep HTTP calls from hanging forever in CI/Docker; safe, conservative default.
 // set to 15 seconds
@@ -401,87 +399,22 @@ export default class InvidiousAdapter extends ServiceAdapter {
 	): Promise<{ kind: "dash" | "hls"; url: string; topKbps: number; topRes?: string } | null> {
 		const url = this.manifestUrl(host, id, kind);
 		try {
-			const resp = await this.api.get<string>(url, {
-				headers: {
-					Accept:
-						kind === "dash"
-							? "application/dash+xml,text/plain;q=0.9,*/*;q=0.8"
-							: "application/vnd.apple.mpegurl,application/x-mpegURL,text/plain;q=0.9,*/*;q=0.8",
-					// timeout inherited from axios instance (DEFAULT_HTTP_TIMEOUT_MS)
-				},
-				responseType: "text",
-				transformResponse: [r => r],
-			});
-			const text = typeof resp.data === "string" ? resp.data : String(resp.data);
+			const resp = await fetchManifestText(
+				url,
+				this.api,
+				kind === "dash"
+					? "application/dash+xml,text/plain;q=0.9,*/*;q=0.8"
+					: "application/vnd.apple.mpegurl,application/x-mpegURL,text/plain;q=0.9,*/*;q=0.8",
+			);
+			const text = resp.data;
 			if (kind === "dash") {
-				// Parse DASH MPD using the dedicated library (no dynamic regex).
-				// Code-owner request: avoid ad-hoc regex and rely on structured parsing.
-				let topBw = 0;
-				let topRes: string | undefined;
-
-				const mpd = new DashMPD();
-				mpd.parse(text);
-
-				// The library exposes a JSON-like structure; normalize variants across versions.
-				const asArr = <T>(v: T | T[] | undefined | null): T[] =>
-					Array.isArray(v) ? v : v !== null && v !== undefined ? [v as T] : [];
-				const attrs = (node: any): Record<string, unknown> =>
-					(node && (node["@"] ?? node._attributes ?? node.attributes ?? node.$)) || {};
-
-				const root: any =
-					(mpd as any).mpd?.MPD ??
-					(mpd as any).mpd ??
-					mpd.getJSON?.().MPD ??
-					mpd.getJSON?.();
-
-				for (const period of asArr(root?.Period)) {
-					for (const set of asArr(period?.AdaptationSet)) {
-						for (const rep of asArr(set?.Representation)) {
-							const a = attrs(rep);
-							const bw = Number(a["bandwidth"] ?? a["Bandwidth"] ?? 0);
-							if (!Number.isFinite(bw) || bw <= topBw) {
-								continue;
-							}
-							topBw = bw;
-							const w = Number(a["width"] ?? a["Width"]);
-							const h = Number(a["height"] ?? a["Height"]);
-							if (Number.isFinite(w) && Number.isFinite(h)) {
-								topRes = `${w}x${h}`;
-							}
-						}
-					}
-				}
-
-				// Conservative fallback: fixed-pattern scan for attributes if parser yielded no bandwidth.
-				// Note: avoids *dynamic* regex; only checks well-known attribute names.
-				if (topBw === 0) {
-					// Find <Representation .../> tags and extract bandwidth/width/height via fixed regexes.
-					const repTagRe = /<Representation\b[^>]*\/?>/gi;
-					let m: RegExpExecArray | null;
-					// biome-ignore lint/suspicious/noAssignInExpressions: biome migration
-					while ((m = repTagRe.exec(text)) !== null) {
-						const tag = m[0];
-						const bwMatch = REPRESENTATION_BANDWIDTH_REGEX.exec(tag);
-						if (!bwMatch) {
-							continue;
-						}
-						const bw = Number(bwMatch[1]);
-						if (!Number.isFinite(bw) || bw <= topBw) {
-							continue;
-						}
-						topBw = bw;
-						// Resolution is optional; capture if present.
-						const wMatch = REPRESENTATION_WIDTH_REGEX.exec(tag);
-						const hMatch = REPRESENTATION_HEIGHT_REGEX.exec(tag);
-						const w = wMatch ? Number(wMatch[1]) : NaN;
-						const h = hMatch ? Number(hMatch[1]) : NaN;
-						if (Number.isFinite(w) && Number.isFinite(h)) {
-							topRes = `${w}x${h}`;
-						}
-					}
-				}
-
-				return { kind: "dash" as const, url, topKbps: Math.round(topBw / 1000), topRes };
+				const metadata = await parseDashMetadata(text);
+				return {
+					kind: "dash" as const,
+					url,
+					topKbps: Math.round(metadata.topBandwidth / 1000),
+					topRes: metadata.topResolution,
+				};
 			} else {
 				// Parse HLS master playlist via m3u8-parser; master formats differ across encodes and instance rewrites. – YouTube/Invidious variability
 				const parser = new M3U8Parser();

@@ -596,6 +596,7 @@ watch(
 defineExpose({
 	supportsRateBend: true,
 	getVideoElement: () => videoElem.value,
+	isVideoEnhancementSupported: () => !!videoElem.value,
 	play,
 	pause,
 	setVolume,

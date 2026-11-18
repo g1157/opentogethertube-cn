@@ -16,6 +16,7 @@ export const ANIME4K_ULTRA_SHADERS: string[] = ANIME4K_PASSES.map(pass => pass.f
 export function startAnime4KUltraRenderer(
 	video: HTMLVideoElement,
 	canvas: HTMLCanvasElement,
+	onFatal?: (message: string) => void,
 ): ReturnType<typeof startAnime4KWebGLRenderer> {
-	return startAnime4KWebGLRenderer(video, canvas, ANIME4K_ULTRA_CHAIN);
+	return startAnime4KWebGLRenderer(video, canvas, ANIME4K_ULTRA_CHAIN, onFatal);
 }

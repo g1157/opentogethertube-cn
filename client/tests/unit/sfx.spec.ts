@@ -70,4 +70,35 @@ describe("message sound playback", () => {
 		expect(unused).toBeDefined();
 		expect(contexts).not.toHaveBeenCalled();
 	});
+
+	it("loads on the first enabled sound and reuses the decoded asset", async () => {
+		await sound.play("pop");
+		expect(axios.get).not.toHaveBeenCalled();
+		sound.enabled = true;
+		await sound.play("pop");
+		await sound.play("pop");
+		expect(axios.get).toHaveBeenCalledOnce();
+		expect(createBufferSource).toHaveBeenCalledTimes(2);
+	});
+
+	it("shares one load when callers arrive together", async () => {
+		await Promise.all([sound.loadSfx(), sound.loadSfx()]);
+		expect(axios.get).toHaveBeenCalledOnce();
+		expect(axios.get).toHaveBeenCalledWith(
+			expect.any(String),
+			expect.objectContaining({ timeout: 5000, signal: expect.any(AbortSignal) }),
+		);
+	});
+
+	it("contains a failed sound load and can retry without affecting the preference", async () => {
+		const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		vi.mocked(axios.get).mockRejectedValueOnce(new Error("offline"));
+		sound.enabled = true;
+		await expect(sound.play("pop")).resolves.toBeUndefined();
+		expect(warning).toHaveBeenCalledWith("Sound effects unavailable:", expect.any(Error));
+		expect(createBufferSource).not.toHaveBeenCalled();
+		expect(sound.enabled).toBe(true);
+		await sound.play("pop");
+		expect(createBufferSource).toHaveBeenCalledOnce();
+	});
 });

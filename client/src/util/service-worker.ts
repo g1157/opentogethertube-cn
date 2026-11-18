@@ -9,9 +9,15 @@ export function installServiceWorker(): void {
 	if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
 		return;
 	}
-	window.addEventListener("load", () => {
-		void navigator.serviceWorker.register("/sw.js").catch(err => {
-			console.warn("Service worker registration failed:", err);
-		});
-	});
+	window.addEventListener(
+		"load",
+		() => {
+			const configuredBase = import.meta.env.BASE_URL || "/";
+			const base = configuredBase.endsWith("/") ? configuredBase : `${configuredBase}/`;
+			void navigator.serviceWorker.register(`${base}sw.js`).catch(err => {
+				console.warn("Service worker registration failed:", err);
+			});
+		},
+		{ once: true },
+	);
 }

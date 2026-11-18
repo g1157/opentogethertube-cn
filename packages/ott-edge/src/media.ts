@@ -186,26 +186,41 @@ export class Probe {
 		url: URL,
 		headers: Record<string, string> = {},
 	): Promise<{ status: number; headers: Headers }> {
-		let target = url;
-		for (let redirect = 0; redirect < 4; redirect++) {
-			if (this.deadline - Date.now() <= 0) {
-				throw new ApiError(400, "读取片源信息超时，请稍后重试。");
-			}
-			if (++this.requests > MAX_REQUESTS) {
-				throw new ApiError(400, "本次媒体信息读取次数已达上限，请减少同时添加的视频数量。");
-			}
-			const response = await fetch(target, {
-				redirect: "manual",
-				headers: { Range: "bytes=0-0", "Accept-Encoding": "identity", ...headers },
-			});
-			await response.body?.cancel();
-			const location = response.headers.get("Location");
-			if (![301, 302, 303, 307, 308].includes(response.status) || !location) {
-				return { status: response.status, headers: response.headers };
-			}
-			target = mediaUrl(new URL(location, target).href);
+		const remainingMs = this.deadline - Date.now();
+		if (remainingMs <= 0) {
+			throw new ApiError(400, "读取片源信息超时，请稍后重试。");
 		}
-		throw new ApiError(400, "片源返回了过多跳转。");
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), Math.min(12_000, remainingMs));
+		try {
+			let target = url;
+			for (let redirect = 0; redirect < 4; redirect++) {
+				if (this.deadline - Date.now() <= 0) {
+					throw new ApiError(400, "读取片源信息超时，请稍后重试。");
+				}
+				if (++this.requests > MAX_REQUESTS) {
+					throw new ApiError(
+						400,
+						"本次媒体信息读取次数已达上限，请减少同时添加的视频数量。",
+					);
+				}
+				const response = await fetch(target, {
+					signal: controller.signal,
+					redirect: "manual",
+					headers: { Range: "bytes=0-0", "Accept-Encoding": "identity", ...headers },
+				});
+				await response.body?.cancel();
+				const location = response.headers.get("Location");
+				if (![301, 302, 303, 307, 308].includes(response.status) || !location) {
+					return { status: response.status, headers: response.headers };
+				}
+				target = mediaUrl(new URL(location, target).href);
+			}
+			throw new ApiError(400, "片源返回了过多跳转。");
+		} finally {
+			clearTimeout(timeout);
+			controller.abort();
+		}
 	}
 }
 
@@ -384,7 +399,7 @@ async function probeHls(url: URL, probe: Probe, depth = 0): Promise<Partial<Vide
 		mime: "application/x-mpegURL",
 		...(lines.includes("#EXT-X-ENDLIST")
 			? { length: durations.reduce((sum, value) => sum + value, 0) }
-			: {}),
+			: { isLive: true }),
 		...access,
 	};
 }
@@ -501,6 +516,7 @@ export async function resolveMedia(env: Env, input: string, probe = new Probe())
 			id: url.href,
 			title: manifest.title,
 			length: manifest.live ? undefined : manifest.duration,
+			...(manifest.live ? { isLive: true } : {}),
 			mime: "application/json",
 			thumbnail: manifest.thumbnail ? mediaUrl(manifest.thumbnail).href : undefined,
 		};

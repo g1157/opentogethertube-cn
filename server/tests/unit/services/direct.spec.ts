@@ -1,8 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi, type MockInstance } from "vitest";
 import DirectVideoAdapter from "../../../services/direct.js";
 import { FfprobeStrategy } from "../../../ffprobe.js";
 import fs from "node:fs";
 import { isSupportedMimeType } from "../../../mime.js";
+import * as mediaAccess from "../../../services/media-access.js";
 
 const FIXTURE_DIRECTORY = "./tests/unit/fixtures/services/direct";
 
@@ -132,10 +133,23 @@ describe("Direct", () => {
 	describe("fetchVideoInfo", () => {
 		const adapter = new DirectVideoAdapter();
 		adapter.ffprobe = new FfprobeFixtures();
+		let accessProbe: MockInstance<
+			Parameters<typeof mediaAccess.probeMediaAccess>,
+			ReturnType<typeof mediaAccess.probeMediaAccess>
+		>;
+
+		beforeAll(() => {
+			// Metadata fixtures must not depend on an unrelated public site's response time.
+			accessProbe = vi.spyOn(mediaAccess, "probeMediaAccess").mockResolvedValue({});
+		});
+
+		afterAll(() => accessProbe.mockRestore());
 
 		it("Returns a promise", async () => {
 			const url = "https://example.com/test.mp4";
-			expect(adapter.fetchVideoInfo(url)).toBeInstanceOf(Promise);
+			const result = adapter.fetchVideoInfo(url);
+			expect(result).toBeInstanceOf(Promise);
+			await result;
 		});
 
 		it("Returns a video", async () => {

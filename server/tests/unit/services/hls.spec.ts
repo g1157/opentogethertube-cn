@@ -118,6 +118,27 @@ describe("HlsVideoAdapter access probe", () => {
 		expect(video.hls_url).toBe(PLAYLIST_URL);
 	});
 
+	it("keeps variant dimensions from the real m3u8 parser's RESOLUTION object", async () => {
+		const master = [
+			"#EXTM3U",
+			"#EXT-X-STREAM-INF:BANDWIDTH=500000,RESOLUTION=640x360",
+			"low.m3u8",
+			"#EXT-X-STREAM-INF:BANDWIDTH=4000000,RESOLUTION=1920x1080",
+			"high.m3u8",
+		].join("\n");
+		mockGet.mockImplementation(async (url: string) => {
+			if (url === PLAYLIST_URL) {
+				return playlistResponse(master);
+			}
+			if (url.endsWith(".m3u8")) {
+				return playlistResponse(MEDIA_PLAYLIST);
+			}
+			return probeResponse(206, { "access-control-allow-origin": "*" });
+		});
+		const video = await adapter.fetchVideoInfo(PLAYLIST_URL);
+		expect(video).toMatchObject({ width: 1920, height: 1080 });
+	});
+
 	it("still resolves a link when the segment cannot be probed at all", async () => {
 		mockGet.mockImplementation(async (url: string) => {
 			if (url === PLAYLIST_URL) {

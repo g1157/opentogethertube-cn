@@ -1,9 +1,12 @@
+import dns from "node:dns/promises";
+import type { LookupAddress } from "node:dns";
 import {
 	describe,
 	it,
 	expect,
 	beforeAll,
 	afterAll,
+	beforeEach,
 	afterEach,
 	vi,
 	type MockInstance,
@@ -30,6 +33,10 @@ import type { User } from "../../../models/user.js";
 import { UnloadReason } from "../../../generated.js";
 
 const JSON_CONTENT_TYPE_REGEX = /json/;
+// Narrow lookup to the overload used by the media guard, keeping the same module object.
+const mediaDns: {
+	lookup(hostname: string, options: { all: true }): Promise<LookupAddress[]>;
+} = dns;
 
 expect.extend({
 	toBeRoomNotFound(error) {
@@ -484,6 +491,10 @@ describe("Room API", () => {
 	describe("PATCH /api/room/:name/queue", () => {
 		let getSessionInfoSpy: MockInstance;
 		let validateSpy: MockInstance;
+		let dnsLookupSpy: MockInstance<
+			Parameters<typeof mediaDns.lookup>,
+			ReturnType<typeof mediaDns.lookup>
+		>;
 
 		beforeAll(async () => {
 			getSessionInfoSpy = vi.spyOn(tokens, "getSessionInfo").mockResolvedValue({
@@ -498,6 +509,14 @@ describe("Room API", () => {
 			validateSpy.mockRestore();
 		});
 
+		beforeEach(() => {
+			// Exercise the real address guard without depending on a public DNS resolver.
+			vi.stubEnv("NODE_ENV", "production");
+			dnsLookupSpy = vi
+				.spyOn(mediaDns, "lookup")
+				.mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
+		});
+
 		afterEach(async () => {
 			try {
 				await roommanager.unloadRoom("testqueue", UnloadReason.Admin);
@@ -505,6 +524,9 @@ describe("Room API", () => {
 				if (!(e instanceof RoomNotFoundException)) {
 					throw e;
 				}
+			} finally {
+				dnsLookupSpy.mockRestore();
+				vi.unstubAllEnvs();
 			}
 		});
 
@@ -514,6 +536,8 @@ describe("Room API", () => {
 				isTemporary: true,
 			});
 			const room = (await roommanager.getRoom("testqueue")).unwrap();
+			// Keep this item queued while the real tick runs; handoffs are covered below.
+			room.currentSource = { service: "youtube", id: "current", length: 600 };
 			await room.queue.enqueue({ service: "direct", id: "foo" });
 
 			const resp = await request(app)
@@ -542,12 +566,75 @@ describe("Room API", () => {
 			);
 		});
 
+		it("updates the current subtitle when a room tick promotes the item during DNS validation", async () => {
+			await roommanager.createRoom({ name: "testqueue", isTemporary: true });
+			const room = (await roommanager.getRoom("testqueue")).unwrap();
+			await room.queue.set([{ service: "youtube", id: "promoted", length: 60 }]);
+			let finishLookup!: (addresses: { address: string; family: number }[]) => void;
+			let startedLookup!: () => void;
+			const started = new Promise<void>(resolve => {
+				startedLookup = resolve;
+			});
+			dnsLookupSpy.mockImplementationOnce(
+				() =>
+					new Promise(resolve => {
+						finishLookup = resolve;
+						startedLookup();
+					}),
+			);
+			const response = (async () =>
+				await request(app)
+					.patch("/api/room/testqueue/queue")
+					.set({ Authorization: "Bearer foobar" })
+					.send({
+						service: "youtube",
+						id: "promoted",
+						subtitleUrl: "https://example.com/subtitles.vtt",
+					}))();
+			try {
+				await started;
+				await room.update();
+				expect(room.queue.length).toBe(0);
+				expect(room.currentSource?.id).toBe("promoted");
+			} finally {
+				finishLookup([{ address: "93.184.216.34", family: 4 }]);
+			}
+			expect((await response).status).toBe(200);
+			expect(room.currentSource?.subtitleUrl).toBe("https://example.com/subtitles.vtt");
+		});
+
+		it("clears a playing video's subtitle without resetting its clock", async () => {
+			await roommanager.createRoom({ name: "testqueue", isTemporary: true });
+			const room = (await roommanager.getRoom("testqueue")).unwrap();
+			room.currentSource = {
+				service: "youtube",
+				id: "playing",
+				length: 600,
+				subtitleUrl: "https://example.com/subtitles.vtt",
+			};
+			room.playbackPosition = 123;
+			await room.play();
+			const anchor = room._playbackStart;
+			const source = room.currentSource;
+			await request(app)
+				.patch("/api/room/testqueue/queue")
+				.set({ Authorization: "Bearer foobar" })
+				.send({ service: "youtube", id: "playing", subtitleUrl: null })
+				.expect(200);
+			expect(room.currentSource).toBe(source);
+			expect(room.currentSource?.subtitleUrl).toBeUndefined();
+			expect(room.playbackPosition).toBe(123);
+			expect(room._playbackStart).toBe(anchor);
+			expect(room.isPlaying).toBe(true);
+		});
+
 		it("should update a queue item's subtitleUrl to an .ass file", async () => {
 			await roommanager.createRoom({
 				name: "testqueue",
 				isTemporary: true,
 			});
 			const room = (await roommanager.getRoom("testqueue")).unwrap();
+			room.currentSource = { service: "youtube", id: "current", length: 600 };
 			await room.queue.enqueue({ service: "direct", id: "foo" });
 
 			const resp = await request(app)
@@ -608,6 +695,7 @@ describe("Room API", () => {
 				isTemporary: true,
 			});
 			const room = (await roommanager.getRoom("testqueue")).unwrap();
+			room.currentSource = { service: "youtube", id: "current", length: 600 };
 			await room.queue.enqueue({
 				service: "direct",
 				id: "foo",
@@ -646,6 +734,26 @@ describe("Room API", () => {
 			expect(resp.body.error).toMatchObject({ name: "ZodValidationError" });
 			const updatedRoom = (await roommanager.getRoom("testqueue")).unwrap();
 			expect(updatedRoom.queue.items[0].subtitleUrl).toBeUndefined();
+		});
+
+		it("rejects a public-looking subtitle host that resolves to a private address", async () => {
+			dnsLookupSpy.mockResolvedValue([{ address: "192.168.1.10", family: 4 }]);
+			await roommanager.createRoom({ name: "testqueue", isTemporary: true });
+			const room = (await roommanager.getRoom("testqueue")).unwrap();
+			await room.queue.enqueue({ service: "direct", id: "foo" });
+
+			await request(app)
+				.patch("/api/room/testqueue/queue")
+				.set({ Authorization: "Bearer foobar" })
+				.send({
+					service: "direct",
+					id: "foo",
+					subtitleUrl: "https://subtitles.example.com/subs.vtt",
+				})
+				.expect(400);
+
+			expect(dnsLookupSpy).toHaveBeenCalledWith("subtitles.example.com", { all: true });
+			expect(room.queue.items[0].subtitleUrl).toBeUndefined();
 		});
 
 		it("should fail if the request body is invalid", async () => {

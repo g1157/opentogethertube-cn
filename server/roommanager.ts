@@ -1,5 +1,6 @@
 import { Room, type RoomState, type RoomStateFromRedis } from "./room.js";
 import type { Role, RoomOptions, Visibility } from "ott-common/models/types.js";
+import { Mutex } from "@divine/synchronization";
 import _ from "lodash";
 import { getLogger } from "./logger.js";
 import { redisClient } from "./redisclient.js";
@@ -21,6 +22,25 @@ import { UnloadReason } from "./generated.js";
 export const log = getLogger("roommanager");
 export const rooms: Room[] = [];
 const LOAD_EPOCH_KEY = "roommanager:load_epoch";
+const roomOperations = new Map<string, { lock: Mutex; users: number }>();
+
+/** Serialize admission by canonical name without retaining locks for arbitrary room names. */
+async function withRoomOperation<T>(name: string, operation: () => Promise<T>): Promise<T> {
+	const key = name.toLowerCase();
+	let entry = roomOperations.get(key);
+	if (!entry) {
+		entry = { lock: new Mutex(), users: 0 };
+		roomOperations.set(key, entry);
+	}
+	entry.users++;
+	try {
+		return await entry.lock.protect(operation);
+	} finally {
+		if (--entry.users === 0) {
+			roomOperations.delete(key);
+		}
+	}
+}
 
 export type RoomManagerEvents = "publish" | "load" | "unload" | "command";
 export type RoomManagerEventHandlers<E> = E extends "publish"
@@ -35,13 +55,19 @@ export type RoomManagerEventHandlers<E> = E extends "publish"
 const bus = new EventEmitter();
 
 async function addRoom(room: Room) {
-	rooms.push(room);
-	const epoch = await redisClient.incr(LOAD_EPOCH_KEY);
-	room.loadEpoch = epoch;
-	if (epoch >= 2147483640) {
-		// ensure we don't overflow the integer
-		await redisClient.set(LOAD_EPOCH_KEY, 0);
+	try {
+		const epoch = await redisClient.incr(LOAD_EPOCH_KEY);
+		room.loadEpoch = epoch;
+		if (epoch >= 2147483640) {
+			// ensure we don't overflow the integer
+			await redisClient.set(LOAD_EPOCH_KEY, 0);
+		}
+	} catch (error) {
+		room.throttledSync.cancel();
+		room.saveStateToRedisDebounced.cancel();
+		throw error;
 	}
+	rooms.push(room);
 	bus.emit("load", room.name);
 }
 
@@ -123,6 +149,12 @@ export async function update(): Promise<void> {
 export async function createRoom(
 	options: Partial<RoomOptions> & { name: string; password?: string },
 ): Promise<void> {
+	await withRoomOperation(options.name, () => createRoomUnlocked(options));
+}
+
+async function createRoomUnlocked(
+	options: Partial<RoomOptions> & { name: string; password?: string },
+): Promise<void> {
 	for (const room of rooms) {
 		if (options.name.toLowerCase() === room.name.toLowerCase()) {
 			log.warn("can't create room, already loaded");
@@ -165,6 +197,13 @@ export async function createRoom(
 export async function getRoom(
 	roomName: string,
 	options: { mustAlreadyBeLoaded?: boolean } = {},
+): Promise<Result<Room, RoomNotFoundException | RoomAlreadyLoadedException>> {
+	return withRoomOperation(roomName, () => getRoomUnlocked(roomName, options));
+}
+
+async function getRoomUnlocked(
+	roomName: string,
+	options: { mustAlreadyBeLoaded?: boolean },
 ): Promise<Result<Room, RoomNotFoundException | RoomAlreadyLoadedException>> {
 	_.defaults(options, {
 		mustAlreadyBeLoaded: false,
@@ -222,6 +261,16 @@ export async function unloadRoom(
 	room: string | Room,
 	reason: UnloadReason,
 	options: Partial<{ preserveRedis: boolean }> = {},
+): Promise<void> {
+	await withRoomOperation(typeof room === "string" ? room : room.name, () =>
+		unloadRoomUnlocked(room, reason, options),
+	);
+}
+
+async function unloadRoomUnlocked(
+	room: string | Room,
+	reason: UnloadReason,
+	options: Partial<{ preserveRedis: boolean }>,
 ): Promise<void> {
 	const opts = _.defaults(options, {
 		preserveRedis: reason === UnloadReason.Commanded,

@@ -417,6 +417,7 @@ function setCaptionsEnabled(enabled: boolean): void {
 		console.warn("DirectPlayer: invalid captions track index:", idx);
 		return;
 	}
+	captions.isCaptionsEnabled.value = enabled;
 	applyActiveTrack(idx, enabled);
 }
 
@@ -446,6 +447,7 @@ function setCaptionsTrack(track: number): void {
 	}
 	console.log("DirectPlayer: setCaptionsTrack:", track);
 	captions.currentTrack.value = track;
+	captions.isCaptionsEnabled.value = true;
 	applyActiveTrack(track, true);
 }
 
@@ -767,8 +769,27 @@ onMounted(() => {
 });
 
 // A changed policy means the requests must be built differently, which only a reload does.
-watch([videoUrl, videoMime, subtitleUrl, referrerPolicy], () => {
+watch([videoUrl, videoMime, referrerPolicy], () => {
 	loadVideoSource();
+});
+
+watch(subtitleUrl, async (_url, previousUrl) => {
+	if (videoMime.value === "application/json") {
+		return;
+	}
+	const generation = sourceGeneration;
+	const enabled = previousUrl ? captions.isCaptionsEnabled.value : true;
+	// Only the track elements change; reloading the video would discard its buffer and clock.
+	await nextTick();
+	if (!videoElem.value || generation !== sourceGeneration) {
+		return;
+	}
+	const tracks = getCaptionsTracks();
+	const track = tracks.length > 0 ? 0 : -1;
+	captions.captionsTracks.value = tracks;
+	captions.currentTrack.value = track;
+	captions.isCaptionsEnabled.value = track !== -1 && enabled;
+	await applyActiveTrack(track, track !== -1 && enabled);
 });
 
 onBeforeUnmount(() => {
@@ -785,6 +806,7 @@ onBeforeUnmount(() => {
 defineExpose({
 	supportsRateBend: true,
 	getVideoElement: () => videoElem.value,
+	isVideoEnhancementSupported: () => !!videoElem.value && crossoriginEnabled.value,
 	play,
 	pause,
 	setVolume,

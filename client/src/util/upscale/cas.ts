@@ -30,11 +30,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-import { reportEnhancementError } from "./status";
+import { startVideoRenderLoop } from "./video-render-loop";
+import type { UpscaleRenderer } from "./upscale-renderer";
 
-export interface UpscaleRenderer {
-	stop(): void;
-}
+export type { UpscaleRenderer } from "./upscale-renderer";
 
 // Both fragment programs sample through the same uv. It runs bottom-up in clip
 // space (the framebuffer's own order), and each program decides whether its
@@ -237,7 +236,9 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string): WebG
 	gl.shaderSource(shader, source);
 	gl.compileShader(shader);
 	if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-		throw new Error(`Shader compile failed: ${gl.getShaderInfoLog(shader) ?? "unknown"}`);
+		const message = gl.getShaderInfoLog(shader) ?? "unknown";
+		gl.deleteShader(shader);
+		throw new Error(`Shader compile failed: ${message}`);
 	}
 	return shader;
 }
@@ -274,14 +275,30 @@ export function link(gl: WebGL2RenderingContext, fragmentSource: string): WebGLP
 	if (!program) {
 		throw new Error("Unable to create program");
 	}
-	gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERTEX_SHADER));
-	gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, fragmentSource));
-	gl.linkProgram(program);
-	if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-		throw new Error(`Program link failed: ${gl.getProgramInfoLog(program) ?? "unknown"}`);
+	const shaders: WebGLShader[] = [];
+	try {
+		shaders.push(compile(gl, gl.VERTEX_SHADER, VERTEX_SHADER));
+		shaders.push(compile(gl, gl.FRAGMENT_SHADER, fragmentSource));
+		for (const shader of shaders) {
+			gl.attachShader(program, shader);
+		}
+		gl.linkProgram(program);
+		if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+			throw new Error(`Program link failed: ${gl.getProgramInfoLog(program) ?? "unknown"}`);
+		}
+		for (const shader of shaders) {
+			gl.detachShader(program, shader);
+		}
+		programs.set(fragmentSource, program);
+		return program;
+	} catch (error) {
+		gl.deleteProgram(program);
+		throw error;
+	} finally {
+		for (const shader of shaders) {
+			gl.deleteShader(shader);
+		}
 	}
-	programs.set(fragmentSource, program);
-	return program;
 }
 
 export interface RenderTarget {
@@ -328,6 +345,12 @@ function allocateRenderTarget(
 	const texture = gl.createTexture();
 	const framebuffer = gl.createFramebuffer();
 	if (!texture || !framebuffer) {
+		if (texture) {
+			gl.deleteTexture(texture);
+		}
+		if (framebuffer) {
+			gl.deleteFramebuffer(framebuffer);
+		}
 		return null;
 	}
 	gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -436,6 +459,7 @@ export function startSharpenRenderer(
 	video: HTMLVideoElement,
 	canvas: HTMLCanvasElement,
 	getAmount: () => number,
+	onFatal?: (message: string) => void,
 ): UpscaleRenderer {
 	const gl = canvas.getContext("webgl2", {
 		alpha: false,
@@ -481,12 +505,6 @@ export function startSharpenRenderer(
 	const easuOutSize = gl.getUniformLocation(easuProgram, "uOutSize");
 
 	let stage: RenderTarget | null = null;
-	let frameRequest = 0;
-	let stopped = false;
-	/** Media time of the frame the last loop callback drew; a repeated presentation of the
-	 * same frame (a rate-change re-time, a redraw after a seek) is skipped, not drawn twice. */
-	let lastFrameMediaTime = Number.NaN;
-	let drawFailures = 0;
 
 	const ensureStage = (width: number, height: number): RenderTarget => {
 		if (stage && stage.width === width && stage.height === height) {
@@ -507,7 +525,7 @@ export function startSharpenRenderer(
 	 * the enhanced picture. start(), pause and seeked therefore draw explicitly.
 	 */
 	const drawFrame = () => {
-		if (stopped || video.readyState < video.HAVE_CURRENT_DATA) {
+		if (video.readyState < video.HAVE_CURRENT_DATA) {
 			return;
 		}
 		gl.bindVertexArray(vao);
@@ -554,53 +572,20 @@ export function startSharpenRenderer(
 		}
 	};
 
-	const frame = (_now: number, metadata: VideoFrameCallbackMetadata) => {
-		if (stopped) {
-			return;
-		}
-		try {
-			const mediaTime = metadata?.mediaTime;
-			if (mediaTime === undefined || !(Math.abs(mediaTime - lastFrameMediaTime) < 1e-4)) {
-				lastFrameMediaTime = mediaTime ?? Number.NaN;
-				drawFrame();
-			}
-			drawFailures = 0;
-		} catch (error) {
-			// A draw that throws used to end the loop silently, freezing the canvas under a
-			// tier that still looked enabled. Three failures in a row stand the renderer down
-			// and surface the reason in the playback details panel.
-			drawFailures++;
-			if (drawFailures >= 3) {
-				stopped = true;
-				reportEnhancementError(error instanceof Error ? error.message : String(error));
-				return;
-			}
-		}
-		frameRequest = video.requestVideoFrameCallback(frame);
-	};
-	// A paused video presents no frames, so nothing would redraw the picture the viewer is
-	// looking at — including the case of a tier that started while the video was paused.
-	video.addEventListener("pause", drawFrame);
-	video.addEventListener("seeked", drawFrame);
-	drawFrame();
-	frameRequest = video.requestVideoFrameCallback(frame);
-
-	return {
-		stop() {
-			stopped = true;
-			video.cancelVideoFrameCallback(frameRequest);
-			video.removeEventListener("pause", drawFrame);
-			video.removeEventListener("seeked", drawFrame);
+	const loop = startVideoRenderLoop(
+		video,
+		canvas,
+		drawFrame,
+		() => {
 			if (stage) {
 				releaseRenderTarget(gl, stage);
 				stage = null;
 			}
-			// The context outlives this renderer (the layer keeps the canvas so a rebuild can
-			// reuse its context and linked programs), so what this instance allocated has to be
-			// deleted rather than left to a context loss.
 			gl.deleteVertexArray(vao);
 			gl.deleteBuffer(buffer);
 			gl.deleteTexture(videoTexture);
 		},
-	};
+		onFatal,
+	);
+	return loop;
 }

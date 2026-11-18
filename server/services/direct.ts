@@ -1,4 +1,5 @@
 import URL from "node:url";
+import axios from "axios";
 import _ from "lodash";
 import { ServiceAdapter } from "../serviceadapter.js";
 import {
@@ -24,6 +25,8 @@ import { appOriginFromHostname, probeMediaAccess } from "./media-access.js";
 const log = getLogger("direct");
 const DIRECT_MEDIA_URL_REGEX =
 	/\/*\.(mp(3|4v?)|mpg4|webm|flv|mkv|avi|wmv|qt|mov|ogv|m4v|h26[1-4]|ogg|json)$/;
+const MANIFEST_TIMEOUT_MS = 5000;
+const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
 
 interface ProbedStream {
 	codec_type?: string;
@@ -126,24 +129,28 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 		// The manifest URL is user supplied; the fetch must not reach intranet hosts.
 		await assertPublicMediaUrl(link);
 		let json: unknown;
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), MANIFEST_TIMEOUT_MS);
 		try {
-			const response = await fetch(link, {
+			const response = await axios.get<unknown>(link, {
 				// A redirect can turn a public URL into an intranet one; refuse instead of following.
-				redirect: "error",
+				maxRedirects: 0,
+				maxContentLength: MAX_MANIFEST_BYTES,
+				timeout: MANIFEST_TIMEOUT_MS,
+				signal: controller.signal,
+				responseType: "json",
+				transitional: { silentJSONParsing: false },
 			});
-			if (!response.ok) {
-				log.error(`Failed to fetch manifest at ${link}: ${response.status}`);
-				throw new MissingMetadataException(
-					`Failed to fetch the media manifest (HTTP ${response.status}). Please check that the URL is accessible.`,
-				);
-			}
-			json = await response.json();
+			json = response.data;
 		} catch (e) {
 			if (e instanceof MissingMetadataException) {
 				throw e;
 			}
 			log.error(`Error fetching manifest at ${link}:`, e);
 			throw new MissingMetadataException();
+		} finally {
+			clearTimeout(timeout);
+			controller.abort();
 		}
 		const manifest = CustomMediaManifestSchema.parse(json);
 		return {
@@ -151,7 +158,8 @@ export default class DirectVideoAdapter extends ServiceAdapter {
 			id: link,
 			title: manifest.title,
 			description: `Full Link: ${link}`,
-			length: Math.ceil(manifest.duration),
+			length: manifest.live ? undefined : Math.ceil(manifest.duration),
+			...(manifest.live ? { isLive: true } : {}),
 			thumbnail: manifest.thumbnail,
 			mime: "application/json",
 		};

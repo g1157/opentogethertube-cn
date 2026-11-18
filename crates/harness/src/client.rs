@@ -81,7 +81,7 @@ impl Client {
 
     /// Connect to the balancer, targeting the given room, and send the auth message.
     ///
-    /// Equivalent to calling [`connect`] and [`auth`] in sequence.
+    /// Equivalent to calling [`Self::connect`] and [`Self::auth`] in sequence.
     pub async fn join(&mut self, room: impl AsRef<str>) {
         self.connect(room).await;
         self.auth().await;

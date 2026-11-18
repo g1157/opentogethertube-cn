@@ -182,6 +182,9 @@ describe("native and HLS player reliability", () => {
 	});
 
 	async function playable(target: Pick<VueWrapper, "get">) {
+		// Source resolution inserts caption tracks before assigning src. A real canplay
+		// cannot arrive until that initial asynchronous load has finished.
+		await flushPromises();
 		const video = target.get("video").element as HTMLVideoElement;
 		state(video).error = null;
 		state(video).readyState = 4;
@@ -240,6 +243,48 @@ describe("native and HLS player reliability", () => {
 		expect(video.paused).toBe(true);
 		expect(video.play).toHaveBeenCalledTimes(1);
 		expect(wrapper.emitted("ready")).toHaveLength(2);
+	});
+
+	it("switches a playing video's subtitle without reloading its media", async () => {
+		({ wrapper } = mountComponent(DirectPlayer, {
+			props: { ...directProps, subtitleUrl: "https://media.example/first.vtt" },
+		}));
+		const video = await playable(wrapper);
+		const api = wrapper.vm.$.exposed as MediaPlayerWithCaptions;
+		await api.play();
+		video.currentTime = 123.5;
+		const loads = vi.mocked(video.load).mock.calls.length;
+		await wrapper.setProps({ subtitleUrl: "https://media.example/replacement.ass" });
+		await flushPromises();
+		expect(video.load).toHaveBeenCalledTimes(loads);
+		expect(api.getPosition()).toBe(123.5);
+		expect(video.paused).toBe(false);
+		expect(jassubMock.created).toHaveLength(1);
+		expect(jassubMock.created[0].setTrackByUrl).toHaveBeenCalledWith(
+			"https://media.example/replacement.ass",
+		);
+		await wrapper.setProps({ subtitleUrl: undefined });
+		await flushPromises();
+		expect(video.load).toHaveBeenCalledTimes(loads);
+		expect(api.getPosition()).toBe(123.5);
+		expect(video.paused).toBe(false);
+		expect(api.getCaptionsTracks()).toEqual([]);
+		expect(jassubMock.created[0].freeTrack).toHaveBeenCalled();
+	});
+
+	it("keeps captions disabled when a subtitle URL is replaced", async () => {
+		({ wrapper } = mountComponent(DirectPlayer, {
+			props: { ...directProps, subtitleUrl: "https://media.example/first.vtt" },
+		}));
+		const video = await playable(wrapper);
+		const api = wrapper.vm.$.exposed as MediaPlayerWithCaptions;
+		api.setCaptionsEnabled(false);
+		video.currentTime = 123.5;
+		await wrapper.setProps({ subtitleUrl: "https://media.example/disabled.ass" });
+		await flushPromises();
+		expect(api.getPosition()).toBe(123.5);
+		expect(api.isCaptionsEnabled()).toBe(false);
+		expect(jassubMock.created).toHaveLength(0);
 	});
 
 	it("does not call a stalled download buffering when the MP4 still has playable data", async () => {
@@ -526,8 +571,12 @@ describe("native and HLS player reliability", () => {
 		// MEDIA_ERR_SRC_NOT_SUPPORTED may only mean the host sends no CORS headers.
 		// Retry without crossorigin first instead of showing a format error.
 		expect(video.getAttribute("crossorigin")).toBe("anonymous");
+		const api = direct.vm.$.exposed as MediaPlayer;
+		expect(api.isVideoEnhancementSupported?.()).toBe(true);
 		await nativeError(direct, 4);
 		expect(video.hasAttribute("crossorigin")).toBe(false);
+		expect(api.getVideoElement?.()).toBe(video);
+		expect(api.isVideoEnhancementSupported?.()).toBe(false);
 		expect(page.store.state.playerStatus).not.toBe(PlayerStatus.error);
 		// The same failure again is a real playback error; the message waits for the reachability
 		// probe so a reachable host is not blamed on the network.

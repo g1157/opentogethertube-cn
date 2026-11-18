@@ -27,6 +27,9 @@ function fakeGl() {
 			return program;
 		}),
 		attachShader: vi.fn(),
+		detachShader: vi.fn(),
+		deleteShader: vi.fn(),
+		deleteProgram: vi.fn(),
 		linkProgram: vi.fn(),
 		getProgramParameter: vi.fn(() => true),
 		getProgramInfoLog: vi.fn(() => ""),
@@ -73,5 +76,32 @@ describe("linked program cache", () => {
 		const { gl } = fakeGl();
 		(gl.createProgram as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce(null);
 		expect(() => link(gl, "fragment")).toThrow("Unable to create program");
+	});
+
+	it("releases shader objects after linking while retaining the cached program", () => {
+		const { gl } = fakeGl();
+		const program = link(gl, "fragment");
+		expect(gl.detachShader).toHaveBeenCalledTimes(2);
+		expect(gl.deleteShader).toHaveBeenCalledTimes(2);
+		expect(gl.deleteProgram).not.toHaveBeenCalled();
+		expect(link(gl, "fragment")).toBe(program);
+		expect(gl.deleteShader).toHaveBeenCalledTimes(2);
+	});
+
+	it("releases the program and both shaders after a fragment compile failure", () => {
+		const { gl } = fakeGl();
+		vi.mocked(gl.getShaderParameter).mockReturnValueOnce(true).mockReturnValueOnce(false);
+		expect(() => link(gl, "broken fragment")).toThrow("Shader compile failed");
+		expect(gl.deleteShader).toHaveBeenCalledTimes(2);
+		expect(gl.deleteProgram).toHaveBeenCalledTimes(1);
+	});
+
+	it("never caches a failed link and frees its program", () => {
+		const { gl } = fakeGl();
+		vi.mocked(gl.getProgramParameter).mockReturnValueOnce(false);
+		expect(() => link(gl, "fragment")).toThrow("Program link failed");
+		expect(gl.deleteProgram).toHaveBeenCalledTimes(1);
+		link(gl, "fragment");
+		expect(gl.createProgram).toHaveBeenCalledTimes(2);
 	});
 });

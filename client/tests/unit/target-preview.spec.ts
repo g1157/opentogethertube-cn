@@ -46,6 +46,19 @@ describe("rendered target preview", () => {
 		).toEqual({ width: 3840, height: 2160, scale: 3 });
 	});
 
+	it("uses the cover setting when predicting a cropped picture's render size", () => {
+		expect(
+			computeRenderedTarget({
+				...base,
+				nativeWidth: 1280,
+				nativeHeight: 720,
+				boxWidth: 1000,
+				boxHeight: 1000,
+				fillMode: "cover",
+			}),
+		).toEqual({ width: 1778, height: 1000, scale: 1778 / 1280 });
+	});
+
 	it("reports nothing without source dimensions or a box", () => {
 		expect(computeRenderedTarget({ ...base, boxWidth: 1280, boxHeight: 720 })).toBeNull();
 		expect(

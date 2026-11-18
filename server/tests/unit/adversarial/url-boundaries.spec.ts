@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import dns from "node:dns/promises";
 import axios from "axios";
 import childProcess from "node:child_process";
+import { EventEmitter } from "node:events";
 import {
 	assertPublicMediaUrl,
 	isPrivateAddress,
@@ -61,6 +62,7 @@ describe("assertPublicMediaUrl", () => {
 	afterEach(() => {
 		vi.unstubAllEnvs();
 		vi.restoreAllMocks();
+		vi.useRealTimers();
 	});
 
 	it.each([
@@ -81,6 +83,46 @@ describe("assertPublicMediaUrl", () => {
 	it("accepts a literal public address", async () => {
 		vi.stubEnv("NODE_ENV", "production");
 		await expect(assertPublicMediaUrl("http://8.8.8.8/")).resolves.toBeUndefined();
+	});
+
+	it("bounds a DNS lookup that never settles", async () => {
+		vi.stubEnv("NODE_ENV", "production");
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		vi.spyOn(dns, "lookup").mockImplementation(
+			() =>
+				new Promise(() => {
+					// Simulate a resolver that never answers.
+				}),
+		);
+		const checked = expect(
+			assertPublicMediaUrl("https://slow.example.com/x.mp4"),
+		).rejects.toThrow("Media DNS lookup timed out");
+		await vi.advanceTimersByTimeAsync(5000);
+		await checked;
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("rejects a literal IPv6 loopback without asking DNS to resolve its brackets", async () => {
+		vi.stubEnv("NODE_ENV", "production");
+		const lookup = vi.spyOn(dns, "lookup").mockImplementation(
+			() =>
+				new Promise(() => {
+					// A literal address must bypass this unresolved lookup.
+				}),
+		);
+		let rejected = false;
+		const checked = (async () => {
+			try {
+				await assertPublicMediaUrl("http://[::1]/");
+			} catch {
+				rejected = true;
+			}
+		})();
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(rejected).toBe(true);
+		expect(lookup).not.toHaveBeenCalled();
+		await checked;
 	});
 
 	it.each([
@@ -107,6 +149,41 @@ describe("redirect handling in the download strategies", () => {
 	afterEach(() => {
 		vi.unstubAllEnvs();
 		vi.restoreAllMocks();
+	});
+
+	it("starts ffprobe with the validated final URL instead of replaying the original redirect", async () => {
+		vi.stubEnv("NODE_ENV", "production");
+		vi.spyOn(dns, "lookup").mockResolvedValue([{ address: "93.184.216.34", family: 4 }] as any);
+		const finalUrl = "https://cdn.example.com/final.mp4";
+		vi.spyOn(axios, "get")
+			.mockResolvedValueOnce({
+				status: 302,
+				headers: { location: finalUrl },
+				data: { destroy: vi.fn() },
+			} as any)
+			.mockResolvedValueOnce({
+				status: 200,
+				headers: {},
+				data: { destroy: vi.fn() },
+			} as any);
+		const child = Object.assign(new EventEmitter(), {
+			stdout: new EventEmitter(),
+			stderr: new EventEmitter(),
+			kill: vi.fn(),
+		});
+		const spawn = vi.spyOn(childProcess, "spawn").mockImplementation(() => {
+			queueMicrotask(() => {
+				child.stdout.emit("data", Buffer.from("{}"));
+				child.emit("close", 0);
+			});
+			return child as unknown as childProcess.ChildProcessWithoutNullStreams;
+		});
+
+		await expect(
+			new RunFfprobe().getFileInfo("https://example.com/start.mp4"),
+		).resolves.toEqual({});
+		const args = spawn.mock.calls[0][1] as string[];
+		expect(args[args.indexOf("-i") + 1]).toBe(finalUrl);
 	});
 
 	it("validates every redirect hop before issuing the next request", async () => {

@@ -20,6 +20,7 @@ interface DashDouble {
 	tracks: Record<string, unknown[]>;
 	initialize: ReturnType<typeof vi.fn>;
 	destroy: ReturnType<typeof vi.fn>;
+	updateSettings: ReturnType<typeof vi.fn>;
 }
 
 const hlsMock = vi.hoisted(() => ({ supported: true, instances: [] as HlsDouble[] }));
@@ -293,13 +294,34 @@ describe("native player loading-state integration", () => {
 	});
 
 	function mountPlayer(fixture: PlayerFixture) {
-		({ wrapper } = mountComponent(fixture.component, { props: fixture.props }));
+		const mounted = mountComponent(fixture.component, { props: fixture.props });
+		wrapper = mounted.wrapper;
 		return {
 			wrapper,
+			store: mounted.store,
 			video: wrapper.get("video").element as HTMLVideoElement,
 			api: wrapper.vm.$.exposed as MediaPlayer,
 		};
 	}
+
+	it("applies a changed DASH buffer target without replacing the playing engine", async () => {
+		const target = mountPlayer(players[2]);
+		const engine = dashMock.instances.at(-1)!;
+		engine.updateSettings.mockClear();
+		target.store.commit("settings/UPDATE", { hlsBufferSeconds: 600 });
+		await target.wrapper.vm.$nextTick();
+		expect(engine.updateSettings).toHaveBeenCalledWith({
+			streaming: {
+				buffer: {
+					bufferTimeDefault: 600,
+					bufferTimeAtTopQuality: 600,
+					bufferTimeAtTopQualityLongForm: 600,
+				},
+			},
+		});
+		expect(engine.initialize).toHaveBeenCalledTimes(1);
+		expect(engine.destroy).not.toHaveBeenCalled();
+	});
 
 	function latest(target: VueWrapper): MediaLoadingState {
 		const events = target.emitted("loading-state");

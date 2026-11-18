@@ -1,100 +1,58 @@
-/**
- * Unit tests for DashVideoAdapter's MPD parsing methods
- */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import axios from "axios";
 import DashVideoAdapter from "../../../services/dash.js";
 import { UnsupportedVideoType } from "../../../exceptions.js";
-import { parseIso8601Duration } from "../../../services/parsing/iso8601.js";
-import axios from "axios";
-import { DashMPD } from "@liveinstantly/dash-mpd-parser";
-import URL from "node:url";
 
 vi.mock("axios");
-vi.mock("../../../services/parsing/iso8601");
-vi.mock("@liveinstantly/dash-mpd-parser");
+
+const url = "https://example.com/video.mpd";
 
 describe("DashVideoAdapter", () => {
-	let adapter: DashVideoAdapter;
-	let mockAxiosGet;
-	let mockParseIso8601Duration;
-	let mockDashMPD;
-
 	beforeEach(() => {
-		adapter = new DashVideoAdapter();
-		mockAxiosGet = axios.get;
-		mockParseIso8601Duration = parseIso8601Duration;
-		mockDashMPD = DashMPD;
+		vi.resetAllMocks();
 	});
 
-	describe("handleMpd", () => {
-		it("should fetch and parse MPD data", async () => {
-			const mockMPDData = `<MPD mediaPresentationDuration="PT10S"></MPD>`;
-			const mockManifest = { MPD: { "@mediaPresentationDuration": "PT10S" } };
-			mockAxiosGet.mockResolvedValue({ data: mockMPDData });
-			const mockParse = vi.fn();
-			mockDashMPD.mockImplementation(() => ({
-				parse: mockParse,
-				getJSON: () => mockManifest,
-			}));
+	function manifest(xml: string) {
+		vi.mocked(axios.get).mockResolvedValue({ data: xml, headers: {} });
+		return new DashVideoAdapter().fetchVideoInfo(url);
+	}
 
-			const url = URL.parse("http://example.com/video.mpd");
-			await adapter.handleMpd(url);
-
-			// SSRF hardening: manifest fetches never follow redirects.
-			expect(mockAxiosGet).toHaveBeenCalledWith(url.href, { maxRedirects: 0 });
-			expect(mockParse).toHaveBeenCalledWith(mockMPDData);
-		});
+	it("fetches a real XML MPD and parses its duration", async () => {
+		const video = await manifest('<MPD mediaPresentationDuration="PT1H2M3S"/>');
+		expect(video).toMatchObject({ service: "dash", id: url, length: 3723, dash_url: url });
+		expect(axios.get).toHaveBeenCalledWith(
+			url,
+			expect.objectContaining({ maxRedirects: 0, responseType: "text" }),
+		);
 	});
 
-	describe("parseMpdManifest", () => {
-		it("should throw UnsupportedVideoType for live streams", () => {
-			const manifest = { MPD: { "@profiles": "isoff-live" } };
-			const url = URL.parse("http://example.com/video.mpd");
+	it.each([
+		'<MPD profiles="isoff-live"/>',
+		'<MPD type="dynamic" mediaPresentationDuration="PT60S"/>',
+	])("keeps live XML out of the VOD clock: %s", async xml => {
+		await expect(manifest(xml)).rejects.toBeInstanceOf(UnsupportedVideoType);
+	});
 
-			expect(() => {
-				adapter.parseMpdManifest(url, manifest);
-			}).toThrow(UnsupportedVideoType);
-		});
+	it("extracts the ProgramInformation title with XML entity decoding", async () => {
+		const video = await manifest(
+			'<MPD mediaPresentationDuration="PT3S"><ProgramInformation><Title>foo &amp; bar</Title></ProgramInformation></MPD>',
+		);
+		expect(video.title).toBe("foo & bar");
+	});
 
-		it("should parse duration and return a Video object", () => {
-			const durationRaw = "PT1H2M3S";
-			const durationInSeconds = 3723;
-			mockParseIso8601Duration.mockReturnValue(durationInSeconds);
-			const manifest = { MPD: { "@mediaPresentationDuration": durationRaw } };
-			const url = URL.parse("http://example.com/video.mpd");
+	it("extracts a representation title when ProgramInformation is absent", async () => {
+		const video = await manifest(
+			'<MPD mediaPresentationDuration="PT3S"><Period><AdaptationSet><Representation><Title>foo</Title></Representation></AdaptationSet></Period></MPD>',
+		);
+		expect(video.title).toBe("foo");
+	});
 
-			const video = adapter.parseMpdManifest(url, manifest);
-
-			expect(mockParseIso8601Duration).toHaveBeenCalledWith(durationRaw);
-			expect(video.length).toEqual(durationInSeconds);
-		});
-
-		it("should extract a title from ProgramInformation", () => {
-			const manifest = {
-				MPD: {
-					"@mediaPresentationDuration": "PT3S",
-					ProgramInformation: { Title: "foo" },
-				},
-			};
-			const url = URL.parse("http://example.com/video.mpd");
-
-			const video = adapter.parseMpdManifest(url, manifest);
-
-			expect(video.title).toEqual("foo");
-		});
-
-		it("should extract a title from other places", () => {
-			const manifest = {
-				MPD: {
-					"@mediaPresentationDuration": "PT3S",
-					Period: [{ AdaptationSet: [{ Representation: [{ Title: "foo" }] }] }],
-				},
-			};
-			const url = URL.parse("http://example.com/video.mpd");
-
-			const video = adapter.parseMpdManifest(url, manifest);
-
-			expect(video.title).toEqual("foo");
-		});
+	it.each([
+		"P",
+		"PT0S",
+		"prefixPT60S",
+		"PTNaNS",
+	])("rejects an invalid VOD duration: %s", async duration => {
+		await expect(manifest(`<MPD mediaPresentationDuration="${duration}"/>`)).rejects.toThrow();
 	});
 });

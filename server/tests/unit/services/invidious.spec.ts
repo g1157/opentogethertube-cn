@@ -134,9 +134,8 @@ describe("InvidiousAdapter (unit)", () => {
 			adapter.allowedHosts = ["inv.nadeko.net"];
 		});
 
-		it("parses DASH MPD (via DashMPD) and returns top bitrate/res", async () => {
-			const mpd = `
-<?xml version="1.0" encoding="UTF-8"?>
+		it("parses DASH MPD and returns top bitrate/res", async () => {
+			const mpd = `<?xml version="1.0" encoding="UTF-8"?>
 <MPD xmlns="urn:mpeg:DASH:schema:MPD:2011"
      profiles="urn:mpeg:dash:profile:isoff-live:2011"
      type="static"
@@ -155,7 +154,7 @@ describe("InvidiousAdapter (unit)", () => {
     </AdaptationSet>
   </Period>
 </MPD>`;
-			// mock axios instance on this adapter (DashMPD expects raw XML string)
+			// Return real XML so the shared strict parser is exercised.
 			(adapter.api.get as any) = vi.fn().mockResolvedValue({ data: mpd, headers: {} });
 
 			const out = await (adapter as any).probeManifest("inv.nadeko.net", "abc", "dash");

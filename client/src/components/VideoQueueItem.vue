@@ -339,6 +339,7 @@ const renderedTarget = computed(() => {
 		dpr: Math.min(window.devicePixelRatio || 1, MAX_DPR),
 		requestedScale: store.state.settings.upscaleScale,
 		cnnUpscale: isCnnUpscaleTier(store.state.settings.upscaleMode) && canAffordCnnUpscale(),
+		fillMode: store.state.settings.videoFillMode,
 	});
 	return target && target.scale > 1.01 ? target : null;
 });

@@ -8,6 +8,9 @@ import { Room, RoomUser } from "../../room.js";
 import roommanager from "../../roommanager.js";
 import tokens from "../../auth/tokens.js";
 import type { SessionInfo } from "../../auth/tokens.js";
+import * as sessionTokens from "../../auth/tokens.js";
+import usermanager from "../../usermanager.js";
+import type { User } from "../../models/user.js";
 import { RoomRequestType } from "ott-common/models/messages.js";
 import { buildClients } from "../../redisclient.js";
 
@@ -209,10 +212,12 @@ describe("disconnects while joining a room", () => {
 		// re-authenticates in place, so the viewer keeps their seat and picks up the
 		// new role without a reload.
 		const session: SessionInfo = { isLoggedIn: true, user_id: 4242 };
-		vi.mocked(tokens.getSessionInfo).mockResolvedValue(session);
-		client.session = session;
-		client.emit("reauth", client, "user-token", session);
-		await settle();
+		vi.spyOn(sessionTokens, "getSessionInfo").mockResolvedValue(session);
+		vi.spyOn(usermanager, "getUserCachedById").mockResolvedValue({
+			id: 4242,
+			username: "account",
+		} as User);
+		expect(await client.reauthenticate("user-token")).toBe(true);
 
 		const user = room.getUser(client.id);
 		expect(user?.isLoggedIn).toBe(true);
@@ -220,6 +225,65 @@ describe("disconnects while joining a room", () => {
 		expect(room.realusers).toHaveLength(1);
 		const sent = client.sendRaw.mock.calls.map(([message]) => JSON.parse(message));
 		expect(sent.some(msg => msg.action === "sync")).toBe(true);
+	});
+
+	it("preserves the member and connection identity when the new account lookup fails", async () => {
+		const client = authenticate("first");
+		await vi.waitFor(() => expect(room.getUser(client.id)).toBeDefined());
+		vi.spyOn(sessionTokens, "getSessionInfo").mockResolvedValue({
+			isLoggedIn: true,
+			user_id: 4242,
+		});
+		vi.spyOn(usermanager, "getUserCachedById").mockRejectedValue(new Error("Account vanished"));
+		expect(await client.reauthenticate("missing-account-token")).toBe(false);
+		const user = room.getUser(client.id)!;
+		expect(user.token).toBe("test-first");
+		expect(user.isLoggedIn).toBe(false);
+		expect(user.username).toBe("first");
+		expect(room.getRole(user)).toBe(Role.UnregisteredUser);
+		expect(client.token).toBe("test-first");
+		expect(client.session).toEqual({ isLoggedIn: false, username: "first" });
+	});
+
+	it("waits for an identity update before processing another room command", async () => {
+		const client = authenticate("first");
+		await vi.waitFor(() => expect(room.getUser(client.id)).toBeDefined());
+		await settle();
+		const lookup = deferred<SessionInfo>();
+		vi.spyOn(sessionTokens, "getSessionInfo").mockReturnValue(lookup.promise);
+		const process = vi.spyOn(room, "processUnauthorizedRequest").mockResolvedValue(undefined);
+		client.emit("message", client, { action: "reauthenticate", token: "new-guest-token" });
+		await settle();
+		client.emit("message", client, {
+			action: "req",
+			request: { type: RoomRequestType.PlaybackRequest, state: false },
+		});
+		await settle();
+		expect(process).not.toHaveBeenCalled();
+		lookup.resolve({ isLoggedIn: false, username: "new guest" });
+		await vi.waitFor(() => expect(process).toHaveBeenCalledOnce());
+		expect(room.getUser(client.id)?.token).toBe("new-guest-token");
+		expect(room.getUser(client.id)?.username).toBe("new guest");
+	});
+
+	it("discards a room identity replacement if the viewer disconnects during lookup", async () => {
+		const client = authenticate("first");
+		await vi.waitFor(() => expect(room.getUser(client.id)).toBeDefined());
+		vi.spyOn(sessionTokens, "getSessionInfo").mockResolvedValue({
+			isLoggedIn: true,
+			user_id: 4242,
+		});
+		const lookup = deferred<User>();
+		const accountLookup = vi
+			.spyOn(usermanager, "getUserCachedById")
+			.mockReturnValue(lookup.promise);
+		const pending = client.reauthenticate("new-account-token");
+		await vi.waitFor(() => expect(accountLookup).toHaveBeenCalledOnce());
+		client.emit("disconnect", client);
+		lookup.resolve({ id: 4242, username: "account" } as User);
+		expect(await pending).toBe(false);
+		await vi.waitFor(() => expect(room.getUser(client.id)).toBeUndefined());
+		expect(room.realusers).toEqual([]);
 	});
 
 	it("preserves resume intent if the only connecting viewer leaves during identity lookup", async () => {

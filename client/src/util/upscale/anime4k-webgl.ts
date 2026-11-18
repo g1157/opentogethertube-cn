@@ -17,7 +17,8 @@ import {
 	SHARPEN_FRAGMENT_SHADER,
 	type RenderTarget,
 } from "./cas";
-import { reportEnhancementError, reportEnhancementTarget } from "./status";
+import { reportEnhancementTarget } from "./status";
+import { startVideoRenderLoop } from "./video-render-loop";
 import type { UpscaleRenderer } from "./upscale-renderer";
 
 export type { Anime4KPassSpec };
@@ -216,6 +217,7 @@ export function startAnime4KWebGLRenderer(
 	video: HTMLVideoElement,
 	canvas: HTMLCanvasElement,
 	chain: Anime4KChain = ANIME4K_S_CHAIN,
+	onFatal?: (message: string) => void,
 ): UpscaleRenderer {
 	const gl = canvas.getContext("webgl2", {
 		alpha: false,
@@ -270,14 +272,9 @@ export function startAnime4KWebGLRenderer(
 	// still hold a name something samples.
 	const buffers = new Map<number, RenderTarget>();
 
-	let frameRequest = 0;
-	let stopped = false;
 	let frames = 0;
 	let passCount = 0;
-	/** Media time of the frame the last loop callback drew; a repeated presentation of the
-	 * same frame (a rate-change re-time, a redraw after a seek) is skipped, not drawn twice. */
-	let lastFrameMediaTime = Number.NaN;
-	let drawFailures = 0;
+
 	// The chain's shape depends only on the source and target sizes, so it is planned once per
 	// size rather than once per frame.
 	let plan: Anime4KPlanStep[] = [];
@@ -291,6 +288,13 @@ export function startAnime4KWebGLRenderer(
 	// not a trigger: it stalls the loop without the viewer having stopped.
 	const IDLE_MS = 15000;
 	let idleTimer: ReturnType<typeof setTimeout> | undefined;
+	const releaseTargets = () => {
+		for (const current of buffers.values()) {
+			releaseRenderTarget(gl, current);
+		}
+		buffers.clear();
+		pool.dispose();
+	};
 	const cancelIdle = () => {
 		if (idleTimer !== undefined) {
 			clearTimeout(idleTimer);
@@ -301,7 +305,9 @@ export function startAnime4KWebGLRenderer(
 		cancelIdle();
 		idleTimer = setTimeout(() => {
 			idleTimer = undefined;
-			pool.dispose();
+			// The visible paused picture is preserved in the canvas, so its input targets
+			// can be released too; keeping only the free pool left the last target alive.
+			releaseTargets();
 		}, IDLE_MS);
 	};
 	const onVisibilityChange = () => {
@@ -324,7 +330,7 @@ export function startAnime4KWebGLRenderer(
 	};
 
 	const drawFrame = () => {
-		if (stopped || video.readyState < video.HAVE_CURRENT_DATA) {
+		if (video.readyState < video.HAVE_CURRENT_DATA) {
 			return;
 		}
 		// A frame is flowing, so nothing is idle.
@@ -414,63 +420,34 @@ export function startAnime4KWebGLRenderer(
 			);
 		}
 		frames++;
+		if (video.paused) {
+			// A settings/resize redraw is still paused and must retain the idle deadline.
+			startIdleTimer();
+		}
 	};
 
-	const frame = (_now: number, metadata: VideoFrameCallbackMetadata) => {
-		if (stopped) {
-			return;
-		}
-		try {
-			const mediaTime = metadata?.mediaTime;
-			if (mediaTime === undefined || !(Math.abs(mediaTime - lastFrameMediaTime) < 1e-4)) {
-				lastFrameMediaTime = mediaTime ?? Number.NaN;
-				drawFrame();
-			}
-			drawFailures = 0;
-		} catch (error) {
-			// A draw that throws used to end the loop silently, freezing the canvas under a
-			// tier that still looked enabled. Three failures in a row stand the renderer down
-			// and surface the reason in the playback details panel.
-			drawFailures++;
-			if (drawFailures >= 3) {
-				stopped = true;
-				reportEnhancementError(error instanceof Error ? error.message : String(error));
-				return;
-			}
-		}
-		frameRequest = video.requestVideoFrameCallback(frame);
-	};
-	// A paused video presents no frames, so nothing would redraw the picture the viewer is
-	// looking at — including the case of a tier that started while the video was paused.
-	video.addEventListener("pause", drawFrame);
-	video.addEventListener("seeked", drawFrame);
-	// Registered after drawFrame, so a pause draws first and then arms the idle timer.
-	video.addEventListener("pause", startIdleTimer);
-	video.addEventListener("ended", startIdleTimer);
-	document.addEventListener("visibilitychange", onVisibilityChange);
-	drawFrame();
-	frameRequest = video.requestVideoFrameCallback(frame);
-
-	return {
-		stop() {
-			stopped = true;
+	const loop = startVideoRenderLoop(
+		video,
+		canvas,
+		drawFrame,
+		() => {
 			cancelIdle();
-			video.cancelVideoFrameCallback(frameRequest);
-			video.removeEventListener("pause", drawFrame);
-			video.removeEventListener("seeked", drawFrame);
 			video.removeEventListener("pause", startIdleTimer);
 			video.removeEventListener("ended", startIdleTimer);
 			document.removeEventListener("visibilitychange", onVisibilityChange);
-			for (const current of buffers.values()) {
-				releaseRenderTarget(gl, current);
-			}
-			buffers.clear();
-			pool.dispose();
-			// The layer keeps the canvas across rebuilds so the chain does not have to be linked
-			// again, which means this instance is responsible for the objects it created.
+			releaseTargets();
 			gl.deleteVertexArray(vao);
 			gl.deleteBuffer(buffer);
 			gl.deleteTexture(videoTexture);
 		},
-	};
+		onFatal,
+	);
+	// Arm after the redraw listener, so drawing the paused picture cannot cancel its idle timer.
+	video.addEventListener("pause", startIdleTimer);
+	video.addEventListener("ended", startIdleTimer);
+	document.addEventListener("visibilitychange", onVisibilityChange);
+	if (video.paused || document.hidden) {
+		startIdleTimer();
+	}
+	return loop;
 }

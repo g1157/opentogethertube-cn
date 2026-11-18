@@ -21,6 +21,7 @@ export class OttSfx {
 	enabled: boolean = false;
 	volume: Ref<number> = ref(1);
 	private loaded: boolean = false;
+	private loading: Promise<void> | null = null;
 
 	private assets: Map<string, AudioBuffer> = new Map();
 	/**
@@ -52,9 +53,37 @@ export class OttSfx {
 	}
 
 	async loadSfx() {
-		const pop = await axios.get<Blob>(sfxPopUrl, { responseType: "blob" });
-		await this.registerBlob("pop", pop.data);
-		this.loaded = true;
+		if (this.loaded) {
+			return;
+		}
+		if (this.loading) {
+			return this.loading;
+		}
+		this.loading = this.fetchSfx();
+		try {
+			await this.loading;
+		} finally {
+			this.loading = null;
+		}
+	}
+
+	private async fetchSfx(): Promise<void> {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 5000);
+		try {
+			const pop = await axios.get<Blob>(sfxPopUrl, {
+				responseType: "blob",
+				timeout: 5000,
+				signal: controller.signal,
+			});
+			await this.registerBlob("pop", pop.data);
+			this.loaded = true;
+		} catch (error) {
+			// Optional notification sounds must not reject a room's mount or message handler.
+			console.warn("Sound effects unavailable:", error);
+		} finally {
+			clearTimeout(timeout);
+		}
 	}
 
 	private async registerBlob(name: string, blob: Blob) {
@@ -76,6 +105,10 @@ export class OttSfx {
 	}
 
 	async play(name: string) {
+		if (!this.enabled) {
+			return;
+		}
+		await this.loadSfx();
 		if (!this.enabled || !this.loaded) {
 			return;
 		}
@@ -83,16 +116,19 @@ export class OttSfx {
 		if (!asset) {
 			return;
 		}
-		const { context, gain } = this.ensureContext();
-		if (context.state === "suspended") {
-			// A context that was built before any user gesture starts suspended; without this
-			// the very first sound of the session is silently dropped.
-			await context.resume().catch(() => undefined);
+		try {
+			const { context, gain } = this.ensureContext();
+			if (context.state === "suspended") {
+				// The browser may require a user gesture before it can play a notification.
+				await context.resume().catch(() => undefined);
+			}
+			const source = context.createBufferSource();
+			source.buffer = asset;
+			source.connect(gain);
+			source.start(0);
+		} catch (error) {
+			console.warn("Sound effects unavailable:", error);
 		}
-		const source = context.createBufferSource();
-		source.buffer = asset;
-		source.connect(gain);
-		source.start(0);
 	}
 }
 

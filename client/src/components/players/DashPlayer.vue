@@ -406,6 +406,15 @@ function setAudioEq(preset: AudioEqPreset): void {
 	audioBoost.setEq(preset);
 }
 
+function forwardBufferSettings() {
+	const seconds = store.state.settings.hlsBufferSeconds;
+	return {
+		bufferTimeDefault: seconds,
+		bufferTimeAtTopQuality: seconds,
+		bufferTimeAtTopQualityLongForm: seconds,
+	};
+}
+
 function loadVideoSource(resumePosition: number | null = null, resetRecovery = true) {
 	if (resetRecovery) {
 		// A new source starts from zero; a recovery reboot keeps its captured snapshot.
@@ -443,9 +452,7 @@ function loadVideoSource(resumePosition: number | null = null, resetRecovery = t
 				fastSwitchEnabled: true,
 				// The same buffer preference as HLS: dash.js' own defaults (18/30/60s) are
 				// thinner than a room wants, and a stall here pauses everyone.
-				bufferTimeDefault: store.state.settings.hlsBufferSeconds,
-				bufferTimeAtTopQuality: store.state.settings.hlsBufferSeconds,
-				bufferTimeAtTopQualityLongForm: store.state.settings.hlsBufferSeconds,
+				...forwardBufferSettings(),
 				// Keep the same rewind depth as HLS (dash.js defaults to 30s).
 				bufferToKeep: 180,
 			},
@@ -636,9 +643,15 @@ watch(videoUrl, () => {
 	loadVideoSource();
 });
 
+watch(
+	() => store.state.settings.hlsBufferSeconds,
+	() => dash.value?.updateSettings({ streaming: { buffer: forwardBufferSettings() } }),
+);
+
 defineExpose({
 	supportsRateBend: true,
 	getVideoElement: () => videoElem.value,
+	isVideoEnhancementSupported: () => !!videoElem.value,
 	retry,
 	play,
 	pause,

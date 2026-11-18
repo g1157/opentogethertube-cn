@@ -15,7 +15,14 @@ permissions:
   packages: write
 
 jobs:
+  # Check this exact revision through the same workflows used by trunk CI.
+  checks:
+    uses: ./.github/workflows/main.yml
+  rust-checks:
+    uses: ./.github/workflows/rust.yml
+
   publish:
+    needs: [checks, rust-checks]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,5 +67,7 @@ jobs:
             -t "$IMAGE:$VERSION" \
             -t "$IMAGE:latest" \
             .
+          docker run --rm --network none --read-only --entrypoint node \
+            "$IMAGE:$VERSION" /app/scripts/check-runtime-dependencies.mjs --image
           docker push "$IMAGE:$VERSION"
           docker push "$IMAGE:latest"

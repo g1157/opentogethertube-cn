@@ -7,6 +7,10 @@
 crates
 packages
 docs
-.yarn
+.yarn/*
+!.yarn/releases/
+.yarn/releases/*
+!.yarn/releases/yarn-4.1.0.cjs
+!.yarn/patches/
 backups
 *.log

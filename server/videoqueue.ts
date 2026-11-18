@@ -61,9 +61,14 @@ export class VideoQueue extends Dirtyable {
 	}
 
 	/** Dequeue the next video in the queue. */
-	async dequeue(): Promise<QueueItem | undefined> {
+	async dequeue(
+		onDequeue?: (item: QueueItem | undefined) => void,
+	): Promise<QueueItem | undefined> {
 		return this.lock.protect(() => {
 			const item = this._items.shift();
+			// Publish the queue-to-current handoff under this lock, so an extras update
+			// never observes the item missing from both locations between await turns.
+			onDequeue?.(item);
 			this.markDirty();
 			return item;
 		});
@@ -177,15 +182,23 @@ export class VideoQueue extends Dirtyable {
 		});
 	}
 
-	/** Update queue item extras (e.g. subtitleUrl) for a video already in the queue. */
-	async update(video: VideoId, patch: Partial<QueueItemExtras>): Promise<void> {
+	/** Update extras in the queue, or on a matching current item during a handoff. */
+	async update(
+		video: VideoId,
+		patch: Partial<QueueItemExtras>,
+		currentItem?: () => QueueItem | null,
+	): Promise<QueueItem> {
 		return this.lock.protect(() => {
 			const matchIdx = this.findIndex(video);
-			if (matchIdx < 0) {
+			const target = matchIdx >= 0 ? this._items[matchIdx] : currentItem?.();
+			if (!target || target.service !== video.service || target.id !== video.id) {
 				throw new VideoNotFoundException();
 			}
-			Object.assign(this._items[matchIdx], patch);
-			this.markDirty();
+			Object.assign(target, patch);
+			if (matchIdx >= 0) {
+				this.markDirty();
+			}
+			return target;
 		});
 	}
 

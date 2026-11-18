@@ -12,6 +12,7 @@ import http from "node:http";
 import https from "node:https";
 import dns from "node:dns/promises";
 import net from "node:net";
+import { tmpdir as systemTempDirectory } from "node:os";
 import { pipeline } from "node:stream/promises";
 import { Counter } from "prom-client";
 import { FfprobeError, FfprobeTimeoutError } from "./exceptions.js";
@@ -22,6 +23,7 @@ const log = getLogger("infoextract/ffprobe");
 // onto the room tick for long; a probe that fails fast degrades to no length.
 // Hex form of an IPv4-mapped address: ::ffff:7f00:1 is 127.0.0.1 without dots.
 const IPV4_MAPPED_HEX_PATTERN = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/;
+const IPV6_HOST_BRACKETS = /^\[|\]$/g;
 
 const FFPROBE_TIMEOUT_MS = 20000;
 /** Only redirect headers are needed here; keep the resolver's share of the probe budget short. */
@@ -100,7 +102,28 @@ export async function assertPublicMediaUrl(uri: string): Promise<void> {
 	if (url.protocol !== "http:" && url.protocol !== "https:") {
 		throw new Error(`Unsupported media URL protocol: ${url.protocol}`);
 	}
-	const resolved = await dns.lookup(url.hostname, { all: true });
+	// WHATWG URL keeps brackets on IPv6 hostnames; DNS treats them as a hostname,
+	// not an address. Literal addresses need no lookup and must be rejected immediately.
+	const hostname = url.hostname.replace(IPV6_HOST_BRACKETS, "");
+	if (net.isIP(hostname)) {
+		if (isPrivateAddress(hostname)) {
+			throw new Error("Media URL resolves to a private or local address");
+		}
+		return;
+	}
+	let lookupTimer: NodeJS.Timeout | undefined;
+	const lookupTimeout = new Promise<never>((_resolve, reject) => {
+		lookupTimer = setTimeout(
+			() => reject(new Error("Media DNS lookup timed out")),
+			MEDIA_RESOLVE_TIMEOUT_MS,
+		);
+	});
+	let resolved;
+	try {
+		resolved = await Promise.race([dns.lookup(hostname, { all: true }), lookupTimeout]);
+	} finally {
+		clearTimeout(lookupTimer);
+	}
 	if (resolved.length === 0) {
 		throw new Error("Media URL host did not resolve");
 	}
@@ -135,6 +158,7 @@ async function resolvePublicMediaUrl(uri: string): Promise<string> {
 			maxRedirects: 0,
 			validateStatus: () => true,
 			headers: { Range: "bytes=0-0" },
+			timeout: MEDIA_RESOLVE_TIMEOUT_MS,
 			signal,
 		});
 		(response.data as Readable | undefined)?.destroy?.();
@@ -173,6 +197,7 @@ async function safeMediaDownload(
 			validateStatus: () => true,
 			httpAgent: options.httpAgent,
 			httpsAgent: options.httpsAgent,
+			timeout: MEDIA_RESOLVE_TIMEOUT_MS,
 			signal: options.signal,
 		});
 		const releaseBody = () => (response.data as Readable | undefined)?.destroy?.();
@@ -213,6 +238,7 @@ function registerFfprobeChild(child: childProcess.ChildProcess): void {
 				`unregistered ffprobe child pid=${child.pid}, total now=${FFPROBE_CHILDREN.size}`,
 			);
 		});
+		child.once("error", () => FFPROBE_CHILDREN.delete(child));
 	} catch (e) {
 		log.debug(`registerFfprobeChild error: ${String(e)}`);
 	}
@@ -255,20 +281,6 @@ function streamDataIntoFfprobe(
 	controller: AbortController,
 ): Promise<string> {
 	return new Promise((resolve, reject) => {
-		let settled = false;
-		const resolveOnce = (v: string) => {
-			if (!settled) {
-				settled = true;
-				resolve(v);
-			}
-		};
-		const rejectOnce = (e: unknown) => {
-			if (!settled) {
-				settled = true;
-				reject(e as Error);
-			}
-		};
-
 		const args = ["-v", "quiet", "-print_format", "json", "-show_streams", "-show_format", "-"];
 		const child = childProcess.spawn(ffprobePath, args, {
 			stdio: "pipe",
@@ -277,38 +289,20 @@ function streamDataIntoFfprobe(
 		registerFfprobeChild(child);
 		log.debug(`ffprobe child spawned: ${child.pid}`);
 		let resultJson = "";
-
-		let timedOut = false;
-		let hardKiller: NodeJS.Timeout | null = setTimeout(() => {
-			log.warn(
-				`ffprobe pid=${child.pid} exceeded hard timeout ${FFPROBE_TIMEOUT_MS}ms — killing`,
-			);
-			try {
-				timedOut = true;
-				child.kill("SIGKILL");
-			} catch (e) {
-				log.debug(`ffprobe hard-kill error: ${String(e)}`);
+		let stderr = "";
+		let settled = false;
+		const source = stream as Readable;
+		const countBytes = (data: Buffer) => counterBytesDownloaded.inc(data.length);
+		const finish = (error?: unknown) => {
+			if (settled) {
+				return;
 			}
-			try {
-				controller.abort();
-			} catch (e) {
-				if (!axios.isCancel(e)) {
-					log.debug(`abort error: ${String(e)}`);
-				}
-			}
-		}, FFPROBE_TIMEOUT_MS);
-
-		const clearHardKiller = () => {
-			if (hardKiller) {
-				clearTimeout(hardKiller);
-				hardKiller = null;
-			}
-		};
-
-		function finalize() {
-			clearHardKiller();
-			stream.removeAllListeners();
-			stream.emit("end");
+			settled = true;
+			clearTimeout(hardKiller);
+			source.unpipe(child.stdin);
+			source.removeListener("data", countBytes);
+			source.removeListener("error", onStreamError);
+			source.destroy();
 			try {
 				controller.abort();
 			} catch (e) {
@@ -316,63 +310,57 @@ function streamDataIntoFfprobe(
 					log.error(`Failed to abort request: ${e}`);
 				}
 			}
-			resolveOnce(resultJson);
-		}
-
-		stream.on("data", data => {
-			counterBytesDownloaded.inc(data.length);
-			if (child.stdin.destroyed) {
-				return;
-			}
-			child.stdin.write(data, e => {
-				if (e) {
-					log.debug(`write failed (destroyed: ${child.stdin.destroyed}): ${String(e)}`);
-				}
-			});
-		});
-		child.stdin.on("error", e => {
-			log.debug(`ffprobe stdin error: ${String(e)}`);
-		});
-		stream.on("end", () => {
-			log.debug("http stream ended");
-			if (child.stdin.destroyed) {
-				return;
-			}
-			child.stdin.end();
-		});
-		stream.on("error", error => {
-			if (!timedOut) {
-				log.error(`http stream error: ${error}`);
+			if (error !== undefined) {
+				reject(error);
 			} else {
-				log.debug(`expected stream.on error: ${error}`);
+				resolve(resultJson);
 			}
-			clearHardKiller();
+		};
+		const onStreamError = (error: Error) => {
 			try {
 				child.kill("SIGKILL");
 			} catch (e) {
 				log.error("Error while trying to destroy ffprobe:", e);
 			}
-			if (timedOut) {
-				rejectOnce(new FfprobeTimeoutError());
-			} else {
-				rejectOnce(error);
+			finish(error);
+		};
+		const hardKiller = setTimeout(() => {
+			try {
+				child.kill("SIGKILL");
+			} catch (error) {
+				log.debug(`ffprobe hard-kill error: ${String(error)}`);
+			} finally {
+				finish(new FfprobeTimeoutError());
 			}
+		}, FFPROBE_TIMEOUT_MS);
+		child.once("error", finish);
+		child.stdin.on("error", error => {
+			// ffprobe can finish before the response body ends. Keep EPIPE handled while
+			// waiting for its exit status, and stop reading ahead into a closed input.
+			source.unpipe(child.stdin);
+			source.pause();
+			log.debug(`ffprobe stdin error: ${String(error)}`);
 		});
 		child.stdout.on("data", data => {
 			log.debug(`ffprobe output: ${data}`);
 			resultJson += data;
 		});
 		child.stderr.on("data", data => {
-			log.silly(`${data}`);
+			stderr += data;
 		});
 		child.on("close", (code, signal) => {
-			clearHardKiller();
-			log.debug(`ffprobe closed (code=${code}, signal=${signal ?? "none"})`);
-			if (timedOut) {
-				return rejectOnce(new FfprobeTimeoutError());
-			}
-			finalize();
+			finish(
+				code === 0
+					? undefined
+					: new FfprobeError(
+							`ffprobe exit code ${code} signal ${signal ?? "none"} stderr=${stderr}`,
+						),
+			);
 		});
+		source.on("error", onStreamError);
+		source.on("data", countBytes);
+		// pipe propagates input backpressure; manually writing each data event did not.
+		source.pipe(child.stdin);
 	});
 }
 
@@ -489,7 +477,7 @@ export class RunFfprobe extends FfprobeStrategy {
 			"-probesize",
 			"32000000",
 			"-i",
-			uri,
+			resolvedUri,
 			"-print_format",
 			"json",
 			"-show_streams",
@@ -552,52 +540,50 @@ export class OnDiskPreviewFfprobe extends FfprobeStrategy {
 		await assertPublicMediaUrl(uri);
 		log.debug(`Grabbing file info from ${uri}`);
 
-		const tmpdir = await fs.mkdtemp("/tmp/ott");
+		const tmpdir = await fs.mkdtemp(path.join(systemTempDirectory(), "ott-"));
 		const tmpfile = path.join(tmpdir, "./preview");
 		log.debug(`saving preview to ${tmpfile}`);
-		const handle = await fs.open(tmpfile, "w");
-
-		const httpAgent = new http.Agent({ keepAlive: false });
-		const httpsAgent = new https.Agent({ keepAlive: false });
-		const controller = new AbortController();
-		const resp = await safeMediaDownload(uri, {
-			signal: controller.signal,
-			httpAgent,
-			httpsAgent,
-		});
-
-		const byteLimit = conf.get("info_extractor.direct.preview_max_bytes") ?? Infinity;
-
 		try {
-			let counter = 0;
-			// pipeline really waits for the copy to finish before resolving, unlike
-			// `await resp.data.pipe(w)` which resolves immediately and used to abort
-			// the download while ffprobe was handed a truncated file.
-			await pipeline(
-				resp.data as Readable,
-				async function* (source: AsyncIterable<Buffer>) {
-					for await (const data of source) {
-						counter += data.length;
-						counterBytesDownloaded.inc(data.length);
-						if (counter > byteLimit) {
-							log.debug(`read ${counter} bytes, stopping`);
-							// End the copy early on purpose; probing only needs the
-							// container index near the head of the file.
-							return;
+			const httpAgent = new http.Agent({ keepAlive: false });
+			const httpsAgent = new https.Agent({ keepAlive: false });
+			const controller = new AbortController();
+			let handle: fs.FileHandle | undefined;
+			try {
+				handle = await fs.open(tmpfile, "w");
+				const resp = await safeMediaDownload(uri, {
+					signal: controller.signal,
+					httpAgent,
+					httpsAgent,
+				});
+				const byteLimit = conf.get("info_extractor.direct.preview_max_bytes") ?? Infinity;
+				let counter = 0;
+				// pipeline really waits for the copy to finish before resolving, unlike
+				// `await resp.data.pipe(w)` which resolves immediately and used to abort
+				// the download while ffprobe was handed a truncated file.
+				await pipeline(
+					resp.data as Readable,
+					async function* (source: AsyncIterable<Buffer>) {
+						for await (const data of source) {
+							counter += data.length;
+							counterBytesDownloaded.inc(data.length);
+							if (counter > byteLimit) {
+								log.debug(`read ${counter} bytes, stopping`);
+								// End the copy early on purpose; probing only needs the
+								// container index near the head of the file.
+								return;
+							}
+							yield data;
 						}
-						yield data;
-					}
-				},
-				handle.createWriteStream(),
-			);
-		} finally {
-			controller.abort();
-			httpAgent.destroy();
-			httpsAgent.destroy();
-			await handle.close().catch(() => undefined);
-		}
+					},
+					handle.createWriteStream(),
+				);
+			} finally {
+				controller.abort();
+				httpAgent.destroy();
+				httpsAgent.destroy();
+				await handle?.close().catch(() => undefined);
+			}
 
-		try {
 			const args = [
 				"-v",
 				"quiet",
@@ -660,8 +646,7 @@ export class OnDiskPreviewFfprobe extends FfprobeStrategy {
 			});
 			return JSON.parse(out);
 		} finally {
-			await fs.rm(tmpfile, { force: true });
-			// The mkdtemp directory itself used to leak one entry per probe.
+			// Include open/download failures in cleanup, not only ffprobe failures.
 			await fs.rm(tmpdir, { recursive: true, force: true });
 		}
 	}
@@ -675,12 +660,12 @@ export class StreamFfprobe extends FfprobeStrategy {
 		const httpAgent = new http.Agent({ keepAlive: false });
 		const httpsAgent = new https.Agent({ keepAlive: false });
 		const controller = new AbortController();
-		const resp = await safeMediaDownload(uri, {
-			signal: controller.signal,
-			httpAgent,
-			httpsAgent,
-		});
 		try {
+			const resp = await safeMediaDownload(uri, {
+				signal: controller.signal,
+				httpAgent,
+				httpsAgent,
+			});
 			const stdout = await streamDataIntoFfprobe(this.ffprobePath, resp.data, controller);
 			return JSON.parse(stdout);
 		} finally {

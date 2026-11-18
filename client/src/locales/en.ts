@@ -249,18 +249,21 @@ export default {
 			"anime4k-quality-fallback":
 				"The quality tier could not start; switched to the fast AI upscale.",
 			failed: "Could not enable video enhancement; it was turned off.",
+			"source-unsupported": "Unavailable for this source",
+			"source-unsupported-hint":
+				"This player cannot provide video pixels for enhancement. Your preference is kept for supported sources; you can still turn it off here.",
 			degraded: "Performance is too low; video enhancement was reduced.",
 			help: "What these tiers do",
 			"intro-sharpen":
-				"Sharpen: GPU edge-adaptive upscaling (EASU) plus sharpening, available everywhere. It follows the displayed size, never renders below the source, and costs the least power. The effect is subtle — most visible on low-resolution or soft sources.",
+				"Sharpen: edge-adaptive upscaling (EASU) followed by neighborhood-clamped sharpening. It needs WebGL2 and a source that allows video texture uploads. Auto follows the displayed size, with source-resolution and pixel-budget limits. The effect is subtle and is easier to see on low-resolution or soft sources.",
 			"intro-film":
-				"Film: an edge-preserving pass removes blocking and mosquito noise, flattens banding where the neighborhood spans a couple of code values and dithers what is left, then EASU upscales and sharpening runs at 0.6 of the slider. Use it for live-action shows and movies; anime belongs to the AI upscale below. WebGL2 only, so phones can run it too.",
+				"Film: edge-preserving denoising and debanding with dithering, followed by EASU upscaling and sharpening at 0.6 of the slider value. Try it on live-action shows and movies, and compare against the original for detail loss. It needs WebGL2 and a source that allows video texture uploads; performance depends on the device and render size.",
 			"intro-anime4k":
-				"AI upscale (Anime4K): a neural network rebuilds lines, best on anime. A discrete GPU has plenty of headroom; integrated graphics and phones may struggle. WebGPU is used when available; without it (Firefox outside Windows, for example) the same network runs on WebGL2 at the S variant.",
+				"AI upscale (Anime4K): a neural network restores and upscales animation lines. The player checks whether WebGPU can actually process video; otherwise the S preset runs on WebGL2. Availability and speed depend on the browser, driver, source and render size.",
 			"intro-anime4k-quality":
-				"AI upscale (quality): stacks a second restore-and-upscale pass on the fast preset (A+A). The highest perceptual quality at roughly double the GPU cost — expect heat and fan noise on a laptop. Leave the render scale on Auto so it follows the display; rendering above that only adds pixels the screen cannot show. Without WebGPU the same A+A chain runs on WebGL2.",
+				"AI upscale (quality): an A+A restore-and-upscale chain with more processing than the fast preset. GPU cost and the visible benefit depend on the backend, source and render size. Start with Auto and compare motion and fine detail against the original; higher settings can increase heat and frame drops. Without usable WebGPU, a WebGL2 A+A implementation is used.",
 			"intro-anime4k-ultra":
-				'AI upscale (ultra): the same chain mpv runs as "Mode A+A (HQ)" — VL restore and upscale, M restore and upscale, plus Clamp Highlights, about 55 passes. The first start compiles the shaders and pauses briefly; expect heat on a laptop, and pair it with a 1080p source at 2x. Without WebGPU the same chain runs on WebGL2.',
+				'AI upscale (ultra): the WebGL2 implementation follows Anime4K "Mode A+A (HQ)": VL and M restore/upscale stages with Clamp Highlights. The shader definition has 55 sections; executed passes depend on the target size. Startup compiles shaders, and this tier can use substantial GPU time and memory. Compare it at the same output size before choosing it.',
 			"intro-note":
 				"Slow devices step down one tier at a time; turn auto-degrade off under Advanced to keep these settings.",
 			advanced: "Advanced",
