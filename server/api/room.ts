@@ -287,7 +287,22 @@ const patchRoom: RequestHandler<{ name: string }, unknown, OttApiRequestPatchRoo
 
 	if (!room.isTemporary) {
 		try {
-			await storage.updateRoom(room);
+			// Only the settings this endpoint can change, never the whole Room. `updateRoom`
+			// maps undefined-and-null fields by hand, and a running room's `prevQueue` is null
+			// (the queue checkpoint lives in Redis while the room is loaded), so passing the
+			// object wrote null over the durable queue checkpoint on every settings patch.
+			await storage.updateRoom({
+				name: room.name,
+				title: room.title,
+				description: room.description,
+				visibility: room.visibility,
+				queueMode: room.queueMode,
+				autoSkipSegmentCategories: room.autoSkipSegmentCategories,
+				restoreQueueBehavior: room.restoreQueueBehavior,
+				enableVoteSkip: room.enableVoteSkip,
+				bufferGateMode: room.bufferGateMode,
+				danmakuSource: room.danmakuSource,
+			});
 		} catch (err) {
 			if (err instanceof Error) {
 				log.error(`Failed to update room: ${err.message} ${err.stack}`);

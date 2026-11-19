@@ -591,6 +591,68 @@ describe("enhancement layer lifecycle", () => {
 			}) as DOMRect;
 	}
 
+	/**
+	 * The media element's own `resize` event, which is what an HLS ladder does when it
+	 * switches variant: `videoWidth/videoHeight` change with no new resource and no window
+	 * resize. The Anime4K presets read that size once, so nothing rebuilt the pipeline and
+	 * the larger picture was cropped to the old canvas' top-left corner.
+	 */
+	function switchVariant(video: HTMLVideoElement, width: number, height: number) {
+		Object.defineProperties(video, {
+			videoWidth: { value: width, configurable: true },
+			videoHeight: { value: height, configurable: true },
+		});
+		video.dispatchEvent(new Event("resize"));
+	}
+
+	it("rebuilds a WebGPU CNN when the source resolution changes without a resize", async () => {
+		const { video } = fakeVideo();
+		Object.defineProperties(video, {
+			paused: { value: true },
+			videoWidth: { value: 1280 },
+			videoHeight: { value: 720 },
+		});
+		mountComponent(UpscaleLayer, { props: { video, mode: "anime4k" } });
+		await settle();
+		expect(drivers.anime4k).toHaveBeenCalledTimes(1);
+
+		switchVariant(video, 1920, 1080);
+		await new Promise(resolve => setTimeout(resolve, 300));
+		await settle();
+
+		expect(drivers.anime4k).toHaveBeenCalledTimes(2);
+	});
+
+	it("ignores a resize that reports the size the pipeline was built for", async () => {
+		const { video } = fakeVideo();
+		Object.defineProperties(video, {
+			paused: { value: true },
+			videoWidth: { value: 1280 },
+			videoHeight: { value: 720 },
+		});
+		mountComponent(UpscaleLayer, { props: { video, mode: "anime4k" } });
+		await settle();
+
+		// Same dimensions: a rebuild here would only cost a device and a pipeline.
+		switchVariant(video, 1280, 720);
+		await new Promise(resolve => setTimeout(resolve, 300));
+		await settle();
+
+		expect(drivers.anime4k).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not rebuild a sharpen pass whose size is read every frame", async () => {
+		const { video } = fakeVideo();
+		mountComponent(UpscaleLayer, { props: { video, mode: "sharpen" } });
+		await settle();
+
+		switchVariant(video, 640, 360);
+		await new Promise(resolve => setTimeout(resolve, 300));
+		await settle();
+
+		expect(drivers.sharpen).toHaveBeenCalledTimes(1);
+	});
+
 	it("rebuilds the AI tier at the displayed size when the viewport changes", async () => {
 		const { video } = fakeVideo();
 		mountComponent(UpscaleLayer, { props: { video, mode: "anime4k" } });

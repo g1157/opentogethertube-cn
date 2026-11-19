@@ -112,9 +112,15 @@ describe("Room manager", () => {
 			expect(loadedRoom.currentSource).toEqual(room.currentSource);
 			expect(loadedRoom.queue).toEqual(room.queue);
 			expect(loadedRoom.isPlaying).toEqual(room.isPlaying);
-			expect(loadedRoom.playbackPosition).toEqual(room.playbackPosition);
-			expect(loadedRoom._playbackStart).toEqual(room._playbackStart);
-			expect(loadedRoom.realPlaybackPosition).toBeCloseTo(20, 1);
+			// The snapshot must carry where the room actually is, not `playbackPosition`, which
+			// is only re-anchored on pause/seek: storing the stale field made an OOM-killed
+			// room restore minutes behind.
+			expect(loadedRoom.playbackPosition).toBeCloseTo(20, 1);
+			expect(loadedRoom.playbackPosition).toBeCloseTo(room.realPlaybackPosition, 1);
+			expect(loadedRoom._playbackStart).not.toBeNull();
+			// The reconstructed room keeps playing, so its position advances past the snapshot
+			// instead of staying frozen at the value it was saved with.
+			expect(loadedRoom.realPlaybackPosition).toBeGreaterThan(20);
 		});
 
 		it("should preserve saved links when an empty permanent room unloads before restoration", async () => {

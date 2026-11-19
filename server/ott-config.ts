@@ -450,9 +450,9 @@ export const conf = convict({
 		},
 	},
 	trust_proxy: {
-		doc: "How many layers of reverse proxies to trust for source IP addresses.",
+		doc: "How many layers of reverse proxies to trust for source IP addresses. 0 trusts nothing, so a client cannot set its own X-Forwarded-For and choose its rate-limit bucket. Deployments behind a proxy set this to the real hop count (deploy/next-compose.yml defaults to 0 as well).",
 		format: "nat",
-		default: 1,
+		default: 0,
 		env: "TRUST_PROXY",
 	},
 	short_url: {

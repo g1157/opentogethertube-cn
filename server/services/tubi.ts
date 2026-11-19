@@ -1,5 +1,6 @@
 import axios from "axios";
 import type { Video, VideoMetadata, VideoService } from "ott-common/models/video.js";
+import { ADD_PREVIEW_HTTP_TIMEOUT_MS } from "ott-common/constants.js";
 import { URL } from "node:url";
 import { getLogger } from "../logger.js";
 import { conf } from "../ott-config.js";
@@ -53,6 +54,7 @@ interface TubiSeriesInfo {
 export default class TubiAdapter extends ServiceAdapter {
 	api = axios.create({
 		headers: { "User-Agent": `OpenTogetherTube @ ${conf.get("hostname")}` },
+		timeout: ADD_PREVIEW_HTTP_TIMEOUT_MS,
 	});
 
 	get serviceId(): VideoService {

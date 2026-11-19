@@ -134,7 +134,7 @@ jobs:
                 node-version: [24.x]
         services:
             postgres:
-                image: postgres:15-bullseye
+                image: postgres:15-bookworm
                 env:
                     POSTGRES_DB: ott
                     POSTGRES_USER: ott

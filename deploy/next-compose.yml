@@ -84,7 +84,7 @@ services:
     logging: *logging
 
   postgres:
-    image: postgres:15-bullseye
+    image: postgres:15-bookworm
     restart: unless-stopped
     environment:
       POSTGRES_DB: ott

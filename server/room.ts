@@ -116,6 +116,7 @@ import {
 	PLAYBACK_READY_WAIT_MS,
 	PLAYBACK_HARD_FALLBACK_MS,
 	PLAYBACK_START_LEAD_MS,
+	POSITION_CHECKPOINT_MS,
 	playbackReadyBufferSeconds,
 } from "ott-common/constants.js";
 import { Mutex } from "@divine/synchronization";
@@ -379,6 +380,12 @@ export class Room implements RoomState {
 	private temporarySpeed: (TemporaryPlaybackSpeed & { previousSpeed: number }) | null = null;
 	private temporarySpeedTimer: ReturnType<typeof setTimeout> | null = null;
 	private playbackStartTimer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * When the Redis snapshot last captured the playback position. A room that just plays
+	 * never dirties a storable field, so without this checkpoint the only snapshot was the
+	 * one from the last pause or seek and a crash lost everything since.
+	 */
+	private lastPositionCheckpoint = 0;
 	playbackPreparation: PlaybackPreparation | null = null;
 	resumeOnNextJoin = false;
 	realusers: RoomUser[] = [];
@@ -1107,6 +1114,13 @@ export class Room implements RoomState {
 	public async update(): Promise<void> {
 		// RoomManager already ticks once per second; no detached gate timers to leak on unload.
 		await this.evaluateBufferGate();
+		// A room that simply plays never dirties a storable field, so the snapshot would still
+		// describe the last pause. Check pointing on a schedule bounds what a crash can lose.
+		// Not every tick: the debounce is 5 s and the payload is the whole storable state.
+		if (this.isPlaying && Date.now() - this.lastPositionCheckpoint >= POSITION_CHECKPOINT_MS) {
+			this.lastPositionCheckpoint = Date.now();
+			this.saveStateToRedisDebounced();
+		}
 		if (this.playbackPreparation) {
 			this.refreshPlaybackPreparation();
 			const preparation = this.playbackPreparation;
@@ -1238,6 +1252,11 @@ export class Room implements RoomState {
 	 */
 	public serializeState(): string {
 		const state: RoomStateStorable = _.pick(this, ...storableProps);
+		// The stored `playbackPosition` is only re-anchored by flushPlaybackPosition (pause,
+		// seek, speed change), so a snapshot taken while playing carried the position from the
+		// last pause. A process killed by the OOM killer then restored the room minutes behind.
+		// Always write where the room actually is, the same way syncableState does.
+		state.playbackPosition = this.realPlaybackPosition;
 		if (this.bufferingGateHeld) {
 			// Preserve playback intent through a crash without persisting the transient hold.
 			state.resumeOnNextJoin = true;
@@ -1245,7 +1264,6 @@ export class Room implements RoomState {
 		if (this.temporarySpeed) {
 			// A crash/restart must never turn a held gesture into a permanent speed setting.
 			state.playbackSpeed = this.temporarySpeed.previousSpeed;
-			state.playbackPosition = this.realPlaybackPosition;
 			state._playbackStart = this.isPlaying ? dayjs() : null;
 		}
 		if (state.owner) {

@@ -4,6 +4,32 @@
 `archive/history` 分支与 `v0.14.1` 标签。`v1.0.0` 起跳出 cn 序列，作为本分支的正式大版本，
 标签与镜像名不再带 cn 编号。
 
+-   **未发布**：安全默认值、崩溃恢复与出站边界的七项修复。
+    **安全**：`trust_proxy` 的代码默认值是 `1`，而 compose 与 `.env.example` 都是 `0`——
+    不用 compose 直接跑或漏设该变量时，Express 会信任访客自带的 `X-Forwarded-For`，
+    既能伪造 `127.0.0.1` 读取 `/api/status/metrics` 与语音用量，也能通过轮换该头绕过一切按
+    IP 的限流（登录爆破、房间密码尝试）。默认值改为 `0`（与部署模板一致），文档同步说明按
+    真实代理层数显式开启。此不一致在 2026-09-21 的审查里已被记为 P2-2，至今未统一。
+    **崩溃恢复**：Redis 快照只保存 `playbackPosition`，而该字段只在暂停 / 调速 / 拖动时由
+    `flushPlaybackPosition()` 重锚，播放过程中没有检查点；进程被 OOM 杀掉后房间回到上一次
+    暂停时的位置。现在 `serializeState()` 始终写入实时位置，并且播放中的房间每 30 秒
+    （`POSITION_CHECKPOINT_MS`）落一次快照，把崩溃损失限制在 30 秒内。
+    **数据丢失**：房间设置端点把整个 `Room` 传给 `storage.updateRoom`，而运行中的房间
+    `prevQueue` 为 `null`（队列检查点此时只存在 Redis 里），于是每次改设置都用手写的
+    `null` 覆盖了数据库里的持久队列检查点。现在只写该端点能改的设置字段。
+    **出站边界**：YouTube、Google Drive、Vimeo、Tubi、Pluto 五个适配器的 `axios.create`
+    都没有 `timeout`，全局也没有默认值；到 googleapis 链路不稳时添加链接会一直挂到浏览器
+    自己放弃。统一加 `ADD_PREVIEW_HTTP_TIMEOUT_MS`（15 秒，与 Invidious 既有值一致）。
+    添加预览的异常处理按名称白名单分流，清单重定向上限（`maxRedirects: 0`）、上游 404 /
+    超时、SSRF 拦截全部落到 `"Unknown error occurred"` 的 500；现在归因为输入 / 上游的失败
+    都返回 4xx，保留原白名单并为 axios 请求错误单独判定。girigiri 代理在本地上游槽位耗尽时
+    返回 `null`，与真正的上游失败不可区分，随后被写进 60 秒负缓存——一次本机瞬时繁忙会让
+    所有访客读一分钟的"不可用"；现在区分 `busy` 与 `upstream`，只为后者写负缓存。
+    **镜像**：`postgres:15-bullseye` 已停更（Docker Hub 最后推送 2025-07-22），换成
+    `15-bookworm`（compose ×3、CI、文档）。**验证**：新增 Anime4K 片源分辨率回归并回滚确认
+    会失败；服务端 1145、客户端 1112 通过。**未覆盖**：未做真实 OOM 击杀与重启演练，
+    未实机验证 HLS 倍速切换与 15 秒超时在真实弱网下的体感。无数据库迁移。
+
 -   **未发布**：房间状态机与媒体管线的六项静默缺陷修复。
     **房间**：从存储恢复的房间只在 `play()` 清除"交出暂停"标记，`playNow` 走首帧准备路径
     时不清，导致该集结束后 `dequeueNext` 把 `_playbackStart` 置空而 `isPlaying` 仍为真，

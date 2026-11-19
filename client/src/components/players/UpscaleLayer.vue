@@ -341,6 +341,8 @@ function degradeOneStep(video: HTMLVideoElement | undefined, target: HTMLCanvasE
 // otherwise dragging a window edge would rebuild it dozens of times.
 const VIEWPORT_SETTLE_MS = 250;
 let viewportTimer: ReturnType<typeof setTimeout> | undefined;
+/** The intrinsic size the current pipeline was built for, so a resize can be compared. */
+let lastVideoSize = { width: 0, height: 0 };
 
 function handleViewportChange() {
 	const video = props.video;
@@ -441,6 +443,9 @@ async function start() {
 	// built reports its own target once it has drawn its first frame.
 	reportEnhancementTarget(null);
 	const video = props.video;
+	// Remember the size this pipeline is built for, so `onVideoResize` can tell a real
+	// variant switch from the element re-reporting the size it already has.
+	lastVideoSize = { width: video?.videoWidth ?? 0, height: video?.videoHeight ?? 0 };
 	// The WebGPU attempt needs a canvas that has never handed out a WebGL2 context, so the
 	// tier's family decides which one is taken first; a WebGL2 fallback takes its own below.
 	const aiTier = props.mode === "anime4k" || props.mode === "anime4k-quality";
@@ -589,6 +594,44 @@ function onLoadedMetadata() {
 	void start();
 }
 
+/**
+ * The media element fires `resize` when its intrinsic video size changes without a new
+ * resource being loaded: an HLS ladder switching variant, or a manual quality change. The
+ * Anime4K presets capture their target size when the pipeline is built (and read
+ * `videoWidth/videoHeight` once in `startAnime4KRenderer`), so without a rebuild the canvas
+ * keeps the old resolution — an upgrade crops the larger picture to the top-left corner and
+ * the tier quietly degrades. Window resize never fires for this, and `loadedmetadata`
+ * usually does not either.
+ */
+function onVideoResize() {
+	const video = props.video;
+	if (!renderer || !video || !canvas) {
+		return;
+	}
+	if (
+		props.mode !== "anime4k" &&
+		props.mode !== "anime4k-quality" &&
+		props.mode !== "anime4k-ultra"
+	) {
+		// The WebGL chains read the canvas size every frame, so nothing captured a size.
+		return;
+	}
+	const width = video.videoWidth;
+	const height = video.videoHeight;
+	if (width === lastVideoSize.width && height === lastVideoSize.height) {
+		return;
+	}
+	lastVideoSize = { width, height };
+	// Same settle as a viewport change: one variant switch should rebuild once.
+	if (viewportTimer !== undefined) {
+		clearTimeout(viewportTimer);
+	}
+	viewportTimer = setTimeout(() => {
+		viewportTimer = undefined;
+		void start();
+	}, VIEWPORT_SETTLE_MS);
+}
+
 function onSeeking() {
 	// A seek moves the media clock: the frames before and after it sit at different places in
 	// the media, so the clock difference between them is not a frame the renderer failed to
@@ -603,6 +646,7 @@ function attachVideo(video: HTMLVideoElement | undefined) {
 	if (video) {
 		video.addEventListener("loadedmetadata", onLoadedMetadata);
 		video.addEventListener("seeking", onSeeking);
+		video.addEventListener("resize", onVideoResize);
 	}
 }
 
@@ -610,6 +654,7 @@ function detachVideo(video: HTMLVideoElement | undefined) {
 	if (video) {
 		video.removeEventListener("loadedmetadata", onLoadedMetadata);
 		video.removeEventListener("seeking", onSeeking);
+		video.removeEventListener("resize", onVideoResize);
 	}
 }
 

@@ -1,6 +1,7 @@
 import { getLogger } from "../logger.js";
 import { conf } from "../ott-config.js";
 import express, { type RequestHandler, type ErrorRequestHandler } from "express";
+import axios from "axios";
 import type { OttApiResponseAddPreview, OttResponseBody } from "ott-common/models/rest-api.js";
 import { OttException } from "ott-common/exceptions.js";
 import { BadApiArgumentException } from "../exceptions.js";
@@ -11,6 +12,46 @@ import { mediaFileStatus } from "../services/media-access.js";
 
 const router = express.Router();
 const log = getLogger("api/data");
+
+/**
+ * Whether a failure came from the upstream rather than from this server. These are the cases
+ * an add preview cannot avoid: the adapter's requests are bounded (redirects, timeouts,
+ * status) precisely so that a bad link fails instead of hanging.
+ */
+function isUpstreamRequestError(error: Error): boolean {
+	if (axios.isAxiosError(error)) {
+		// A response or a timeout/redirect refusal both mean the upstream did not deliver.
+		return true;
+	}
+	// Some adapters use fetch/undici and surface the abort as a bare DOMException.
+	return error.name === "AbortError" || error.name === "TimeoutError";
+}
+
+/**
+ * Errors this application defines as 4xx. `instanceof` misses the same classes when they
+ * cross a module boundary, and some adapters surface one as a plain object, so the name is
+ * matched as well.
+ */
+const CLIENT_ERROR_NAMES = new Set([
+	"UnsupportedServiceException",
+	"InvalidAddPreviewInputException",
+	"OutOfQuotaException",
+	"InvalidVideoIdException",
+	"FeatureDisabledException",
+	"UnsupportedMimeTypeException",
+	"LocalFileException",
+	"MissingMetadataException",
+	"UnsupportedVideoType",
+	"UpstreamInvidiousException",
+	"VideoNotFoundException",
+	"FfprobeTimeoutError",
+	"FfprobeError",
+	"M3u8ParseError",
+	"OdyseeUnavailableVideo",
+	"OttException",
+	"BadApiArgumentException",
+	"PermissionDeniedException",
+]);
 const addPreview: RequestHandler<
 	any,
 	OttResponseBody<OttApiResponseAddPreview>,
@@ -78,24 +119,16 @@ const addPreview: RequestHandler<
 		});
 		log.info(`Sent add preview response with ${result.videos.length} items`);
 	} catch (err) {
-		if (
-			err.name === "UnsupportedServiceException" ||
-			err.name === "InvalidAddPreviewInputException" ||
-			err.name === "OutOfQuotaException" ||
-			err.name === "InvalidVideoIdException" ||
-			err.name === "FeatureDisabledException" ||
-			err.name === "UnsupportedMimeTypeException" ||
-			err.name === "LocalFileException" ||
-			err.name === "MissingMetadataException" ||
-			err.name === "UnsupportedVideoType" ||
-			err.name === "UpstreamInvidiousException" ||
-			err.name === "VideoNotFoundException" ||
-			err.name === "FfprobeTimeoutError" ||
-			err.name === "FfprobeError" ||
-			err.name === "M3u8ParseError" ||
-			err.name === "OdyseeUnavailableVideo" ||
-			err.name === "OttException"
-		) {
+		// Anything attributable to the submitted link or to the upstream is a 4xx: the request
+		// was well formed and this server did its job. The old name whitelist missed every
+		// non-OttException failure — a refused manifest redirect (ERR_FR_TOO_MANY_REDIRECTS),
+		// an upstream 404 or timeout, an SSRF rejection, an over-limit parameter — and told the
+		// viewer "Unknown error occurred" with a 500 instead.
+		const attributableToInput =
+			err instanceof OttException ||
+			CLIENT_ERROR_NAMES.has(err.name) ||
+			(err instanceof Error && isUpstreamRequestError(err));
+		if (attributableToInput) {
 			log.error(`Unable to get add preview: ${err.name}`);
 			res.status(400).json({
 				success: false,
