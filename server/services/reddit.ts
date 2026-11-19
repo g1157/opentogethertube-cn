@@ -143,9 +143,9 @@ export default class RedditAdapter extends ServiceAdapter {
 			RedditListing<RedditListableThing>[] | RedditListing<RedditListableThing>
 		>(target.toString(), this.api);
 		if (Array.isArray(resp.data)) {
-			return resp.data as RedditListing<RedditListableThing>[];
+			return resp.data;
 		}
-		return resp.data as RedditListing<RedditListableThing>;
+		return resp.data;
 	}
 
 	public extractVideos(thing: RedditThing): (Video | { url: string })[] {
