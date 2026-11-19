@@ -4,6 +4,20 @@
 `archive/history` 分支与 `v0.14.1` 标签。`v1.0.0` 起跳出 cn 序列，作为本分支的正式大版本，
 标签与镜像名不再带 cn 编号。
 
+-   **未发布**：girigiri 弹幕搜索与分集解析迁移到站点的 PHP JSON API。
+    **弹幕**：上游站点改版后，旧的 maccms `suggest` 接口与 `/playGV…/` 播放页都只返回 SPA
+    外壳（`text/html`），搜索因此恒为空、分集恒为 404，而客户端又把失败静默成空列表，界面上
+    只表现为"搜不到"。现改走站点自身的接口：搜索 `Vod/get_list`（`vod_name` / `offset` /
+    `limit` / `format=json`，取 `info.rows` 的 `vod_id` / `vod_name` / `vod_pic`），分集与
+    单集地址统一由 `Vod/get_detail` 的 `vod_play_url`（`$$$` 分线路、`#` 分集、`$` 分名称与
+    地址）解析。`/playGV{id}-{line}-{ep}/` 的绑定格式保持不变，已保存的绑定无需迁移；
+    弹幕文件仍按原路径规则镜像到 `danmu.girigirilove.com`（`.mp4` → `.xml`、`CHT` 读
+    `CHS` 兄弟目录），这一段规则本身没有变化。API 基址 `https://m3u8.girigirilove.com/api.php`
+    取自站点前端 bundle 里的唯一来源，仍受公网地址检查、2 MiB 正文上限、5 秒截止与零隐式
+    重定向约束。**实测**：`孤独摇滚` 3 条、`一个人的〇〇小日子` 1 条搜索结果正确映射；
+    后者首集弹幕 XML 3,432,062 字节含 `<d `。**未验证**：其它线路的镜像完整性与海外出口。
+    无数据库迁移。
+
 -   **v1.4.20**：全项目审查后的资源生命周期、媒体边界与发布链修复。
     **画质增强**：WebGL / WebGPU 共用按视频帧调度、暂停 / seek / resize 重绘和后台跳过；
     首帧等待 4 秒可取消，切源后迟到回调不再作用于新视频，设备 / context 丢失明确降级并释放。
