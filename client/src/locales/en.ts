@@ -329,6 +329,8 @@ export default {
 			"girigiri-title": "Search girigiri comments",
 			"girigiri-placeholder": "Anime title (girigiri usually lists the Chinese one)",
 			"girigiri-empty": "Nothing found — try the Chinese title or another keyword",
+			"girigiri-unavailable":
+				"girigiri is unreachable right now, so there is nothing to confirm either way — try again later",
 			"girigiri-line": "Line {n}",
 			"girigiri-episode": "Episode {n}",
 			"girigiri-binding": "{show} · Line {n} · Ep {ep}",

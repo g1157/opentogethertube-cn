@@ -319,6 +319,7 @@ export default {
 			"girigiri-title": "搜索 girigiri 弹幕",
 			"girigiri-placeholder": "番剧名（girigiri 多为中文译名）",
 			"girigiri-empty": "没有找到；试试中文译名或换个关键词",
+			"girigiri-unavailable": "暂时连不上 girigiri，无法确认是否收录；稍后再试",
 			"girigiri-line": "线路 {n}",
 			"girigiri-episode": "第 {n} 话",
 			"girigiri-binding": "{show} · 线路{n}·第{ep}话",
