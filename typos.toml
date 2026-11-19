@@ -1,6 +1,13 @@
 [default]
 locale = "en-us"
 
+extend-ignore-re = [
+	# Review docs cite commits by short hash (`020ba72`), and a hex run that happens to
+	# spell a word is not a typo. Ignoring the quoted form keeps the word list honest —
+	# adding "ba" to extend-words would hide a real misspelling everywhere else.
+	"`[0-9a-f]{7,40}`",
+]
+
 [default.extend-words]
 guage = "gauge"
 AVOD = "AVOD"

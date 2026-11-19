@@ -45,7 +45,11 @@ jobs:
               with:
                   components: rustfmt, clippy
                   toolchain: 1.84.0
-                  rustflags: -D warnings
+                  # Must match the Linux job. `setup-rust-toolchain` replaces RUSTFLAGS
+                  # instead of appending, so omitting `--cfg tokio_unstable` here dropped the
+                  # cfg that .cargo/config.toml sets, and `tokio::task::Builder` — used by the
+                  # harness discovery — failed to resolve on MSVC only.
+                  rustflags: -D warnings --cfg tokio_unstable
             - name: Check format
               run: cargo fmt --all -- --check
             - name: Compile all targets and features on MSVC
