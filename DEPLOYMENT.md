@@ -118,6 +118,9 @@ cd ..
 只保存在服务器私有配置中。
 
 Compose 示例按直接 HTTP 端口访问设计（`FORCE_INSECURE_COOKIES=true`、`TRUST_PROXY=0`）。
+`TRUST_PROXY` 的代码默认值同样是 `0`：在没有可信代理时，Express 就不会采用访客自带的
+`X-Forwarded-For`，按 IP 的限流与 `/api/status/metrics` 的本机判断才不能被伪造。
+只有确实部署在反向代理之后时，才按真实代理层数（Tunnel 为 1）显式设置该值。
 长期公开部署应配置域名、TLS 和支持 WebSocket 的反向代理，关闭强制不安全 Cookie、按实际
 代理层数设置 `TRUST_PROXY`，并限制外部直接访问后端端口，避免绕过代理。参考
 [上游 HTTPS 配置](docs/how-to-deploy.md#reverse-proxy)。

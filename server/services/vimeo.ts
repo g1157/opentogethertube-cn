@@ -3,6 +3,7 @@ import axios, { type AxiosResponse } from "axios";
 import { ServiceAdapter } from "../serviceadapter.js";
 import { InvalidVideoIdException } from "../exceptions.js";
 import type { Video } from "ott-common/models/video.js";
+import { ADD_PREVIEW_HTTP_TIMEOUT_MS } from "ott-common/constants.js";
 import { getLogger } from "../logger.js";
 
 const log = getLogger("vimeo");
@@ -19,6 +20,7 @@ interface VimeoApiVideo {
 export default class VimeoAdapter extends ServiceAdapter {
 	api = axios.create({
 		baseURL: "https://vimeo.com/api/oembed.json",
+		timeout: ADD_PREVIEW_HTTP_TIMEOUT_MS,
 	});
 
 	get serviceId(): "vimeo" {

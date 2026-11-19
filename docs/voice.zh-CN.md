@@ -214,7 +214,7 @@ Cloudflare→客户端方向计费，推上去的流量免费；TURN 与 SFU 之
 # 依赖
 docker run -d --rm -p 6379:6379 redis:7-alpine
 docker run -d --rm -p 5432:5432 -e POSTGRES_USER=opentogethertube \
-  -e POSTGRES_DB=opentogethertube -e POSTGRES_PASSWORD=postgres postgres:15-bullseye
+  -e POSTGRES_DB=opentogethertube -e POSTGRES_PASSWORD=postgres postgres:15-bookworm
 
 ENABLE_VOICE_CHAT=true yarn dev
 

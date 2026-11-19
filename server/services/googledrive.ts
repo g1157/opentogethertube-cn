@@ -7,6 +7,7 @@ import {
 	OutOfQuotaException,
 } from "../exceptions.js";
 import type { Video, VideoService } from "ott-common/models/video.js";
+import { ADD_PREVIEW_HTTP_TIMEOUT_MS } from "ott-common/constants.js";
 import { getLogger } from "../logger.js";
 
 const log = getLogger("googledrive");
@@ -48,6 +49,7 @@ export default class GoogleDriveAdapter extends ServiceAdapter {
 	apiKey: string;
 	api = axios.create({
 		baseURL: "https://www.googleapis.com/drive/v3",
+		timeout: ADD_PREVIEW_HTTP_TIMEOUT_MS,
 	});
 
 	constructor(apiKey: string) {

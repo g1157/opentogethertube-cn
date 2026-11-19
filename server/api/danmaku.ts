@@ -163,14 +163,26 @@ export function girigiriTrackPath(videoUrl: string): string | null {
 	return `https://${GIRIGIRI_TRACK_HOST}${path}`;
 }
 
+/**
+ * Why a fetch produced nothing. `busy` means this server had no free upstream slot and
+ * never reached girigiri at all — caching that as an upstream failure would keep telling
+ * viewers "the track is unavailable" for a minute after a moment of local contention.
+ */
+type FetchFailure = "busy" | "upstream";
+
+interface FetchOutcome {
+	body: string | null;
+	failure?: FetchFailure;
+}
+
 async function fetchText(
 	url: string,
 	timeoutMs = UPSTREAM_TIMEOUT_MS,
 	maxBytes = METADATA_MAX_BYTES,
-): Promise<string | null> {
+): Promise<FetchOutcome> {
 	// Reject excess work immediately: no unbounded upstream wait queue or body buffers.
 	if (!upstreamSlots.take()) {
-		return null;
+		return { body: null, failure: "busy" };
 	}
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -185,12 +197,12 @@ async function fetchText(
 			void response.body?.cancel().catch(() => {
 				// Cancellation is best effort and must not mask the response failure.
 			});
-			return null;
+			return { body: null, failure: "upstream" };
 		}
-		return await readBoundedText(response, maxBytes, controller.signal);
+		return { body: await readBoundedText(response, maxBytes, controller.signal) };
 	} catch (err) {
 		log.debug("girigiri fetch failed: " + url, err);
-		return null;
+		return { body: null, failure: "upstream" };
 	} finally {
 		clearTimeout(timer);
 		upstreamSlots.signal();
@@ -325,10 +337,16 @@ router.get("/girigiri/search", async (req, res) => {
 		limit: String(SEARCH_LIMIT),
 		format: "json",
 	});
-	const body = await fetchText(`${GIRIGIRI_API_BASE}/Vod/get_list?${query.toString()}`);
+	const { body, failure } = await fetchText(
+		`${GIRIGIRI_API_BASE}/Vod/get_list?${query.toString()}`,
+	);
 	if (body === null) {
 		// A short negative entry stops a failing upstream from being replayed on every hit.
-		searchCache.set(wd, null, NEGATIVE_TTL_MS);
+		// Local slot contention is not an upstream failure: caching it would keep every
+		// viewer reading "unavailable" for a minute because of one busy moment here.
+		if (failure !== "busy") {
+			searchCache.set(wd, null, NEGATIVE_TTL_MS);
+		}
 		res.status(502).json({ results: [] });
 		return;
 	}
@@ -356,9 +374,11 @@ router.get("/girigiri/episodes", async (req, res) => {
 		res.json({ lines: cached });
 		return;
 	}
-	const body = await fetchText(detailUrl(id));
+	const { body, failure } = await fetchText(detailUrl(id));
 	if (body === null) {
-		episodesCache.set(id, null, NEGATIVE_TTL_MS);
+		if (failure !== "busy") {
+			episodesCache.set(id, null, NEGATIVE_TTL_MS);
+		}
 		res.status(502).json({ lines: [] });
 		return;
 	}
@@ -392,17 +412,22 @@ router.get("/girigiri/track", async (req, res) => {
 		return;
 	}
 	const [, showId, lineNumber, episodeNumber] = match;
-	const body = await fetchText(detailUrl(showId));
-	const lines = body === null ? [] : parseEpisodeLines(body, showId);
+	const detail = await fetchText(detailUrl(showId));
+	const lines = detail.body === null ? [] : parseEpisodeLines(detail.body, showId);
 	const resolved = findEpisode(lines, Number(lineNumber), Number(episodeNumber));
 	const videoUrl = resolved?.episode.url ?? null;
 	const trackUrl = videoUrl === null ? null : girigiriTrackPath(videoUrl);
 	if (trackUrl === null) {
-		trackCache.set(page, null, NEGATIVE_TTL_MS);
+		// Only local slot contention says nothing about the track; a response that arrived but
+		// named no resolvable episode (or an unreachable upstream) is worth remembering.
+		if (detail.failure !== "busy") {
+			trackCache.set(page, null, NEGATIVE_TTL_MS);
+		}
 		res.status(502).json({ error: "could not resolve the track" });
 		return;
 	}
-	let xml = await fetchText(trackUrl, TRACK_TIMEOUT_MS, DANMAKU_MAX_XML_BYTES);
+	const track = await fetchText(trackUrl, TRACK_TIMEOUT_MS, DANMAKU_MAX_XML_BYTES);
+	let xml = track.body;
 	if (xml !== null) {
 		try {
 			assertDanmakuTrack(xml);
@@ -410,8 +435,12 @@ router.get("/girigiri/track", async (req, res) => {
 			xml = null;
 		}
 	}
+	// Fewer than one comment, an unparseable track or an unreachable download: all of them
+	// are worth remembering, but not a request that never left this server.
 	if (xml === null || !xml.includes("<d ")) {
-		trackCache.set(page, null, NEGATIVE_TTL_MS);
+		if (track.failure !== "busy") {
+			trackCache.set(page, null, NEGATIVE_TTL_MS);
+		}
 		res.status(502).json({ error: "the track is unavailable" });
 		return;
 	}

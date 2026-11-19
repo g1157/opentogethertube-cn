@@ -542,7 +542,7 @@ D1 存身份/房间索引/媒体缓存/限流，`MaintenanceObject` 每 6h 清�
 | --- | --- | --- | --- |
 | `migrate` | 应用镜像 | — | 幂等迁移，成功后应用才启动 |
 | `ott` | `${OTT_IMAGE}` | 512m / 1 CPU，read_only，cap_drop ALL，仅绑 127.0.0.1 | Node 堆 384MB；健康检查 `/api/status` |
-| `postgres` | `postgres:15-bullseye` | 384m | `shared_buffers=64MB`、`max_connections=50` |
+| `postgres` | `postgres:15-bookworm` | 384m | `shared_buffers=64MB`、`max_connections=50` |
 | `redis` | `redis:7-alpine` | 192m | AOF everysec、`noeviction`、必须密码 |
 
 容量起点 2 vCPU / 2 GiB（总内存上限约 1.06 GiB）；备份 `backup.sh`（pg_dump，保留 14 份，systemd 定时器模板）；

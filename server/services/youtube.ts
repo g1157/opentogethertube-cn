@@ -3,6 +3,7 @@ import axios, { type AxiosResponse } from "axios";
 import _ from "lodash";
 import type { RedisClientType } from "redis";
 import { ServiceAdapter, type VideoRequest } from "../serviceadapter.js";
+import { ADD_PREVIEW_HTTP_TIMEOUT_MS } from "ott-common/constants.js";
 import {
 	BadApiArgumentException,
 	InvalidVideoIdException,
@@ -143,8 +144,11 @@ export default class YouTubeAdapter extends ServiceAdapter {
 	redisClient: RedisClientType;
 	api = axios.create({
 		baseURL: "https://www.googleapis.com/youtube/v3",
+		// Without this a request on a flaky path to googleapis hangs until the browser's own
+		// timeout, which is what made adding a YouTube link appear to freeze.
+		timeout: ADD_PREVIEW_HTTP_TIMEOUT_MS,
 	});
-	fallbackApi = axios.create();
+	fallbackApi = axios.create({ timeout: ADD_PREVIEW_HTTP_TIMEOUT_MS });
 
 	constructor(apiKey: string, redisClient: RedisClientType) {
 		super();

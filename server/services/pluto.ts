@@ -1,6 +1,7 @@
 import axios from "axios";
 import _ from "lodash";
 import type { Video, VideoMetadata, VideoService } from "ott-common/models/video.js";
+import { ADD_PREVIEW_HTTP_TIMEOUT_MS } from "ott-common/constants.js";
 import { URL } from "node:url";
 import { v1 as uuidv1 } from "uuid";
 import { InvalidVideoIdException } from "../exceptions.js";
@@ -28,6 +29,7 @@ export interface PlutoParsedIds {
 export default class PlutoAdapter extends ServiceAdapter {
 	api = axios.create({
 		headers: { "User-Agent": `OpenTogetherTube @ ${conf.get("hostname")}` },
+		timeout: ADD_PREVIEW_HTTP_TIMEOUT_MS,
 	});
 	clientId = uuidv1();
 

@@ -20,6 +20,13 @@ export const PLAYBACK_HARD_FALLBACK_MS = 20000;
 /** A scheduled start gives clients a moment to apply the play command at the same time. */
 export const PLAYBACK_START_LEAD_MS = 1000;
 /**
+ * How often a playing room writes its Redis snapshot. Nothing dirties a storable field while
+ * a room merely plays, so without a scheduled checkpoint a crash restores the position from
+ * the last pause or seek instead. 30 s bounds what an OOM kill can lose without turning the
+ * whole storable state into a 1 Hz write.
+ */
+export const POSITION_CHECKPOINT_MS = 30000;
+/**
  * Buffer runway required before a native player counts as ready. Segmented sources need a
  * little more because the next segment fetch is not instantaneous.
  */
@@ -61,6 +68,12 @@ export const MAX_CHAT_MESSAGE_LENGTH = 300;
 export const MAX_QUEUE_ITEMS = 200;
 /** Multi-line adds are a convenience for a series; they must not become a probe fan-out. */
 export const MAX_PREVIEW_LINES = 50;
+/**
+ * Every adapter that calls an upstream during an add preview must carry this. Without it a
+ * request on a flaky route hangs until the browser gives up, which reads as "adding a link
+ * froze"; the value matches what Invidious already used.
+ */
+export const ADD_PREVIEW_HTTP_TIMEOUT_MS = 15000;
 /** Direct links are URLs; every service id fits comfortably below this. */
 export const MAX_VIDEO_ID_LENGTH = 2048;
 /** Upper bound for a room-clock seek; longer sources can still seek within this. */
