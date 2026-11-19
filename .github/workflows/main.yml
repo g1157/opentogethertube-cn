@@ -35,6 +35,8 @@ jobs:
                   check-latest: true
             - uses: actions/cache@v4
               with:
+                  # Yarn 4 defaults to a global cache, so this path was never populated.
+                  # YARN_ENABLE_GLOBAL_CACHE (below) moves it into the checkout.
                   path: .yarn/cache
                   key: yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-${{
                       hashFiles('yarn.lock') }}
@@ -43,6 +45,9 @@ jobs:
             - run: command -v corepack || npm install --global corepack@latest
             - run: corepack enable
             - run: yarn install --immutable
+              env:
+                  # Keep Yarn's download cache inside the checkout so actions/cache sees it.
+                  YARN_ENABLE_GLOBAL_CACHE: "false"
             - run: yarn run lint-ci
               env:
                   NODE_ENV: production
@@ -86,6 +91,8 @@ jobs:
                   check-latest: true
             - uses: actions/cache@v4
               with:
+                  # Yarn 4 defaults to a global cache, so this path was never populated.
+                  # YARN_ENABLE_GLOBAL_CACHE (below) moves it into the checkout.
                   path: .yarn/cache
                   key: yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-${{
                       hashFiles('yarn.lock') }}
@@ -94,6 +101,9 @@ jobs:
             - run: command -v corepack || npm install --global corepack@latest
             - run: corepack enable
             - run: yarn install --immutable
+              env:
+                  # Keep Yarn's download cache inside the checkout so actions/cache sees it.
+                  YARN_ENABLE_GLOBAL_CACHE: "false"
             - run: yarn workspace ott-server run sequelize db:migrate
               env:
                   NODE_ENV: test
@@ -168,6 +178,8 @@ jobs:
                   check-latest: true
             - uses: actions/cache@v4
               with:
+                  # Yarn 4 defaults to a global cache, so this path was never populated.
+                  # YARN_ENABLE_GLOBAL_CACHE (below) moves it into the checkout.
                   path: .yarn/cache
                   key: yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-${{
                       hashFiles('yarn.lock') }}
@@ -176,6 +188,9 @@ jobs:
             - run: command -v corepack || npm install --global corepack@latest
             - run: corepack enable
             - run: yarn install --immutable
+              env:
+                  # Keep Yarn's download cache inside the checkout so actions/cache sees it.
+                  YARN_ENABLE_GLOBAL_CACHE: "false"
             - run: yarn workspace ott-server run sequelize db:migrate
               env:
                   NODE_ENV: test

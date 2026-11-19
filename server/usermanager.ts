@@ -7,7 +7,7 @@ import crypto from "node:crypto";
 import { User as UserModel, Room as RoomModel } from "./models/index.js";
 import type { User } from "./models/user.js";
 import { delPattern, redisClient } from "./redisclient.js";
-import { type RateLimiterAbstract, RateLimiterMemory } from "rate-limiter-flexible";
+import { type RateLimiterAbstract, RateLimiterMemory, RateLimiterRes } from "rate-limiter-flexible";
 import { RateLimiterRedisv4, consumeRateLimitPoints, rateLimiter } from "./rate-limit.js";
 import tokens from "./auth/tokens.js";
 import nocache from "nocache";
@@ -214,57 +214,61 @@ router.post("/", nocache(), async (req, res) => {
 });
 
 /**
- * Record a failed login attempt against both counters. `consume` rejects once a budget is
- * exhausted — which is exactly the state the check in /login is looking for — so a rejection
- * here is expected and only means the counter is already over its limit.
+ * Reset consecutive username failures on success, but refund only this request's IP
+ * reservation: failures against other accounts must retain their daily IP cost.
  */
-async function recordFailedLogin(usernameIPkey: string, ipAddr: string): Promise<void> {
+async function clearSuccessfulLoginPoints(usernameIPkey: string, ipAddr: string): Promise<void> {
 	try {
 		await Promise.all([
-			limiterConsecutiveFailsByUsernameAndIP.consume(usernameIPkey),
-			limiterSlowBruteByIP.consume(ipAddr),
+			limiterConsecutiveFailsByUsernameAndIP.delete(usernameIPkey),
+			limiterSlowBruteByIP.reward(ipAddr),
 		]);
-	} catch {
-		// Already at/over the limit; the counters were still incremented.
-	}
-}
-
-/**
- * A successful login clears the username+IP counter (so a user who mistyped a few times is
- * not locked out), but leaves the per-IP counter alone: a distributed guess against many
- * usernames must still trip the daily budget.
- */
-async function clearUsernameFailurePoints(usernameIPkey: string): Promise<void> {
-	try {
-		await limiterConsecutiveFailsByUsernameAndIP.delete(usernameIPkey);
 	} catch (e) {
-		log.warn(`Failed to clear the login failure counter for a successful login: ${e}`);
+		log.warn(`Failed to settle successful login points: ${String(e)}`);
 	}
 }
 
 router.post("/login", async (req, res, next) => {
 	const ipAddr = req.ip;
-	const usernameIPkey = `${req.body.user ?? req.body.email ?? req.body.username}_${ipAddr}`;
+	const identifier = req.body.user ?? req.body.email ?? req.body.username;
+	// Fold only the quota key; Passport still receives the original credential text.
+	const usernameIPkey = `${String(identifier ?? "").toLowerCase()}_${ipAddr}`;
+	const rateLimited = conf.get("rate_limit.enabled");
 
-	if (conf.get("rate_limit.enabled")) {
-		const [resUsernameAndIP, resSlowByIP] = await Promise.all([
-			limiterConsecutiveFailsByUsernameAndIP.get(usernameIPkey),
-			limiterSlowBruteByIP.get(ipAddr),
-		]);
-
-		let retrySecs = 0;
-
-		// Check if IP or Username + IP is already blocked
-		if (resSlowByIP !== null && resSlowByIP.consumedPoints > maxWrongAttemptsByIPperDay) {
-			retrySecs = Math.round(resSlowByIP.msBeforeNext / 1000) || 1;
-		} else if (
-			resUsernameAndIP !== null &&
-			resUsernameAndIP.consumedPoints > maxConsecutiveFailsByUsernameAndIP
-		) {
-			retrySecs = Math.round(resUsernameAndIP.msBeforeNext / 1000) || 1;
-		}
-
-		if (retrySecs > 0) {
+	if (rateLimited) {
+		// Reserve the username budget first: a rejected username must not spend IP points.
+		// Both reservations precede authentication, so a burst cannot pass a read-only check.
+		const budgets = [
+			{ limiter: limiterConsecutiveFailsByUsernameAndIP, key: usernameIPkey },
+			{ limiter: limiterSlowBruteByIP, key: ipAddr },
+		];
+		const reservations: typeof budgets = [];
+		try {
+			for (const budget of budgets) {
+				await budget.limiter.consume(budget.key);
+				reservations.push(budget);
+			}
+		} catch (e) {
+			// A rejected consume may not have charged a point (e.g. an in-memory block).
+			// Refund only successful reservations, never the rejecting bucket itself.
+			await Promise.all(
+				reservations.map(async ({ limiter, key }) => {
+					try {
+						await limiter.reward(key);
+					} catch (refundError) {
+						log.warn(
+							`Failed to refund unused login reservation: ${String(refundError)}`,
+						);
+					}
+				}),
+			);
+			if (!(e instanceof RateLimiterRes)) {
+				next(
+					e instanceof Error ? e : new Error("Could not reserve login rate-limit points"),
+				);
+				return;
+			}
+			const retrySecs = Math.max(1, Math.ceil(e.msBeforeNext / 1000));
 			res.set("Retry-After", String(retrySecs));
 			res.status(429).json({
 				error: {
@@ -277,13 +281,10 @@ router.post("/login", async (req, res, next) => {
 	}
 
 	// For backwards compatibility
-	req.body.user = req.body.user ?? req.body.email ?? req.body.username;
+	req.body.user = identifier;
 
 	passport.authenticate("local", (err, user: User) => {
 		if (err) {
-			if (conf.get("rate_limit.enabled")) {
-				void recordFailedLogin(usernameIPkey, ipAddr);
-			}
 			res.status(401).json({
 				success: false,
 				error: {
@@ -293,8 +294,8 @@ router.post("/login", async (req, res, next) => {
 			return;
 		}
 		if (user) {
-			if (conf.get("rate_limit.enabled")) {
-				void clearUsernameFailurePoints(usernameIPkey);
+			if (rateLimited) {
+				void clearSuccessfulLoginPoints(usernameIPkey, ipAddr);
 			}
 			req.login(user, async err => {
 				if (err) {
@@ -336,9 +337,6 @@ router.post("/login", async (req, res, next) => {
 				});
 			});
 		} else {
-			if (conf.get("rate_limit.enabled")) {
-				void recordFailedLogin(usernameIPkey, ipAddr);
-			}
 			res.status(401).json({
 				success: false,
 				error: {

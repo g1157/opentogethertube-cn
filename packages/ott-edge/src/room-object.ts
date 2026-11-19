@@ -36,6 +36,13 @@ const messageSchema = z.discriminatedUnion("action", [
 	// The preview backend has no buffer gate to diagnose; accept and ignore the snapshot
 	// so a client heartbeat is not rejected as an unknown message.
 	z.object({ action: z.literal("diagnostics"), diagnostics: z.unknown() }),
+	/**
+	 * The client's latency probe, sent every 15 s on every connection. It used to be absent
+	 * from this schema, so each probe was rejected as an unknown message and never answered;
+	 * two unanswered probes make the client drop and reconnect, which is why every viewer of
+	 * the preview deployment lost their socket about every 30 seconds.
+	 */
+	z.object({ action: z.literal("ping"), t0: z.number().finite() }),
 	z.object({ action: z.literal("req"), request: commandSchema }),
 	z.object({ action: z.literal("notify"), message: z.literal("usernameChanged") }),
 	z.object({ action: z.literal("kickme"), reason: z.number().int().optional() }),
@@ -458,6 +465,11 @@ export class RoomObject extends DurableObject<Env> {
 				}
 				if (message.action === "kickme") {
 					this.close(socket, 1000, "Left room");
+				}
+				if (message.action === "ping") {
+					// Echo the client's own timestamp, as the monolith does: it estimates the
+					// round trip from it without either side sharing a clock.
+					this.send(socket, { action: "pong", t0: message.t0 });
 				}
 				if (message.action === "status") {
 					attachment.status = message.status;

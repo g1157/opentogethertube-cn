@@ -37,14 +37,15 @@ const log = getLogger("infoextract");
 const ADD_PREVIEW_SEARCH_MIN_LENGTH = conf.get("add_preview.search.min_query_length");
 const ENABLE_SEARCH = conf.get("add_preview.search.enabled");
 
-/** Exported for the regression test: the filter's handling of `false` is the contract. */
+/**
+ * Exported for the regression tests: which values survive a merge is the contract they pin.
+ * Falsy is not the same as absent — `cors: false` and `length: 0` are real verdicts, while
+ * `undefined`, `null` and `""` mean "the adapter did not report this".
+ */
 export function mergeVideo(a: Video, b: Video): Video {
-	// `!!x` used to drop `false` along with null/undefined, so a probe that established
-	// `cors: false` never reached the client and every non-CORS source paid for a failing
-	// cross-origin attempt on each play. Only genuinely absent values may be skipped.
 	return Object.assign(
 		a,
-		_.omitBy(b, value => value === undefined || value === null),
+		_.pickBy(b, x => !!x || x === false || x === 0),
 	);
 }
 
@@ -268,42 +269,67 @@ export default {
 		const grouped = _.groupBy(videoIds, "service");
 		const results = await Promise.all(
 			Object.entries(grouped).map(async ([service, serviceVideos]) => {
-				// Handle each service separately
+				// Handle each service separately; cache misses must not inherit client metadata.
 				const adapter = this.getServiceAdapter(service);
-				const cachedVideos: Video[] = adapter.isCacheSafe
-					? await storage.getManyVideoInfo(serviceVideos)
-					: serviceVideos;
+				const cachedVideos: Video[] = (
+					adapter.isCacheSafe
+						? await storage.getManyVideoInfo(
+								serviceVideos.map(video => ({
+									service: video.service,
+									id: video.id,
+								})),
+							)
+						: serviceVideos
+				).map(video => ({ ...video }));
 				const requests = cachedVideos
-					.map(video => ({
-						id: video.id,
-						missingInfo: storage
-							.getVideoInfoFields(video.service)
-							.filter(p => !video[p]),
-					}))
-					.filter(request => request.missingInfo.length > 0);
+					.map(video => {
+						const fields = storage.getVideoInfoFields(video.service);
+						return {
+							id: video.id,
+							missingInfo: adapter.isCacheSafe
+								? fields.filter(p => !video[p])
+								: fields,
+						};
+					})
+					.filter(request => !adapter.isCacheSafe || request.missingInfo.length > 0);
 
 				if (requests.length === 0 && adapter.isCacheSafe) {
-					return cachedVideos;
+					return {
+						service,
+						videos: new Map<string, Video>(
+							cachedVideos.map(video => [video.id, video]),
+						),
+					};
 				}
 
-				const fetchedVideos = await adapter.fetchManyVideoInfo(requests);
-				const finalResults = cachedVideos.map(video => {
-					const fetchedVideo = fetchedVideos.find(v => v.id === video.id);
-					if (fetchedVideo) {
-						return mergeVideo(video, fetchedVideo);
-					} else {
-						return video;
-					}
+				const requestedIds = new Set(requests.map(request => request.id));
+				const fetchedByRequest = new Map<string, Video>();
+				const fetchedVideos = await adapter.fetchManyVideoInfo(requests, (id, video) => {
+					fetchedByRequest.set(id, video);
 				});
-				return finalResults;
+				const finalResults = new Map<string, Video>();
+				for (const video of cachedVideos) {
+					const requestedId = video.id;
+					// Specialized bulk adapters retain IDs; base adapters also report alias origins.
+					const fetchedVideo =
+						fetchedByRequest.get(requestedId) ??
+						fetchedVideos.find(v => v.id === requestedId);
+					if (fetchedVideo) {
+						finalResults.set(requestedId, mergeVideo(video, fetchedVideo));
+					} else if (!requestedIds.has(requestedId)) {
+						// Only complete trusted cache hits can survive without an admitted fetch.
+						finalResults.set(requestedId, video);
+					}
+				}
+				return { service, videos: finalResults };
 			}),
 		);
 
-		const flattened = results.flat();
-		// type cast should be safe here because find should always be able to find a video.
 		const result = videoIds
-			.map(video => flattened.find(v => v.id === video.id) as Video)
-			.filter(v => !!v);
+			.map(video =>
+				results.find(group => group.service === video.service)?.videos.get(video.id),
+			)
+			.filter((video): video is Video => video !== undefined);
 		this.updateCache(
 			result.filter(video => {
 				const adapter = this.getServiceAdapter(video.service);
