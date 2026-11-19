@@ -1,3 +1,6 @@
+import { parseInstanceVideoId } from "./parsing/instance-video-id.js";
+import { fetchPublicJson } from "./parsing/json-fetch.js";
+import { assertPublicMediaUrl } from "../ffprobe.js";
 import axios from "axios";
 import maxBy from "lodash/maxBy.js";
 import { getLogger } from "../logger.js";
@@ -156,22 +159,17 @@ export default class InvidiousAdapter extends ServiceAdapter {
 	}
 
 	async fetchVideoInfo(videoId: string, _properties?: (keyof VideoMetadata)[]): Promise<Video> {
-		// Split on the *last* colon so hosts with ports (e.g., example.com:8443) are preserved.
-		const sep = videoId.lastIndexOf(":");
-		if (sep === -1) {
-			throw new InvalidVideoIdException(this.serviceId, videoId);
-		}
-		const host = videoId.slice(0, sep);
-		const id = videoId.slice(sep + 1);
+		const { host, id } = parseInstanceVideoId(this.serviceId, videoId, this.allowedHosts, true);
 		const baseUrl = `https://${host}/api/v1/videos/${encodeURIComponent(id)}`;
 		let data: InvidiousApiVideo | undefined;
 		// Try proxied (?local=1) first; on failure, fall back to plain endpoint.
 		// If upstream returns an HTTP error (e.g. 429), convert to a FE-visible exception
 		// instead of bubbling up as a generic 500.
 		try {
-			const resLocal = await this.api.get<InvidiousApiVideo>(`${baseUrl}?local=1`, {
-				headers: { Accept: "application/json" },
-			});
+			const resLocal = await fetchPublicJson<InvidiousApiVideo>(
+				`${baseUrl}?local=1`,
+				this.api,
+			);
 			data = resLocal.data;
 		} catch (e: any) {
 			if (axios.isAxiosError(e) && e.response) {
@@ -187,9 +185,7 @@ export default class InvidiousAdapter extends ServiceAdapter {
 			}
 			// Some instances gate `local=1`; try non-proxied metadata next.
 			try {
-				const res = await this.api.get<InvidiousApiVideo>(baseUrl, {
-					headers: { Accept: "application/json" },
-				});
+				const res = await fetchPublicJson<InvidiousApiVideo>(baseUrl, this.api);
 				data = res.data;
 			} catch (e2: any) {
 				if (axios.isAxiosError(e2)) {
@@ -399,6 +395,7 @@ export default class InvidiousAdapter extends ServiceAdapter {
 	): Promise<{ kind: "dash" | "hls"; url: string; topKbps: number; topRes?: string } | null> {
 		const url = this.manifestUrl(host, id, kind);
 		try {
+			await assertPublicMediaUrl(url);
 			const resp = await fetchManifestText(
 				url,
 				this.api,

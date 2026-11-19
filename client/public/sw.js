@@ -5,10 +5,13 @@
 // goes to the network, so a deploy can never come back as a stale page. Caches belong to
 // this app's scope; activating must not delete another app's same-origin storage.
 const CACHE_PREFIX = `ott-assets:${self.registration.scope}:`;
-const CACHE = `${CACHE_PREFIX}v2`;
+const CACHE = `${CACHE_PREFIX}v3`;
 const ASSETS_PATH = new URL("assets/", self.registration.scope).pathname;
 const ROOT_SCOPE = new URL(self.registration.scope).pathname === "/";
 const MAX_CACHE_ENTRIES = 128;
+// An SPA's 200 HTML fallback is not a bundle. Unknown types stay network-only too.
+const ASSET_CONTENT_TYPE =
+	/^(?:text\/(?:css|javascript)|application\/(?:javascript|x-javascript|json|wasm|octet-stream|font-woff)|image\/[a-z0-9.+-]+|font\/[a-z0-9.+-]+)$/i;
 
 async function storeAsset(cache, request, response) {
 	try {
@@ -65,7 +68,8 @@ self.addEventListener("fetch", event => {
 				return hit;
 			}
 			const response = await fetch(request);
-			if (response.ok) {
+			const contentType = response.headers.get("content-type")?.split(";")[0].trim() ?? "";
+			if (response.ok && ASSET_CONTENT_TYPE.test(contentType)) {
 				event.waitUntil(storeAsset(cache, request, response.clone()));
 			}
 			return response;

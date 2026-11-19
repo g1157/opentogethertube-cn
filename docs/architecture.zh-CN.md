@@ -1,5 +1,8 @@
 # 架构总览
 
+> 2026-11-19 补充：以 `f240d98` / `v1.4.20` 为基础，以下包含尚未提交、尚未发布的工作区修复；
+> 本轮证据与剩余范围见 [审查记录](project-review-2026-11-19.zh-CN.md)。
+
 本文描述 OpenTogetherTube 中文版（本仓库）**当前实现**的架构：进程与组件、运行时数据流、
 同步引擎、服务端与客户端内部结构、数据与配置、测试与发布流程。面向想深入代码的贡献者与运维者；
 "改哪里、有哪些坑"的速查版见配套的 [AI 工作手册](./ai-handbook.zh-CN.md)。
@@ -160,10 +163,14 @@ docs/              中文专题文档（本文件所在处）
 - Redis：storable 脏字段触发 5s debounce 保存；房间卸载时 flush；写失败只记日志，脏集合保留待下次重试
   （v1.2.6 修复了"Redis 写失败变成未捕获 rejection"）。
 - Postgres：仅永久房间，脏设置变化时 `storage.updateRoom()`；grants 与 permissionsRevision 同一 checkpoint。
-  当前 pause / seek 等仍可能附带整条 prevQueue 快照，全局 tick 仍串行 await 房间落盘，属于性能改善项。
+  当前 pause / seek 等仍可能附带整条 prevQueue 快照，仍有写放大；不同房间的 tick 已隔离，见下条。
 - SponsorBlock 以单飞异步任务刷新，不再 await 在全局 tick 内；返回结果绑定 source 和 requestId，卸载使旧结果失效。
-- 1s tick（`roommanager.runUpdate`，带单飞守卫）：`room.update()`（缓冲门、保活、出队、投票排序）
-  + `room.sync()`；超过 `room.unload_after`（默认 300s）无活动的房间被卸载。
+- 1s tick（`roommanager.runUpdate`）：按房间对象单飞，全局最多 8 个并发任务，每个房间最多一个执行中或排队任务；
+  周期调度不等待全部房间，显式 `update()` 仍可等待当前快照。每项执行 `room.update()`
+  （缓冲门、保活、出队、投票排序）+ `room.sync()`；装载对象失效后不再卸载同名替代房间。
+  超过 `room.unload_after`（默认 300s）无活动的房间被卸载。8 个任务全部长期阻塞仍会耗尽槽位，未实现 DB I/O 取消。
+- 指标口径：`ott_room_manager_update_duration_seconds` 记录单房间执行与 checkpoint 时间，不含排队；
+  `ott_room_manager_update_skipped_total` 记录繁忙房间被周期调度跳过的次数，不再代表整轮跳过。
 
 ### 5.4 客户端纠偏状态机（`client/src/util/playback-sync.ts`）
 
@@ -263,6 +270,10 @@ YouTube / Vimeo / PeerTube 依平台 API seek；Bilibili 无控制 API，只能�
   `mime` 永久返回；搜索缓存 24h；`previewAdd` 响应缓存 1h（cache-safe 服务 7 天）。
 - `isCacheSafe=false`（不写缓存）：pluto、bilibili、reddit、tubi、direct、hls、dash。
 - YouTube 走 Data API v3，配额耗尽有网页解析 fallback；Invidious 探测 DASH/HLS 清单选高码率，失败回退渐进流。
+- PeerTube / Invidious 的 `{service, id}` 入口也校验实例白名单；PeerTube 绑定完整主机与端口，
+  Invidious 保留已批准 hostname 可使用其他端口的既有规则。Reddit 按真实域名边界校验并使用 HTTPS canonical endpoint。
+  这三个适配器的 metadata 请求使用公网地址检查、2 MiB 解码正文上限、5s 请求截止和零隐式重定向；
+  DNS 检查与实际连接仍非同一次固定解析，不能视作完整 SSRF 闭环。
 - 防盗链探测（`services/media-access.ts`）：先用本应用 origin 的 Referer 探测首个分片，被拒再试无 Referer，
   实测可播才记录 `referrerPolicy:"no-referrer"`。
 
@@ -273,6 +284,14 @@ YouTube / Vimeo / PeerTube 依平台 API seek；Bilibili 无控制 API，只能�
 每次启动前解析的重定向都过公网检查，DNS 与解析请求有 5s 边界，ffprobe 使用最终 `resolvedUri`。
 子进程仍会独立解析 DNS、读取后续 HTTP 资源，完整出站闭环尚未实现，见审查清单。
 HLS/DASH 不走 ffprobe，分别用 `m3u8-parser` / `saxes` 解析清单；DASH 只提取有界预览元数据，不展开完整 DOM 或时间线。
+HLS 的主清单与选中变体、DASH 的文字清单各请求限定 2 MiB / 5s，拒绝隐式重定向。
+
+**弹幕资源边界**（`common/danmaku.ts`、`common/response-body.ts`）：XML 解码正文最多 8 MiB，
+最多 100,000 个评论元素；浏览器丢弃超过 2000 UTF-16 单元或含嵌套元素的单条文字。
+前后端各最多 4 个同时下载；超额立即失败，不建立无界等待队列。流读取累计实际字节，
+超限或截止会取消 reader，不等待卡住的 cancel；预检跳过注释、CDATA 与处理指令，拒绝实际 DOCTYPE/ENTITY。
+浏览器 XML 截止 10s，服务端 metadata 10s / XML 15s；浏览器评论缓存与服务端 XML 缓存各 32 MiB，
+服务端搜索/集数缓存各 4 MiB。缓存采用 UTF-16 载荷与固定条目开销记账，不是实测 JS heap。
 
 ### 6.7 存储
 
@@ -493,13 +512,18 @@ D1 存身份/房间索引/媒体缓存/限流，`MaintenanceObject` 每 6h 清�
 
 - `main.yml`：Node 22/24/26 矩阵；`lint-ci`（Biome + Prettier .vue + 各 workspace lint）；
   `scripts/codegen.sh` 后 `git diff --exit-code` 校验 typeshare 生成物漂移；SQLite 与 Postgres 两条测试路径；
-  typos；Grafana 插件兼容检查。`docs/**`、`env/**`、`*.md` 的改动不触发。
-- `rust.yml`：Rust 1.84，fmt/check/clippy/doc/test。
+  typos；Grafana 插件兼容检查；新增 Windows / Node 22 的全 workspace 构建与 SQLite / 本地 runtime 测试。
+  `docs/**`、`env/**`、`*.md` 的改动不触发。
+- `rust.yml`：Rust 1.84，Linux fmt/check/clippy/doc/test；新增 Windows MSVC 的严格静态检查与非 harness 单测。
+  Windows 的进程型 harness 仍存在等待问题，明确排除而不宣称已验证。
 - `codeql-analysis.yml`：JS/TS 静态分析。
 - `publish-image.yml`：推送 `v*` 标签触发；通过 `workflow_call` 复用上述 Node / PostgreSQL / typos /
   Grafana / codegen 与 Rust 全部门禁，只有全部成功后才构建并校验 client revision。
   镜像按本仓 `yarn.lock` 安装服务端生产依赖，核验版本与补丁、非 root 身份和应用目录边界后，
-  推 `ghcr.io/g1157/opentogethertube-cn:<tag>` 与 `:latest`。
+  先推 `ghcr.io/g1157/opentogethertube-cn:<tag>`；只有 push 事件触发的最高稳定 semver 标签、
+  且标签 commit 属于默认分支历史时才提升 `:latest`。手动运行、旧标签、预发布或其他分支不提升 latest；
+  手动分支构建使用 `edge-<commit前12位>`。`scripts/image-release-policy.mjs` 有纯策略与真实 Git 回归测试。
+  `packages: write` 仅给 publish job，复用检查只继承 `contents: read`；构建前获取完整分支与标签历史。
 
 **发布流程**：只提交本批代码与版本记录 → 本地 lint / 测试 / 生产构建通过 → 推送已验证 revision →
 打并推 annotated tag → Actions 镜像 → 备份 / 导入同一镜像 / 独立端口验收 / 正式更新与端到端验证。

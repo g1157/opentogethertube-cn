@@ -1,6 +1,6 @@
 import { Room, type RoomState, type RoomStateFromRedis } from "./room.js";
 import type { Role, RoomOptions, Visibility } from "ott-common/models/types.js";
-import { Mutex } from "@divine/synchronization";
+import { Mutex, Semaphore } from "@divine/synchronization";
 import _ from "lodash";
 import { getLogger } from "./logger.js";
 import { redisClient } from "./redisclient.js";
@@ -71,33 +71,27 @@ async function addRoom(room: Room) {
 	bus.emit("load", room.name);
 }
 
-let updaterRunning = false;
+const MAX_CONCURRENT_ROOM_UPDATES = 8;
+const roomUpdateSlots = new Semaphore(MAX_CONCURRENT_ROOM_UPDATES);
+const roomUpdates = new Map<Room, Promise<void>>();
 let updaterInterval: ReturnType<typeof setInterval> | null = null;
+
 export async function start() {
-	log.info("Starting room manager");
-
-	updaterInterval = setInterval(() => {
-		void runUpdate();
-	}, 1000);
-}
-
-/**
- * One sweep at a time. A sweep that runs longer than the interval (a slow database write, a
- * SponsorBlock request, Redis lag) used to have the next tick walk into it and pile up, which
- * stretched every room's heartbeat further; skipping the tick keeps the delay bounded.
- */
-async function runUpdate(): Promise<void> {
-	if (updaterRunning) {
-		counterUpdateSkipped.inc();
+	if (updaterInterval) {
 		return;
 	}
-	updaterRunning = true;
-	const endTimer = histUpdateDuration.startTimer();
-	try {
-		await update();
-	} finally {
-		endTimer();
-		updaterRunning = false;
+	log.info("Starting room manager");
+	updaterInterval = setInterval(runUpdate, 1000);
+}
+
+/** Schedule one task per room without keeping a blocked global sweep alive. */
+function runUpdate(): void {
+	for (const room of [...rooms]) {
+		if (roomUpdates.has(room)) {
+			counterUpdateSkipped.inc();
+			continue;
+		}
+		void scheduleRoomUpdate(room);
 	}
 }
 
@@ -126,22 +120,54 @@ export function redisStateToState(state: RoomStateFromRedis): RoomState {
 }
 
 export async function update(): Promise<void> {
-	// Iterate a snapshot: unloadRoom splices the live array mid-loop, which used to
-	// silently skip the room right after an unloaded one.
-	for (const room of [...rooms]) {
-		try {
-			await room.update();
-			await room.sync();
-		} catch (e) {
-			log.error(`Error updating room ${room.name}: ${e}`);
-		}
+	// Explicit callers can await their snapshot; periodic ticks never await all rooms.
+	await Promise.all([...rooms].map(scheduleRoomUpdate));
+}
 
-		if (room.isStale) {
-			try {
-				await unloadRoom(room.name, UnloadReason.Keepalive);
-			} catch (e) {
-				log.error(`Error unloading room ${room.name}: ${e}`);
-			}
+function scheduleRoomUpdate(room: Room): Promise<void> {
+	const pending = roomUpdates.get(room);
+	if (pending) {
+		return pending;
+	}
+	// The queue contains at most one task per loaded Room object, not one per interval.
+	const task = (async () => {
+		try {
+			await roomUpdateSlots.protect(async () => {
+				if (!rooms.includes(room)) {
+					return;
+				}
+				const endTimer = histUpdateDuration.startTimer();
+				try {
+					await updateRoom(room);
+				} finally {
+					endTimer();
+				}
+			});
+		} finally {
+			roomUpdates.delete(room);
+		}
+	})();
+	roomUpdates.set(room, task);
+	return task;
+}
+
+async function updateRoom(room: Room): Promise<void> {
+	try {
+		await room.update();
+		if (!rooms.includes(room)) {
+			return;
+		}
+		await room.sync();
+	} catch (e) {
+		log.error(`Error updating room ${room.name}: ${e}`);
+	}
+
+	if (rooms.includes(room) && room.isStale) {
+		try {
+			// Unload by object identity, never a replacement room with the same name.
+			await unloadRoom(room, UnloadReason.Keepalive);
+		} catch (e) {
+			log.error(`Error unloading room ${room.name}: ${e}`);
 		}
 	}
 }
@@ -336,16 +362,16 @@ export function on<E extends RoomManagerEvents>(event: E, listener: RoomManagerE
 	bus.on(event, listener);
 }
 
-/** How long one room sweep takes. A sweep near the 1s interval is what the skip counter warns about. */
+/** Per-room work duration; waiting for a concurrency slot is not included. */
 const histUpdateDuration = new Histogram({
 	name: "ott_room_manager_update_duration_seconds",
-	help: "How long a full pass over the loaded rooms takes",
+	help: "How long one room update and checkpoint takes, excluding slot wait",
 	buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
 });
 
 const counterUpdateSkipped = new Counter({
 	name: "ott_room_manager_update_skipped_total",
-	help: "Sweeps skipped because the previous one had not finished yet",
+	help: "Periodic updates skipped for rooms with work already pending",
 });
 
 // biome-ignore lint/correctness/noUnusedVariables: biome migration

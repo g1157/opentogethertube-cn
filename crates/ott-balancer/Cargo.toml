@@ -17,7 +17,6 @@ hyper.workspace = true
 hyper-util.workspace = true
 http-body-util.workspace = true
 humantime-serde.workspace = true
-jemallocator.workspace = true
 rand.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -38,6 +37,9 @@ route-recognizer.workspace = true
 once_cell.workspace = true
 pin-project.workspace = true
 prometheus.workspace = true
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+jemallocator.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

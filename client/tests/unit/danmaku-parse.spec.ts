@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseDanmakuXml, shiftDanmakuTime } from "@/util/danmaku/parse";
 
 const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
@@ -68,5 +68,37 @@ describe("parseDanmakuXml", () => {
 		// The original list is left alone: the offset belongs to the binding, not the parse.
 		expect(items[0].time).toBe(0);
 		expect(shiftDanmakuTime(items, 0)).toBe(items);
+	});
+});
+
+describe("danmaku text boundaries", () => {
+	it("preserves declaration-like text inside CDATA", () => {
+		const items = parseDanmakuXml(
+			'<i><d p="1,1,25,16777215"><![CDATA[<!ENTITY hello>]]></d></i>',
+		);
+		expect(items.map(item => item.text)).toEqual(["<!ENTITY hello>"]);
+	});
+
+	it("skips nested elements and oversized text while keeping normal comments", () => {
+		const xml =
+			'<i><d p="1,1"><span>nested</span></d>' +
+			'<d p="2,1">' +
+			"x".repeat(2001) +
+			'</d><d p="3,1">normal</d></i>';
+		expect(parseDanmakuXml(xml).map(item => item.text)).toEqual(["normal"]);
+	});
+});
+
+describe("danmaku sanitized markup boundaries", () => {
+	it("rechecks comments after stripping controls before allocating a DOM", () => {
+		const parse = vi.spyOn(DOMParser.prototype, "parseFromString");
+		try {
+			expect(() => parseDanmakuXml("<i>" + "<d\u0008/>".repeat(100001) + "</i>")).toThrow(
+				"comment limit",
+			);
+			expect(parse).not.toHaveBeenCalled();
+		} finally {
+			parse.mockRestore();
+		}
 	});
 });

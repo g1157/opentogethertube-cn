@@ -1,3 +1,9 @@
+import {
+	assertDanmakuTrack,
+	DANMAKU_MAX_COMMENTS,
+	DANMAKU_MAX_TEXT_LENGTH,
+} from "ott-common/danmaku";
+
 /** A comment from a Bilibili-format danmaku XML file. */
 export interface DanmakuItem {
 	/** Media time in seconds at which the comment appears. */
@@ -43,10 +49,24 @@ function parseMode(value: number): DanmakuMode | null {
 }
 
 export function parseDanmakuXml(xml: string): DanmakuItem[] {
-	const doc = new DOMParser().parseFromString(xml.replace(INVALID_XML_CHARS, ""), "text/xml");
+	assertDanmakuTrack(xml);
+	const sanitizedXml = xml.replace(INVALID_XML_CHARS, "");
+	if (sanitizedXml.length !== xml.length) {
+		// Removing invalid controls may turn text into markup; recheck before DOM allocation.
+		assertDanmakuTrack(sanitizedXml);
+	}
+	const doc = new DOMParser().parseFromString(sanitizedXml, "text/xml");
 	const nodes = doc.getElementsByTagName("d");
+	if (nodes.length > DANMAKU_MAX_COMMENTS) {
+		throw new Error("Danmaku XML exceeds comment limit");
+	}
 	const items: DanmakuItem[] = [];
-	for (const node of Array.from(nodes)) {
+	for (let index = 0; index < nodes.length; index++) {
+		const node = nodes[index];
+		// Nested elements are not comment text and must not amplify textContent work.
+		if (node.children.length > 0) {
+			continue;
+		}
 		const attribute = node.getAttribute("p");
 		if (!attribute) {
 			continue;
@@ -58,7 +78,7 @@ export function parseDanmakuXml(xml: string): DanmakuItem[] {
 			continue;
 		}
 		const text = node.textContent ?? "";
-		if (text.length === 0) {
+		if (text.length === 0 || text.length > DANMAKU_MAX_TEXT_LENGTH) {
 			continue;
 		}
 		const rawColor = Number.parseInt(fields[3] ?? "", 10);

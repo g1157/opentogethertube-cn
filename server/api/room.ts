@@ -109,6 +109,10 @@ router.get("/list", async (req, res, next) => {
 		};
 		rooms.push(obj);
 	}
+	// A public directory does not grant access to a password-protected media source.
+	if (!isAuthorized) {
+		rooms = rooms.map(room => (room.hasPassword ? { ...room, currentSource: null } : room));
+	}
 	rooms = _.orderBy(rooms, ["users", "name"], ["desc", "asc"]);
 	res.json(rooms);
 });

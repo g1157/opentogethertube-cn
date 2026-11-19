@@ -23,6 +23,8 @@ describe("Peertube", () => {
 
 	beforeAll(async () => {
 		await adapter.initialize();
+		// This recorded fixture is not part of the production instance list.
+		adapter.allowedHosts.push("the.jokertv.eu");
 
 		for (const file of fs.readdirSync(FIXTURE_DIRECTORY)) {
 			FIXTURES.set(
@@ -88,8 +90,10 @@ describe("Peertube", () => {
 	describe("fetchVideoInfo", () => {
 		const videoId = "the.jokertv.eu:no-hls";
 
-		it("Returns a promise", () => {
-			expect(adapter.fetchVideoInfo(videoId)).toBeInstanceOf(Promise);
+		it("Returns a promise", async () => {
+			const result = adapter.fetchVideoInfo(videoId);
+			expect(result).toBeInstanceOf(Promise);
+			await result;
 		});
 
 		it("Throws an error if videoId is invalid", () => {

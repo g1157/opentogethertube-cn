@@ -68,3 +68,4 @@ yarn-error.log*
 
 # Command Code session state (taste, scratch)
 .commandcode/
+.ace-tool/

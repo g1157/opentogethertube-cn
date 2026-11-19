@@ -301,7 +301,8 @@ export function setupBalancerManager() {
 export function shutdown() {
 	log.info("Shutting down client manager");
 	balancerManager.shutdown();
-	for (const client of connections) {
+	// kick/sendRaw can synchronously remove entries through onClientDisconnect.
+	for (const client of [...connections]) {
 		client.kick(OttWebsocketError.AWAY);
 	}
 }
@@ -925,7 +926,7 @@ async function broadcast(roomName: string, msg: ServerMessage) {
 	}
 	const text = JSON.stringify(msg, replacer);
 	const balancers = new Set<string>();
-	for (const client of clients) {
+	for (const client of [...clients]) {
 		if (client instanceof BalancerClient) {
 			balancers.add(client.conn.id);
 		} else {
@@ -981,7 +982,7 @@ function onRoomUnload(roomName: string, reason: UnloadReason) {
 	const clients = roomJoins.get(roomName);
 	log.debug(`Room unloaded, kicking ${clients?.length} clients`);
 	if (clients) {
-		for (const client of clients) {
+		for (const client of [...clients]) {
 			client.kick(code);
 		}
 	}
@@ -994,7 +995,7 @@ function onRoomUnload(roomName: string, reason: UnloadReason) {
 
 function onAnnouncement(text: string) {
 	log.debug(`Announcement: ${text}`);
-	for (const client of connections) {
+	for (const client of [...connections]) {
 		try {
 			client.sendRaw(text);
 		} catch (e) {
@@ -1009,7 +1010,7 @@ function onAnnouncement(text: string) {
 
 async function onUserModified(token: AuthToken): Promise<void> {
 	log.debug(`User was modified, pulling info and telling rooms`);
-	for (const client of connections) {
+	for (const client of [...connections]) {
 		if (client.token === token) {
 			client.session = await tokens.getSessionInfo(token);
 			await makeRoomRequest(client, {
@@ -1051,7 +1052,7 @@ function getClientsInRoom(roomName: string): Client[] {
  * reconnect that replaced it.
  */
 export function sweepDeadClients() {
-	for (const client of connections) {
+	for (const client of [...connections]) {
 		if (client instanceof DirectClient) {
 			if (!client.isAlive) {
 				client.socket.terminate();

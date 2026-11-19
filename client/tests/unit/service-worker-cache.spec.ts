@@ -17,7 +17,11 @@ function worker(scope = "https://example.test/watch/") {
 		delete: vi.fn().mockResolvedValue(true),
 		open: vi.fn().mockResolvedValue(cache),
 	};
-	const response = { ok: true, clone: vi.fn().mockReturnValue({ cached: true }) };
+	const response = {
+		ok: true,
+		headers: { get: vi.fn().mockReturnValue("text/javascript; charset=utf-8") },
+		clone: vi.fn().mockReturnValue({ cached: true }),
+	};
 	const fetch = vi.fn().mockResolvedValue(response);
 	runInNewContext(workerSource, {
 		self: {
@@ -43,6 +47,7 @@ describe("service worker cache isolation", () => {
 			"ott-assets-v1",
 			"ott-assets:https://example.test/watch/:v1",
 			"ott-assets:https://example.test/watch/:v2",
+			"ott-assets:https://example.test/watch/:v3",
 			"ott-assets:https://example.test/other/:v1",
 			"another-application-cache",
 		]);
@@ -51,6 +56,7 @@ describe("service worker cache isolation", () => {
 		await completed;
 		expect(caches.delete.mock.calls.map(([name]) => name)).toEqual([
 			"ott-assets:https://example.test/watch/:v1",
+			"ott-assets:https://example.test/watch/:v2",
 		]);
 	});
 
@@ -78,7 +84,7 @@ describe("service worker cache isolation", () => {
 		await Promise.all(tasks);
 		expect(fetch).toHaveBeenCalledTimes(1);
 		expect(fetch).toHaveBeenCalledWith(request);
-		expect(caches.open).toHaveBeenCalledWith("ott-assets:https://example.test/watch/:v2");
+		expect(caches.open).toHaveBeenCalledWith("ott-assets:https://example.test/watch/:v3");
 		expect(cache.put).toHaveBeenCalledTimes(1);
 		expect(cache.put).toHaveBeenCalledWith(request, { cached: true });
 		expect(tasks).toHaveLength(1);
@@ -118,5 +124,32 @@ describe("service worker cache isolation", () => {
 		});
 		expect(await result).toBe(response);
 		await expect(Promise.all(tasks)).resolves.toBeDefined();
+	});
+});
+
+describe("service worker fallback response boundaries", () => {
+	it.each([
+		"text/html; charset=utf-8",
+		"application/xhtml+xml",
+		undefined,
+	])("does not cache an HTML fallback or an untyped response: %s", async contentType => {
+		const { handlers, cache, fetch } = worker();
+		const response = new Response(
+			new TextEncoder().encode("<!doctype html><title>SPA fallback</title>"),
+			{
+				headers: contentType ? { "Content-Type": contentType } : {},
+			},
+		);
+		fetch.mockResolvedValue(response);
+		const tasks: Promise<unknown>[] = [];
+		let result: Promise<unknown> | undefined;
+		handlers.get("fetch")?.({
+			request: { method: "GET", url: "https://example.test/watch/assets/missing-AbC.js" },
+			respondWith: (task: Promise<unknown>) => (result = task),
+			waitUntil: (task: Promise<unknown>) => tasks.push(task),
+		});
+		expect(await result).toBe(response);
+		await Promise.all(tasks);
+		expect(cache.put).not.toHaveBeenCalled();
 	});
 });

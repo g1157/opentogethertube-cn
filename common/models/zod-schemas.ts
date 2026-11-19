@@ -44,7 +44,7 @@ export const OttApiRequestRoomCreateSchema = z
 				message: "title must not contain newlines",
 			})
 			.optional(),
-		description: z.string().optional(),
+		description: z.string().max(5000).optional(),
 		isTemporary: z.boolean().optional().default(true),
 		visibility: z.nativeEnum(Visibility).default(Visibility.Public).optional(),
 		queueMode: z.nativeEnum(QueueMode).optional(),

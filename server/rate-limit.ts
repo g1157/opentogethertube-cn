@@ -56,7 +56,8 @@ export async function consumeRateLimitPoints(
 export function setRateLimitHeaders(res, info: RateLimiterRes) {
 	res.set("X-RateLimit-Limit", rateLimiter.points);
 	res.set("X-RateLimit-Remaining", info.remainingPoints);
-	res.set("X-RateLimit-Reset", new Date(Date.now() + info.msBeforeNext));
+	// HTTP headers must not contain a localized timezone name.
+	res.set("X-RateLimit-Reset", new Date(Date.now() + info.msBeforeNext).toUTCString());
 }
 
 export function handleRateLimit(res, info: RateLimiterRes) {

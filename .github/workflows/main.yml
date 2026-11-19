@@ -1,186 +1,210 @@
 name: CI
 
 on:
-  workflow_call:
-  workflow_dispatch:
-  pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "env/**"
-      - "**/*.md"
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - "docs/**"
-      - "env/**"
-      - "**/*.md"
+    workflow_call:
+    workflow_dispatch:
+    pull_request:
+        paths-ignore:
+            - "docs/**"
+            - "env/**"
+            - "**/*.md"
+    push:
+        branches:
+            - main
+        paths-ignore:
+            - "docs/**"
+            - "env/**"
+            - "**/*.md"
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+    group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [22.x, 24.x, 26.x]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          check-latest: true
-      - uses: actions/cache@v4
-        with:
-          path: .yarn/cache
-          key: yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-${{
-            hashFiles('yarn.lock') }}
-          restore-keys: |
-            yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-
-      - run: command -v corepack || npm install --global corepack@latest
-      - run: corepack enable
-      - run: yarn install --immutable
-      - run: yarn run lint-ci
-        env:
-          NODE_ENV: production
+    lint:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                node-version: [22.x, 24.x, 26.x]
+        steps:
+            - uses: actions/checkout@v4
+            - name: Use Node.js ${{ matrix.node-version }}
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node-version }}
+                  check-latest: true
+            - uses: actions/cache@v4
+              with:
+                  path: .yarn/cache
+                  key: yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-${{
+                      hashFiles('yarn.lock') }}
+                  restore-keys: |
+                      yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-
+            - run: command -v corepack || npm install --global corepack@latest
+            - run: corepack enable
+            - run: yarn install --immutable
+            - run: yarn run lint-ci
+              env:
+                  NODE_ENV: production
 
-      - name: cargo-install
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: typeshare-cli
-          version: "1.11.0"
-      - name: Ensure generated code is up to date
-        run: ./scripts/codegen.sh && git diff --exit-code
+            - name: cargo-install
+              uses: baptiste0928/cargo-install@v3
+              with:
+                  crate: typeshare-cli
+                  version: "1.11.0"
+            - name: Ensure generated code is up to date
+              run: ./scripts/codegen.sh && git diff --exit-code
 
-  typos:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: typos-action
-        uses: crate-ci/typos@v1.19.0
+    typos:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: typos-action
+              uses: crate-ci/typos@v1.19.0
 
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [22.x, 24.x, 26.x]
-      fail-fast: true
-    services:
-      redis:
-        image: redis
-        options: >-
-          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout
-          5s --health-retries 5
-        ports:
-          - 6379:6379
+    test:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                node-version: [22.x, 24.x, 26.x]
+            fail-fast: true
+        services:
+            redis:
+                image: redis
+                options: >-
+                    --health-cmd "redis-cli ping" --health-interval 10s --health-timeout
+                    5s --health-retries 5
+                ports:
+                    - 6379:6379
 
-    steps:
-      - uses: actions/checkout@v4
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          check-latest: true
-      - uses: actions/cache@v4
-        with:
-          path: .yarn/cache
-          key: yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-${{
-            hashFiles('yarn.lock') }}
-          restore-keys: |
-            yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-
-      - run: command -v corepack || npm install --global corepack@latest
-      - run: corepack enable
-      - run: yarn install --immutable
-      - run: yarn workspace ott-server run sequelize db:migrate
+        steps:
+            - uses: actions/checkout@v4
+            - name: Use Node.js ${{ matrix.node-version }}
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node-version }}
+                  check-latest: true
+            - uses: actions/cache@v4
+              with:
+                  path: .yarn/cache
+                  key: yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-${{
+                      hashFiles('yarn.lock') }}
+                  restore-keys: |
+                      yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-
+            - run: command -v corepack || npm install --global corepack@latest
+            - run: corepack enable
+            - run: yarn install --immutable
+            - run: yarn workspace ott-server run sequelize db:migrate
+              env:
+                  NODE_ENV: test
+            - run: yarn run build
+            - run: yarn run test
+              env:
+                  NODE_ENV: test
+                  REDIS_HOST: localhost
+                  REDIS_PORT: 6379
+    test-windows:
+        runs-on: windows-latest
+        timeout-minutes: 20
         env:
-          NODE_ENV: test
-      - run: yarn run build
-      - run: yarn run test
-        env:
-          NODE_ENV: test
-          REDIS_HOST: localhost
-          REDIS_PORT: 6379
-  test-postgres:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [24.x]
-    services:
-      postgres:
-        image: postgres:15-bullseye
-        env:
-          POSTGRES_DB: ott
-          POSTGRES_USER: ott
-          POSTGRES_PASSWORD: ott
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ott -d ott" --health-interval 5s
-          --health-timeout 3s --health-retries 12
-      redis:
-        image: redis
-        options: >-
-          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout
-          5s --health-retries 5
-        ports:
-          - 6379:6379
-    env:
-      DB_MODE: postgres
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: ott
-      POSTGRES_USER: ott
-      POSTGRES_PASSWORD: ott
-      DATABASE_URL: postgres://ott:ott@localhost:5432/ott
-    steps:
-      - uses: actions/checkout@v4
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          check-latest: true
-      - uses: actions/cache@v4
-        with:
-          path: .yarn/cache
-          key: yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-${{
-            hashFiles('yarn.lock') }}
-          restore-keys: |
-            yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-
-      - run: command -v corepack || npm install --global corepack@latest
-      - run: corepack enable
-      - run: yarn install --immutable
-      - run: yarn workspace ott-server run sequelize db:migrate
-        env:
-          NODE_ENV: test
-      - run: yarn run build
-      - run: yarn run test
-        env:
-          NODE_ENV: test
-          REDIS_HOST: localhost
-          REDIS_PORT: 6379
+            NODE_ENV: test
+            DB_MODE: sqlite
+            VITEST_MAX_THREADS: "2"
+            VITEST_MIN_THREADS: "1"
+            VITEST_MAX_FORKS: "2"
+            VITEST_MIN_FORKS: "1"
+        steps:
+            - uses: actions/checkout@v4
+            - name: Use Node.js 22
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22.x
+            - run: node .yarn/releases/yarn-4.1.0.cjs install --immutable
+            - name: Migrate a fresh SQLite test database
+              run: node .yarn/releases/yarn-4.1.0.cjs db:migrate
+            - name: Build every workspace on Windows
+              run: node .yarn/releases/yarn-4.1.0.cjs build
+            - name: Run unit and local runtime tests
+              run: node .yarn/releases/yarn-4.1.0.cjs test
 
-  grafana-compatibilitycheck:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [22.x, 24.x, 26.x]
-        package: [ott-vis-panel, ott-vis-datasource]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Node.js environment
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-      - run: command -v corepack || npm install --global corepack@latest
-      - run: corepack enable
-      - name: Install dependencies
-        run: yarn install --immutable
-      - name: Build plugin
-        run: yarn workspace ${{ matrix.package }} build
-      - name: Compatibility check
-        run: npx @grafana/levitate@latest is-compatible --path packages/${{
-          matrix.package }}/src/module.ts --target
-          @grafana/data,@grafana/ui,@grafana/runtime
+    test-postgres:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                node-version: [24.x]
+        services:
+            postgres:
+                image: postgres:15-bullseye
+                env:
+                    POSTGRES_DB: ott
+                    POSTGRES_USER: ott
+                    POSTGRES_PASSWORD: ott
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U ott -d ott" --health-interval 5s
+                    --health-timeout 3s --health-retries 12
+            redis:
+                image: redis
+                options: >-
+                    --health-cmd "redis-cli ping" --health-interval 10s --health-timeout
+                    5s --health-retries 5
+                ports:
+                    - 6379:6379
+        env:
+            DB_MODE: postgres
+            POSTGRES_HOST: localhost
+            POSTGRES_PORT: "5432"
+            POSTGRES_DB: ott
+            POSTGRES_USER: ott
+            POSTGRES_PASSWORD: ott
+            DATABASE_URL: postgres://ott:ott@localhost:5432/ott
+        steps:
+            - uses: actions/checkout@v4
+            - name: Use Node.js ${{ matrix.node-version }}
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node-version }}
+                  check-latest: true
+            - uses: actions/cache@v4
+              with:
+                  path: .yarn/cache
+                  key: yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-${{
+                      hashFiles('yarn.lock') }}
+                  restore-keys: |
+                      yarn-cache-${{ runner.os }}-node-${{ matrix.node-version }}-
+            - run: command -v corepack || npm install --global corepack@latest
+            - run: corepack enable
+            - run: yarn install --immutable
+            - run: yarn workspace ott-server run sequelize db:migrate
+              env:
+                  NODE_ENV: test
+            - run: yarn run build
+            - run: yarn run test
+              env:
+                  NODE_ENV: test
+                  REDIS_HOST: localhost
+                  REDIS_PORT: 6379
+
+    grafana-compatibilitycheck:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                node-version: [22.x, 24.x, 26.x]
+                package: [ott-vis-panel, ott-vis-datasource]
+        steps:
+            - uses: actions/checkout@v4
+            - name: Setup Node.js environment
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node-version }}
+            - run: command -v corepack || npm install --global corepack@latest
+            - run: corepack enable
+            - name: Install dependencies
+              run: yarn install --immutable
+            - name: Build plugin
+              run: yarn workspace ${{ matrix.package }} build
+            - name: Compatibility check
+              run: npx @grafana/levitate@latest is-compatible --path packages/${{
+                  matrix.package }}/src/module.ts --target
+                  @grafana/data,@grafana/ui,@grafana/runtime

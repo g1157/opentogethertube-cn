@@ -33,6 +33,8 @@ pub mod selection;
 pub mod service;
 pub mod state_stream;
 
+// MSVC uses the default system allocator instead of jemalloc's Unix toolchain.
+#[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 

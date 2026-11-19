@@ -1,3 +1,4 @@
+import { fetchManifestText } from "./parsing/manifest-fetch.js";
 import URL from "node:url";
 import axios from "axios";
 import { assertPublicMediaUrl } from "../ffprobe.js";
@@ -13,6 +14,8 @@ import { conf } from "../ott-config.js";
 import { ServiceAdapter } from "../serviceadapter.js";
 
 const log = getLogger("hls");
+const HLS_MANIFEST_ACCEPT =
+	"application/vnd.apple.mpegurl,application/x-mpegURL,text/plain;q=0.9,*/*;q=0.8";
 const HLS_URL_REGEX = /\/*\.(m3u8?)$/;
 
 export default class HlsVideoAdapter extends ServiceAdapter {
@@ -56,7 +59,7 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 		// Manifest URLs are user supplied; never follow redirects that could land on an
 		// intranet address and only fetch hosts that resolve publicly.
 		await assertPublicMediaUrl(url.href);
-		const resp = await axios.get(url.href, { maxRedirects: 0 });
+		const resp = await fetchManifestText(url.href, axios, HLS_MANIFEST_ACCEPT);
 		const cors = corsFromHeaders(resp.headers as Record<string, unknown>);
 		parser.push(resp.data);
 		parser.end();
@@ -114,7 +117,7 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 			const playlistUrl = URL.resolve(url.href, lowestBitratePlaylist.uri);
 			log.silly(`new playlist path ${playlistUrl}`);
 			await assertPublicMediaUrl(playlistUrl);
-			const respStreams = await axios.get(playlistUrl, { maxRedirects: 0 });
+			const respStreams = await fetchManifestText(playlistUrl, axios, HLS_MANIFEST_ACCEPT);
 			const parser2 = new M3u8Parser();
 			parser2.push(respStreams.data);
 			parser2.end();

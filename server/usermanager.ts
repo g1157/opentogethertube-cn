@@ -884,7 +884,9 @@ const accountRecoveryStart: RequestHandler<
 > = async (req, res) => {
 	const body = OttApiRequestAccountRecoveryStartSchema.parse(req.body);
 	if (conf.get("rate_limit.enabled")) {
-		await consumeRateLimitPoints(res, req.ip, 100);
+		if (!(await consumeRateLimitPoints(res, req.ip, 100))) {
+			return;
+		}
 	}
 
 	const query = {
@@ -912,7 +914,9 @@ const accountRecoveryVerify: RequestHandler<
 	const body = OttApiRequestAccountRecoveryVerifySchema.parse(req.body);
 
 	if (conf.get("rate_limit.enabled")) {
-		await consumeRateLimitPoints(res, req.ip, 10);
+		if (!(await consumeRateLimitPoints(res, req.ip, 10))) {
+			return;
+		}
 	}
 
 	if (!isPasswordValid(body.newPassword)) {

@@ -1,5 +1,8 @@
 # AI 工作手册（opentogethertube-next）
 
+> 2026-11-19 补充：以 `f240d98` / `v1.4.20` 为基础，以下包含尚未提交、尚未发布的工作区修复；
+> 本轮证据与剩余范围见 [审查记录](project-review-2026-11-19.zh-CN.md)。
+
 给在本仓库工作的 AI 代理的速查手册：**改哪里、怎么跑、有哪些坑**。目标是让新会话不必重新
 调查代码结构。人类可读的完整架构说明见 [architecture.zh-CN.md](./architecture.zh-CN.md)。
 
@@ -109,7 +112,8 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
 - **关键常量**（改动前先知道）：
   - 房间广播 debounce **50ms**（`room.ts` `throttledSync`）；`sync()` 有 Mutex。
   - Redis 快照 debounce **5s**（`saveStateToRedisDebounced`，TTL `room.expire_after`=7200s）。
-  - 全局 tick **1s**（`roommanager.runUpdate`，单飞守卫）；房间 `unload_after`=300s。
+  - tick **1s**（`roommanager.runUpdate`）：每房单飞、最多 8 项并发、每房最多一项排队；周期调度不等全部房间。
+    房间 `unload_after`=300s；8 项永久挂起仍会耗尽槽位。指标 duration 是单房执行时间，skipped 是繁忙房间跳过数。
   - WS：`maxPayload` 256KB；auth 超时 10s；心跳扫描 10s；令牌桶 40 突发/10 每秒（聊天 5/0.5）。
   - 延迟探测 pong 服务端限 1 次/秒/连接。
   - 全局限流 1000 点/小时/IP（封 120s）；各端点扣点见架构文档 §6.4。
@@ -276,21 +280,24 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
 
 ---
 
-## 8. 已知剩余项（2026-11-17 核实）
+## 8. 已知剩余项（更新至 2026-11-19）
 
-以 [全项目完善清单](project-review-2026-11-17.zh-CN.md) 为准；旧日期报告只作历史线索。
+结合 [11-17 全项目完善清单](project-review-2026-11-17.zh-CN.md) 与
+[11-19 优先修复及验证记录](project-review-2026-11-19.zh-CN.md) 阅读；未复核的分区线索不能当作运行事实。
 
 - 高档 GPU 成本和真实增强完成时间 / 在途提交尚未进入自动降档判据；Windows、移动设备与 HDR 缺少本轮真机验收。
-- 全局房间 tick 仍串行 await 房间 DB；pause / seek 的 prevQueue 落盘存在写放大，建房 DB / 密码 / sync 失败的完整回滚待设计。
+- 跨房间 tick 已隔离并限制并发；pause / seek 的 prevQueue 落盘仍存在写放大，建房 DB / 密码 / sync 失败的完整回滚待设计。
 - RunFfprobe 已使用校验后的最终 URL，仍有独立 DNS 解析与后续 HTTP 资源边界；DNS 5s 超时不取消底层 lookup。
 - `corsFromHeaders` 仍将非空 ACAO 作为诊断，未匹配实际 Origin；最终纹理能力由浏览器加载与回退决定。
-- DASH 仍缺 HLS 对等的字节预算 / 隐藏页策略；弹幕读取与解析缺完整字节和条目预算。
+- HLS / DASH 清单已限制 2 MiB / 5s；弹幕 XML 已有 8 MiB / 100,000 评论、单条文字 2000 UTF-16 单元、
+  4 个下载槽和缓存记账上限。隐藏页准备回执、字幕与换源生命周期仍需继续核对；记账预算不等于实测 heap。
 - 队列导出已覆盖 `ALL_VIDEO_SERVICES` 的 13 种服务；新增服务时同时补导出 URL 与导入往返测试。
 - Bilibili 官方 iframe 无控制 API，暂停不能直接作用到 iframe，位置为估算；该限制必须在产品里清楚说明。
 - 非中英 locale 仍缺键；移动布局、键盘焦点、屏幕阅读器和字幕 / 语音 / 外部平台还需完整实机矩阵。
 - Rust balancer 的 HTTP body 全量 collect，collector 的入站鉴权与 CORS 需在启用前处理；这些组件当前不在生产 compose。
 - SponsorBlock 不再阻塞 tick，Edge probe 已有 AbortController，socket 登录可原地 reauthenticate；这些旧“未修”项已失效。
-- 本轮已验证 Rust 1.84 fmt / 严格 clippy / rustdoc / 单元与 harness、typeshare 无漂移；不再标记为本机未编译。
+- 11-17 的 Rust 1.84 / harness 验证属于历史记录；11-19 Windows / Rust 1.89 MSVC 的 fmt、check、严格 clippy、
+  rustdoc 与非 harness 单测已通过，但完整 harness 在 180s 内未完成，不外推 Linux 或生产结果。
 
 ---
 

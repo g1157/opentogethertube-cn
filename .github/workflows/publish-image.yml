@@ -1,73 +1,80 @@
 name: Publish Image
 
 on:
-  push:
-    tags:
-      - "v*"
-  workflow_dispatch:
+    push:
+        tags:
+            - "v*"
+    workflow_dispatch:
 
 concurrency:
-  group: publish-image
-  cancel-in-progress: false
+    group: publish-image
+    cancel-in-progress: false
 
 permissions:
-  contents: read
-  packages: write
+    contents: read
 
 jobs:
-  # Check this exact revision through the same workflows used by trunk CI.
-  checks:
-    uses: ./.github/workflows/main.yml
-  rust-checks:
-    uses: ./.github/workflows/rust.yml
+    # Check this exact revision through the same workflows used by trunk CI.
+    checks:
+        uses: ./.github/workflows/main.yml
+    rust-checks:
+        uses: ./.github/workflows/rust.yml
 
-  publish:
-    needs: [checks, rust-checks]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Use Node.js 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24.x
-      - run: node .yarn/releases/yarn-4.1.0.cjs install --immutable
-      - name: Build workspaces
-        run: |
-          node .yarn/releases/yarn-4.1.0.cjs workspace ott-common build
-          node .yarn/releases/yarn-4.1.0.cjs workspace ott-server build
-          GIT_COMMIT=$(git rev-parse HEAD) \
-            node .yarn/releases/yarn-4.1.0.cjs workspace ott-client build
-          node scripts/check-client-revision.mjs "$(git rev-parse HEAD)"
-          git archive --format=tar.gz -o client/dist/source-code.tar.gz HEAD
-      - name: Normalize timestamps for stable image layers
-        run: |
-          find server common client/dist deploy/import-room-state.mjs \
-            -path '*/node_modules' -prune -o -exec touch -h -d '2026-01-01T00:00:00Z' {} +
-      - name: Resolve version
-        id: meta
-        run: |
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=edge" >> "$GITHUB_OUTPUT"
-          fi
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push
-        env:
-          IMAGE: ghcr.io/g1157/opentogethertube-cn
-          VERSION: ${{ steps.meta.outputs.version }}
-        run: |
-          docker build -f deploy/next.Dockerfile \
-            --build-arg SOURCE_COMMIT=$(git rev-parse HEAD) \
-            --build-arg OTT_VERSION="$VERSION" \
-            -t "$IMAGE:$VERSION" \
-            -t "$IMAGE:latest" \
-            .
-          docker run --rm --network none --read-only --entrypoint node \
-            "$IMAGE:$VERSION" /app/scripts/check-runtime-dependencies.mjs --image
-          docker push "$IMAGE:$VERSION"
-          docker push "$IMAGE:latest"
+    publish:
+        needs: [checks, rust-checks]
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+            - name: Use Node.js 24
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 24.x
+            - run: node .yarn/releases/yarn-4.1.0.cjs install --immutable
+            - name: Build workspaces
+              run: |
+                  node .yarn/releases/yarn-4.1.0.cjs workspace ott-common build
+                  node .yarn/releases/yarn-4.1.0.cjs workspace ott-server build
+                  GIT_COMMIT=$(git rev-parse HEAD) \
+                    node .yarn/releases/yarn-4.1.0.cjs workspace ott-client build
+                  node scripts/check-client-revision.mjs "$(git rev-parse HEAD)"
+                  git archive --format=tar.gz -o client/dist/source-code.tar.gz HEAD
+            - name: Normalize timestamps for stable image layers
+              run: |
+                  find server common client/dist deploy/import-room-state.mjs \
+                    -path '*/node_modules' -prune -o -exec touch -h -d '2026-01-01T00:00:00Z' {} +
+            - name: Resolve release policy
+              id: meta
+              env:
+                  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+              run: node scripts/image-release-policy.mjs
+            - uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+            - name: Build and push
+              env:
+                  IMAGE: ghcr.io/g1157/opentogethertube-cn
+                  VERSION: ${{ steps.meta.outputs.version }}
+              run: |
+                  docker build -f deploy/next.Dockerfile \
+                    --build-arg SOURCE_COMMIT=$(git rev-parse HEAD) \
+                    --build-arg OTT_VERSION="$VERSION" \
+                    -t "$IMAGE:$VERSION" \
+                    .
+                  docker run --rm --network none --read-only --entrypoint node \
+                    "$IMAGE:$VERSION" /app/scripts/check-runtime-dependencies.mjs --image
+                  docker push "$IMAGE:$VERSION"
+            - name: Promote eligible stable release
+              if: steps.meta.outputs.promote_latest == 'true'
+              env:
+                  IMAGE: ghcr.io/g1157/opentogethertube-cn
+                  VERSION: ${{ steps.meta.outputs.version }}
+              run: |
+                  docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
+                  docker push "$IMAGE:latest"

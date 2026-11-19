@@ -1,3 +1,6 @@
+const REDDIT_VIDEO_ID = /^[A-Za-z0-9]{1,32}$/;
+
+import { fetchPublicJson } from "./parsing/json-fetch.js";
 import { URL } from "node:url";
 import axios from "axios";
 import { ServiceAdapter } from "../serviceadapter.js";
@@ -76,6 +79,16 @@ export interface RedditComment {
 export type RedditListableThing = RedditPost | RedditComment;
 export type RedditThing = RedditPost | RedditComment | RedditListing<RedditListableThing>;
 
+function isRedditTarget(url: URL): boolean {
+	return (
+		(url.protocol === "http:" || url.protocol === "https:") &&
+		!url.username &&
+		!url.password &&
+		!url.port &&
+		(url.hostname === "reddit.com" || url.hostname.endsWith(".reddit.com"))
+	);
+}
+
 export default class RedditAdapter extends ServiceAdapter {
 	api = axios.create({
 		headers: { "User-Agent": `OpenTogetherTube @ ${conf.get("hostname")}` },
@@ -92,7 +105,7 @@ export default class RedditAdapter extends ServiceAdapter {
 	canHandleURL(link: string): boolean {
 		const url = new URL(link);
 		return (
-			url.host.endsWith("reddit.com") &&
+			isRedditTarget(url) &&
 			(REDDIT_SUBREDDIT_PATH_REGEX.test(url.pathname) ||
 				REDDIT_COMMENTS_PATH_REGEX.test(url.pathname))
 		);
@@ -103,6 +116,9 @@ export default class RedditAdapter extends ServiceAdapter {
 	}
 
 	async resolveURL(link: string): Promise<(Video | { url: string })[]> {
+		if (!this.canHandleURL(link)) {
+			throw new InvalidVideoIdException(this.serviceId, link);
+		}
 		const url = new URL(link);
 		if (!url.pathname.endsWith(".json")) {
 			url.pathname += ".json";
@@ -116,7 +132,16 @@ export default class RedditAdapter extends ServiceAdapter {
 	async fetchRedditUrl(
 		link: string,
 	): Promise<RedditListing<RedditListableThing>[] | RedditListing<RedditListableThing>> {
-		const resp = await this.api.get(link);
+		const target = new URL(link);
+		if (!isRedditTarget(target)) {
+			throw new InvalidVideoIdException(this.serviceId, link);
+		}
+		// Use the canonical HTTPS endpoint instead of depending on a cross-host redirect.
+		target.protocol = "https:";
+		target.hostname = "www.reddit.com";
+		const resp = await fetchPublicJson<
+			RedditListing<RedditListableThing>[] | RedditListing<RedditListableThing>
+		>(target.toString(), this.api);
 		if (Array.isArray(resp.data)) {
 			return resp.data as RedditListing<RedditListableThing>[];
 		}
@@ -161,9 +186,15 @@ export default class RedditAdapter extends ServiceAdapter {
 	}
 
 	async fetchVideoInfo(id: string, _properties?: (keyof VideoMetadata)[]): Promise<Video> {
-		const resp = await this.fetchRedditUrl(`https://reddit.com/comments/${id}.json`);
+		if (!REDDIT_VIDEO_ID.test(id)) {
+			throw new InvalidVideoIdException(this.serviceId, id);
+		}
+		const resp = await this.fetchRedditUrl(`https://www.reddit.com/comments/${id}.json`);
+		if (!Array.isArray(resp) || !resp[0]) {
+			throw new InvalidVideoIdException(this.serviceId, id);
+		}
 		const video = this.extractVideos(resp[0])[0];
-		if ("url" in video) {
+		if (!video || "url" in video) {
 			throw new InvalidVideoIdException(this.serviceId, id);
 		}
 		return video;

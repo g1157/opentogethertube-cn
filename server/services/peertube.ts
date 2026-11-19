@@ -1,8 +1,9 @@
+import { parseInstanceVideoId } from "./parsing/instance-video-id.js";
+import { fetchPublicJson } from "./parsing/json-fetch.js";
 import axios, { type AxiosResponse } from "axios";
 import { ServiceAdapter } from "../serviceadapter.js";
 import { conf } from "../ott-config.js";
 import type { Video, VideoMetadata, VideoService } from "ott-common/models/video.js";
-import { InvalidVideoIdException } from "../exceptions.js";
 
 const PEERTUBE_WATCH_PATH_REGEX = /^\/w\/\w+/;
 
@@ -62,14 +63,10 @@ export default class PeertubeAdapter extends ServiceAdapter {
 	}
 
 	async fetchVideoInfo(videoId: string, properties?: (keyof VideoMetadata)[]): Promise<Video> {
-		if (!videoId.includes(":")) {
-			throw new InvalidVideoIdException(this.serviceId, videoId);
-		}
-
-		const [host, id] = videoId.split(":");
-
-		const result: AxiosResponse<PeertubeApiVideo> = await this.api.get(
-			`https://${host}/api/v1/videos/${id}`,
+		const { host, id } = parseInstanceVideoId(this.serviceId, videoId, this.allowedHosts);
+		const result: AxiosResponse<PeertubeApiVideo> = await fetchPublicJson(
+			"https://" + host + "/api/v1/videos/" + encodeURIComponent(id),
+			this.api,
 		);
 
 		if (conf.get("info_extractor.peertube.emit_as_direct")) {

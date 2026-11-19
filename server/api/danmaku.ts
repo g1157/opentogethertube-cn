@@ -1,3 +1,11 @@
+import { Semaphore } from "@divine/synchronization";
+import { readBoundedText } from "ott-common/response-body.js";
+import {
+	assertDanmakuTrack,
+	DANMAKU_CACHE_MAX_BYTES,
+	DANMAKU_MAX_CONCURRENT_DOWNLOADS,
+	DANMAKU_MAX_XML_BYTES,
+} from "ott-common/danmaku.js";
 import express from "express";
 import { z } from "zod";
 import { getLogger } from "../logger.js";
@@ -17,6 +25,9 @@ const GIRIGIRI_TRACK_HOST = "danmu.girigirilove.com";
 const GIRIGIRI_HOST_SUFFIX = "girigirilove.com";
 const UPSTREAM_TIMEOUT_MS = 10_000;
 const TRACK_TIMEOUT_MS = 15_000;
+const METADATA_MAX_BYTES = 1024 * 1024;
+const METADATA_CACHE_MAX_BYTES = 4 * 1024 * 1024;
+const upstreamSlots = new Semaphore(DANMAKU_MAX_CONCURRENT_DOWNLOADS);
 const SEARCH_TTL_MS = 10 * 60_000;
 const EPISODES_TTL_MS = 60 * 60_000;
 const TRACK_TTL_MS = 24 * 60 * 60_000;
@@ -24,7 +35,7 @@ const TRACK_TTL_MS = 24 * 60 * 60_000;
 const NEGATIVE_TTL_MS = 60_000;
 /** Each girigiri call costs upstream requests; charge a previewAdd-sized rate limit. */
 const GIRIGIRI_POINTS = 5;
-/** Bounded caches; a track is a few hundred kilobytes. */
+/** Both entry count and accounted UTF-16 payload bytes are bounded. */
 const SEARCH_CACHE_MAX = 64;
 const EPISODES_CACHE_MAX = 32;
 const TRACK_CACHE_MAX = 64;
@@ -32,10 +43,19 @@ const TRACK_CACHE_MAX = 64;
 interface CacheEntry<T> {
 	value: T;
 	expiresAt: number;
+	bytes: number;
 }
 
-function createCache<T>(ttlMs: number, maxEntries: number) {
+function createCache<T>(ttlMs: number, maxEntries: number, maxBytes = METADATA_CACHE_MAX_BYTES) {
 	const entries = new Map<string, CacheEntry<T>>();
+	let bytes = 0;
+	function remove(key: string): void {
+		const entry = entries.get(key);
+		if (entry) {
+			bytes -= entry.bytes;
+			entries.delete(key);
+		}
+	}
 	return {
 		get(key: string): T | undefined {
 			const entry = entries.get(key);
@@ -43,22 +63,31 @@ function createCache<T>(ttlMs: number, maxEntries: number) {
 				return undefined;
 			}
 			if (entry.expiresAt <= Date.now()) {
-				entries.delete(key);
+				remove(key);
 				return undefined;
 			}
-			// Refresh recency: the oldest key is the one evicted next.
 			entries.delete(key);
 			entries.set(key, entry);
 			return entry.value;
 		},
 		set(key: string, value: T, ttlMsOverride: number = ttlMs) {
-			entries.set(key, { value, expiresAt: Date.now() + ttlMsOverride });
-			while (entries.size > maxEntries) {
+			remove(key);
+			// String/JSON payload accounting is not a measurement of V8 heap overhead.
+			const payloadBytes =
+				value === null
+					? 0
+					: 2 * (typeof value === "string" ? value.length : JSON.stringify(value).length);
+			if (payloadBytes > maxBytes) {
+				return;
+			}
+			entries.set(key, { value, expiresAt: Date.now() + ttlMsOverride, bytes: payloadBytes });
+			bytes += payloadBytes;
+			while (entries.size > maxEntries || bytes > maxBytes) {
 				const oldest = entries.keys().next().value;
 				if (oldest === undefined) {
 					break;
 				}
-				entries.delete(oldest);
+				remove(oldest);
 			}
 		},
 	};
@@ -66,7 +95,11 @@ function createCache<T>(ttlMs: number, maxEntries: number) {
 
 const searchCache = createCache<GirigiriSearchResult[] | null>(SEARCH_TTL_MS, SEARCH_CACHE_MAX);
 const episodesCache = createCache<GirigiriLine[] | null>(EPISODES_TTL_MS, EPISODES_CACHE_MAX);
-const trackCache = createCache<string | null>(TRACK_TTL_MS, TRACK_CACHE_MAX);
+const trackCache = createCache<string | null>(
+	TRACK_TTL_MS,
+	TRACK_CACHE_MAX,
+	DANMAKU_CACHE_MAX_BYTES,
+);
 
 export interface GirigiriSearchResult {
 	id: number;
@@ -119,21 +152,37 @@ export function girigiriTrackPath(videoUrl: string): string | null {
 	return `https://${GIRIGIRI_TRACK_HOST}${path}`;
 }
 
-async function fetchText(url: string, timeoutMs = UPSTREAM_TIMEOUT_MS): Promise<string | null> {
+async function fetchText(
+	url: string,
+	timeoutMs = UPSTREAM_TIMEOUT_MS,
+	maxBytes = METADATA_MAX_BYTES,
+): Promise<string | null> {
+	// Reject excess work immediately: no unbounded upstream wait queue or body buffers.
+	if (!upstreamSlots.take()) {
+		return null;
+	}
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), timeoutMs);
+	timer.unref();
 	try {
 		const response = await fetch(url, {
-			signal: AbortSignal.timeout(timeoutMs),
+			signal: controller.signal,
 			headers: { "User-Agent": "opentogethertube-cn/danmaku-proxy", Accept: "*/*" },
 		});
 		if (!response.ok) {
+			// eslint-disable-next-line promise/prefer-await-to-then -- Do not wait on a failed response body.
+			void response.body?.cancel().catch(() => {
+				// Cancellation is best effort and must not mask the response failure.
+			});
 			return null;
 		}
-		return await response.text();
+		return await readBoundedText(response, maxBytes, controller.signal);
 	} catch (err) {
-		// A source that is down or slow must degrade to an empty track, never to an error
-		// the client has to handle.
-		log.debug(`girigiri fetch failed: ${url}`, err);
+		log.debug("girigiri fetch failed: " + url, err);
 		return null;
+	} finally {
+		clearTimeout(timer);
+		upstreamSlots.signal();
 	}
 }
 
@@ -309,7 +358,14 @@ router.get("/girigiri/track", async (req, res) => {
 		res.status(502).json({ error: "could not resolve the track" });
 		return;
 	}
-	const xml = await fetchText(trackUrl, TRACK_TIMEOUT_MS);
+	let xml = await fetchText(trackUrl, TRACK_TIMEOUT_MS, DANMAKU_MAX_XML_BYTES);
+	if (xml !== null) {
+		try {
+			assertDanmakuTrack(xml);
+		} catch {
+			xml = null;
+		}
+	}
 	if (xml === null || !xml.includes("<d ")) {
 		trackCache.set(page, null, NEGATIVE_TTL_MS);
 		res.status(502).json({ error: "the track is unavailable" });

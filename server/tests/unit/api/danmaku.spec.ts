@@ -249,3 +249,100 @@ describe("girigiri track", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 });
+
+describe("girigiri response byte limits", () => {
+	it("rejects oversized search metadata before decoding JSON", async () => {
+		fetchMock.mockResolvedValueOnce(
+			new Response(JSON.stringify({ list: [{ id: 123, name: "bounded" }] }), {
+				headers: { "Content-Length": String(1024 * 1024 + 1) },
+			}),
+		);
+		const response = await request(app)
+			.get("/api/danmaku/girigiri/search")
+			.query({ wd: "oversized-metadata-review" })
+			.expect(502);
+		expect(response.body.results).toEqual([]);
+	});
+
+	it("rejects an oversized XML track instead of retaining it in the cache", async () => {
+		fetchMock
+			.mockResolvedValueOnce(playPage("https://ani.girigirilove.com/bounded/01.mp4"))
+			.mockResolvedValueOnce(
+				new Response('<i><d p="1,1">hello</d></i>', {
+					headers: { "Content-Length": String(8 * 1024 * 1024 + 1) },
+				}),
+			);
+		const response = await request(app)
+			.get("/api/danmaku/girigiri/track")
+			.query({ page: "/playGV990001-1-1/" })
+			.expect(502);
+		expect(response.body.error).toBe("the track is unavailable");
+	});
+});
+
+describe("girigiri resource admission and cache budgets", () => {
+	it("bounds concurrent upstream downloads and releases capacity on completion", async () => {
+		const finish: (() => void)[] = [];
+		let allStarted!: () => void;
+		const started = new Promise<void>(resolve => {
+			allStarted = resolve;
+		});
+		fetchMock.mockImplementation(async input => {
+			if (String(input).includes("capacity-blocked")) {
+				await new Promise<void>(resolve => {
+					finish.push(resolve);
+					if (finish.length === 4) {
+						allStarted();
+					}
+				});
+			}
+			return json({ list: [{ id: 123, name: "available" }] });
+		});
+		const pending = Array.from(
+			{ length: 4 },
+			async (_, index) =>
+				await request(app)
+					.get("/api/danmaku/girigiri/search")
+					.query({ wd: "capacity-blocked-" + index })
+					.expect(200),
+		);
+		try {
+			await started;
+			await request(app)
+				.get("/api/danmaku/girigiri/search")
+				.query({ wd: "capacity-rejected" })
+				.expect(502);
+			expect(fetchMock).toHaveBeenCalledTimes(4);
+		} finally {
+			for (const resolve of finish) {
+				resolve();
+			}
+			await Promise.all(pending);
+		}
+		await request(app)
+			.get("/api/danmaku/girigiri/search")
+			.query({ wd: "capacity-recovered" })
+			.expect(200);
+		expect(fetchMock).toHaveBeenCalledTimes(5);
+	});
+
+	it("evicts XML by total accounted bytes before the entry limit", async () => {
+		const body = "<i><!--" + "x".repeat(6 * 1024 * 1024) + '--><d p="1,1">hello</d></i>';
+		fetchMock.mockImplementation(async input =>
+			String(input).includes("/playGV")
+				? playPage("https://ani.girigirilove.com/cache-budget/01.mp4")
+				: xml(body),
+		);
+		for (let index = 0; index < 3; index++) {
+			await request(app)
+				.get("/api/danmaku/girigiri/track")
+				.query({ page: "/playGV990101-1-" + (index + 1) + "/" })
+				.expect(200);
+		}
+		await request(app)
+			.get("/api/danmaku/girigiri/track")
+			.query({ page: "/playGV990101-1-1/" })
+			.expect(200);
+		expect(fetchMock).toHaveBeenCalledTimes(8);
+	}, 15000);
+});
