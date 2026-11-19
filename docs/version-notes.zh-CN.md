@@ -4,6 +4,17 @@
 `archive/history` 分支与 `v0.14.1` 标签。`v1.0.0` 起跳出 cn 序列，作为本分支的正式大版本，
 标签与镜像名不再带 cn 编号。
 
+-   **未发布**：合并 `fix/project-review-2026-11-20` 的两条独立修复线。
+    远端分支与本地 `main` 从 `e5a6a8e4` 各自修了同一批缺陷：远端在批量媒体校验
+    （身份泄漏、alias 改写 id、按请求顺序返回）、登录限流（先预留再认证）、`promoteUser`
+    角色落盘、ffprobe 排队上更完整；本地在 girigiri 接口迁移、`trust_proxy` 默认值、
+    崩溃恢复检查点、postgres 镜像、CI 缓存、ott-edge `ping` 与均衡器 panic 上是独有内容。
+    合并取两边并集，`mergeVideo` 一处冲突按远端语义解决（空字符串属于"未报告"，
+    必须跳过，本地的 `omitBy` 会保留它）。服务端 **1218**、客户端 **1112 / 24 跳过**、
+    common **103**、ott-vis **2** 通过，lint 0 错误、构建干净。取舍明细、交叉验证方式与
+    5 项未解决或未验证事项（含一处无法复现的并发偶发失败、未编译的 Rust 改动）见
+    [合并记录](project-review-2026-11-20.zh-CN.md)。无数据库迁移。
+
 -   **未发布**：安全默认值、崩溃恢复与出站边界的七项修复。
     **安全**：`trust_proxy` 的代码默认值是 `1`，而 compose 与 `.env.example` 都是 `0`——
     不用 compose 直接跑或漏设该变量时，Express 会信任访客自带的 `X-Forwarded-For`，
