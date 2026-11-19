@@ -34,13 +34,8 @@ function xml(body: string): Response {
 }
 
 /** The play page embeds its video URL as base64 over a percent-encoded string. */
-function playPage(videoUrl: string): Response {
-	const encoded = Buffer.from(encodeURIComponent(videoUrl), "utf8").toString("base64");
-	const data = JSON.stringify({ flag: "play", url: encoded });
-	return new Response(`<html><script>var player_aaaa=${data}</script></html>`, {
-		status: 200,
-		headers: { "Content-Type": "text/html" },
-	});
+function detail(vodPlayUrl: string, vodPlayFrom = "chs"): Response {
+	return json({ code: 1, info: { vod_play_from: vodPlayFrom, vod_play_url: vodPlayUrl } });
 }
 
 describe("girigiri track paths", () => {
@@ -77,9 +72,17 @@ describe("girigiri track paths", () => {
 });
 
 describe("girigiri search", () => {
-	it("maps the suggest list and serves repeat queries from cache", async () => {
+	it("maps the API rows and serves repeat queries from cache", async () => {
 		fetchMock.mockResolvedValue(
-			json({ code: 1, list: [{ id: 26846, name: "异国日记", pic: "/upload/vod/x.webp" }] }),
+			json({
+				code: 1,
+				info: {
+					rows: [
+						{ vod_id: 26846, vod_name: "异国日记", vod_pic: "/upload/vod/x.webp" },
+						{ vod_id: 7, vod_name: "no poster", vod_pic: "" },
+					],
+				},
+			}),
 		);
 		const first = await request(app)
 			.get("/api/danmaku/girigiri/search")
@@ -91,12 +94,26 @@ describe("girigiri search", () => {
 				name: "异国日记",
 				poster: "https://ani.girigirilove.com/upload/vod/x.webp",
 			},
+			{ id: 7, name: "no poster", poster: "" },
 		]);
 		await request(app)
 			.get("/api/danmaku/girigiri/search")
 			.query({ wd: "异国日记-cache" })
 			.expect(200);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("asks the PHP API by name instead of the retired suggest endpoint", async () => {
+		fetchMock.mockResolvedValue(json({ code: 1, info: { rows: [] } }));
+		await request(app)
+			.get("/api/danmaku/girigiri/search")
+			.query({ wd: "endpoint-review" })
+			.expect(200);
+		const url = new URL(String(fetchMock.mock.calls[0][0]));
+		expect(url.origin).toBe("https://m3u8.girigirilove.com");
+		expect(url.pathname).toBe("/api.php/Vod/get_list");
+		expect(url.searchParams.get("vod_name")).toBe("endpoint-review");
+		expect(url.searchParams.get("format")).toBe("json");
 	});
 
 	it("rejects an empty keyword and still answers", async () => {
@@ -129,13 +146,13 @@ describe("girigiri search", () => {
 });
 
 describe("girigiri episodes", () => {
-	it("groups every line and episode the play page lists, sorted", async () => {
+	it("groups every source line and episode the detail answer carries, sorted", async () => {
 		const id = "26846";
 		fetchMock.mockResolvedValue(
-			new Response(
-				`<a href="/playGV${id}-2-2/">2-2</a><a href="/playGV${id}-1-1/">1-1</a>` +
-					`<a href="/playGV${id}-1-2/">1-2</a><a href="/playGV99999-1-1/">other</a>`,
-				{ status: 200 },
+			detail(
+				"01$https://ana.girigirilove.com/a/01.mp4#02$https://ana.girigirilove.com/a/02.mp4" +
+					"$$$1080P$https://ana.girigirilove.com/b/01.mp4",
+				"chs$$$DB",
 			),
 		);
 		const res = await request(app)
@@ -146,11 +163,51 @@ describe("girigiri episodes", () => {
 			{
 				line: 1,
 				episodes: [
-					{ number: 1, page: `/playGV${id}-1-1/` },
-					{ number: 2, page: `/playGV${id}-1-2/` },
+					{
+						number: 1,
+						url: "https://ana.girigirilove.com/a/01.mp4",
+						page: `/playGV${id}-1-1/`,
+					},
+					{
+						number: 2,
+						url: "https://ana.girigirilove.com/a/02.mp4",
+						page: `/playGV${id}-1-2/`,
+					},
 				],
 			},
-			{ line: 2, episodes: [{ number: 2, page: `/playGV${id}-2-2/` }] },
+			{
+				line: 2,
+				episodes: [
+					{
+						number: 1,
+						url: "https://ana.girigirilove.com/b/01.mp4",
+						page: `/playGV${id}-2-1/`,
+					},
+				],
+			},
+		]);
+	});
+
+	it("keeps line numbers aligned with the sources that actually have episodes", async () => {
+		const id = "31337";
+		fetchMock.mockResolvedValue(detail("$$$01$https://ana.girigirilove.com/c/01.mp4"));
+		const res = await request(app)
+			.get("/api/danmaku/girigiri/episodes")
+			.query({ id })
+			.expect(200);
+		// The empty first group still consumes line 1 upstream, so the page binding matches
+		// what the site itself would generate for this episode.
+		expect(res.body.lines).toEqual([
+			{
+				line: 2,
+				episodes: [
+					{
+						number: 1,
+						url: "https://ana.girigirilove.com/c/01.mp4",
+						page: `/playGV${id}-2-1/`,
+					},
+				],
+			},
 		]);
 	});
 
@@ -162,8 +219,8 @@ describe("girigiri episodes", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it("answers 404 when the page lists no episodes", async () => {
-		fetchMock.mockResolvedValue(new Response("<html>nothing</html>", { status: 200 }));
+	it("answers 404 when the API lists no episodes", async () => {
+		fetchMock.mockResolvedValue(detail(""));
 		await request(app)
 			.get("/api/danmaku/girigiri/episodes")
 			.query({ id: "111111" })
@@ -171,7 +228,7 @@ describe("girigiri episodes", () => {
 	});
 
 	it("remembers an empty episode list briefly instead of replaying it", async () => {
-		fetchMock.mockResolvedValue(new Response("<html>nothing</html>", { status: 200 }));
+		fetchMock.mockResolvedValue(detail(""));
 		await request(app)
 			.get("/api/danmaku/girigiri/episodes")
 			.query({ id: "222222" })
@@ -184,13 +241,21 @@ describe("girigiri episodes", () => {
 	});
 });
 
+/** Every line up to `line` carries one episode, so a page for any of them resolves. */
+function detailWithLines(line: number, videoUrl: (line: number) => string): Response {
+	const groups = Array.from({ length: line }, (_, index) => `01$${videoUrl(index + 1)}`);
+	return detail(groups.join("$$$"), new Array(line).fill("chs").join("$$$"));
+}
+
 describe("girigiri track", () => {
-	it("resolves a play page to its track and serves it from cache", async () => {
+	it("resolves a stored page to its track and serves it from cache", async () => {
 		const page = "/playGV26846-9-1/";
 		fetchMock
 			.mockResolvedValueOnce(
-				playPage(
-					"https://akua.girigirilove.com/zijian/oldanime/2026/01/cht/JournalWithWitchCHT/01/playlist.m3u8",
+				detailWithLines(
+					9,
+					() =>
+						"https://akua.girigirilove.com/zijian/oldanime/2026/01/cht/JournalWithWitchCHT/01/playlist.m3u8",
 				),
 			)
 			.mockResolvedValueOnce(xml('<i><d p="1,1,25,16777215,0,0,0,0">hi</d></i>'));
@@ -206,6 +271,21 @@ describe("girigiri track", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 
+	it("asks the API for the show the page names", async () => {
+		fetchMock
+			.mockResolvedValueOnce(
+				detailWithLines(1, () => "https://ana.girigirilove.com/zijian/anime/01.mp4"),
+			)
+			.mockResolvedValueOnce(xml('<i><d p="1,1">hi</d></i>'));
+		await request(app)
+			.get("/api/danmaku/girigiri/track")
+			.query({ page: "/playGV771234-1-1/" })
+			.expect(200);
+		const url = new URL(String(fetchMock.mock.calls[0][0]));
+		expect(url.pathname).toBe("/api.php/Vod/get_detail");
+		expect(url.searchParams.get("vod_id")).toBe("771234");
+	});
+
 	it("only accepts a play-page path", async () => {
 		await request(app)
 			.get("/api/danmaku/girigiri/track")
@@ -215,35 +295,43 @@ describe("girigiri track", () => {
 	});
 
 	it("degrades when the resolved track has no comments", async () => {
-		const page = "/playGV26846-8-1/";
+		const page = "/playGV26846-1-1/";
 		fetchMock
 			.mockResolvedValueOnce(
-				playPage("https://ana.girigirilove.com/zijian/anime/2024/12/1218/SHIROBAKO/01.mp4"),
+				detailWithLines(
+					1,
+					() => "https://ana.girigirilove.com/zijian/anime/2024/12/1218/SHIROBAKO/01.mp4",
+				),
 			)
 			.mockResolvedValueOnce(new Response("<i></i>", { status: 200 }));
 		await request(app).get("/api/danmaku/girigiri/track").query({ page }).expect(502);
 	});
 
-	it("degrades when the play page hides its data or points elsewhere", async () => {
-		const page = "/playGV26846-7-1/";
+	it("degrades when the page names a line or episode the show does not have", async () => {
 		fetchMock.mockResolvedValueOnce(
-			new Response("<html>no player data</html>", { status: 200 }),
+			detailWithLines(1, () => "https://ana.girigirilove.com/zijian/anime/01.mp4"),
 		);
-		await request(app).get("/api/danmaku/girigiri/track").query({ page }).expect(502);
-
-		fetchMock.mockReset();
-		fetchMock.mockResolvedValueOnce(playPage("https://cdn.example.com/anime/01.mp4"));
 		await request(app)
 			.get("/api/danmaku/girigiri/track")
-			.query({ page: "/playGV26846-6-1/" })
+			.query({ page: "/playGV26846-2-1/" })
+			.expect(502);
+	});
+
+	it("degrades when the episode points outside the girigiri layout", async () => {
+		fetchMock.mockResolvedValueOnce(
+			detailWithLines(1, () => "https://cdn.example.com/anime/01.mp4"),
+		);
+		await request(app)
+			.get("/api/danmaku/girigiri/track")
+			.query({ page: "/playGV26846-1-1/" })
 			.expect(502);
 	});
 
 	it("remembers an unresolvable track briefly instead of replaying it", async () => {
-		const page = "/playGV26846-5-1/";
-		fetchMock.mockResolvedValueOnce(
-			new Response("<html>no player data</html>", { status: 200 }),
-		);
+		// A distinct id: the track cache outlives a single test and would serve another
+		// case's entry for the same page.
+		const page = "/playGV880055-1-1/";
+		fetchMock.mockResolvedValueOnce(json({ code: 0, msg: "缺失参数", info: "" }));
 		await request(app).get("/api/danmaku/girigiri/track").query({ page }).expect(502);
 		await request(app).get("/api/danmaku/girigiri/track").query({ page }).expect(502);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -253,7 +341,7 @@ describe("girigiri track", () => {
 describe("girigiri response byte limits", () => {
 	it("rejects oversized search metadata before decoding JSON", async () => {
 		fetchMock.mockResolvedValueOnce(
-			new Response(JSON.stringify({ list: [{ id: 123, name: "bounded" }] }), {
+			new Response(JSON.stringify({ code: 1, info: { rows: [] } }), {
 				headers: { "Content-Length": String(1024 * 1024 + 1) },
 			}),
 		);
@@ -266,7 +354,9 @@ describe("girigiri response byte limits", () => {
 
 	it("rejects an oversized XML track instead of retaining it in the cache", async () => {
 		fetchMock
-			.mockResolvedValueOnce(playPage("https://ani.girigirilove.com/bounded/01.mp4"))
+			.mockResolvedValueOnce(
+				detailWithLines(1, () => "https://ani.girigirilove.com/bounded/01.mp4"),
+			)
 			.mockResolvedValueOnce(
 				new Response('<i><d p="1,1">hello</d></i>', {
 					headers: { "Content-Length": String(8 * 1024 * 1024 + 1) },
@@ -296,7 +386,7 @@ describe("girigiri resource admission and cache budgets", () => {
 					}
 				});
 			}
-			return json({ list: [{ id: 123, name: "available" }] });
+			return json({ code: 1, info: { rows: [{ vod_id: 123, vod_name: "available" }] } });
 		});
 		const pending = Array.from(
 			{ length: 4 },
@@ -328,9 +418,10 @@ describe("girigiri resource admission and cache budgets", () => {
 
 	it("evicts XML by total accounted bytes before the entry limit", async () => {
 		const body = "<i><!--" + "x".repeat(6 * 1024 * 1024) + '--><d p="1,1">hello</d></i>';
+		const episode = "https://ani.girigirilove.com/cache-budget/01.mp4";
 		fetchMock.mockImplementation(async input =>
-			String(input).includes("/playGV")
-				? playPage("https://ani.girigirilove.com/cache-budget/01.mp4")
+			String(input).includes("/Vod/get_detail")
+				? detail(["01", "02", "03"].map(n => `${n}$${episode}`).join("#"))
 				: xml(body),
 		);
 		for (let index = 0; index < 3; index++) {

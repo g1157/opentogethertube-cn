@@ -20,9 +20,17 @@ const log = getLogger("api/danmaku");
  * girigiri still gets comments through this origin, and a track is fetched upstream once
  * and then served from cache.
  */
-const GIRIGIRI_ORIGIN = "https://ani.girigirilove.com";
+/**
+ * The site moved its data behind a PHP JSON API and renders the pages client-side. The old
+ * maccms suggest endpoint and the `/playGV…/` pages now answer with the SPA shell, so every
+ * lookup goes through this API; the media host still serves relative posters.
+ */
+const GIRIGIRI_API_BASE = "https://m3u8.girigirilove.com/api.php";
+const GIRIGIRI_POSTER_ORIGIN = "https://ani.girigirilove.com";
 const GIRIGIRI_TRACK_HOST = "danmu.girigirilove.com";
 const GIRIGIRI_HOST_SUFFIX = "girigirilove.com";
+/** The suggest endpoint was capped at ~10; one page of the new list keeps that shape. */
+const SEARCH_LIMIT = 30;
 const UPSTREAM_TIMEOUT_MS = 10_000;
 const TRACK_TIMEOUT_MS = 15_000;
 const METADATA_MAX_BYTES = 1024 * 1024;
@@ -109,6 +117,9 @@ export interface GirigiriSearchResult {
 
 export interface GirigiriEpisode {
 	number: number;
+	/** The upstream video URL this episode plays; a stored binding resolves through it. */
+	url: string;
+	/** The `/playGV…/` page shape saved by existing bindings and sent back to this server. */
 	page: string;
 }
 
@@ -186,82 +197,107 @@ async function fetchText(
 	}
 }
 
-const suggestSchema = z.object({
-	list: z
-		.array(
-			z.object({
-				id: z.coerce.number().int().positive(),
-				name: z.string().min(1),
-				pic: z.string().catch(""),
-			}),
-		)
-		.catch([]),
+const searchSchema = z.object({
+	code: z.literal(1),
+	info: z
+		.object({
+			rows: z
+				.array(
+					z.object({
+						vod_id: z.coerce.number().int().positive(),
+						vod_name: z.string().min(1),
+						vod_pic: z.string().catch(""),
+					}),
+				)
+				.catch([]),
+		})
+		.catch({ rows: [] }),
 });
 
-function parseSuggest(body: string): GirigiriSearchResult[] {
+function parseSearch(body: string): GirigiriSearchResult[] {
 	try {
-		const parsed = suggestSchema.safeParse(JSON.parse(body));
+		const parsed = searchSchema.safeParse(JSON.parse(body));
 		if (!parsed.success) {
 			return [];
 		}
-		return parsed.data.list.map(item => ({
-			id: item.id,
-			name: item.name,
-			poster: item.pic.startsWith("/") ? `${GIRIGIRI_ORIGIN}${item.pic}` : item.pic,
+		return parsed.data.info.rows.map(item => ({
+			id: item.vod_id,
+			name: item.vod_name,
+			poster: !item.vod_pic
+				? ""
+				: item.vod_pic.startsWith("/")
+					? `${GIRIGIRI_POSTER_ORIGIN}${item.vod_pic}`
+					: item.vod_pic,
 		}));
 	} catch {
 		return [];
 	}
 }
 
-/** The play page keeps its own episode links; the page lists every line at once. */
-function parseEpisodeLines(html: string, id: string): GirigiriLine[] {
-	const pattern = new RegExp(`/playGV${id}-(\\d{1,3})-(\\d{1,4})/`, "g");
-	const byLine = new Map<number, Set<number>>();
-	for (const match of html.matchAll(pattern)) {
-		const line = Number.parseInt(match[1], 10);
-		const episode = Number.parseInt(match[2], 10);
-		let episodes = byLine.get(line);
-		if (!episodes) {
-			episodes = new Set();
-			byLine.set(line, episodes);
-		}
-		episodes.add(episode);
-	}
-	return [...byLine.entries()]
-		.sort((a, b) => a[0] - b[0])
-		.map(([line, episodes]) => ({
-			line,
-			episodes: [...episodes]
-				.sort((a, b) => a - b)
-				.map(number => ({ number, page: `/playGV${id}-${line}-${number}/` })),
-		}));
-}
+const detailSchema = z.object({
+	code: z.literal(1),
+	info: z.object({
+		vod_play_from: z.string().catch(""),
+		vod_play_url: z.string().catch(""),
+	}),
+});
 
-const PLAYER_DATA = /player_aaaa=(\{.*?\})\s*<\/script>/s;
-const PLAYER_DATA_LOOSE = /player_aaaa=(\{.*?\});/s;
 const ABSOLUTE_URL = /^https?:\/\//;
 
-/** `player_aaaa.url` is base64 over a percent-encoded video URL. */
-function parsePlayerUrl(html: string): string | null {
-	const match = html.match(PLAYER_DATA) ?? html.match(PLAYER_DATA_LOOSE);
-	if (!match) {
-		return null;
-	}
+/**
+ * `vod_play_from` names each source line (`$$$`-separated) and `vod_play_url` carries the
+ * same number of groups, each `#`-separated into `name$url` episodes. Line and episode
+ * numbers are 1-based, matching the `/playGV…/` page shape stored in existing bindings.
+ */
+function parseEpisodeLines(body: string, id: string): GirigiriLine[] {
+	let data: z.infer<typeof detailSchema>;
 	try {
-		const data = JSON.parse(match[1]) as { url?: unknown };
-		if (typeof data.url !== "string" || data.url === "") {
-			return null;
+		const parsed = detailSchema.safeParse(JSON.parse(body));
+		if (!parsed.success) {
+			return [];
 		}
-		const decoded = decodeURIComponent(Buffer.from(data.url, "base64").toString("utf8"));
-		return ABSOLUTE_URL.test(decoded) ? decoded : null;
+		data = parsed.data;
 	} catch {
-		return null;
+		return [];
 	}
+	const lines: GirigiriLine[] = [];
+	for (const [sourceIndex, group] of data.info.vod_play_url.split("$$$").entries()) {
+		const line = sourceIndex + 1;
+		const episodes: GirigiriEpisode[] = [];
+		for (const [episodeIndex, entry] of group.split("#").entries()) {
+			const url = entry.slice(entry.indexOf("$") + 1).trim();
+			if (!ABSOLUTE_URL.test(url)) {
+				continue;
+			}
+			const number = episodeIndex + 1;
+			episodes.push({ number, url, page: `/playGV${id}-${line}-${number}/` });
+		}
+		if (episodes.length > 0) {
+			lines.push({ line, episodes });
+		}
+	}
+	return lines;
 }
 
-const TRACK_PAGE = /^\/playGV\d{1,10}-\d{1,3}-\d{1,4}\/$/;
+/** Resolve the episode a stored `/playGV…/` binding points at, without a second lookup. */
+function findEpisode(
+	lines: GirigiriLine[],
+	line: number,
+	episode: number,
+): { line: GirigiriLine; episode: GirigiriEpisode } | null {
+	const foundLine = lines.find(entry => entry.line === line);
+	const foundEpisode = foundLine?.episodes.find(entry => entry.number === episode);
+	return foundLine && foundEpisode ? { line: foundLine, episode: foundEpisode } : null;
+}
+
+const TRACK_PAGE = /^\/playGV(\d{1,10})-(\d{1,3})-(\d{1,4})\/$/;
 const SHOW_ID = /^\d{1,10}$/;
+
+/** One API call serves both the episode list and a stored binding's play URL. */
+function detailUrl(id: string): string {
+	const query = new URLSearchParams({ vod_id: id, format: "json" });
+	return `${GIRIGIRI_API_BASE}/Vod/get_detail?${query.toString()}`;
+}
 
 const router = express.Router();
 
@@ -283,16 +319,20 @@ router.get("/girigiri/search", async (req, res) => {
 		res.json({ results: cached });
 		return;
 	}
-	const body = await fetchText(
-		`${GIRIGIRI_ORIGIN}/index.php/ajax/suggest?mid=1&wd=${encodeURIComponent(wd)}`,
-	);
+	const query = new URLSearchParams({
+		vod_name: wd,
+		offset: "0",
+		limit: String(SEARCH_LIMIT),
+		format: "json",
+	});
+	const body = await fetchText(`${GIRIGIRI_API_BASE}/Vod/get_list?${query.toString()}`);
 	if (body === null) {
 		// A short negative entry stops a failing upstream from being replayed on every hit.
 		searchCache.set(wd, null, NEGATIVE_TTL_MS);
 		res.status(502).json({ results: [] });
 		return;
 	}
-	const results = parseSuggest(body);
+	const results = parseSearch(body);
 	// An empty result is as likely to be a hiccup as a real miss; remember it briefly.
 	searchCache.set(wd, results, results.length === 0 ? NEGATIVE_TTL_MS : SEARCH_TTL_MS);
 	res.json({ results });
@@ -316,13 +356,13 @@ router.get("/girigiri/episodes", async (req, res) => {
 		res.json({ lines: cached });
 		return;
 	}
-	const html = await fetchText(`${GIRIGIRI_ORIGIN}/playGV${id}-1-1/`);
-	if (html === null) {
+	const body = await fetchText(detailUrl(id));
+	if (body === null) {
 		episodesCache.set(id, null, NEGATIVE_TTL_MS);
 		res.status(502).json({ lines: [] });
 		return;
 	}
-	const lines = parseEpisodeLines(html, id);
+	const lines = parseEpisodeLines(body, id);
 	if (lines.length === 0) {
 		episodesCache.set(id, null, NEGATIVE_TTL_MS);
 		res.status(404).json({ lines: [] });
@@ -337,7 +377,8 @@ router.get("/girigiri/track", async (req, res) => {
 		return;
 	}
 	const page = typeof req.query.page === "string" ? req.query.page : "";
-	if (!TRACK_PAGE.test(page)) {
+	const match = TRACK_PAGE.exec(page);
+	if (!match) {
 		res.status(400).json({ error: "invalid page" });
 		return;
 	}
@@ -350,8 +391,11 @@ router.get("/girigiri/track", async (req, res) => {
 		sendXml(res, cached);
 		return;
 	}
-	const html = await fetchText(`${GIRIGIRI_ORIGIN}${page}`);
-	const videoUrl = html === null ? null : parsePlayerUrl(html);
+	const [, showId, lineNumber, episodeNumber] = match;
+	const body = await fetchText(detailUrl(showId));
+	const lines = body === null ? [] : parseEpisodeLines(body, showId);
+	const resolved = findEpisode(lines, Number(lineNumber), Number(episodeNumber));
+	const videoUrl = resolved?.episode.url ?? null;
 	const trackUrl = videoUrl === null ? null : girigiriTrackPath(videoUrl);
 	if (trackUrl === null) {
 		trackCache.set(page, null, NEGATIVE_TTL_MS);
