@@ -369,6 +369,8 @@ const PROBE_SUCCESS_TTL_MS = 10 * 60_000;
 const PROBE_FAILURE_TTL_MS = 60_000;
 /** ffprobe spawns a process (and often a network fetch) per call; cap the burst. */
 const PROBE_CONCURRENCY = 4;
+const PROBE_QUEUE_MAX = 32;
+const PROBE_QUEUE_TIMEOUT_MS = 5000;
 
 interface ProbeCacheEntry {
 	value: Promise<any>;
@@ -377,18 +379,48 @@ interface ProbeCacheEntry {
 
 const probeCache = new Map<string, ProbeCacheEntry>();
 let activeProbes = 0;
-const probeQueue: (() => void)[] = [];
+const probeQueue: (() => boolean)[] = [];
 
 async function withProbeSlot<T>(run: () => Promise<T>): Promise<T> {
 	if (activeProbes >= PROBE_CONCURRENCY) {
-		await new Promise<void>(resolve => probeQueue.push(resolve));
+		if (probeQueue.length >= PROBE_QUEUE_MAX) {
+			throw new FfprobeError("Probe wait queue is full; retry when a slot is available.");
+		}
+		const expiresAt = Date.now() + PROBE_QUEUE_TIMEOUT_MS;
+		await new Promise<void>((resolve, reject) => {
+			const grant = () => {
+				clearTimeout(timeout);
+				if (Date.now() >= expiresAt) {
+					reject(new FfprobeTimeoutError());
+					return false;
+				}
+				resolve();
+				return true;
+			};
+			const timeout = setTimeout(() => {
+				const index = probeQueue.indexOf(grant);
+				if (index !== -1) {
+					probeQueue.splice(index, 1);
+					reject(new FfprobeTimeoutError());
+				}
+			}, PROBE_QUEUE_TIMEOUT_MS);
+			probeQueue.push(grant);
+		});
+	} else {
+		activeProbes += 1;
 	}
-	activeProbes += 1;
 	try {
 		return await run();
 	} finally {
-		activeProbes -= 1;
-		probeQueue.shift()?.();
+		// Transfer the occupied slot before the waiter resumes; newcomers cannot steal it.
+		// Check deadlines here too, in case the event loop delayed the wait timers.
+		let next = probeQueue.shift();
+		while (next && !next()) {
+			next = probeQueue.shift();
+		}
+		if (!next) {
+			activeProbes -= 1;
+		}
 	}
 }
 
@@ -398,13 +430,19 @@ async function withProbeSlot<T>(run: () => Promise<T>): Promise<T> {
  * number of ffprobe processes.
  */
 async function rememberProbeOutcome(
-	probe: Promise<unknown>,
+	key: string,
 	entry: ProbeCacheEntry,
+	wasStarted: () => boolean,
 ): Promise<void> {
 	try {
-		await probe;
+		await entry.value;
 	} catch {
-		entry.expiresAt = Date.now() + PROBE_FAILURE_TTL_MS;
+		if (wasStarted()) {
+			entry.expiresAt = Date.now() + PROBE_FAILURE_TTL_MS;
+		} else if (probeCache.get(key) === entry) {
+			// Admission failures say nothing about the media and must allow immediate retry.
+			probeCache.delete(key);
+		}
 	}
 }
 
@@ -416,13 +454,17 @@ export function probeMediaInfo(strategy: FfprobeStrategy, uri: string): Promise<
 		return cached.value;
 	}
 	probeCache.delete(key);
+	let started = false;
 	const entry: ProbeCacheEntry = {
-		value: withProbeSlot(() => strategy.getFileInfo(uri)),
+		value: withProbeSlot(() => {
+			started = true;
+			return strategy.getFileInfo(uri);
+		}),
 		expiresAt: now + PROBE_SUCCESS_TTL_MS,
 	};
-	// A rejection is remembered briefly, then re-probed; the handler is attached here so
-	// the cached copy never becomes an unhandled rejection.
-	void rememberProbeOutcome(entry.value, entry);
+	// Upstream failures are remembered briefly; admission failures can retry immediately.
+	// Attach the handler here so the cached copy never becomes an unhandled rejection.
+	void rememberProbeOutcome(key, entry, () => started);
 	probeCache.set(key, entry);
 	while (probeCache.size > PROBE_CACHE_MAX) {
 		const oldest = probeCache.keys().next().value;

@@ -4,7 +4,7 @@
 
 -   基线：`f240d98`（main）。此前执行 `git pull --ff-only`，从 `a398b0d` 更新。
 -   前一批 47 个文件的修复已包含在 `e5a6a8e`（`win`）；续审恢复时该提交已存在，本批不重做或 amend。本文记录本地提交与验证，没有推送、发布镜像或访问生产。
--   登录限流与角色/房主快照续审已分别提交为 `020ba72`、`4f60d82`；批量媒体准入续审基于 `4f60d82`，修复与验证随本文记录。
+-   登录限流与角色/房主快照续审已分别提交为 `020ba72`、`4f60d82`；批量媒体准入已提交为 `e235e95`；ffprobe 准入续审基于 `e235e95`，修复与验证随本文记录。
 -   原有 `.gitignore` 的 `.ace-tool/` 改动已随前批保留。续审初始工作区干净，逐文件核对前批 47 个文件与已验证快照一致；这不足以证明系统没有其他写入进程，未终止其他 Codex 会话。
 -   用户七分区报告是发现线索。这里只把已复核且有回归验证的条目标记为“已修”；不宣称整个仓库没有 Critical，也不宣称约 30 条中低严重度已全部审清。
 -   语义检索连续两次网络失败后采用源码、Git 差异/历史与实际测试。运行结果优先于注释及旧报告。
@@ -26,6 +26,7 @@
 | N11  | 中       | 登录前依次预占小写用户名/IP 与每日 IP 配额；拒绝用户名不扣 IP，部分失败只退款已成功预占，成功不清空其他账号的 IP 失败分数 | [usermanager](../server/usermanager.ts)、[18 项登录准入回归](../server/tests/unit/login-rate-limit-admission.spec.ts)                                                 |
 | N12  | 中       | 私有 userRoles 纳入内部脏状态，hasOwner 触发 owner 快照；正常检查点完成后恢复不再回滚角色/房主，未消除防抖与崩溃窗口      | [room](../server/room.ts)、[11 项访问状态恢复回归](../server/tests/unit/room-access-persistence.spec.ts)                                                              |
 | N13  | 中       | 批量适配器拒绝的条目不再补回；缓存仅接收 service/id，非缓存安全服务必做准入；按原服务/ID 回配并保留改 ID 别名             | [提取器](../server/infoextractor.ts)、[基础适配器](../server/serviceadapter.ts)、[14 项回归](../server/tests/unit/batch-video-admission.spec.ts)                      |
+| N14  | 中       | ffprobe 保留 4 个已占用槽位直接交接；最多 32 个排队项、5 秒等候预算；过期项不再启动，准入失败不缓存为媒体失败             | [ffprobe](../server/ffprobe.ts)、[14 项准入回归](../server/tests/unit/ffprobe-admission.spec.ts)                                                                      |
 
 “已修”指源码及对应自动化回归成立，可信度高；外部平台兼容性、真实浏览器、Docker 与线上效果尚未验证，不能宣称生产修复已完成。
 
@@ -103,7 +104,20 @@
 -   完整服务端编译、`yarn lint-ci`、`yarn build` 均退出 0；新迁移隔离 SQLite 上的 `yarn test` 退出 0，用时 3 分 48 秒。服务端 **1177**、common **103**、客户端 **1108 / 24 跳过**、Edge **30**、ott-vis **2**、发布 tooling **14**，合计 **2434 通过 / 24 跳过**，不重复累加此前针对性或全量运行。
 -   954 个验证输入文件在全量运行期间哈希未变；原 test.sqlite 的 `F68832B5…` 和 development.sqlite 的 `DA35A40B…` 保持不变，迁移库与恢复证明单独保存在 `batch-media-followup/`。
 
-边界：真实 Direct 的 file: 拒绝、基础批处理和真实缓存辅助函数参与回归；SQL 查询/写入与外部元数据响应均隔离，没有读取实际私有文件、发外部媒体请求或启动 ffprobe。更严格的降级策略会过滤需要重新 fetch 但未取得结果的不完整缓存；完整缓存命中仍不 fetch。Direct 内部已经允许的“可支持 MIME、探测失败则未知时长”行为不变。本批不清理旧缓存数据，也未验证历史受污染数据、真实平台端到端兼容性或新增探测负载的压测；ffprobe 等候预算与出站地址闭环仍未解决。
+边界：真实 Direct 的 file: 拒绝、基础批处理和真实缓存辅助函数参与回归；SQL 查询/写入与外部元数据响应均隔离，没有读取实际私有文件、发外部媒体请求或启动 ffprobe。更严格的降级策略会过滤需要重新 fetch 但未取得结果的不完整缓存；完整缓存命中仍不 fetch。Direct 内部已经允许的“可支持 MIME、探测失败则未知时长”行为不变。本批不清理旧缓存数据，也未验证历史受污染数据、真实平台端到端兼容性或新增探测负载的压测；本批没有处理 ffprobe 等候预算（后续见 N14）或出站地址闭环。
+
+### ffprobe 排队与槽位交接续审（2026-11-20，基于 `e235e95`）
+
+-   同一最终夹具对干净 HEAD 源码为 **10 项预期失败 / 4 项通过**；槽位交接竞争实际观察到 **5 个同时运行的策略调用**，而不是仅依据源码推断。修复后的 14 项新回归全部通过，探测、生命周期、URL 边界和 Direct 适配器合计 **162 通过**。
+-   保留 4 个活跃槽位，交接时直接把仍占用的槽位交给 FIFO 等候者，不先减计数再由等候者补加；成功、异步失败和同步抛错均归还槽位。
+-   最多 32 个排队项，各自从入队起拥有 5 秒等候预算；满队列立即拒绝。定时器到期会删除等候者，交接时也重新检查截止时间，避免事件循环拖延定时器后仍启动已过期任务；全部等候者失效时正常释放槽位。
+-   仅真正开始探测后的失败沿用 60 秒失败缓存；排队溢出/过期不代表媒体损坏，清除相应缓存条目以允许立即重试。成功缓存与同 URI 的即时合并行为保留。
+-   早期含 spy 的夹具未复现交接竞争，最终使用未包装的可控策略，并重新执行相同夹具的修复前/后对照；不把前者视为无竞争的证据。新增测试曾因全局清理列表与返回类型互引触发 TS2502，已改用只记录 drain 的结构类型；Vitest 的 spec-d 类型结果不能替代完整服务端编译。首次全仓 lint 另检出测试中的 14 处 Promise 链式写法违规，已改用 async/await 观察结果与安排同一微任务到达；调整后重新对照干净 HEAD，仍为 10 项预期失败 / 4 项通过，修复后针对性 162 通过，局部 ESLint 退出 0。
+
+-   完整 `yarn lint-ci` 与 `yarn build` 退出 0；新迁移隔离 SQLite 上的 `yarn test` 退出 0，用时 **4 分 1 秒**。服务端 **1191**、客户端 **1108 / 24 跳过**、common **103**、Edge **30**、ott-vis **2**、发布 tooling **14**，合计 **2448 通过 / 24 跳过**，不累加此前针对性或全量运行。
+-   **955 个验证输入文件**在最终全仓 lint/build/test 期间哈希未变；之后仅补充本文验证结果。原 test.sqlite 的 `F68832B5…` 与 development.sqlite 的 `DA35A40B…` 均按完整 SHA-256 验证保持不变，隔离库和恢复证明位于 `ffprobe-followup/`。
+
+边界：准入回归调用真实 `probeMediaInfo`，策略执行及时间受控，未以 5 个真实 ffprobe 子进程验证竞争；针对性检查还包含已有本机 HTTP Range / 实际 ffprobe 集成测试，没有外部媒体或生产请求。5 秒预算只限制等待槽位，不是整个探测调用的总超时；已有子进程超时、64 条缓存策略及其他网络阶段未改，不新增调用方 AbortSignal 或运行中取消接口。32 个等待项是本批采用的固定保护策略，未做生产压测、多实例总量限制或滞留子进程实测；DNS/实际连接地址闭环与后续资源出站仍未解决。
 
 ### Rust 结果与限制
 
@@ -115,7 +129,7 @@ Windows / Rust 1.89 MSVC：fmt、all-target/all-feature check、严格 clippy、
 
 1. 出站闭环：DNS 校验与实际连接仍未固定同一解析地址；ffprobe 后续资源、其他适配器需继续审查。禁止跳转后的真实 PeerTube / Invidious / Reddit 兼容性未做外部端到端验证。
 2. 账号/权限：并发登录准入与用户名大小写桶已按 N11 闭环，角色/房主触发快照与正常检查点恢复已按 N12 验证；真实 Redis 多实例、保存失败与崩溃窗口、其他会话吊销、Discord 绑定与 OAuth state、IPv6 /64 限流仍待逐项验证。
-3. 媒体/队列：批量失败输入复原、客户端元数据绕过与原服务/id 回配已按 N13 修复并回归。ffprobe 等候队列预算/超时及交接计数疑似竞争（目前仅源码推断、未运行确认）、历史缓存数据与真实平台兼容性、DASH 年/月时长、主动小 seek、权限继承及 Undo 副作用仍未闭环。
+3. 媒体/队列：批量失败输入复原、客户端元数据绕过与原服务/id 回配已按 N13 修复并回归。ffprobe 等候队列预算与交接竞争已按 N14 修复并回归；元数据 false/0 合并、历史缓存数据与真实平台兼容性、DASH 年/月时长、主动小 seek、权限继承及 Undo 副作用仍未闭环。
 4. 客户端：后台准备回执、字幕遮罩、对象引用重置、设置权限快照回滚、Direct probe 晚到结果、WebGPU 分辨率切换、iOS 全屏手势仍待验证；不以 mock 单测替代真机结论。
 5. 运维/周边：便签大小写、Redis 键规范、备份 .partial、原报告中的公开地址、Rust scheduler 竞争及 collector 边界尚未全部复核。
 6. 未覆盖的完整模块仍包括原报告列出的历史迁移、deploy/migrate、docker 脚本、部分平台适配器、播放器/controls 模板、film 增强、Rust selection/state_stream/harness、Grafana panel 内部等。读取某入口或运行已有测试不等于逐行审清该模块。
@@ -145,4 +159,4 @@ cargo test --workspace --exclude harness --exclude harness-tests --all-features 
 
 不要改动或格式化 Vitest 正在生成的 tsconfig.vitest-temp.json。全仓 lint / build / test 顺序执行，避免临时文件竞态误判。
 
-原始日志、差异检查点、数据库恢复证明保存在本地 `.git/codex-review-2026-11-19/`，登录、角色快照和批量媒体续审分别位于其 `login-followup/`、`room-access-followup/` 和 `batch-media-followup/` 目录，不提交数据库或本地日志。完整 fetch 依据与 GitHub 事件变量含义分别对照 [actions/checkout v4 README](https://github.com/actions/checkout/tree/v4#usage) 与 [GitHub Actions variables](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)（访问日期：2026-11-19）。
+原始日志、差异检查点、数据库恢复证明保存在本地 `.git/codex-review-2026-11-19/`，登录、角色快照、批量媒体与 ffprobe 续审分别位于其 `login-followup/`、`room-access-followup/`、`batch-media-followup/` 和 `ffprobe-followup/` 目录，不提交数据库或本地日志。完整 fetch 依据与 GitHub 事件变量含义分别对照 [actions/checkout v4 README](https://github.com/actions/checkout/tree/v4#usage) 与 [GitHub Actions variables](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)（访问日期：2026-11-19）。
