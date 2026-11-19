@@ -48,18 +48,56 @@ function gitCommit() {
 		return "unknown";
 	}
 }
+/**
+ * Drops `console.log`/`console.info` calls from the production bundle.
+ *
+ * Vite 8 builds with Rolldown, where the top-level `esbuild` option is deprecated and no
+ * longer reaches the build, so the previous `esbuild.pure` list silently did nothing and
+ * `console.log` shipped to production. Rolldown's `output.minify.compress.dropConsole` would
+ * be the natural place, but Vite replaces `output.minify` with `true` whenever
+ * `build.minify === "oxc"`, and a config object there is discarded during option merging.
+ * This looks only at the emitted chunk and keeps console.debug/warn/error intact.
+ */
+function dropConsoleLogs() {
+	const pattern = /\bconsole\.(log|info)\(/g;
+	return {
+		name: "ott-drop-console-logs",
+		apply: "build",
+		enforce: "post",
+		renderChunk(code, chunk) {
+			// Only this application's own code. A dependency may log through its own console
+			// plumbing (dash.js, the jassub worker, Vuetify's debug output, the WebGL shader
+			// compiler) and expects to; rewriting its bundle is not this plugin's business.
+			const isAppChunk = Object.keys(chunk.modules ?? {}).some(
+				id => id.includes("/src/") && !id.includes("/node_modules/"),
+			);
+			if (!isAppChunk) {
+				return null;
+			}
+			if (!pattern.test(code)) {
+				return null;
+			}
+			pattern.lastIndex = 0;
+			// Keep the statement valid without evaluating the arguments, and leave the callee's
+			// own `window.console.log`/`.bind` forms alone.
+			const stripped = code.replace(
+				/(?<![.\w$])console\.(log|info)\((?:[^()]|\([^()]*\))*\)\s*;?/g,
+				"void 0;",
+			);
+			return { code: stripped, map: null };
+		},
+	};
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
 	define: {
 		__COMMIT_HASH__: JSON.stringify(gitCommit()),
 	},
-	// Strip debug logging from production bundles; dev keeps it and console.debug/warn/error stay.
-	esbuild: {
-		pure: ["console.log", "console.info"],
-	},
 	base: process.env.OTT_BASE_URL || "/",
 	plugins: [
 		vue(),
+		dropConsoleLogs(),
 		vuetify({
 			autoImport: true,
 			styles: {

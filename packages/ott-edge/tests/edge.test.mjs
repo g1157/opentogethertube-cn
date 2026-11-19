@@ -1194,3 +1194,19 @@ it("a full runtime restart retains D1 identities and durable room state", async 
 	assert.equal(b.state.queue.length, 1);
 	assert.equal(b.users.find(user => user.id === b.id).role, -1);
 });
+
+/**
+ * The client probes latency every 15 s on every connection and drops the socket after two
+ * unanswered probes. `ping` used to be missing from the message schema, so each probe was
+ * rejected as an unknown message and every preview-deployment viewer reconnected about
+ * every 30 seconds.
+ */
+it("answers a latency probe with the client's own timestamp", async t => {
+	const owner = await identity();
+	const name = await create(t, owner);
+	const a = await connect(t, name, owner);
+	const start = a.messages.length;
+	a.send({ action: "ping", t0: 1234 });
+	const pong = await a.wait(message => message.action === "pong", start);
+	assert.equal(pong.t0, 1234);
+});

@@ -535,19 +535,34 @@ pub async fn join_client(
                 RoomLocator::new(monolith_id, u32::MAX),
             )?
         } else {
-            let monolith = ctx_write.monoliths.get(&monolith_id).unwrap();
-            let room = monolith.rooms().get(&new_client.room).unwrap();
-            room
+            // A monolith can disappear between the locator lookup and this point. Returning an
+            // error fails this one join; unwrapping here panicked the dispatcher task instead,
+            // which left the process alive but handling no further joins at all.
+            ctx_write
+                .monoliths
+                .get(&monolith_id)
+                .ok_or_else(|| anyhow::anyhow!("monolith not found"))?
+                .rooms()
+                .get(&new_client.room)
+                .ok_or_else(|| anyhow::anyhow!("room not found on monolith"))?
         }
         .new_broadcast_rx();
 
-        let monolith = ctx_write.monoliths.get(&monolith_id).unwrap();
+        // Same reasoning as above: the entry may be gone by now, and unwrapping here panicked
+        // the dispatcher task rather than failing this one join.
+        let (client_inbound_tx, send_handle) = {
+            let monolith = ctx_write
+                .monoliths
+                .get(&monolith_id)
+                .ok_or_else(|| anyhow::anyhow!("monolith not found"))?;
+            (monolith.new_inbound_tx(), monolith.send_handle())
+        };
         (
             monolith_id,
             should_create_room,
             room_broadcast_rx,
-            monolith.new_inbound_tx(),
-            monolith.send_handle(),
+            client_inbound_tx,
+            send_handle,
         )
     };
 
@@ -792,13 +807,17 @@ async fn add_or_sync_room_ctx(
                             .ok_or_else(|| anyhow::anyhow!("monolith not found"))?
                             .send_handle();
                         ctx_write.remove_room(&room_name, old_monolith_id)?;
+                        // Check the new monolith exists before repointing the locator: the old
+                        // order inserted the mapping first, so returning the error here left a
+                        // locator naming a monolith that is gone, and the later
+                        // `monoliths.get(..).unwrap()` panicked on it.
+                        let Some(monolith) = ctx_write.monoliths.get_mut(&monolith_id) else {
+                            anyhow::bail!("monolith not found");
+                        };
                         ctx_write.rooms_to_monoliths.insert(
                             metadata.name.clone(),
                             RoomLocator::new(monolith_id, load_epoch),
                         );
-                        let Some(monolith) = ctx_write.monoliths.get_mut(&monolith_id) else {
-                            anyhow::bail!("monolith not found");
-                        };
                         monolith.add_or_sync_room(metadata.clone())?;
                         Some(ConflictAction::Replace(handle, old_monolith_id))
                     }

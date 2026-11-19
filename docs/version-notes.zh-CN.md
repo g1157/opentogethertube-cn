@@ -4,6 +4,31 @@
 `archive/history` 分支与 `v0.14.1` 标签。`v1.0.0` 起跳出 cn 序列，作为本分支的正式大版本，
 标签与镜像名不再带 cn 编号。
 
+-   **未发布**：构建产物瘦身、预览版连接稳定性与发布/备份链路修复。
+    **构建**：`esbuild.pure` 在 Vite 8（Rolldown 构建）下是 `deprecated` 且不再进入构建，
+    所以 `console.log` 一直随生产包发布；`build.minify` 被 Vite 强制设为 `"oxc"` 时也不会
+    采纳 `output.minify.compress`。改为 `renderChunk` 插件只清理本仓库源码产生的 chunk
+    （入口、Room、DirectPlayer 等全部 0 处），第三方库（dash.js、jassub worker、Vuetify
+    debug 输出、WebGL 编译日志）保持原样；`console.debug/warn/error` 不受影响。
+    **预览版**：`packages/ott-edge` 的消息 schema 里没有 `ping`，客户端每 15 秒的延迟探测
+    被当作未知消息拒绝且不回 `pong`，两次无应答即断线重连——Cloudflare 预览版每个观众约
+    每 30 秒掉线一次。现在按主服务端语义回显 `t0`，并补 1 项回归。
+    **均衡器**：`Ordering::Greater` 分支先写房间映射再检查目标 monolith 是否存在，`bail!`
+    返回后映射仍指向已消失的 monolith，随后三处 `monoliths.get(..).unwrap()` 会 panic；
+    `join_client` 的调度任务该进程不退出但不再处理任何加入请求。改为先校验后写入，并把
+    `join_client` 里的 `unwrap()` 全部改为可失败返回（剩余 `unwrap()` 仅在 `#[cfg(test)]`）。
+    **CI**：缓存路径 `.yarn/cache` 从未存在（Yarn 4 默认走全局缓存），每个 Node 作业都在
+    重新下载依赖；三个带缓存的作业设 `YARN_ENABLE_GLOBAL_CACHE=false`，让缓存落到被缓存的
+    目录。
+    **备份**：`pg_dump` 失败时只留下 `.partial`，它不在保留策略的通配符内且会被误认为可用
+    备份；加 `trap` 清理，并对历史残留做一次清扫。仓库内没有任何 `pg_restore` 自动化，
+    脚本现在打印恢复命令并说明这一步是手动操作。
+    **未做**：Vuetify 全量注册与 `autoImport` 的重复已核实（首屏 `vendor` 1119→931 KB 的
+    实验成立），但去掉全局注册后 18 项组件测试因组件未注册失败，回滚；该改动需要配合插件
+    的编译期行为并做真机 UI 验证，暂不纳入。
+    **验证**：`yarn build`、服务端 1145、客户端 1112、ott-edge 31 通过；本机无 Rust 工具链，
+    均衡器改动只做了结构核查，未编译、未跑 `cargo test`。无数据库迁移。
+
 -   **未发布**：合并 `fix/project-review-2026-11-20` 的两条独立修复线。
     远端分支与本地 `main` 从 `e5a6a8e4` 各自修了同一批缺陷：远端在批量媒体校验
     （身份泄漏、alias 改写 id、按请求顺序返回）、登录限流（先预留再认证）、`promoteUser`
