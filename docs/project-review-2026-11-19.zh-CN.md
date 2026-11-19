@@ -4,6 +4,7 @@
 
 -   基线：`f240d98`（main）。此前执行 `git pull --ff-only`，从 `a398b0d` 更新。
 -   前一批 47 个文件的修复已包含在 `e5a6a8e`（`win`）；续审恢复时该提交已存在，本批不重做或 amend。本文记录本地提交与验证，没有推送、发布镜像或访问生产。
+-   登录限流续审已单独提交为 `020ba72`；角色/房主快照续审基于该提交，修复与验证随本文记录。
 -   原有 `.gitignore` 的 `.ace-tool/` 改动已随前批保留。续审初始工作区干净，逐文件核对前批 47 个文件与已验证快照一致；这不足以证明系统没有其他写入进程，未终止其他 Codex 会话。
 -   用户七分区报告是发现线索。这里只把已复核且有回归验证的条目标记为“已修”；不宣称整个仓库没有 Critical，也不宣称约 30 条中低严重度已全部审清。
 -   语义检索连续两次网络失败后采用源码、Git 差异/历史与实际测试。运行结果优先于注释及旧报告。
@@ -23,6 +24,7 @@
 | N09  | 中       | 建房 description 与设置接口统一为 5000 字符上限，超限在建房前拒绝                                                         | [schema](../common/models/zod-schemas.ts)、[公共校验回归](../common/tests/unit/room-validation.spec.ts)                                                               |
 | N10  | 中       | SW 拒绝缓存 HTML/XHTML/缺类型的 200 回退；v3 清理本应用旧缓存，保留其他 scope                                             | [sw.js](../client/public/sw.js)、[VM 回归](../client/tests/unit/service-worker-cache.spec.ts)                                                                         |
 | N11  | 中       | 登录前依次预占小写用户名/IP 与每日 IP 配额；拒绝用户名不扣 IP，部分失败只退款已成功预占，成功不清空其他账号的 IP 失败分数 | [usermanager](../server/usermanager.ts)、[18 项登录准入回归](../server/tests/unit/login-rate-limit-admission.spec.ts)                                                 |
+| N12  | 中       | 私有 userRoles 纳入内部脏状态，hasOwner 触发 owner 快照；正常检查点完成后恢复不再回滚角色/房主，未消除防抖与崩溃窗口      | [room](../server/room.ts)、[11 项访问状态恢复回归](../server/tests/unit/room-access-persistence.spec.ts)                                                              |
 
 “已修”指源码及对应自动化回归成立，可信度高；外部平台兼容性、真实浏览器、Docker 与线上效果尚未验证，不能宣称生产修复已完成。
 
@@ -76,10 +78,20 @@
 -   仅配额键转小写，传给 Passport 的凭证文本保持原样；失败认证不重复扣点；成功重置连续用户名失败桶，只归还本次 IP 点数。捕获请求开始时的限流开关，避免认证中途切换开关产生无扣点退款或遗漏退款。存储异常不执行认证，转入错误处理中间件。
 -   针对性测试 **21 通过**（登录 18、recovery 3）。新延迟夹具曾被完整服务端编译检出 callback 返回类型不匹配，已添加显式 void 类型并重跑；不能用 Vitest 的 spec-d 类型检查替代完整 tsc。
 -   最终 `yarn lint-ci` 与 `yarn build` 均退出 0；lint 仍为 0 错误、27 警告。新迁移 SQLite 上的 `yarn test` 退出 0：服务端 **1152**、common **103**、客户端 **1108 / 24 跳过**、Edge **30**、ott-vis **2**、发布 tooling **14**，合计 **2409 通过 / 24 跳过**，用时 3 分 50 秒。针对性 21 项不重复累加。
--   全量检查期间 952 个源码及测试文件哈希未变。隔离运行前发现当前 test.sqlite 哈希为 `F68832B5…`，不同于前批交接的 `CA8EC598…`，修改时间早于本次续审执行，改写来源未确认；未用旧备份覆盖当前文件。本次备份、恢复的是当前实物，前后完整 SHA-256 一致；development.sqlite 的 `DA35A40B…` 也保持不变。
+-   全量检查的 952 个验证输入文件在运行期间哈希未变。隔离运行前发现当前 test.sqlite 哈希为 `F68832B5…`，不同于前批交接的 `CA8EC598…`，修改时间早于本次续审执行，改写来源未确认；未用旧备份覆盖当前文件。本次备份、恢复的是当前实物，前后完整 SHA-256 一致；development.sqlite 的 `DA35A40B…` 也保持不变。
 -   本机 workspace 链接曾导致 Node 读取返回 UNKNOWN；immutable install 未修复。只备份并重建七个已核验目标的 junction 条目，目标源码目录未移动，未改依赖、exports 或锁文件，根因未确定。
 
 登录准入测试使用真实 RateLimiterMemory 的 consume / reward 行为和生产 10 / 100 点预算，缩短 TTL；隔离 Passport、token、models 与 Redis transport，不进行 SQL 查询或外部认证。延迟确认测试验证记账竞态，不是对真实 Redis 的分布式压测。现有全量 API 测试通过也不能外推真实多实例 Redis、PostgreSQL、浏览器或生产认证链路。
+
+### 角色与房主快照续审（基于 `020ba72`）
+
+-   沿 `promoteUser → syncDirty → serializeState` 与 `owner setter → hasOwner → syncDirty` 复核后补充回归。清理夹具错误后的 HEAD 基线为 **11 项预期行为失败**：升/降级、认领、替换和移除房主均仍恢复旧 Redis 快照；永久存储拒绝时角色变更也没有待重试脏标记。
+-   内部脏集合允许私有 `userRoles`，角色变更显式调度检查点；`hasOwner` 同时触发保存实际 owner 身份。客户端同步字段白名单不变，完整角色集合和 owner 对象不广播。Redis owner 仍只保存 id，不保存 Buffer hash / salt；回归覆盖临时与永久房间、旧房主失权及存储失败后重试。
+-   新增恢复回归 **11 通过**；与授权 24、密码房 5、调度隔离 6 项共同验证 **46 通过**。首轮夹具的 debounce spy 清理顺序、凭证字段类型与正则作用域 lint 错误均按真实输出修复，没有关闭规则，未把带清理错误的首次运行当作干净基线。
+-   完整服务端编译、`yarn lint-ci`、`yarn build` 均退出 0；全量新迁移 SQLite 的 `yarn test` 退出 0，用时 3 分 47 秒。服务端 **1163**、common **103**、客户端 **1108 / 24 跳过**、Edge **30**、ott-vis **2**、发布 tooling **14**，合计 **2420 通过 / 24 跳过**；此前针对性测试不重复累加。
+-   全量运行的 953 个验证输入文件哈希未变；本批原 test.sqlite 的 `F68832B5…` 已恢复，development.sqlite 的 `DA35A40B…` 保持不变，完整哈希与恢复日志另存于 `room-access-followup/`。
+
+边界：这批验证使用真实 Room 序列化、同步和恢复代码，但 Redis transport 是项目现有 mock，SQL 写入与广播在新回归中隔离。沿用现有 5 秒防抖保存，仅证明正常检查点完成后的恢复；连续更新推迟保存、Redis 失败及非优雅退出在途窗口未消除，不是事务级即时权限持久化。房主替换/移除用 setter 验证快照，不代表新增了公开转让/解绑 API，也不代表已验证真实数据库的解绑语义。
 
 ### Rust 结果与限制
 
@@ -90,8 +102,8 @@ Windows / Rust 1.89 MSVC：fmt、all-target/all-feature check、严格 clippy、
 ## 尚未解决或尚未复核
 
 1. 出站闭环：DNS 校验与实际连接仍未固定同一解析地址；ffprobe 后续资源、其他适配器需继续审查。禁止跳转后的真实 PeerTube / Invidious / Reddit 兼容性未做外部端到端验证。
-2. 账号/权限：并发登录准入与用户名大小写桶已按 N11 闭环；真实 Redis 多实例验证、其他会话吊销、Discord 绑定与 OAuth state、IPv6 /64 限流、角色/房主 Redis 快照仍待逐项验证。
-3. 媒体/队列：批量探测失败是否仍入队、ffprobe 等待队列、DASH 年/月时长、主动小 seek、权限继承及 Undo 副作用等线索尚未完成本轮闭环。
+2. 账号/权限：并发登录准入与用户名大小写桶已按 N11 闭环，角色/房主触发快照与正常检查点恢复已按 N12 验证；真实 Redis 多实例、保存失败与崩溃窗口、其他会话吊销、Discord 绑定与 OAuth state、IPv6 /64 限流仍待逐项验证。
+3. 媒体/队列：沿 [适配器](../server/serviceadapter.ts) → [提取器](../server/infoextractor.ts) → [入队](../server/room.ts) 源码复核发现，批量 fetch 跳过的失败条目仍被补回，输出也仅按 id 回配而未区分原服务；客户端元数据可能减少非缓存安全服务的探测请求。这些线索尚无专用运行回归，可信度中，需核对可信缓存降级和别名兼容性。ffprobe 等待队列、DASH 年/月时长、主动小 seek、权限继承及 Undo 副作用仍未闭环。
 4. 客户端：后台准备回执、字幕遮罩、对象引用重置、设置权限快照回滚、Direct probe 晚到结果、WebGPU 分辨率切换、iOS 全屏手势仍待验证；不以 mock 单测替代真机结论。
 5. 运维/周边：便签大小写、Redis 键规范、备份 .partial、原报告中的公开地址、Rust scheduler 竞争及 collector 边界尚未全部复核。
 6. 未覆盖的完整模块仍包括原报告列出的历史迁移、deploy/migrate、docker 脚本、部分平台适配器、播放器/controls 模板、film 增强、Rust selection/state_stream/harness、Grafana panel 内部等。读取某入口或运行已有测试不等于逐行审清该模块。
@@ -121,4 +133,4 @@ cargo test --workspace --exclude harness --exclude harness-tests --all-features 
 
 不要改动或格式化 Vitest 正在生成的 tsconfig.vitest-temp.json。全仓 lint / build / test 顺序执行，避免临时文件竞态误判。
 
-原始日志、差异检查点、数据库恢复证明保存在本地 `.git/codex-review-2026-11-19/`，登录续审单独位于其 `login-followup/` 目录，不提交数据库或本地日志。完整 fetch 依据与 GitHub 事件变量含义分别对照 [actions/checkout v4 README](https://github.com/actions/checkout/tree/v4#usage) 与 [GitHub Actions variables](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)（访问日期：2026-11-19）。
+原始日志、差异检查点、数据库恢复证明保存在本地 `.git/codex-review-2026-11-19/`，登录与角色快照续审分别位于其 `login-followup/` 和 `room-access-followup/` 目录，不提交数据库或本地日志。完整 fetch 依据与 GitHub 事件变量含义分别对照 [actions/checkout v4 README](https://github.com/actions/checkout/tree/v4#usage) 与 [GitHub Actions variables](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)（访问日期：2026-11-19）。

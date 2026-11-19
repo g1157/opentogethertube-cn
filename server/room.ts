@@ -312,6 +312,8 @@ export type RoomStatePersistable = Omit<
 	| "votesToSkip"
 >;
 
+type RoomDirtyProp = keyof RoomStateSyncable | "userRoles";
+
 export class Room implements RoomState {
 	_name = "";
 	_title = "";
@@ -387,7 +389,7 @@ export class Room implements RoomState {
 	_videoSegments: Segment[] = [];
 	votesToSkip: Set<string> = new Set();
 
-	_dirty: Set<keyof RoomStateSyncable> = new Set();
+	_dirty: Set<RoomDirtyProp> = new Set();
 	/** Events this room published recently; undo may only replay one of these. */
 	private recentEvents: ServerMessageEvent[] = [];
 	private readonly syncLock = new Mutex();
@@ -818,7 +820,7 @@ export class Room implements RoomState {
 		return infos;
 	}
 
-	private markDirty(prop: keyof RoomStateSyncable): void {
+	private markDirty(prop: RoomDirtyProp): void {
 		this._dirty.add(prop);
 		this.throttledSync();
 	}
@@ -1313,9 +1315,10 @@ export class Room implements RoomState {
 		};
 
 		const state: RoomStateSyncable = this.syncableState();
-		const isAnyDirtyStorable = Array.from(this._dirty).some(prop =>
-			storableProps.includes(prop as any),
-		);
+		// hasOwner is the safe sync field, while the snapshot stores the owner identity.
+		const isAnyDirtyStorable =
+			this._dirty.has("hasOwner") ||
+			Array.from(this._dirty).some(prop => storableProps.includes(prop as any));
 
 		msg = Object.assign(msg, _.pick(state, Array.from(this._dirty)));
 		const persistentSettings: (keyof RoomStatePersistable)[] = [
@@ -1335,7 +1338,7 @@ export class Room implements RoomState {
 		];
 		const settings: Partial<RoomStatePersistable> = _.pick(
 			this,
-			persistentSettings.filter(prop => this._dirty.has(prop as keyof RoomStateSyncable)),
+			persistentSettings.filter(prop => this._dirty.has(prop as RoomDirtyProp)),
 		);
 		if (this._dirty.has("grants")) {
 			settings.permissionsRevision = this.permissionsRevision;
@@ -2700,6 +2703,7 @@ export class Room implements RoomState {
 			if (request.role >= Role.TrustedUser) {
 				this.userRoles.get(request.role)?.add(targetUser.user_id);
 			}
+			this.markDirty("userRoles");
 		}
 		await this.syncUser(this.getUserInfo(targetUser.id));
 		if (!this.isTemporary) {
