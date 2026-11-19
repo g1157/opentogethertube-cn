@@ -5,7 +5,11 @@ import _ from "lodash";
 import { getLogger } from "./logger.js";
 import { redisClient } from "./redisclient.js";
 import storage from "./storage.js";
-import { setRoomPassword } from "./room-password.js";
+import {
+	getTemporaryRoomPasswordHash,
+	temporaryPasswordKey,
+	setRoomPassword,
+} from "./room-password.js";
 import {
 	type RoomAlreadyLoadedException,
 	RoomNameTakenException,
@@ -262,9 +266,12 @@ async function getRoomUnlocked(
 		}
 	}
 	if (fixedState) {
-		if (!fixedState.isTemporary) {
-			fixedState.passwordHash = await storage.getRoomPasswordHash(fixedState.name);
-		}
+		// The snapshot never carries password material, so the hash is read back separately:
+		// permanent rooms from Postgres, temporary rooms from their own Redis key. Skipping
+		// this for temporary rooms reopened a private room unlocked after every restart.
+		fixedState.passwordHash = fixedState.isTemporary
+			? await getTemporaryRoomPasswordHash(fixedState.name)
+			: await storage.getRoomPasswordHash(fixedState.name);
 		const room = new Room(fixedState);
 		await addRoom(room);
 		return ok(room);
@@ -330,6 +337,9 @@ async function unloadRoomUnlocked(
 	if (!opts.preserveRedis) {
 		await redisClient.del(`room:${room.name}`);
 		await redisClient.del(`room-sync:${room.name}`);
+		if (room.isTemporary) {
+			await redisClient.del(temporaryPasswordKey(room.name));
+		}
 	}
 	bus.emit("unload", room.name, reason);
 }

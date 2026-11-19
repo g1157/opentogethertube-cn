@@ -37,8 +37,12 @@ const log = getLogger("infoextract");
 const ADD_PREVIEW_SEARCH_MIN_LENGTH = conf.get("add_preview.search.min_query_length");
 const ENABLE_SEARCH = conf.get("add_preview.search.enabled");
 
-function mergeVideo(a: Video, b: Video): Video {
-	// False and zero are explicit metadata; keep the other missing-value fallbacks.
+/**
+ * Exported for the regression tests: which values survive a merge is the contract they pin.
+ * Falsy is not the same as absent — `cors: false` and `length: 0` are real verdicts, while
+ * `undefined`, `null` and `""` mean "the adapter did not report this".
+ */
+export function mergeVideo(a: Video, b: Video): Video {
 	return Object.assign(
 		a,
 		_.pickBy(b, x => !!x || x === false || x === 0),
