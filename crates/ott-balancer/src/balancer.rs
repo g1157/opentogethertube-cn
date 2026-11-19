@@ -810,14 +810,18 @@ async fn add_or_sync_room_ctx(
                         // Check the new monolith exists before repointing the locator: the old
                         // order inserted the mapping first, so returning the error here left a
                         // locator naming a monolith that is gone, and the later
-                        // `monoliths.get(..).unwrap()` panicked on it.
-                        let Some(monolith) = ctx_write.monoliths.get_mut(&monolith_id) else {
+                        // `monoliths.get(..).unwrap()` panicked on it. The borrow ends before the
+                        // map insert, which would otherwise be a second mutable borrow.
+                        if !ctx_write.monoliths.contains_key(&monolith_id) {
                             anyhow::bail!("monolith not found");
-                        };
+                        }
                         ctx_write.rooms_to_monoliths.insert(
                             metadata.name.clone(),
                             RoomLocator::new(monolith_id, load_epoch),
                         );
+                        let Some(monolith) = ctx_write.monoliths.get_mut(&monolith_id) else {
+                            anyhow::bail!("monolith not found");
+                        };
                         monolith.add_or_sync_room(metadata.clone())?;
                         Some(ConflictAction::Replace(handle, old_monolith_id))
                     }

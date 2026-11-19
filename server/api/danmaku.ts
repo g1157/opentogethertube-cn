@@ -435,7 +435,7 @@ router.get("/girigiri/track", async (req, res) => {
 			xml = null;
 		}
 	}
-	// Fewer than one comment, an unparseable track or an unreachable download: all of them
+	// Fewer than one comment, a track that cannot be parsed or an unreachable download: all of them
 	// are worth remembering, but not a request that never left this server.
 	if (xml === null || !xml.includes("<d ")) {
 		if (track.failure !== "busy") {
