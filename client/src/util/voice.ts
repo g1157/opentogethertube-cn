@@ -132,6 +132,12 @@ export function useVoice() {
 	let speakingTimer: ReturnType<typeof setInterval> | null = null;
 	let duckActive = false;
 	let joining = false;
+	/**
+	 * Set when a reconnect lands while a join is still waiting on the microphone. That join
+	 * is invalidated by the epoch bump, so it cannot deliver the session; it retries here
+	 * once instead of dropping to "not joined" with nothing left to trigger another attempt.
+	 */
+	let rejoinAfterJoinSettles = false;
 	let joinEpoch = 0;
 	/**
 	 * The client id this voice session was joined under. A reconnect mints a new server-side
@@ -484,7 +490,15 @@ export function useVoice() {
 			);
 			teardownLocal();
 			if (reconnected) {
-				void join();
+				// A join that is still waiting on the microphone will abort on the epoch bump
+				// above and then find this flag, so it retries once it settles. Without that
+				// hand-off a reconnect during a permission prompt ended in "not joined, and
+				// nothing left to trigger a retry".
+				if (joining) {
+					rejoinAfterJoinSettles = true;
+				} else {
+					void join();
+				}
 			}
 			return;
 		}
@@ -599,6 +613,9 @@ export function useVoice() {
 		} catch (e) {
 			console.warn("voice: microphone is unavailable", e);
 			error.value = "mic-permission";
+			// A pending reconnect retry would only re-prompt for a permission the visitor has
+			// just refused, so drop it rather than surfacing the same error again.
+			rejoinAfterJoinSettles = false;
 			return;
 		} finally {
 			joining = false;
@@ -608,6 +625,14 @@ export function useVoice() {
 			// must not stay open behind a joined state nobody tracks anymore.
 			for (const track of stream?.getTracks() ?? []) {
 				track.stop();
+			}
+			// A reconnect arrived during the permission prompt and asked for a retry; this is
+			// the only place that knows the prompt has finished.
+			if (rejoinAfterJoinSettles) {
+				rejoinAfterJoinSettles = false;
+				if (!joined.value) {
+					void join();
+				}
 			}
 			return;
 		}
@@ -624,6 +649,10 @@ export function useVoice() {
 
 	/** Drops everything local without telling the server, for when the server already decided. */
 	function teardownLocal() {
+		// Any join still waiting on the microphone must not land afterwards: its stream is
+		// about to be stopped here, so accepting it would leave joined=true with no capture.
+		// `leave()` increments this too, but a reconnect teardown reaches here directly.
+		joinEpoch++;
 		joined.value = false;
 		sessionSelfId = null;
 		muted.value = false;
@@ -645,6 +674,8 @@ export function useVoice() {
 	function leave() {
 		// An in-flight join must not attach its microphone stream afterwards.
 		joinEpoch++;
+		// Leaving is a decision, not a reconnect: never queue a rejoin on the way out.
+		rejoinAfterJoinSettles = false;
 		if (joined.value) {
 			sendPresence(false);
 		}
