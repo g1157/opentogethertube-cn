@@ -181,3 +181,43 @@ describe("video enhancement settings", () => {
 		expect(store.state.settings.upscaleMode).toBe("off");
 	});
 });
+
+/**
+ * The auto-degrade ladder corrects the tier for this session only. Saving the settings
+ * dialog used to commit the whole state, including those corrected values, and
+ * `rememberPersistedTransient` then recorded the degraded tier as the visitor's own pick —
+ * so one save while a device had stepped down replaced "anime4k" with "sharpen" forever.
+ * The dialog no longer sends the upscale pair at all; this pins the store contract it
+ * depends on.
+ */
+describe("session-only upscale corrections", () => {
+	let saved: Map<string, string>;
+	const storage = {
+		getItem: (key: string) => saved.get(key) ?? null,
+		setItem: (key: string, value: string) => void saved.set(key, String(value)),
+	};
+
+	beforeEach(() => {
+		saved = new Map();
+		vi.stubGlobal("localStorage", storage);
+	});
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("keeps the visitor's own tier when a transient correction is in effect", async () => {
+		const store = createStore<{ settings: SettingsState }>({
+			modules: { settings: settingsModule },
+		});
+		await store.dispatch("settings/load");
+		store.commit("settings/UPDATE", { upscaleMode: "anime4k", upscaleScale: "auto" });
+		// The ladder steps the session down without touching the stored preference.
+		store.commit("settings/UPDATE_TRANSIENT", { upscaleMode: "sharpen" });
+		expect(store.state.settings.upscaleMode).toBe("sharpen");
+
+		// A later save of an unrelated setting must not carry the correction into storage.
+		store.commit("settings/UPDATE", { danmakuOpacity: 0.5 });
+		const persisted = JSON.parse(saved.get("settings") ?? "{}");
+		expect(persisted.upscaleMode).toBe("anime4k");
+	});
+});

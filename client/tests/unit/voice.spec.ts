@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { getPeerPath, summarizeVoicePeers, type VoicePeerState } from "@/util/voice";
+import {
+	getPeerPath,
+	summarizeVoicePeers,
+	voiceDroppedByReconnect,
+	type VoicePeerState,
+} from "@/util/voice";
 
 function makeStats(reports: Array<Record<string, unknown>>): RTCStatsReport {
 	const map = new Map<string, unknown>();
@@ -111,5 +116,32 @@ describe("voice peer summary", () => {
 			connecting: 0,
 			failed: 0,
 		});
+	});
+});
+
+/**
+ * A reconnect mints a new server-side client id, so the participant list no longer contains
+ * the id the voice session joined under. Treating that as a refusal tore the session down
+ * silently on every reconnect; it must rejoin instead.
+ */
+describe("voice reconnect detection", () => {
+	it("rejoins when our id changed and we are absent", () => {
+		expect(voiceDroppedByReconnect("old-id", "new-id", false, false)).toBe(true);
+	});
+
+	it("stays put while we are still listed", () => {
+		expect(voiceDroppedByReconnect("id", "id", false, true)).toBe(false);
+	});
+
+	it("treats a server refusal as final, not as a reconnect", () => {
+		expect(voiceDroppedByReconnect("old-id", "new-id", true, false)).toBe(false);
+	});
+
+	it("does not rejoin when there was no session to begin with", () => {
+		expect(voiceDroppedByReconnect(null, "new-id", false, false)).toBe(false);
+	});
+
+	it("does not rejoin when the id is unchanged", () => {
+		expect(voiceDroppedByReconnect("same-id", "same-id", false, false)).toBe(false);
 	});
 });

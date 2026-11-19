@@ -87,6 +87,23 @@ export function getPeerPath(stats: RTCStatsReport): "direct" | "relay" | null {
 	return localType === "relay" || remoteType === "relay" ? "relay" : "direct";
 }
 
+/**
+ * Whether our absence from the participant list means "a reconnect gave us a new client id"
+ * rather than "the server removed us". Exported so the decision is testable without a
+ * WebRTC stack: getting it wrong is what made voice drop silently on every reconnect.
+ */
+export function voiceDroppedByReconnect(
+	sessionSelfId: ClientId | null,
+	currentSelfId: ClientId,
+	denied: boolean,
+	isParticipant: boolean,
+): boolean {
+	if (isParticipant || denied || sessionSelfId === null) {
+		return false;
+	}
+	return sessionSelfId !== currentSelfId;
+}
+
 export function useVoice() {
 	const connection = useConnection();
 	const store = useStore();
@@ -116,6 +133,12 @@ export function useVoice() {
 	let duckActive = false;
 	let joining = false;
 	let joinEpoch = 0;
+	/**
+	 * The client id this voice session was joined under. A reconnect mints a new server-side
+	 * client id, so the participant list the server sends afterwards no longer contains the
+	 * old one — that is not a refusal, and the viewer should be put back into voice.
+	 */
+	let sessionSelfId: ClientId | null = null;
 
 	const summary = computed(() => summarizeVoicePeers(peerStates.value));
 
@@ -450,9 +473,19 @@ export function useVoice() {
 		const me = selfId();
 		const isParticipant = msg.participants.includes(me);
 		if (joined.value && !isParticipant) {
-			// The server is authoritative: it refused the join, or removed us when the hard relay
-			// budget was reached. Drop local capture without asking it again.
+			// A reconnect gives this socket a new client id, so our old id is gone from the
+			// participant list even though nobody removed us. Tearing down here is what made
+			// voice drop silently on every reconnect; rejoin under the new identity instead.
+			const reconnected = voiceDroppedByReconnect(
+				sessionSelfId,
+				me,
+				Boolean(msg.denied),
+				isParticipant,
+			);
 			teardownLocal();
+			if (reconnected) {
+				void join();
+			}
 			return;
 		}
 		if (joined.value && isParticipant) {
@@ -583,6 +616,7 @@ export function useVoice() {
 		}
 		localStream = stream;
 		joined.value = true;
+		sessionSelfId = selfId();
 		muted.value = false;
 		startSpeakingDetection();
 		sendPresence(true);
@@ -591,6 +625,7 @@ export function useVoice() {
 	/** Drops everything local without telling the server, for when the server already decided. */
 	function teardownLocal() {
 		joined.value = false;
+		sessionSelfId = null;
 		muted.value = false;
 		speaking.value = false;
 		teardownMedia();

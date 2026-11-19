@@ -174,9 +174,16 @@ import { enumKeys } from "@/util/misc";
 import { elementAudioRoutingSupported } from "@/util/audio-eq";
 import AutoSkipSegmentSettings from "./AutoSkipSegmentSettings.vue";
 
-type ExcludedFields = "volume" | "locale";
+/**
+ * Volume and locale are applied elsewhere, and the upscale pair belongs to the video
+ * settings panel. They must not be part of what this dialog saves: the auto-degrade ladder
+ * writes a session-only value into state, and committing that wholesale made
+ * `rememberPersistedTransient` record the degraded tier as the visitor's own choice —
+ * so one save while a device had stepped down turned "anime4k" into "sharpen" forever.
+ */
+type ExcludedFields = "volume" | "locale" | "upscaleMode" | "upscaleScale";
 type ExposedSettings = Omit<SettingsState, ExcludedFields>;
-const EXCLUDED: ExcludedFields[] = ["volume", "locale"];
+const EXCLUDED: ExcludedFields[] = ["volume", "locale", "upscaleMode", "upscaleScale"];
 
 const show = ref(false);
 const store = useStore();
