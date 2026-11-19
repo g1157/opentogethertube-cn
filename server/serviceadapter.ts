@@ -82,11 +82,17 @@ export class ServiceAdapter {
 	 * Fetches video metadata for a list of IDs.
 	 * @param requests List of objects with id and missingInfo keys
 	 */
-	async fetchManyVideoInfo(requests: VideoRequest[]): Promise<Video[]> {
+	async fetchManyVideoInfo(
+		requests: VideoRequest[],
+		onResult?: (requestedId: string, video: Video) => void,
+	): Promise<Video[]> {
 		const videos: Video[] = [];
 		for (const req of requests) {
 			try {
-				videos.push(await this.fetchVideoInfo(req.id, req.missingInfo));
+				const video = await this.fetchVideoInfo(req.id, req.missingInfo);
+				// Aliases may rewrite both service and id; keep the original request identity.
+				onResult?.(req.id, video);
+				videos.push(video);
 			} catch (error) {
 				log.warn(
 					`fetchManyVideoInfo: failed to fetch ${this.serviceId}:${req.id}: ${error}, skipping`,
