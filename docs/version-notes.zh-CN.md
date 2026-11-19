@@ -56,7 +56,7 @@
     双重可变借用后改为先校验、再写定位、最后取可变引用；Windows MSVC 作业漏了
     `--cfg tokio_unstable`（`setup-rust-toolchain` 替换而非追加 `RUSTFLAGS`），导致
     `tokio::task::Builder` 在该作业找不到，现与 Linux 作业对齐；typos 把审查文档里的短哈希
-    `020ba72` 判为拼写错误，改为按 `` `[0-9a-f]{7,40}` `` 忽略，而不是把 `ba` 加进允许词。
+    `020ba72` 判为拼写错误，改为按反引号包裹的十六进制短串忽略，而不是把该字段加进允许词。
     最终 CI、Rust、CodeQL 三套门禁在 `bde013b4` 全部通过。
     **安全**：`trust_proxy` 的代码默认值是 `1`，而 compose 与 `.env.example` 都是 `0`——
     不用 compose 直接跑或漏设该变量时，Express 会信任访客自带的 `X-Forwarded-For`，
