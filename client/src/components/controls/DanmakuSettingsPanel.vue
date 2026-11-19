@@ -573,6 +573,8 @@ const girigiriSearching = ref(false);
 const girigiriResults = ref<GirigiriSearchResult[]>([]);
 const girigiriLines = ref<GirigiriLine[]>([]);
 const girigiriShowTitle = ref("");
+/** The last girigiri request could not reach the upstream, as opposed to finding nothing. */
+const girigiriUnavailable = ref(false);
 
 const searchBusy = computed(() => searching.value || girigiriSearching.value);
 const searchTitle = computed(() => {
@@ -597,13 +599,17 @@ const searchEmpty = computed(() => {
 	}
 	return view.step === "results" ? results.value.length === 0 : episodes.value.length === 0;
 });
-const searchEmptyText = computed(() =>
-	t(
-		searchView.value?.source === "girigiri"
-			? "room.danmaku.girigiri-empty"
-			: "room.danmaku.search-empty",
-	),
-);
+const searchEmptyText = computed(() => {
+	const girigiri = searchView.value?.source === "girigiri";
+	if (!girigiri) {
+		return t("room.danmaku.search-empty");
+	}
+	// A search that could not reach the source is not the same as a search that found
+	// nothing; telling a viewer their title is wrong when the site is down wastes their time.
+	return girigiriUnavailable.value
+		? t("room.danmaku.girigiri-unavailable")
+		: t("room.danmaku.girigiri-empty");
+});
 
 /** One search is shown at a time; closing it restores the sources page. */
 function closeSearch() {
@@ -696,10 +702,13 @@ function bindEpisode(episode: DanmakuEpisode) {
 async function runGirigiriSearch() {
 	clearGirigiriSelection();
 	girigiriResults.value = [];
+	girigiriUnavailable.value = false;
 	searchView.value = { source: "girigiri", step: "results" };
 	girigiriSearching.value = true;
 	try {
-		girigiriResults.value = await searchGirigiri(girigiriKeyword.value);
+		const outcome = await searchGirigiri(girigiriKeyword.value);
+		girigiriResults.value = outcome.results;
+		girigiriUnavailable.value = outcome.status === "unavailable";
 	} finally {
 		girigiriSearching.value = false;
 	}
@@ -708,10 +717,13 @@ async function runGirigiriSearch() {
 async function selectGirigiriShow(item: GirigiriSearchResult) {
 	girigiriShowTitle.value = item.name;
 	girigiriLines.value = [];
+	girigiriUnavailable.value = false;
 	searchView.value = { source: "girigiri", step: "episodes" };
 	girigiriSearching.value = true;
 	try {
-		girigiriLines.value = await fetchGirigiriEpisodes(item.id);
+		const outcome = await fetchGirigiriEpisodes(item.id);
+		girigiriLines.value = outcome.lines;
+		girigiriUnavailable.value = outcome.status === "unavailable";
 	} finally {
 		girigiriSearching.value = false;
 	}
@@ -720,6 +732,7 @@ async function selectGirigiriShow(item: GirigiriSearchResult) {
 function clearGirigiriSelection() {
 	girigiriShowTitle.value = "";
 	girigiriLines.value = [];
+	girigiriUnavailable.value = false;
 }
 
 function bindGirigiriEpisode(line: GirigiriLine, episode: GirigiriEpisode) {

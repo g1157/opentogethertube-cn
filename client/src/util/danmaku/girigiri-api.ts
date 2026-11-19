@@ -26,10 +26,21 @@ export interface GirigiriLine {
 	episodes: GirigiriEpisode[];
 }
 
-export async function searchGirigiri(keyword: string): Promise<GirigiriSearchResult[]> {
+/**
+ * A search either produced a list or the upstream could not be reached — the two are not
+ * the same thing to a viewer. The server answers 502 for an unreachable or malformed
+ * upstream and 200 with an empty list for a real miss, so `status` carries that through
+ * instead of collapsing both into "no results".
+ */
+export interface GirigiriSearchOutcome {
+	results: GirigiriSearchResult[];
+	status: "ok" | "unavailable";
+}
+
+export async function searchGirigiri(keyword: string): Promise<GirigiriSearchOutcome> {
 	const query = keyword.trim();
 	if (!query) {
-		return [];
+		return { results: [], status: "ok" };
 	}
 	try {
 		const response = await API.get<{ results?: GirigiriSearchResult[] }>(
@@ -37,22 +48,28 @@ export async function searchGirigiri(keyword: string): Promise<GirigiriSearchRes
 			{ params: { wd: query } },
 		);
 		const results = response.data?.results;
-		return Array.isArray(results) ? results : [];
+		return { results: Array.isArray(results) ? results : [], status: "ok" };
 	} catch {
-		// A search that cannot complete reads as "no results"; the panel says so.
-		return [];
+		// A request that cannot complete is reported as such; the panel says the source is
+		// unavailable rather than implying the show does not exist.
+		return { results: [], status: "unavailable" };
 	}
 }
 
-export async function fetchGirigiriEpisodes(id: number): Promise<GirigiriLine[]> {
+export interface GirigiriLinesOutcome {
+	lines: GirigiriLine[];
+	status: "ok" | "unavailable";
+}
+
+export async function fetchGirigiriEpisodes(id: number): Promise<GirigiriLinesOutcome> {
 	try {
 		const response = await API.get<{ lines?: GirigiriLine[] }>("/danmaku/girigiri/episodes", {
 			params: { id: String(id) },
 		});
 		const lines = response.data?.lines;
-		return Array.isArray(lines) ? lines : [];
+		return { lines: Array.isArray(lines) ? lines : [], status: "ok" };
 	} catch {
-		return [];
+		return { lines: [], status: "unavailable" };
 	}
 }
 
