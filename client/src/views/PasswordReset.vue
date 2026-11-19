@@ -89,9 +89,9 @@ async function submitPasswordReset() {
 			if (resp.data.token) {
 				store.commit("users/SET_AUTH_TOKEN", resp.data.token);
 			}
-			const resp = await API.get("/user");
-			if (resp.data.loggedIn) {
-				const user = resp.data;
+			const userResponse = await API.get("/user");
+			if (userResponse.data.loggedIn) {
+				const user = userResponse.data;
 				delete user.loggedIn;
 				store.commit("LOGIN", user);
 			} else {

@@ -37,10 +37,14 @@ const log = getLogger("infoextract");
 const ADD_PREVIEW_SEARCH_MIN_LENGTH = conf.get("add_preview.search.min_query_length");
 const ENABLE_SEARCH = conf.get("add_preview.search.enabled");
 
-function mergeVideo(a: Video, b: Video): Video {
+/** Exported for the regression test: the filter's handling of `false` is the contract. */
+export function mergeVideo(a: Video, b: Video): Video {
+	// `!!x` used to drop `false` along with null/undefined, so a probe that established
+	// `cors: false` never reached the client and every non-CORS source paid for a failing
+	// cross-origin attempt on each play. Only genuinely absent values may be skipped.
 	return Object.assign(
 		a,
-		_.pickBy(b, x => !!x),
+		_.omitBy(b, value => value === undefined || value === null),
 	);
 }
 

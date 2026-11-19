@@ -1761,6 +1761,11 @@ export class Room implements RoomState {
 		this.clearPlaybackStartTimer();
 		this.playbackPreparation = null;
 		this.resumeOnNextJoin = false;
+		// The visitor asked for this item explicitly (playNow, or a prepared dequeue), so
+		// the storage-restored "hand it over paused" marker must not survive into the next
+		// dequeue and freeze the clock there. Only play() used to clear it, which the
+		// prepared-start path never reaches.
+		this.restoredFromStorage = false;
 		this.playbackPosition = preparation.position;
 		this.isPlaying = true;
 		this._playbackStart = dayjs(startAt);
@@ -2419,20 +2424,29 @@ export class Room implements RoomState {
 	public async updateUser(request: UpdateUser, context: RoomRequestContext): Promise<void> {
 		this.log.debug(`User was updated: ${request.info.id} ${JSON.stringify(request.info)}`);
 		for (let i = 0; i < this.realusers.length; i++) {
-			if (this.realusers[i].id === request.info.id) {
-				await this.realusers[i].updateInfo(request.info);
-				// A viewer who recovered re-arms the gate for them.
-				if (request.info.status && request.info.status !== PlayerStatus.buffering) {
-					this.bufferGateExhausted.delete(request.info.id);
-				}
-				await this.syncUser(this.getUserInfo(this.realusers[i].id));
-				await this.finishPlaybackPreparation(
-					request.info.id,
-					request.info.status,
-					request.playbackPrepared,
-				);
-				break;
+			const member = this.realusers[i];
+			if (member.id !== request.info.id) {
+				continue;
 			}
+			// A status/diagnostics heartbeat arrives every few seconds per viewer, but only the
+			// fields in RoomUserInfo are visible to others. Broadcasting the full room user on
+			// every heartbeat turned into n²/5 messages per second in an n-viewer room.
+			const before = _.cloneDeep(this.getUserInfo(member.id));
+			await member.updateInfo(request.info);
+			// A viewer who recovered re-arms the gate for them.
+			if (request.info.status && request.info.status !== PlayerStatus.buffering) {
+				this.bufferGateExhausted.delete(request.info.id);
+			}
+			const after = this.getUserInfo(member.id);
+			if (!_.isEqual(before, after)) {
+				await this.syncUser(after);
+			}
+			await this.finishPlaybackPreparation(
+				request.info.id,
+				request.info.status,
+				request.playbackPrepared,
+			);
+			break;
 		}
 		await this.evaluateBufferGate();
 	}
@@ -2553,19 +2567,30 @@ export class Room implements RoomState {
 					this._playbackStart = dayjs();
 				}
 				break;
-			case RoomRequestType.AddRequest:
+			case RoomRequestType.AddRequest: {
 				this.grants.check(context.role, "manage-queue.remove");
-				if (this.queue.length > 0 && event.request.video) {
-					const removeReq: RemoveRequest = {
-						type: RoomRequestType.RemoveRequest,
-						video: event.request.video,
-					};
-					await this.processRequest(removeReq, context);
-				} else {
-					this.grants.check(context.role, "playback.skip");
-					this.currentSource = null;
+				// A batch add records `additional.videos` and has no `request.video`, so the
+				// old single-video check fell through to clearing `currentSource` — undoing a
+				// batch deleted whatever was playing and kept every video it added.
+				const added =
+					event.additional.videos ?? (event.request.video ? [event.request.video] : []);
+				const undoable = added.filter(video => this.isVideoInQueue(video));
+				if (undoable.length > 0) {
+					for (const video of undoable) {
+						const removeReq: RemoveRequest = {
+							type: RoomRequestType.RemoveRequest,
+							video,
+						};
+						await this.processRequest(removeReq, context);
+					}
+					break;
 				}
+				// Nothing of the add is still in the queue: only then does the room fall back
+				// to dropping the item that is playing.
+				this.grants.check(context.role, "playback.skip");
+				this.currentSource = null;
 				break;
+			}
 			case RoomRequestType.RemoveRequest:
 				this.grants.check(context.role, "manage-queue.add");
 				this.grants.check(context.role, "manage-queue.order");

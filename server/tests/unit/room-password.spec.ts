@@ -3,6 +3,7 @@ import { Room } from "../../room.js";
 import { buildClients } from "../../redisclient.js";
 import {
 	grantRoomAccess,
+	getTemporaryRoomPasswordHash,
 	hasRoomAccess,
 	setRoomPassword,
 	verifyRoomPassword,
@@ -72,5 +73,33 @@ describe("room password", () => {
 		await setRoomPassword(room, null);
 		expect(room.hasPassword).toBe(false);
 		expect(await hasRoomAccess(room, guestToken, guestSession)).toBe(true);
+	});
+
+	/**
+	 * A temporary room has no Postgres row and the Redis snapshot deliberately omits
+	 * password material, so the hash used to live only in memory. Every restart therefore
+	 * reopened a private temporary room to everyone.
+	 */
+	it("keeps a temporary room's password across a process restart", async () => {
+		await setRoomPassword(room, "hunter22");
+		const stored = await getTemporaryRoomPasswordHash(room.name);
+		expect(stored).toBe(room.passwordHash);
+
+		// The room object is gone; only what reached storage may be used to rebuild it.
+		room.throttledSync.cancel();
+		room.saveStateToRedisDebounced.cancel();
+		const rebuilt = new Room({ name: room.name, isTemporary: true });
+		vi.spyOn(rebuilt, "publish").mockResolvedValue(undefined);
+		rebuilt.setPasswordHash(await getTemporaryRoomPasswordHash(rebuilt.name));
+		expect(rebuilt.hasPassword).toBe(true);
+		expect(await hasRoomAccess(rebuilt, guestToken, guestSession)).toBe(false);
+		expect(await verifyRoomPassword(rebuilt, "hunter22")).toBe(true);
+		await rebuilt.onBeforeUnload();
+	});
+
+	it("forgets the stored hash when a temporary room's password is removed", async () => {
+		await setRoomPassword(room, "hunter22");
+		await setRoomPassword(room, null);
+		await expect(getTemporaryRoomPasswordHash(room.name)).resolves.toBeNull();
 	});
 });

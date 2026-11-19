@@ -53,6 +53,17 @@ function grantKey(room: Room, token: AuthToken): string {
 	return `room-password:${room.name}:${version}:${token}`;
 }
 
+/**
+ * A temporary room has no Postgres row, and the Redis room snapshot deliberately omits
+ * password material (`RoomStateStorable`), so its hash used to die with the process — a
+ * private temporary room came back from a restart unlocked. Keep the hash in its own key
+ * instead, next to the snapshot rather than inside it, so the "never sync, never store in
+ * the snapshot" rule still holds. The key follows the same lifetime as `room:<name>`.
+ */
+export function temporaryPasswordKey(roomName: string): string {
+	return `room-password-hash:${roomName.toLowerCase()}`;
+}
+
 export async function setRoomPassword(room: Room, password: string | null): Promise<void> {
 	const hash = password === null ? null : await withPasswordHashSlot(() => argon2.hash(password));
 	if (!room.isTemporary) {
@@ -60,8 +71,25 @@ export async function setRoomPassword(room: Room, password: string | null): Prom
 		if (!updated) {
 			throw new Error(`Failed to persist the password for room ${room.name}`);
 		}
+	} else if (hash === null) {
+		await redisClient.del(temporaryPasswordKey(room.name));
+	} else {
+		await redisClient.set(temporaryPasswordKey(room.name), hash, {
+			EX: conf.get("room.expire_after"),
+		});
 	}
 	room.setPasswordHash(hash);
+}
+
+/** Restore a temporary room's password after a restart; null when it had none. */
+export async function getTemporaryRoomPasswordHash(roomName: string): Promise<string | null> {
+	try {
+		return await redisClient.get(temporaryPasswordKey(roomName));
+	} catch (e) {
+		// Fail closed: a lookup error must not load a locked room as if it had no password.
+		log.error(`Failed to read the temporary room password for ${roomName}: ${e}`);
+		throw e;
+	}
 }
 
 export async function verifyRoomPassword(room: Room, password: string): Promise<boolean> {

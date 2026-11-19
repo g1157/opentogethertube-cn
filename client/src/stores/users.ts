@@ -20,6 +20,31 @@ export interface UsersState {
 /** The grant currently in flight, so overlapping callers share one identity instead of two. */
 let pendingGrant: Promise<void> | null = null;
 
+/**
+ * Storage is not always writable: private browsing and storage-quota errors throw from
+ * setItem, and reading can throw too when access is blocked. A thrown write used to abort
+ * the password-reset flow after the server had already changed the password.
+ */
+function readToken(): string | null {
+	try {
+		return window.localStorage.getItem("token");
+	} catch {
+		return null;
+	}
+}
+
+function writeToken(token: string | null): void {
+	try {
+		if (token === null) {
+			window.localStorage.removeItem("token");
+		} else {
+			window.localStorage.setItem("token", token);
+		}
+	} catch {
+		// The token still lives in memory for this session; only persistence is lost.
+	}
+}
+
 export const usersModule: Module<UsersState, FullOTTStoreState> = {
 	namespaced: true,
 	state: {
@@ -30,7 +55,7 @@ export const usersModule: Module<UsersState, FullOTTStoreState> = {
 	},
 	getters: {
 		token(): string | null {
-			return window.localStorage.getItem("token");
+			return readToken();
 		},
 		self(state): RoomUserInfo | undefined {
 			return state.users.get(state.you.id);
@@ -58,7 +83,7 @@ export const usersModule: Module<UsersState, FullOTTStoreState> = {
 			state.you = payload.info;
 		},
 		SET_AUTH_TOKEN(_state, token: string) {
-			window.localStorage.setItem("token", token);
+			writeToken(token);
 		},
 	},
 	actions: {
@@ -94,7 +119,7 @@ export const usersModule: Module<UsersState, FullOTTStoreState> = {
 				// Re-present the stored token so the server returns the same identity instead of
 				// minting a fresh guest on every load (which splits a browser's tabs into separate
 				// users and resets the nickname). The server mints a new one if it is invalid.
-				const existing = window.localStorage.getItem("token")?.trim();
+				const existing = readToken()?.trim();
 				// The generated guest nickname follows this header, so send the chosen UI language
 				// instead of relying on the browser's own Accept-Language.
 				const resp = await API.get("/auth/grant", {

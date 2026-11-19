@@ -2,6 +2,7 @@ import _ from "lodash";
 import { getLogger } from "../logger.js";
 import roommanager from "../roommanager.js";
 import { Visibility, type RoomSettings } from "ott-common/models/types.js";
+import type { VideoAdd } from "ott-common/models/video.js";
 import { consumeRateLimitPoints } from "../rate-limit.js";
 import {
 	BadApiArgumentException,
@@ -494,14 +495,19 @@ const addToQueue: RequestHandler<
 			url: body.url,
 		};
 	} else {
+		// Do not emit a `subtitleUrl: undefined` key: the room stores what it is given and
+		// undo echoes are matched with _.isEqual, where a present-but-undefined key never
+		// equals an absent one — which made every single-video undo fail to match.
+		const video: VideoAdd = {
+			service: body.service,
+			id: body.id,
+		};
+		if (body.subtitleUrl != null) {
+			video.subtitleUrl = body.subtitleUrl;
+		}
 		roomRequest = {
 			type: RoomRequestType.AddRequest,
-			video: {
-				service: body.service,
-				id: body.id,
-				// null means "no subtitle"; the room only ever stores strings.
-				subtitleUrl: ("subtitleUrl" in body ? body.subtitleUrl : undefined) ?? undefined,
-			},
+			video,
 		};
 	}
 

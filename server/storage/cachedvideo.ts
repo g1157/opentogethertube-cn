@@ -41,6 +41,7 @@ export async function getVideoInfo(service: VideoService, id: string): Promise<V
 export async function getManyVideoInfo(videos) {
 	const { or, and } = Sequelize.Op;
 
+	const identities = videos.map(video => ({ service: video.service, id: video.id }));
 	videos = videos.map(video => {
 		video = _.cloneDeep(video);
 		video.serviceId = video.id;
@@ -58,17 +59,22 @@ export async function getManyVideoInfo(videos) {
 				}),
 			},
 		});
-		if (videos.length !== foundVideos.length) {
-			for (const video of videos) {
-				if (!_.find(foundVideos, video)) {
-					foundVideos.push(video);
+		const cached = foundVideos.map(filterVideoInfo);
+		if (identities.length !== cached.length) {
+			// A miss returns the bare identity only. Pushing the caller's own object into the
+			// result made filterVideoInfo read its title/thumbnail/length as if they were
+			// database columns, and infoextractor then wrote them into CachedVideos — so any
+			// viewer allowed to add a video could plant metadata for every room on the server.
+			for (const identity of identities) {
+				if (!_.find(cached, identity)) {
+					cached.push({ ...identity });
 				}
 			}
 		}
-		return foundVideos.map(filterVideoInfo);
+		return cached;
 	} catch (err) {
 		log.warn(`Cache failure ${err}`);
-		return videos;
+		return identities.map(identity => ({ ...identity }));
 	}
 }
 
