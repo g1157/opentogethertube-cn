@@ -38,9 +38,10 @@ const ADD_PREVIEW_SEARCH_MIN_LENGTH = conf.get("add_preview.search.min_query_len
 const ENABLE_SEARCH = conf.get("add_preview.search.enabled");
 
 function mergeVideo(a: Video, b: Video): Video {
+	// False and zero are explicit metadata; keep the other missing-value fallbacks.
 	return Object.assign(
 		a,
-		_.pickBy(b, x => !!x),
+		_.pickBy(b, x => !!x || x === false || x === 0),
 	);
 }
 

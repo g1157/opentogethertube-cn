@@ -4,29 +4,30 @@
 
 -   基线：`f240d98`（main）。此前执行 `git pull --ff-only`，从 `a398b0d` 更新。
 -   前一批 47 个文件的修复已包含在 `e5a6a8e`（`win`）；续审恢复时该提交已存在，本批不重做或 amend。本文记录本地提交与验证，没有推送、发布镜像或访问生产。
--   登录限流与角色/房主快照续审已分别提交为 `020ba72`、`4f60d82`；批量媒体准入已提交为 `e235e95`；ffprobe 准入续审基于 `e235e95`，修复与验证随本文记录。
+-   登录限流与角色/房主快照续审已分别提交为 `020ba72`、`4f60d82`；批量媒体准入已提交为 `e235e95`；ffprobe 准入已提交为 `ad2ea9e`；元数据明示值合并续审基于该提交，修复与验证随本文记录。
 -   原有 `.gitignore` 的 `.ace-tool/` 改动已随前批保留。续审初始工作区干净，逐文件核对前批 47 个文件与已验证快照一致；这不足以证明系统没有其他写入进程，未终止其他 Codex 会话。
 -   用户七分区报告是发现线索。这里只把已复核且有回归验证的条目标记为“已修”；不宣称整个仓库没有 Critical，也不宣称约 30 条中低严重度已全部审清。
 -   语义检索连续两次网络失败后采用源码、Git 差异/历史与实际测试。运行结果优先于注释及旧报告。
 
 ## 已闭环条目
 
-| 编号 | 来源分级 | 修复与条件                                                                                                                | 主要证据                                                                                                                                                              |
-| ---- | -------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| N01  | 高       | shutdown / unload 等批量断开遍历数组快照，避免同步删除跳过相邻连接                                                        | [clientmanager](../server/clientmanager.ts)、[真实 DirectClient 回归](../server/tests/unit/client-broadcast-lifecycle.spec.ts)                                        |
-| N02  | 高       | 广播与心跳扫描使用快照，慢连接超过 8 MiB 积压被同步切断后不再漏掉下一位观众                                               | 同上；相关连接套件 48 项通过                                                                                                                                          |
-| N03  | 高       | PeerTube / Invidious service/id 执行实例策略；metadata 先检查公网，再按 2 MiB / 5s / 零隐式跳转抓取                       | [实例 ID 解析](../server/services/parsing/instance-video-id.ts)、[边界回归](../server/tests/unit/services/adapters-network-boundaries.spec.ts)                        |
-| N04  | 高       | Reddit 真实域名边界校验、内部入口再次验证、ID 拒绝路径注入，使用 HTTPS canonical endpoint                                 | [Reddit](../server/services/reddit.ts)、同上                                                                                                                          |
-| N05  | 高       | HLS 主清单与选中变体均用 2 MiB / 5s 的有界请求                                                                            | [HLS](../server/services/hls.ts)、[manifest helper](../server/services/parsing/manifest-fetch.ts)                                                                     |
-| N06  | 高       | 只有最高稳定标签 push 且 commit 在默认分支历史中才提升 latest；写权限仅给 publish job                                     | [workflow](../.github/workflows/publish-image.yml)、[策略](../scripts/image-release-policy.mjs)、[14 项策略/Git 回归](../scripts/tests/image-release-policy.test.mjs) |
-| N07  | 中       | recovery start / verify 被限流立即返回，不继续读账号、建验证码、发邮件或改密                                              | [usermanager](../server/usermanager.ts)、[独立边界回归](../server/tests/unit/account-recovery-rate-limit.spec.ts)                                                     |
-| N08  | 中       | 匿名列表的加载中及已保存密码房返回 currentSource: null；有效管理 API key 保留片源可见性                                   | [room API](../server/api/room.ts)、[列表/创建回归](../server/tests/unit/api/room-list-privacy.spec.ts)                                                                |
-| N09  | 中       | 建房 description 与设置接口统一为 5000 字符上限，超限在建房前拒绝                                                         | [schema](../common/models/zod-schemas.ts)、[公共校验回归](../common/tests/unit/room-validation.spec.ts)                                                               |
-| N10  | 中       | SW 拒绝缓存 HTML/XHTML/缺类型的 200 回退；v3 清理本应用旧缓存，保留其他 scope                                             | [sw.js](../client/public/sw.js)、[VM 回归](../client/tests/unit/service-worker-cache.spec.ts)                                                                         |
-| N11  | 中       | 登录前依次预占小写用户名/IP 与每日 IP 配额；拒绝用户名不扣 IP，部分失败只退款已成功预占，成功不清空其他账号的 IP 失败分数 | [usermanager](../server/usermanager.ts)、[18 项登录准入回归](../server/tests/unit/login-rate-limit-admission.spec.ts)                                                 |
-| N12  | 中       | 私有 userRoles 纳入内部脏状态，hasOwner 触发 owner 快照；正常检查点完成后恢复不再回滚角色/房主，未消除防抖与崩溃窗口      | [room](../server/room.ts)、[11 项访问状态恢复回归](../server/tests/unit/room-access-persistence.spec.ts)                                                              |
-| N13  | 中       | 批量适配器拒绝的条目不再补回；缓存仅接收 service/id，非缓存安全服务必做准入；按原服务/ID 回配并保留改 ID 别名             | [提取器](../server/infoextractor.ts)、[基础适配器](../server/serviceadapter.ts)、[14 项回归](../server/tests/unit/batch-video-admission.spec.ts)                      |
-| N14  | 中       | ffprobe 保留 4 个已占用槽位直接交接；最多 32 个排队项、5 秒等候预算；过期项不再启动，准入失败不缓存为媒体失败             | [ffprobe](../server/ffprobe.ts)、[14 项准入回归](../server/tests/unit/ffprobe-admission.spec.ts)                                                                      |
+| 编号 | 来源分级   | 修复与条件                                                                                                                | 主要证据                                                                                                                                                              |
+| ---- | ---------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| N01  | 高         | shutdown / unload 等批量断开遍历数组快照，避免同步删除跳过相邻连接                                                        | [clientmanager](../server/clientmanager.ts)、[真实 DirectClient 回归](../server/tests/unit/client-broadcast-lifecycle.spec.ts)                                        |
+| N02  | 高         | 广播与心跳扫描使用快照，慢连接超过 8 MiB 积压被同步切断后不再漏掉下一位观众                                               | 同上；相关连接套件 48 项通过                                                                                                                                          |
+| N03  | 高         | PeerTube / Invidious service/id 执行实例策略；metadata 先检查公网，再按 2 MiB / 5s / 零隐式跳转抓取                       | [实例 ID 解析](../server/services/parsing/instance-video-id.ts)、[边界回归](../server/tests/unit/services/adapters-network-boundaries.spec.ts)                        |
+| N04  | 高         | Reddit 真实域名边界校验、内部入口再次验证、ID 拒绝路径注入，使用 HTTPS canonical endpoint                                 | [Reddit](../server/services/reddit.ts)、同上                                                                                                                          |
+| N05  | 高         | HLS 主清单与选中变体均用 2 MiB / 5s 的有界请求                                                                            | [HLS](../server/services/hls.ts)、[manifest helper](../server/services/parsing/manifest-fetch.ts)                                                                     |
+| N06  | 高         | 只有最高稳定标签 push 且 commit 在默认分支历史中才提升 latest；写权限仅给 publish job                                     | [workflow](../.github/workflows/publish-image.yml)、[策略](../scripts/image-release-policy.mjs)、[14 项策略/Git 回归](../scripts/tests/image-release-policy.test.mjs) |
+| N07  | 中         | recovery start / verify 被限流立即返回，不继续读账号、建验证码、发邮件或改密                                              | [usermanager](../server/usermanager.ts)、[独立边界回归](../server/tests/unit/account-recovery-rate-limit.spec.ts)                                                     |
+| N08  | 中         | 匿名列表的加载中及已保存密码房返回 currentSource: null；有效管理 API key 保留片源可见性                                   | [room API](../server/api/room.ts)、[列表/创建回归](../server/tests/unit/api/room-list-privacy.spec.ts)                                                                |
+| N09  | 中         | 建房 description 与设置接口统一为 5000 字符上限，超限在建房前拒绝                                                         | [schema](../common/models/zod-schemas.ts)、[公共校验回归](../common/tests/unit/room-validation.spec.ts)                                                               |
+| N10  | 中         | SW 拒绝缓存 HTML/XHTML/缺类型的 200 回退；v3 清理本应用旧缓存，保留其他 scope                                             | [sw.js](../client/public/sw.js)、[VM 回归](../client/tests/unit/service-worker-cache.spec.ts)                                                                         |
+| N11  | 中         | 登录前依次预占小写用户名/IP 与每日 IP 配额；拒绝用户名不扣 IP，部分失败只退款已成功预占，成功不清空其他账号的 IP 失败分数 | [usermanager](../server/usermanager.ts)、[18 项登录准入回归](../server/tests/unit/login-rate-limit-admission.spec.ts)                                                 |
+| N12  | 中         | 私有 userRoles 纳入内部脏状态，hasOwner 触发 owner 快照；正常检查点完成后恢复不再回滚角色/房主，未消除防抖与崩溃窗口      | [room](../server/room.ts)、[11 项访问状态恢复回归](../server/tests/unit/room-access-persistence.spec.ts)                                                              |
+| N13  | 中         | 批量适配器拒绝的条目不再补回；缓存仅接收 service/id，非缓存安全服务必做准入；按原服务/ID 回配并保留改 ID 别名             | [提取器](../server/infoextractor.ts)、[基础适配器](../server/serviceadapter.ts)、[14 项回归](../server/tests/unit/batch-video-admission.spec.ts)                      |
+| N14  | 中         | ffprobe 保留 4 个已占用槽位直接交接；最多 32 个排队项、5 秒等候预算；过期项不再启动，准入失败不缓存为媒体失败             | [ffprobe](../server/ffprobe.ts)、[14 项准入回归](../server/tests/unit/ffprobe-admission.spec.ts)                                                                      |
+| N15  | 中（续审） | 明示 cors/isLive:false 与 length:0 不再被合并过滤；保持原有其他空值回退、批量别名与队列 extras 行为                       | [提取器](../server/infoextractor.ts)、[16 项合并回归](../server/tests/unit/metadata-merge.spec.ts)                                                                    |
 
 “已修”指源码及对应自动化回归成立，可信度高；外部平台兼容性、真实浏览器、Docker 与线上效果尚未验证，不能宣称生产修复已完成。
 
@@ -119,6 +120,18 @@
 
 边界：准入回归调用真实 `probeMediaInfo`，策略执行及时间受控，未以 5 个真实 ffprobe 子进程验证竞争；针对性检查还包含已有本机 HTTP Range / 实际 ffprobe 集成测试，没有外部媒体或生产请求。5 秒预算只限制等待槽位，不是整个探测调用的总超时；已有子进程超时、64 条缓存策略及其他网络阶段未改，不新增调用方 AbortSignal 或运行中取消接口。32 个等待项是本批采用的固定保护策略，未做生产压测、多实例总量限制或滞留子进程实测；DNS/实际连接地址闭环与后续资源出站仍未解决。
 
+### 元数据明示 false/0 合并续审（2026-11-20，基于 `ad2ea9e`）
+
+-   最终同一夹具在未改动的提取器源码上为 **13 项预期失败 / 3 项通过**；明确返回的 `cors/isLive:false` 被旧 `true` 覆盖、`length:0` 被旧 `120` 覆盖，或新的 `cors:false` 直接消失，均已实际复现。修复后的新回归 **16 全部通过**，连同既有批量准入和 Direct 适配器为 **75 通过**。
+-   只调整合并谓词为保留原有 truthy 值及明示 `false` / `0`，不把空字符串、null、undefined 或其他原先过滤的值改为覆盖值。单条同服务、批量及批量改 service/id 的别名路径都能保留明示值；现有 `startAt:0`、endAt、字幕等队列 extras 和批量调用方对象不变。
+-   实际 Direct 适配器参与 MIME/时长处理和 `cors:false` 输出，文件探测与访问判定入口分别受控；受控缓存安全适配器的更新钩子也能收到 `false` / `0`，但并未验证实际 SQL 写入/重读或浏览器播放。
+-   新夹具最初误把 `probeMediaAccess` 当成 ffprobe 模块的导出，完整 tsc 发现错误；核对 Direct 的真实 import 后改从 `services/media-access` mock，再经完整服务端编译及局部 ESLint 退出 0 后执行上述基线。不把夹具编译错误算作项目缺陷。
+
+-   完整 `yarn lint-ci`、`yarn build` 退出 0；新迁移隔离 SQLite 的 `yarn test` 退出 0，用时 **3 分 59 秒**。服务端 **1207**、客户端 **1108 / 24 跳过**、common **103**、Edge **30**、ott-vis **2**、发布 tooling **14**，最新合计 **2464 通过 / 24 跳过**，不累加此前针对性或全量检查。
+-   **956 个验证输入文件**在最终全仓 lint/build/test 期间哈希未变；之后只补充本文结果。原 test.sqlite 的 `F68832B5…` 与 development.sqlite 的 `DA35A40B…` 完整 SHA-256 均保持不变，隔离库和恢复证明位于 `metadata-merge-followup/`。
+
+边界：SQL 读写和两路 Direct 探测分别 mock，没有发外部 HTTP/DNS 请求或启动 ffprobe。缓存序列化当前不包含 cors/isLive，`filterVideoInfo` 与缺字段判断仍按 truthy 处理，零时长的缓存重读/重复抓取问题未修；适配器省略某可选字段时仍保留原值，不能把本批解释为所有客户端元数据的权威覆盖或空字符串清除语义修复。未验证真实来源 CORS、浏览器回退、直播/VOD 转换、持久化兼容性或生产影响。
+
 ### Rust 结果与限制
 
 Windows / Rust 1.89 MSVC：fmt、all-target/all-feature check、严格 clippy、严格 rustdoc 通过；非 harness 单测 41 项及文档测试 1 项通过。
@@ -129,7 +142,7 @@ Windows / Rust 1.89 MSVC：fmt、all-target/all-feature check、严格 clippy、
 
 1. 出站闭环：DNS 校验与实际连接仍未固定同一解析地址；ffprobe 后续资源、其他适配器需继续审查。禁止跳转后的真实 PeerTube / Invidious / Reddit 兼容性未做外部端到端验证。
 2. 账号/权限：并发登录准入与用户名大小写桶已按 N11 闭环，角色/房主触发快照与正常检查点恢复已按 N12 验证；真实 Redis 多实例、保存失败与崩溃窗口、其他会话吊销、Discord 绑定与 OAuth state、IPv6 /64 限流仍待逐项验证。
-3. 媒体/队列：批量失败输入复原、客户端元数据绕过与原服务/id 回配已按 N13 修复并回归。ffprobe 等候队列预算与交接竞争已按 N14 修复并回归；元数据 false/0 合并、历史缓存数据与真实平台兼容性、DASH 年/月时长、主动小 seek、权限继承及 Undo 副作用仍未闭环。
+3. 媒体/队列：批量失败输入复原、客户端元数据绕过与原服务/id 回配已按 N13 修复并回归。ffprobe 等候队列预算与交接竞争已按 N14 修复并回归；明示 false/0 合并已按 N15 修复；零值缓存重读/缺字段判断、可选字段省略时的旧值、历史缓存数据与真实平台兼容性、DASH 年/月时长、主动小 seek、权限继承及 Undo 副作用仍未闭环。
 4. 客户端：后台准备回执、字幕遮罩、对象引用重置、设置权限快照回滚、Direct probe 晚到结果、WebGPU 分辨率切换、iOS 全屏手势仍待验证；不以 mock 单测替代真机结论。
 5. 运维/周边：便签大小写、Redis 键规范、备份 .partial、原报告中的公开地址、Rust scheduler 竞争及 collector 边界尚未全部复核。
 6. 未覆盖的完整模块仍包括原报告列出的历史迁移、deploy/migrate、docker 脚本、部分平台适配器、播放器/controls 模板、film 增强、Rust selection/state_stream/harness、Grafana panel 内部等。读取某入口或运行已有测试不等于逐行审清该模块。
@@ -159,4 +172,4 @@ cargo test --workspace --exclude harness --exclude harness-tests --all-features 
 
 不要改动或格式化 Vitest 正在生成的 tsconfig.vitest-temp.json。全仓 lint / build / test 顺序执行，避免临时文件竞态误判。
 
-原始日志、差异检查点、数据库恢复证明保存在本地 `.git/codex-review-2026-11-19/`，登录、角色快照、批量媒体与 ffprobe 续审分别位于其 `login-followup/`、`room-access-followup/`、`batch-media-followup/` 和 `ffprobe-followup/` 目录，不提交数据库或本地日志。完整 fetch 依据与 GitHub 事件变量含义分别对照 [actions/checkout v4 README](https://github.com/actions/checkout/tree/v4#usage) 与 [GitHub Actions variables](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)（访问日期：2026-11-19）。
+原始日志、差异检查点、数据库恢复证明保存在本地 `.git/codex-review-2026-11-19/`，登录、角色快照、批量媒体、ffprobe 与元数据合并续审分别位于其 `login-followup/`、`room-access-followup/`、`batch-media-followup/`、`ffprobe-followup/` 和 `metadata-merge-followup/` 目录，不提交数据库或本地日志。完整 fetch 依据与 GitHub 事件变量含义分别对照 [actions/checkout v4 README](https://github.com/actions/checkout/tree/v4#usage) 与 [GitHub Actions variables](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)（访问日期：2026-11-19）。
