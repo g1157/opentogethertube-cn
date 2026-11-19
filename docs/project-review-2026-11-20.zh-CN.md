@@ -33,11 +33,19 @@
     等，非本次引入）。
 -   `yarn build` 退出 0。
 -   `yarn test`：服务端 **1218 通过**（含远端 5 个提交新增的 1300+ 行回归），客户端
-    **1112 / 24 跳过**，common **103**，ott-vis **2**。
+    **1112 / 24 跳过**，common **103**，ott-vis **2**，ott-edge **31**。
 -   交叉验证合并语义：`metadata-merge` 16 项、`batch-video-admission` 14 项、
     `room-pipeline-regressions` 5 项，合计 35 项通过，说明两边的断言互相兼容。
 -   服务端内部类改动的两处共存已核实：远端的 `RoomDirtyProp` 与 `markDirty("userRoles")`
     仍在，本地的 `restoredFromStorage` 清零与 `additional.videos` 批量撤销仍在。
+
+## 合并过程中的自我修正
+
+首轮 cherry-pick 只挑了 `main` 的 3 个提交，漏掉 `6e5e1cee`（构建产物清理、ott-edge `ping`、
+均衡器 panic、CI 缓存、备份 `.partial`）。发现方式：合并后单独核对 edge 测试数量，期望 31 项
+却只有 30 项，追查到 `packages/ott-edge/src/room-object.ts` 里没有任何 `ping` 分支——之前一次
+`grep -c "ping"` 的计数来自其他字符串，被误读为已包含。该提交随后补入，冲突仅在版本记录，
+两边条目共存。教训：cherry-pick 后应按主题逐条核对功能是否真的在场，而不是按提交数量判断。
 
 ## 未解决或未验证
 
