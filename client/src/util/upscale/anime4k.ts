@@ -165,10 +165,15 @@ export async function startAnime4KRenderer(
 			}
 		});
 		device.onuncapturederror = event => {
-			if (!stopped) {
-				reportEnhancementError(event.error.message);
-				loop?.fail(event.error.message);
+			if (stopped) {
+				return;
 			}
+			// A single uncaptured error is not proof the tier is dead: a driver can report one
+			// validation complaint and keep drawing the frames. Only record the cause here (the
+			// playback details panel shows it). A device that really gave up reports through
+			// `device.lost`, and a draw that keeps throwing stands the loop down on its own.
+			console.error("[video-enhancement] uncaptured WebGPU error:", event.error.message);
+			reportEnhancementError(event.error.message);
 		};
 
 		/**

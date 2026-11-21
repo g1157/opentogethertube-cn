@@ -698,4 +698,94 @@ describe("enhancement layer lifecycle", () => {
 		expect(drivers.sharpen).toHaveBeenCalledTimes(1);
 		expect(canvas.width).toBeGreaterThan(before[0]);
 	});
+
+	it("resizes a WebGL CNN in place when the viewport changes", async () => {
+		// The WebGL2 chains read the canvas size every frame and re-plan for it, so a viewport
+		// change is a canvas resize — not a reason to delete a context and re-link the whole
+		// chain (55 programs for the HQ tier). Rebuilding there froze the picture once per
+		// fullscreen toggle and once per window drag.
+		const { video } = fakeVideo();
+		Object.defineProperties(video, {
+			paused: { value: true },
+			videoWidth: { value: 1280 },
+			videoHeight: { value: 720 },
+		});
+		const live = renderer();
+		drivers.anime4kUltra.mockReturnValueOnce(live);
+		const { wrapper } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "anime4k-ultra" },
+		});
+		await settle();
+		const canvas = wrapper.find("canvas").element as HTMLCanvasElement;
+		const before = [canvas.width, canvas.height];
+
+		resizeVideo(video, 2560, 1440);
+		window.dispatchEvent(new Event("resize"));
+		await settle();
+		await new Promise(resolve => setTimeout(resolve, 300));
+		await settle();
+
+		expect(drivers.anime4kUltra).toHaveBeenCalledTimes(1);
+		expect(canvas.width).toBeGreaterThan(before[0]);
+		expect(live.redraw).toHaveBeenCalled();
+	});
+
+	it("resizes a WebGL CNN in place when the source rendition changes", async () => {
+		// An HLS/DASH ladder switch changes videoWidth/videoHeight without a window resize. The
+		// WebGL2 chain re-plans per frame, so this must not tear down the pipeline: every
+		// variant switch would otherwise re-link the chain and restart the frame loop.
+		const { video } = fakeVideo();
+		Object.defineProperties(video, {
+			paused: { value: true },
+			videoWidth: { value: 1280 },
+			videoHeight: { value: 720 },
+		});
+		const live = renderer();
+		drivers.anime4kUltra.mockReturnValueOnce(live);
+		const { wrapper } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "anime4k-ultra" },
+		});
+		await settle();
+		const canvas = wrapper.find("canvas").element as HTMLCanvasElement;
+
+		switchVariant(video, 1920, 1080);
+		await new Promise(resolve => setTimeout(resolve, 300));
+		await settle();
+
+		expect(drivers.anime4kUltra).toHaveBeenCalledTimes(1);
+		expect([canvas.width, canvas.height]).toEqual([1920, 1080]);
+		expect(live.redraw).toHaveBeenCalled();
+	});
+
+	it("keeps the AI tier on its WebGL2 fallback across a viewport change", async () => {
+		// On the machines the AI tiers fall back on (no usable WebGPU), the running pipeline is
+		// a WebGL2 chain and therefore resizable in place. Deciding by tier name alone would
+		// rebuild the S / HQ chain here — the very case this fallback exists to serve.
+		drivers.probe.mockImplementation(() => Promise.resolve(false));
+		const { video } = fakeVideo();
+		Object.defineProperties(video, {
+			paused: { value: true },
+			videoWidth: { value: 1280 },
+			videoHeight: { value: 720 },
+		});
+		const live = renderer();
+		drivers.anime4kWebGL.mockReturnValueOnce(live);
+		const { wrapper } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "anime4k" },
+		});
+		await settle();
+		expect(drivers.anime4kWebGL).toHaveBeenCalledTimes(1);
+		const canvas = wrapper.find("canvas").element as HTMLCanvasElement;
+		const before = [canvas.width, canvas.height];
+
+		resizeVideo(video, 2560, 1440);
+		window.dispatchEvent(new Event("resize"));
+		await settle();
+		await new Promise(resolve => setTimeout(resolve, 300));
+		await settle();
+
+		expect(drivers.anime4kWebGL).toHaveBeenCalledTimes(1);
+		expect(canvas.width).toBeGreaterThan(before[0]);
+		expect(live.redraw).toHaveBeenCalled();
+	});
 });

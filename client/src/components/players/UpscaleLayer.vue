@@ -46,6 +46,12 @@ const BAD_WINDOWS_BEFORE_DEGRADE = 2;
 
 let renderer: UpscaleRenderer | null = null;
 let canvas: HTMLCanvasElement | null = null;
+/**
+ * Whether the running pipeline captured its output size at build time. Only the WebGPU
+ * presets do; the WebGL2 chains (including the AI tiers when WebGPU is unavailable) read
+ * the canvas every frame, so they are resized rather than rebuilt.
+ */
+let capturedTarget = false;
 let generation = 0;
 let startAbort: AbortController | undefined;
 let captionTimer: ReturnType<typeof setInterval> | undefined;
@@ -98,6 +104,7 @@ function acquireCanvas(kind: CanvasKind): HTMLCanvasElement | null {
 	return element;
 }
 
+/** Sizes the target for the current source and box the picture is displayed in. */
 function sizeCanvas(video: HTMLVideoElement, target: HTMLCanvasElement) {
 	const box = video.getBoundingClientRect();
 	const size = computeCanvasSize({
@@ -349,15 +356,18 @@ function handleViewportChange() {
 	if (!renderer || !video || !canvas) {
 		return;
 	}
-	if (props.mode === "sharpen") {
-		// The sharpen pass reads the canvas size every frame, so a resize is enough.
+	if (!capturedTarget) {
+		// The WebGL2 chains take their render size straight from the canvas every frame, so
+		// resizing it is all a viewport change needs. Rebuilding them re-links the whole chain
+		// (55 programs for the HQ tier) and restarts the frame loop for a size the running
+		// pipeline already reads.
 		sizeCanvas(video, canvas);
 		renderer.redraw?.();
 		return;
 	}
-	// Anime4K captures its target size when the pipeline is built, so entering fullscreen
-	// (or resizing the window) has to rebuild it — otherwise the canvas keeps the old
-	// resolution and the browser stretches it, which loses exactly what the tier bought.
+	// The WebGPU presets capture their target size when the pipeline is built, so entering
+	// fullscreen (or resizing the window) has to rebuild them — otherwise the canvas keeps the
+	// old resolution and the browser stretches it, which loses exactly what the tier bought.
 	if (viewportTimer !== undefined) {
 		clearTimeout(viewportTimer);
 	}
@@ -378,6 +388,7 @@ function stopRenderers() {
 	renderer?.stop();
 	renderer = null;
 	canvas = null;
+	capturedTarget = false;
 	if (captionTimer !== undefined) {
 		clearInterval(captionTimer);
 		captionTimer = undefined;
@@ -474,6 +485,8 @@ async function start() {
 	// lets a slow start clobber the renderer a newer one already installed, after which
 	// nothing holds a reference to stop it and its frame loop and device leak.
 	let created: UpscaleRenderer | null = null;
+	// Only the WebGPU presets bake the output size in; every other driver re-plans per frame.
+	let captured = false;
 	try {
 		if (props.mode === "anime4k-ultra") {
 			// Offered only where WebGPU is unavailable, so this is the heavy chain on WebGL2.
@@ -505,6 +518,7 @@ async function start() {
 						onFatal,
 						abort.signal,
 					);
+					captured = created !== null;
 				} catch (err) {
 					// The same network runs on WebGL2, which every browser has. Only reachable
 					// for the tiers that need a GPU: the plain tiers above are already WebGL2.
@@ -576,6 +590,7 @@ async function start() {
 	}
 	renderer = created;
 	canvas = element;
+	capturedTarget = captured;
 	// A tier that started cleanly clears the last failure; the panel shows whichever
 	// cause is still current. The target label is not cleared here: the renderers report it
 	// on their first drawn frame, and start() has already drawn that frame by now.
@@ -597,23 +612,14 @@ function onLoadedMetadata() {
 /**
  * The media element fires `resize` when its intrinsic video size changes without a new
  * resource being loaded: an HLS ladder switching variant, or a manual quality change. The
- * Anime4K presets capture their target size when the pipeline is built (and read
- * `videoWidth/videoHeight` once in `startAnime4KRenderer`), so without a rebuild the canvas
- * keeps the old resolution — an upgrade crops the larger picture to the top-left corner and
- * the tier quietly degrades. Window resize never fires for this, and `loadedmetadata`
- * usually does not either.
+ * WebGL2 chains read the source and canvas sizes every frame and re-plan in place, so only a
+ * canvas resize is needed there. The WebGPU presets capture their target size when the
+ * pipeline is built (and read `videoWidth/videoHeight` once in `startAnime4KRenderer`), so
+ * they are the only tier that has to rebuild.
  */
 function onVideoResize() {
 	const video = props.video;
 	if (!renderer || !video || !canvas) {
-		return;
-	}
-	if (
-		props.mode !== "anime4k" &&
-		props.mode !== "anime4k-quality" &&
-		props.mode !== "anime4k-ultra"
-	) {
-		// The WebGL chains read the canvas size every frame, so nothing captured a size.
 		return;
 	}
 	const width = video.videoWidth;
@@ -622,6 +628,12 @@ function onVideoResize() {
 		return;
 	}
 	lastVideoSize = { width, height };
+	if (!capturedTarget) {
+		// Rebuild the canvas for the variant's own aspect; the chain re-plans on the next frame.
+		sizeCanvas(video, canvas);
+		renderer.redraw?.();
+		return;
+	}
 	// Same settle as a viewport change: one variant switch should rebuild once.
 	if (viewportTimer !== undefined) {
 		clearTimeout(viewportTimer);
@@ -679,12 +691,12 @@ watch(
 		if (!video || !canvas) {
 			return;
 		}
-		if (props.mode === "anime4k" || props.mode === "anime4k-quality") {
-			// Both WebGPU presets capture their target size when the pipeline is built.
+		if (capturedTarget) {
+			// The WebGPU presets capture their target size when the pipeline is built.
 			void start();
 			return;
 		}
-		// The sharpen/film passes read the canvas size every frame, so a resize is enough.
+		// Every other driver reads the canvas size every frame, so a resize is enough.
 		sizeCanvas(video, canvas);
 		renderer?.redraw?.();
 	},
@@ -702,7 +714,7 @@ watch(
 	() => {
 		const video = props.video;
 		if (video && canvas) {
-			if (props.mode === "anime4k" || props.mode === "anime4k-quality") {
+			if (capturedTarget) {
 				void start();
 				return;
 			}
