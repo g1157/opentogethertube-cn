@@ -38,7 +38,6 @@ describe("picture-in-picture availability", () => {
 		vi.restoreAllMocks();
 	});
 
-
 	it("hides the button where the interface does not exist (Firefox before 153)", () => {
 		expect(pictureInPictureState({} as PictureInPictureDocument)).toBe("unsupported");
 		expect(isPictureInPictureSupported({} as PictureInPictureDocument)).toBe(false);
