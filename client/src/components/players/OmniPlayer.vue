@@ -182,11 +182,24 @@
 				</div>
 			</template>
 		</Suspense>
+		<!--
+			Firefox keeps painting the page's picture while the PiP window shows its own copy, so the
+			room ends up with two videos on screen. The element has to stay rendered and playing for
+			the PiP window to survive, so it is covered instead of hidden. The WebGPU/WebGL2 chain is
+			stopped while this is up: the floating window carries the raw video anyway.
+		-->
+		<div v-if="pictureInPictureActive" class="pip-placeholder" role="status">
+			<v-icon :icon="mdiPictureInPictureBottomRight" size="44" />
+			<p>{{ $t("room.pip-active") }}</p>
+			<v-btn variant="text" color="primary" size="small" @click="exitPictureInPicture">
+				{{ $t("room.pip-exit") }}
+			</v-btn>
+		</div>
 	</div>
 </template>
 
 <script lang="ts" setup>
-import { mdiAlertCircle, mdiClose } from "@mdi/js";
+import { mdiAlertCircle, mdiClose, mdiPictureInPictureBottomRight } from "@mdi/js";
 import { ALL_VIDEO_SERVICES } from "ott-common";
 import { PlayerStatus } from "ott-common/models/types";
 import type { QueueItem } from "ott-common/models/video";
@@ -219,6 +232,7 @@ import {
 	useVolume,
 } from "../composables";
 import MediaLoadingNotice from "./MediaLoadingNotice.vue";
+import { pictureInPictureActive, togglePictureInPicture } from "@/util/picture-in-picture";
 
 const props = defineProps({
 	source: {
@@ -257,6 +271,11 @@ const PeertubePlayer = defineAsyncComponent(() => import("./PeertubePlayer.vue")
 const store = useStore();
 
 const player: Ref<MediaPlayer | null> = ref(null);
+
+/** Leaves the floating window from the placeholder the room shows while it is up. */
+async function exitPictureInPicture() {
+	await togglePictureInPicture(player.value?.getVideoElement?.() ?? null);
+}
 
 const sourceKey = computed(() =>
 	JSON.stringify([
@@ -621,6 +640,32 @@ onBeforeUnmount(() => {
 .player {
 	width: 100%;
 	height: 100%;
+	position: relative;
+}
+
+/*
+ * Covers the picture while the browser plays it in its own window: Firefox draws both, which
+ * leaves a second, smaller copy in the room. Opaque on purpose — the video underneath keeps
+ * playing for the floating window, it just must not be seen twice.
+ */
+.pip-placeholder {
+	position: absolute;
+	inset: 0;
+	/* Above the player and its enhancement canvas, below the playback-error alert (1). */
+	z-index: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	background: var(--card);
+	color: var(--muted-foreground);
+	text-align: center;
+	padding: 16px;
+
+	p {
+		margin: 0;
+	}
 }
 
 .in-player-notifs {

@@ -29,6 +29,13 @@
     档位不隐藏：核显上选 CNN 档时设置面板多一条提示（含卡名）与一个「改用清晰化」按钮；降档通知在核显上
     点名原因与 Windows 图形设置路径；播放详情新增「显卡 / 显卡类型」两行，Firefox 这种没有 WebGPU 的浏览器
     也能看到实际适配器。新增 9 项测试（分类 / 脱字符串 / 面板提示两例 / 降档文案），逐项回滚确认会失败。
+    **（6）画中画（Firefox）**：Firefox 的 PiP 会把页面里的画面一起留着，房间于是同时出现两个画面。现在进入 PiP 时
+    房间用一个占位面板盖住画面（视频元素留在 DOM 里继续播放，否则浮动窗口会消失），并提供「退出画中画」；增强链同时
+    停机——浮动窗口拿的是原始视频，继续跑只会白烧 GPU。另外：`pictureInPictureEnabled` 为 false（Firefox 的
+    pref / 平台策略）不再摆一个必然失败的按钮；未拿到 metadata 时的 `InvalidStateError` 改为等一次 metadata；
+    请求被拒会提示原因而不是只写 console；视频元素改为取自播放器而不是 `document.querySelector("video")`；
+    Media Session 补上 `playbackState`，浮动窗口与系统媒体键的播放/暂停状态不再与实际相反。
+    新增 13 项测试（可用性三态、metadata 等待、进入/离开/拒绝、事件捕获、降档时停机与恢复）。
     **实测（本机 RTX 4060 Laptop + Intel UHD 780，Chrome / ANGLE D3D11，WebGL 落在核显）**：S 1080p
     → 1350p 82.7 ms/帧，HQ 1080p → 1350p 916 ms/帧（1.1 fps），HQ 720p → 1080p 462 ms/帧。
     **验收**：新增 5 项回归（1 fps 必降档、缓冲不降档、WebGL2 不加下限、WebGPU 仍加下限、一次拖拽

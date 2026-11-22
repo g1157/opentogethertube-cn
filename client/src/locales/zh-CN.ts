@@ -358,6 +358,11 @@ export default {
 		"more-settings": "更多设置",
 		"subtitle-off": "关闭字幕",
 		pip: "画中画",
+		"pip-unavailable":
+			"当前浏览器未启用画中画（Firefox 可在 about:config 检查 media.videocontrols.picture-in-picture.enabled）。",
+		"pip-failed": "无法进入画中画：视频还没有画面，或浏览器拒绝了这次请求。",
+		"pip-active": "正在画中画中播放",
+		"pip-exit": "退出画中画",
 		"player-settings": "播放器设置",
 		subtitles: "字幕/CC",
 		quality: "画质",

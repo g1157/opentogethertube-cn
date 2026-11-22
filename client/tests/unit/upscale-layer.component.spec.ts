@@ -623,6 +623,27 @@ describe("enhancement layer lifecycle", () => {
 		adapterState.current = { class: "unknown", renderer: null };
 	});
 
+	it("stands the chain down while the browser shows the picture in its floating window", async () => {
+		// Firefox keeps painting the page's video next to the PiP copy, and the floating window
+		// carries the raw video either way: the chain would only burn GPU on a covered picture.
+		const live = renderer();
+		drivers.sharpen.mockReturnValueOnce(live);
+		const { video } = fakeVideo();
+		mountComponent(UpscaleLayer, { props: { video, mode: "sharpen" } });
+		await settle();
+		expect(live.stop).not.toHaveBeenCalled();
+
+		const { pictureInPictureActive } = await import("@/util/picture-in-picture");
+		pictureInPictureActive.value = true;
+		await settle();
+		expect(live.stop).toHaveBeenCalled();
+
+		pictureInPictureActive.value = false;
+		await settle();
+		// And it comes back when the window closes, without a menu interaction.
+		expect(drivers.sharpen).toHaveBeenCalledTimes(2);
+	});
+
 	it("does not step down for the seeks a room does while watching", async () => {
 		// Room-sync hard seeks, other viewers' seeks and manual drags all move `currentTime`,
 		// and the media clock jumps with it. Counting that jump as frames the renderer never

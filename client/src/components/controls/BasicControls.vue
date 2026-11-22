@@ -78,7 +78,7 @@
 <script lang="ts" setup>
 import { mdiChevronLeft, mdiPlay, mdiPause, mdiChevronRight, mdiSkipForward } from "@mdi/js";
 import _ from "lodash";
-import { computed, inject, onMounted, onUnmounted } from "vue";
+import { computed, inject, onMounted, onUnmounted, watch } from "vue";
 import { useStore } from "@/store";
 import { useConnection } from "@/plugins/connection";
 import { useRoomApi } from "@/util/roomapi";
@@ -129,6 +129,19 @@ onMounted(() => {
 		});
 	}
 });
+
+// The PiP window (and the OS media keys) draw their play/pause control from this state. Leaving
+// it unset made the floating window offer "play" over a playing video, and a press then looked
+// like it did nothing.
+watch(
+	() => store.state.room.isPlaying,
+	playing => {
+		if ("mediaSession" in navigator) {
+			navigator.mediaSession.playbackState = playing ? "playing" : "paused";
+		}
+	},
+	{ immediate: true },
+);
 
 onUnmounted(() => {
 	if ("mediaSession" in navigator) {

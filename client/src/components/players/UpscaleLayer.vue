@@ -21,6 +21,7 @@ import {
 } from "@/util/upscale/scale";
 import type { UpscaleRenderer } from "@/util/upscale/upscale-renderer";
 import { probeAdapter } from "@/util/upscale/adapter";
+import { pictureInPictureActive } from "@/util/picture-in-picture";
 import {
 	reportEnhancementError,
 	reportEnhancementBackend,
@@ -523,6 +524,12 @@ function fallBackFromFailure(): void {
 }
 
 async function start() {
+	// The floating window shows the raw video, so a chain started now would draw a picture the
+	// room has covered; the watcher below starts it again when PiP closes.
+	if (pictureInPictureActive.value) {
+		stopRenderers();
+		return;
+	}
 	stopRenderers();
 	// Whatever the previous tier reported is stale from here on; the renderer about to be
 	// built reports its own target once it has drawn its first frame.
@@ -760,6 +767,18 @@ watch(
 	() => props.mode,
 	() => void start(),
 );
+
+// Firefox keeps painting the page's picture next to its PiP copy. OmniPlayer covers it, and no
+// part of the chain can reach the floating window (it carries the raw video), so the renderer is
+// stopped for as long as the window is up and rebuilt when it closes.
+watch(pictureInPictureActive, active => {
+	if (active) {
+		stopRenderers();
+		reportEnhancementTarget(null);
+		return;
+	}
+	void start();
+});
 
 watch(
 	() => store.state.settings.upscaleScale,

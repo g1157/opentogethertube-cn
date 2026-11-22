@@ -372,6 +372,12 @@ export default {
 		"more-settings": "More settings",
 		"subtitle-off": "Turn off subtitles",
 		pip: "Picture in Picture",
+		"pip-unavailable":
+			"Picture-in-Picture is turned off in this browser (Firefox: check media.videocontrols.picture-in-picture.enabled in about:config).",
+		"pip-failed":
+			"Could not open Picture-in-Picture: the video has no picture yet, or the browser refused the request.",
+		"pip-active": "Playing in Picture-in-Picture",
+		"pip-exit": "Leave Picture-in-Picture",
 		"player-settings": "Player settings",
 		subtitles: "Subtitles/CC",
 		quality: "Quality",
