@@ -69,6 +69,7 @@ function baseInput(overrides: Partial<PlayerStatsInput> = {}): PlayerStatsInput 
 			viewportHeight: 1440,
 			webgpu: true,
 			gpuName: "nvidia ampere",
+			adapter: { class: "discrete", name: "NVIDIA GeForce RTX 4060 Laptop GPU" },
 		},
 		...overrides,
 	};

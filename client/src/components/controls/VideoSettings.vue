@@ -577,6 +577,25 @@
 								{{ $t("room.upscale.source-unsupported-hint") }}
 							</v-list-item-subtitle>
 						</v-list-item>
+						<v-list-item
+							v-if="heavyTierOnIntegratedGpu"
+							data-cy="upscale-integrated-gpu"
+						>
+							<v-list-item-subtitle class="settings-note">
+								{{ $t("room.upscale.integrated-gpu", { gpu: integratedGpuName }) }}
+							</v-list-item-subtitle>
+							<template #append>
+								<v-btn
+									size="small"
+									variant="text"
+									color="primary"
+									data-cy="upscale-use-sharpen"
+									@click="upscaleMode = 'sharpen'"
+								>
+									{{ $t("room.upscale.use-sharpen") }}
+								</v-btn>
+							</template>
+						</v-list-item>
 						<v-list-item class="upscale-tiers-item">
 							<v-btn-toggle
 								v-model="upscaleMode"
@@ -713,6 +732,8 @@ import {
 	mdiCommentMultipleOutline,
 } from "@mdi/js";
 import { getFriendlyResolutionLabel } from "@/util/misc";
+import { probeAdapter, shortRendererName } from "@/util/upscale/adapter";
+import { isCnnUpscaleTier } from "@/util/upscale/scale";
 import { qualityTierFromHeight } from "@/util/quality-display";
 import { elementAudioRoutingSupported } from "@/util/audio-eq";
 import type { VideoTrack, CaptionTrack } from "@/models/media-tracks";
@@ -779,6 +800,18 @@ const upscaleMode = computed({
 	get: () => store.state.settings.upscaleMode as UpscaleMode,
 	set: value => store.commit("settings/UPDATE", { upscaleMode: value }),
 });
+/**
+ * Which GPU the browser will render the enhancement on. A heavy tier stays selectable on an
+ * integrated one — hiding tiers is what broke this menu in v1.2.x — but the panel says so, and
+ * offers the tier that fits, instead of letting a viewer find out frame by frame.
+ */
+const adapter = probeAdapter();
+const heavyTierOnIntegratedGpu = computed(
+	() => adapter.class === "integrated" && isCnnUpscaleTier(upscaleMode.value),
+);
+const integratedGpuName = computed(
+	() => shortRendererName(adapter.renderer) ?? t("room.upscale.integrated-gpu-unknown"),
+);
 const upscaleStrength = computed({
 	get: () => store.state.settings.upscaleStrength,
 	set: value => store.commit("settings/UPDATE", { upscaleStrength: value }),

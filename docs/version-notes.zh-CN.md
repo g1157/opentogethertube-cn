@@ -4,17 +4,37 @@
 `archive/history` 分支与 `v0.14.1` 标签。`v1.0.0` 起跳出 cn 序列，作为本分支的正式大版本，
 标签与镜像名不再带 cn 编号。
 
--   **v1.4.23**：画质增强在同样的 GPU 上变卡的回归修复（Windows Chrome / Firefox 实测）。
-    **画质增强**：v1.4.20 / v1.4.22 把「WebGL2 链每帧按画布重新规划」误判成「必须重建」——
-    视口 / 全屏变化、`videoFillMode`、`upscaleScale` 以及 HLS / DASH 切档（媒体元素 `resize`）
-    都会删掉整条管线并重新 link（HQ 为 55 段），切档越频繁越卡。这三个档位现在只改画布尺寸
-    并显式重绘；只有构建时捕获 `targetDimensions` 的 WebGPU 预设才重建。判定依据改为**运行时
-    实际后端**而不是档位名——Windows Firefox 的 AI 档本来就跑 WebGL2 回退链，按名字判断会继续
-    重建它们。另：单个未捕获 WebGPU 错误不再停掉整个档位（恢复 v1.4.19 行为），真正放弃仍由
-    `device.lost` 与连续三次绘制失败判定；一次校验报错就把还能出画的管线降成更弱档位，会放大
-    卡顿的观感。**验收**：单元回归逐项回滚确认会失败；客户端 1121 项通过（24 skip），
-    `tsc --noEmit`、biome、prettier 与生产构建干净。**未覆盖**：未在 Windows + RTX 4060 上
-    做真机帧率对照，主观改善以维护者实测为准。无数据库迁移。
+-   **v1.4.24**：撤掉 v1.4.23。那一条的立论是错的：`cas.ts` 的 program 缓存按 GL context 保存，
+    `UpscaleLayer.vue` 又复用同一个 canvas，所以重建从来不会重新 link 整条链——它修的是一个不存在
+    的成本，真正的成本在每帧。本次按实测重做：
+    **（1）WebGL2 上下文声明 `powerPreference: "high-performance"`**（清晰化 / 影视 / S / HQ）。
+    混合显卡笔记本上 Chrome 默认把 WebGL 放在核显，AI 档整条 CNN 链就跑在核显上。注意这只是提示：
+    Windows 上适配器由系统的 per-app 图形首选项决定，实测三种 powerPreference（high-performance / 默认 /
+    low-power）都返回同一个 intel/gen-12lp 适配器，要真的用上独显必须把 chrome.exe 设为「高性能」。
+    **验证过的解法**：把 chrome.exe 写进 `HKCU\Software\Microsoft\DirectX\UserGpuPreferences`（`GpuPreference=2;`，
+    等价于 设置 → 系统 → 显示 → 图形 → 高性能），或启动参数 `--force-high-performance-gpu`；两者均实测能让 WebGL 与
+    WebGPU 都落到 RTX 4060。切换后单帧成本：WebGL2 S 1080p 26.4 → 1.0 ms，WebGPU fast 1080p→1350p 474 → 17.5 ms，
+    WebGPU quality 1080p→1350p 974 → 24.5 ms；HQ 跨闸门到 4K 仍有 225 ms，所以下限只给 WebGPU 这条规则不能省。
+    **（2）修自动降档死锁**：一帧超过 1 s 的间隔以前一律当作停顿并重置窗口，于是 0.9 fps 的档位
+    永远攒不满 6 s 窗口、永远不降档（实测：按 1100 ms 连发 40 帧，档位纹丝不动）。现在用媒体时钟
+    区分：`currentTime` 继续走而只有一帧呈现＝渲染器跟不上，记一次坏窗口；时钟也停住（缓冲 /
+    暂停 / 后台）才是停顿。慢档位因此能在约 2–3 秒内降一级。
+    **（3）CNN 的 1.25× 下限只给 WebGPU 后端**。1080p 片源越过 1.2× 闸门就会开 x2 段，之后**全部**
+    pass 都在 3840×2160 上跑（HQ 为 46 段）；WebGL2 回退链不再加这个下限，需要放大段的用户显式选
+    1.5×–2×。队列预览与播放详情面板读取同一份后端状态，不再预览一个不会渲染的尺寸。
+    **（4）WebGL2 的视口变化恢复 250 ms 去抖**：v1.4.23 改成就地调尺寸后，拖窗口时每个 `resize`
+    事件都会重规划并重新申请目标纹理（HQ@4K 约 390 MiB），一次拖拽就是幻灯片。片源 `resize`（HLS /
+    DASH 切档）共用同一个计时器。
+    **（5）核显提示**：新增 `util/upscale/adapter.ts`（WebGL2 渲染器串 → 独显 / 核显 / 未知，每页缓存，不依赖 WebGPU）。
+    档位不隐藏：核显上选 CNN 档时设置面板多一条提示（含卡名）与一个「改用清晰化」按钮；降档通知在核显上
+    点名原因与 Windows 图形设置路径；播放详情新增「显卡 / 显卡类型」两行，Firefox 这种没有 WebGPU 的浏览器
+    也能看到实际适配器。新增 9 项测试（分类 / 脱字符串 / 面板提示两例 / 降档文案），逐项回滚确认会失败。
+    **实测（本机 RTX 4060 Laptop + Intel UHD 780，Chrome / ANGLE D3D11，WebGL 落在核显）**：S 1080p
+    → 1350p 82.7 ms/帧，HQ 1080p → 1350p 916 ms/帧（1.1 fps），HQ 720p → 1080p 462 ms/帧。
+    **验收**：新增 5 项回归（1 fps 必降档、缓冲不降档、WebGL2 不加下限、WebGPU 仍加下限、一次拖拽
+    只重绘一次），逐项回滚确认会失败；客户端 1126 项通过（24 skip），`tsc --noEmit`、biome、prettier
+    干净。**未覆盖**：核显数据来自 headless Chrome，`--force-high-performance-gpu` 与注册表两条路径均在正常窗口验证过
+    适配器切换，但长时间播放 / 4K 素材 / HDR 仍未真机对照。无数据库迁移。
 
 -   **v1.4.22**：v1.4.21 的正式版本。
     `v1.4.21` 标签的镜像构建在 typos 门禁失败——发布说明为了解释该门禁的短哈希豁免，把被

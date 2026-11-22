@@ -272,7 +272,8 @@ import { useConnection } from "@/plugins/connection";
 import type { OttResponseBody } from "ott-common/models/rest-api";
 import { useGrants } from "./composables/grants";
 import { serverErrorMessage } from "@/util/server-error";
-import { canAffordCnnUpscale, isCnnUpscaleTier, MAX_DPR } from "@/util/upscale/scale";
+import { MAX_DPR, usesCnnSupersampling } from "@/util/upscale/scale";
+import { enhancementBackend } from "@/util/upscale/status";
 import { computeRenderedTarget, measurePlayerBox } from "@/util/upscale/target-preview";
 
 interface VideoQueueItemProps {
@@ -338,7 +339,10 @@ const renderedTarget = computed(() => {
 		boxHeight: playerBox.value.height,
 		dpr: Math.min(window.devicePixelRatio || 1, MAX_DPR),
 		requestedScale: store.state.settings.upscaleScale,
-		cnnUpscale: isCnnUpscaleTier(store.state.settings.upscaleMode) && canAffordCnnUpscale(),
+		cnnUpscale: usesCnnSupersampling(
+			store.state.settings.upscaleMode,
+			enhancementBackend.value,
+		),
 		fillMode: store.state.settings.videoFillMode,
 	});
 	return target && target.scale > 1.01 ? target : null;

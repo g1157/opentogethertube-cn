@@ -6,6 +6,17 @@ import { useMediaPlayer, type MediaPlayer } from "@/components/composables";
 import { UPSCALE_MODES } from "@/stores/settings";
 import { mountComponent } from "./component-test-utils";
 
+const adapterState = vi.hoisted(() => ({
+	current: { class: "unknown", renderer: null } as {
+		class: "discrete" | "integrated" | "unknown";
+		renderer: string | null;
+	},
+}));
+vi.mock("@/util/upscale/adapter", async importOriginal => {
+	const actual = await importOriginal<typeof import("@/util/upscale/adapter")>();
+	return { ...actual, probeAdapter: () => adapterState.current };
+});
+
 const Harness = defineComponent({
 	components: { VideoSettings },
 	setup() {
@@ -135,5 +146,52 @@ describe("video enhancement source support", () => {
 		await settle();
 		expect(store.state.settings.upscaleMode).toBe("off");
 		expect(JSON.parse(saved.get("settings")!).upscaleMode).toBe("off");
+	});
+
+	it("warns that a heavy tier runs on the integrated GPU and offers the tier that fits", async () => {
+		// The reported cause of "the AI tier crawls" on a hybrid laptop: the browser renders on
+		// the iGPU and nothing in the page can move it. Say so, and offer the tier that fits,
+		// instead of hiding tiers — hiding them is what broke this menu in v1.2.x.
+		adapterState.current = {
+			class: "integrated",
+			renderer: "ANGLE (Intel, Intel(R) UHD Graphics (0x0000A78B) Direct3D11 vs_5_0 ps_5_0)",
+		};
+		const { store } = await mountSettings(true);
+		store.commit("settings/UPDATE", { upscaleMode: "anime4k-quality" });
+		await settle();
+		await openEnhancement();
+
+		const note = document.querySelector('[data-cy="upscale-integrated-gpu"]')!;
+		expect(note.textContent).toContain("核显");
+		expect(note.textContent).toContain("Intel(R) UHD Graphics");
+		const useSharpen = note.querySelector<HTMLButtonElement>(
+			'[data-cy="upscale-use-sharpen"]',
+		)!;
+		useSharpen.click();
+		await settle();
+
+		expect(store.state.settings.upscaleMode).toBe("sharpen");
+		expect(document.querySelector('[data-cy="upscale-integrated-gpu"]')).toBeNull();
+	});
+
+	it("does not warn on a discrete GPU, or on a light tier", async () => {
+		adapterState.current = {
+			class: "discrete",
+			renderer:
+				"ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Laptop GPU (0x000028E0) Direct3D11 vs_5_0 ps_5_0)",
+		};
+		const { store } = await mountSettings(true);
+		store.commit("settings/UPDATE", { upscaleMode: "anime4k-ultra" });
+		await settle();
+		await openEnhancement();
+		expect(document.querySelector('[data-cy="upscale-integrated-gpu"]')).toBeNull();
+
+		adapterState.current = {
+			class: "integrated",
+			renderer: "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics, OpenGL 4.5)",
+		};
+		store.commit("settings/UPDATE", { upscaleMode: "sharpen" });
+		await settle();
+		expect(document.querySelector('[data-cy="upscale-integrated-gpu"]')).toBeNull();
 	});
 });

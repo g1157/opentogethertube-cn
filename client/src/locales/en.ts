@@ -253,6 +253,12 @@ export default {
 			"source-unsupported-hint":
 				"This player cannot provide video pixels for enhancement. Your preference is kept for supported sources; you can still turn it off here.",
 			degraded: "Performance is too low; video enhancement was reduced.",
+			"degraded-integrated-gpu":
+				'Performance is too low; video enhancement was reduced. The browser is rendering on the integrated GPU — set it to "High performance" in Windows graphics settings, or stay on Sharpen or Film.',
+			"integrated-gpu":
+				'This browser is rendering on the integrated GPU ({gpu}). The AI tiers need the discrete GPU to keep up: set the browser to "High performance" under Settings → System → Display → Graphics, or use Sharpen or Film for now.',
+			"integrated-gpu-unknown": "integrated graphics",
+			"use-sharpen": "Use Sharpen",
 			help: "What these tiers do",
 			"intro-sharpen":
 				"Sharpen: edge-adaptive upscaling (EASU) followed by neighborhood-clamped sharpening. It needs WebGL2 and a source that allows video texture uploads. Auto follows the displayed size, with source-resolution and pixel-budget limits. The effect is subtle and is easier to see on low-resolution or soft sources.",
@@ -270,9 +276,9 @@ export default {
 			strength: "Sharpen strength",
 			scale: "Render scale",
 			"scale-auto":
-				"Auto (follows the display; AI tiers stay at 1.25× source or more on a pointer device)",
+				"Auto (follows the display; the WebGPU AI preset stays at 1.25× source or more on a pointer device)",
 			"scale-hint":
-				"Auto follows the size the video is displayed at: never below the source resolution, and never more pixels than the screen can show. On a pointer device the AI tiers are raised to at least 1.25× the source so Anime4K's upscale stages actually run; touch devices skip that to save power. Higher multipliers are sharper on large screens and more demanding; lower values save a lot on slow devices.",
+				"Auto follows the size the video is displayed at: never below the source resolution, and never more pixels than the screen can show. When an AI tier runs on WebGPU on a pointer device it is raised to at least 1.25× the source so Anime4K's upscale stages actually run; the WebGL2 fallback does not take that floor, because it renders every pass at twice the source and the whole chain then runs at 4K. Pick an explicit 1.5× or more when you want the upscale stage on WebGL2. Touch devices skip the floor to save power. Higher multipliers are sharper on large screens and more demanding; lower values save a lot on slow devices.",
 			"auto-degrade": "Reduce automatically when performance drops",
 			"auto-degrade-hint": "Turn off to keep these settings even if the video stutters.",
 		},
@@ -1083,6 +1089,11 @@ export default {
 			"max-scale": "Max render scale",
 			viewport: "Viewport / DPR",
 			webgpu: "WebGPU",
+			"gpu-adapter": "Graphics adapter",
+			"gpu-adapter-class": "Adapter type",
+			"gpu-discrete": "Discrete",
+			"gpu-integrated": "Integrated",
+			"gpu-unknown": "Unknown",
 			available: "Available",
 			unavailable: "Unavailable",
 		},

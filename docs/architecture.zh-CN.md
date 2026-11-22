@@ -418,12 +418,16 @@ HLS 的主清单与选中变体、DASH 的文字清单各请求限定 2 MiB / 5s
 | AI 极致 | 显式 WebGL2 A+A (HQ) | 55 段 shader 定义；本轮 1.5× 目标实际 47 pass（含呈现） |
 
 - `scale.ts` 为唯一尺寸来源：自动按 contain / cover、显示框与 DPR（≤3）计算，正常源至少 1×；
-  CNN 在精细指针设备有 1.25× 下界，自动像素预算为 4K、最大 3×，显式 0.25×–3× 不受自动预算约束。
+  CNN 在精细指针设备且有 WebGPU 后端时有 1.25× 下界（WebGL2 回退链不加：那会让 1080p 源开 x2 段、
+  全链在 4K 上跑），自动像素预算为 4K、最大 3×，显式 0.25×–3× 不受自动预算约束。
+- WebGL2 上下文（`cas.ts` / `film.ts` / `anime4k-webgl.ts`）声明 `powerPreference: "high-performance"`，
+  否则混合显卡笔记本会把整条 CNN 链放在核显上（WebGPU 档本就如此申请适配器）。
 - 共用 `video-render-loop.ts`：rVFC 按 mediaTime 去重、后台跳过、暂停 / seek / resize 重绘、fatal 释放。
   WebGPU 首帧等待 4s 可取消；generation 与原元素回调归属防止慢启动覆盖新实例。
 - GL program 按 context 缓存，链接后释放 shader；WebGL CNN 闲置 15s 释放中间纹理 / framebuffer，重绘再创建。
 - 降档观察 video 呈现节奏 / <18fps / 管线丢帧；两个 6s 坏窗口才降级，重建首窗口不评分，
-  暂停 / seek / 缓冲 / 后台重置；`UPDATE_TRANSIENT` 不覆写偏好。该判据不是 GPU 完成测量。
+  暂停 / seek / 缓冲 / 后台重置；一帧超过 1s 且媒体时钟仍在前进算「慢」而不是停顿（否则 0.9 fps
+  的档位永不降级）；`UPDATE_TRANSIENT` 不覆写偏好。该判据不是 GPU 完成测量。
 - 生成 GLSL 禁止手改。机制、实测与限制见 [video-enhancement](video-enhancement.zh-CN.md)。
 
 ### 7.8 i18n 与构建

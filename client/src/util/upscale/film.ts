@@ -113,6 +113,10 @@ export function startFilmRenderer(
 		// (a resize, a tab switch) can leave the canvas empty, and an empty canvas shows the
 		// raw video through it in Firefox.
 		preserveDrawingBuffer: true,
+		// A hint for the discrete GPU, as on every other tier; on a hybrid Windows laptop Chrome
+		// still renders where its GPU process is unless chrome.exe is set to "High performance"
+		// in the OS. See the long note in cas.ts.
+		powerPreference: "high-performance",
 	});
 	if (!gl) {
 		throw new Error("WebGL2 unavailable");

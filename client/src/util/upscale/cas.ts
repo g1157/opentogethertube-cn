@@ -469,6 +469,14 @@ export function startSharpenRenderer(
 		// (a resize, a tab switch) can leave the canvas empty, and an empty canvas shows the
 		// raw video through it in Firefox.
 		preserveDrawingBuffer: true,
+		// The WebGPU tier asks for the discrete adapter by name, so the WebGL2 tiers have to as
+		// well; on macOS and on Windows setups where the browser owns a dGPU context this is what
+		// moves the whole chain off the integrated GPU. It is a hint, not a guarantee: on a hybrid
+		// Windows laptop Chrome answers every adapter request — WebGL and WebGPU alike — with the
+		// one its GPU process already has, so unless chrome.exe is listed as "High performance" in
+		// Windows' per-app graphics settings, this attribute is a no-op. Measured on an Intel UHD
+		// 780 with the chain forced onto it: S 1080p 26–84 ms/frame, HQ 916, WebGPU fast 237.
+		powerPreference: "high-performance",
 	});
 	if (!gl) {
 		throw new Error("WebGL2 unavailable");

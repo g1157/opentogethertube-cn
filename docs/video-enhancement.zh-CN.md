@@ -1,6 +1,6 @@
 # 画质增强、渲染倍率与运行边界
 
-本文描述 `v1.4.20` 的实现，审查基线为 `v1.4.19`；发布提交与上线验证见对应 GitHub Release。实测方法、成本和完善清单见 [全项目审查](project-review-2026-11-17.zh-CN.md)，媒体工具与产品参考见 [机制对比](watch-party-comparison-2026-11-17.zh-CN.md)。历史数据的设备、版本和目标尺寸各不相同，不与本轮数据混算。
+本文描述 `v1.4.24` 的实现，审查基线为 `v1.4.19`；发布提交与上线验证见对应 GitHub Release。实测方法、成本和完善清单见 [全项目审查](project-review-2026-11-17.zh-CN.md)，媒体工具与产品参考见 [机制对比](watch-party-comparison-2026-11-17.zh-CN.md)。历史数据的设备、版本和目标尺寸各不相同，不与本轮数据混算。
 
 ## 档位、片源与能力
 
@@ -26,7 +26,8 @@ GPU 能力通过真实探针判断，不能只看 `navigator.gpu` 存在。WebGP
 | 设置 | 规则 |
 | --- | --- |
 | 自动，清晰化 / 影视 | 按显示框 × 有界 DPR 计算；正常源至少 1×，最大 3×，再受 3840×2160 像素预算约束 |
-| 自动，CNN 档，精细指针设备 | 同样按显示框计算，增加 1.25× 下界以越过预设的放大闸门；不是强制 2× |
+| 自动，CNN 档，精细指针设备，WebGPU 后端 | 同样按显示框计算，增加 1.25× 下界以越过预设的放大闸门；不是强制 2× |
+| 自动，CNN 档，WebGL2 回退链 | 不加 1.25× 下界，按显示框、1× 与像素预算计算；需要的用户可显式选 1.5×–2× |
 | 自动，触屏设备 | 不加 CNN 1.25× 下界，维持显示框、1× 与像素预算规则 |
 | 显式倍率 | 按 0.25×–3× 的选择渲染，不受自动像素预算约束；高倍率会产生很高成本 |
 
@@ -34,7 +35,41 @@ GPU 能力通过真实探针判断，不能只看 `navigator.gpu` 存在。WebGP
 
 尺寸、详情面板、队列预览都携带 `videoFillMode`，避免 cover 下预览仍按 contain 低估目标。全屏目标是 `.video-subcontainer`；增强画布和视频内叠层必须留在该元素中。
 
-清晰化改变窗口后可以就地调尺寸并显式重绘。捕获目标尺寸的 WebGPU 管线需要重建；窗口 / 全屏变化先等待 250 ms 稳定，避免拖动窗口反复创建设备。**WebGL2 的三个档位（清晰化 / 影视 / S / HQ）一律就地调尺寸**：它们每帧按画布尺寸重新规划链路，重建只会无谓地重新 link 整条链（HQ 为 55 段）并重启帧循环。片源自带 `resize`（HLS / DASH 切档）同理：WebGL2 只调画布并重绘，只有捕获尺寸的 WebGPU 预设需要重建。档位、片源、退出时仍停止旧运行实例。
+清晰化改变窗口后可以就地调尺寸并显式重绘。捕获目标尺寸的 WebGPU 管线需要重建；窗口 / 全屏变化先等待 250 ms 稳定，避免拖动窗口反复创建设备。**WebGL2 的三个档位（清晰化 / 影视 / S / HQ）一律就地调尺寸**：它们每帧按画布尺寸重新规划链路，不需要重建（程序按 GL context 缓存，重建本来也不会重新 link）。就地调尺寸同样要等 250 ms 稳定：一次 WebGL2 重规划会把旧的目标纹理交还并重新申请，HQ@4K 约 390 MiB，拖窗口时每个 `resize` 事件各来一次就是幻灯片。片源自带 `resize`（HLS / DASH 切档）同理：WebGL2 只调画布并重绘，只有捕获尺寸的 WebGPU 预设需要重建。档位、片源、退出时仍停止旧运行实例。
+
+WebGL2 的上下文统一带 `powerPreference: "high-performance"`。**这一项只是提示，不是保证**：Windows 上适配器由操作系统的 per-app 图形首选项决定，Chrome 会把所有 WebGL / WebGPU 请求都用 GPU 进程已有的那一个适配器应答。本机实测：在 `chrome://gpu` 里 GPU0 = Intel UHD（ACTIVE）、GPU1 = RTX 4060（存在但未激活），`requestAdapter({ powerPreference: "high-performance" })` / 默认 / `low-power` 三种请求全部返回 `intel/gen-12lp`。
+
+### 把浏览器放到独显上（Windows 混合显卡）
+
+Chromium 自己的逻辑（`gpu/ipc/service/gpu_init.cc`）写得很清楚：内部渲染用默认 GPU，只有「prefer high performance」的 WebGL / WebGPU 上下文才用高性能 GPU，而且那句注释限定为「on Windows with EGL」；默认的 ANGLE D3D11 路径上 JS 侧的偏好基本不起作用。所以真正有效的是让**默认 GPU 就是独显**，两种做法本机都实测过：
+
+| 做法 | 持久性 | 验证结果 |
+| --- | --- | --- |
+| 设置 → 系统 → 显示 → 图形 → 添加 `chrome.exe` → 高性能（写入 `HKCU\Software\Microsoft\DirectX\UserGpuPreferences` 的 `GpuPreference=2;`） | 永久，重启浏览器生效 | WebGL 与 WebGPU 均为 `NVIDIA GeForce RTX 4060 Laptop GPU` |
+| 启动参数 `--force-high-performance-gpu`（Chromium 的 `kForceHighPerformanceGPU`） | 仅该次启动 / 改快捷方式 | 同上 |
+| JS 侧 `powerPreference: "high-performance"` | —— | 无效，仍返回 `intel/gen-12lp` |
+
+同一台机器，切到 4060 之后的单帧成本（同一套基准，片源 1080p）：
+
+| 路径 | 核显 Intel UHD | 独显 RTX 4060 |
+| --- | ---: | ---: |
+| WebGL2 S，1080p→1080p（4 pass，无下限） | 26.4 ms | **1.0 ms** |
+| WebGL2 S，1080p→1350p（9 pass，跨闸门） | 84.4 ms | **6.0 ms** |
+| WebGL2 HQ，1080p→1080p（28 pass） | — | **8.5 ms** |
+| WebGL2 HQ，1080p→1350p（46 pass @4K） | 916 ms | 225 ms |
+| WebGPU fast，1080p→1080p / 1350p | 237 / 474 ms | **9.1 / 17.5 ms** |
+| WebGPU quality，1080p→1350p | 974 ms | **24.5 ms** |
+
+两个推论：WebGPU 档在独显上完全可用（9–25 ms），在核显上比 WebGL2 S 慢约 9 倍；HQ 链一旦跨过闸门在 4K 上跑，**即使 4060 也要 225 ms**，所以 WebGL2 上 HQ + 1.25× 下限（或显式 2×）仍然是不可用的。
+
+### 应用内的提示（不改用户的档位）
+
+一个网页无法把浏览器的 GPU 进程换到另一块卡，所以能做的只有「提前说清楚」：
+
+- `util/upscale/adapter.ts` 用 WebGL2 + `WEBGL_debug_renderer_info` 读渲染器串，分成「独显 / 核显 / 未知」并缓存（每页一次，不依赖 WebGPU，所以 Firefox 也能判）。厂商 token 在 Firefox 的打码字符串里仍然保留（`ANGLE (NVIDIA, NVIDIA GeForce GTX 980 …), or similar`），是按厂商判而不是按型号。
+- 档位一个都不隐藏（v1.2.x 隐藏档位导致正在跑的档失去按钮）：核显上选中 CNN 档时，设置面板只多一条提示（含卡名）与一个「改用清晰化」按钮；选清晰化 / 影视或换到独显后提示自动消失。
+- 自动降档的通知在核显上会点名原因（并把「设置 → 系统 → 显示 → 图形」这条路径写进去），而不是只说了一句「已降低」。
+- 播放详情新增「显卡」与「显卡类型」两行：没有 WebGPU 的浏览器（Firefox）也能看到实际用的哪块卡，排障时不用先装扩展。
 
 ## 管线与画质口径
 
@@ -75,9 +110,36 @@ WebGPU 与 WebGL2 使用不同 canvas，不能在同一 canvas 上换 context �
 2. video 呈现回调低于 18 fps；
 3. `getVideoPlaybackQuality` 的媒体管线丢帧比例超过 8%。
 
-暂停、seek、缓冲、后台页和长回调空档重置评分，避免正常控制造成误降档。正常性能降级依次为 质量 / 极致 → 快速 → 影视 → 清晰化 → 倍率 → 关闭；倍率阶梯为 3、2.5、2、1.5、1、0.75、0.5、0.25，最低不越过 `min(1, 实际显示比例)`，越过前关闭增强。
+暂停、seek、缓冲、后台页和长回调空档重置评分，避免正常控制造成误降档。**例外是“慢”本身**：一帧超过 1 s 的间隔不再一律当作停顿。媒体时钟是区分标准——播放中元素的 `currentTime` 继续前进、只是没有新帧呈现，那是渲染器跟不上，记一次坏窗口（连续两次照常降一级）；`currentTime` 也停住（缓冲、暂停、后台）才是停顿，重置评分。旧实现把两种情况一律重置，于是 0.9 fps 的档位永远攒不满 6 s 窗口、永远不会降档。正常性能降级依次为 质量 / 极致 → 快速 → 影视 → 清晰化 → 倍率 → 关闭；倍率阶梯为 3、2.5、2、1.5、1、0.75、0.5、0.25，最低不越过 `min(1, 实际显示比例)`，越过前关闭增强。
 
 这些信号观察的是**视频呈现与解码管线**，不是 GPU 已完成的增强帧率。正常 Chrome quality 播放中约 24 fps、媒体掉帧 0，不足以证明 canvas 每帧按时完成。下一阶段需要稀疏采样 GPU 完成时间、在途提交和 p95 截止失约，避免逐帧同步等待本身改变负载。
+
+## 在 Intel 核显上的实测（Windows 混合显卡）
+
+同一台 RTX 4060 Laptop + Intel UHD 780 机器，Chrome（ANGLE D3D11）把 WebGL 解析到 **Intel UHD 780** 时的单帧成本（`readPixels` 同步，6 帧中位数；片源为合成帧）：
+
+| 档位 / 片源 → 画布 | 实际 pass | 最宽中间层 | 每帧 p50 | 折算 |
+| --- | ---: | ---: | ---: | ---: |
+| S 720p → 1080p | 9/9 | 2560 | 43.3 ms | 23 fps |
+| S 1080p → 1350p | 9/9 | 3840 | 82.7 ms | 12 fps |
+| S 1080p → 1800p | 9/9 | 3840 | 91.6 ms | 11 fps |
+| HQ 720p → 1080p | 46/55 | 2560 | 462 ms | 2.2 fps |
+| HQ 1080p → 1350p | 46/55 | 3840 | 916 ms | 1.1 fps |
+| HQ 1080p → 1800p | 46/55 | 3840 | 922 ms | 1.1 fps |
+
+两个结论：AI 档在核显上不可能实时；1080p 片源一旦越过 1.2× 闸门，`maxW` 就是 3840，整条链在 4K 上执行。
+
+WebGPU 路径在同一台机器、同一个核显适配器（`intel/gen-12lp`）上更重（`copyExternalImageToTexture` + ModeA/AA + `getCurrentTexture()` 呈现，每帧 `queue.onSubmittedWorkDone()` 等待，14 帧中位数）：
+
+| 预设 / 片源 → 目标 | 每帧 p50 | 折算 |
+| --- | ---: | ---: |
+| fast 720p → 1080p | 211 ms | 4.7 fps |
+| fast 1080p → 1080p（无下限） | 237 ms | 4.2 fps |
+| fast 1080p → 1350p（有下限） | 474 ms | 2.1 fps |
+| quality 720p → 1080p | 455 ms | 2.2 fps |
+| quality 1080p → 1350p（有下限） | 974 ms | 1.0 fps |
+
+同一台机器上 WebGL2 的 S 档在 1080p（不跨闸门，4/9 pass）是 **26.4 ms**。也就是说在核显上「WebGPU 快速」比 WebGL2 S 慢约 **9 倍**：ModeA 本身就是更重的网络（Restore CNN + x2 Upscale + AutoDownscale），WebGPU 不是一个更便宜的档位，而是一个更重的档位。
 
 ## 本轮实测与验证边界
 

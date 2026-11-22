@@ -20,7 +20,12 @@ import {
 	MAX_DPR,
 } from "@/util/upscale/scale";
 import type { UpscaleRenderer } from "@/util/upscale/upscale-renderer";
-import { reportEnhancementError, reportEnhancementTarget } from "@/util/upscale/status";
+import { probeAdapter } from "@/util/upscale/adapter";
+import {
+	reportEnhancementError,
+	reportEnhancementBackend,
+	reportEnhancementTarget,
+} from "@/util/upscale/status";
 import toast from "@/util/toast";
 
 const props = defineProps<{
@@ -69,9 +74,16 @@ let monitorTotalAtStart = 0;
 // Negative infinity rather than 0, so "no frame yet" cannot be confused with a clock
 // that legitimately reads 0.
 let lastFrameAt = Number.NEGATIVE_INFINITY;
-// A rebuild pays for itself in shader linking and a first frame, so the monitoring window
-// that starts with one is not evidence about the device and is thrown away unread.
+// A rebuild pays for itself in a first frame and a fresh set of render targets, so the monitoring
+// window that starts with one is not evidence about the device and is thrown away unread.
 let monitorSkipWindow = false;
+/**
+ * True until the first long gap after a rebuild has been discounted. It is a separate flag from
+ * `monitorSkipWindow` because the two cover different costs — the rebuild's first frame versus its
+ * first six seconds — and a 1 fps tier never finishes that window: one shared flag would either
+ * score the rebuild itself or swallow every later gap.
+ */
+let monitorGapSkip = false;
 /** Consecutive windows that judged the tier too heavy; see BAD_WINDOWS_BEFORE_DEGRADE. */
 let monitorBadWindows = 0;
 
@@ -104,8 +116,17 @@ function acquireCanvas(kind: CanvasKind): HTMLCanvasElement | null {
 	return element;
 }
 
+/** The CNN tiers that pay the extra pixels for Anime4K's upscale stage, on a pointer device. */
+const cnnTier = () => isCnnUpscaleTier(props.mode) && canAffordCnnUpscale();
+/**
+ * Whether the running pipeline should keep the CNN's 1.25x floor. Only the WebGPU presets can
+ * afford the x2 intermediates it buys (see `usesCnnSupersampling`); the WebGL2 chains re-plan
+ * from the canvas size every frame, so the floor is taken back as soon as one of them starts.
+ */
+const supersample = () => cnnTier() && capturedTarget;
+
 /** Sizes the target for the current source and box the picture is displayed in. */
-function sizeCanvas(video: HTMLVideoElement, target: HTMLCanvasElement) {
+function sizeCanvas(video: HTMLVideoElement, target: HTMLCanvasElement, cnnUpscale: boolean) {
 	const box = video.getBoundingClientRect();
 	const size = computeCanvasSize({
 		nativeWidth: video.videoWidth,
@@ -114,7 +135,7 @@ function sizeCanvas(video: HTMLVideoElement, target: HTMLCanvasElement) {
 		boxHeight: box.height,
 		dpr: Math.min(window.devicePixelRatio || 1, MAX_DPR),
 		requestedScale: store.state.settings.upscaleScale,
-		cnnUpscale: isCnnUpscaleTier(props.mode) && canAffordCnnUpscale(),
+		cnnUpscale,
 		fillMode: store.state.settings.videoFillMode,
 	});
 	if (target.width !== size.width) {
@@ -205,8 +226,37 @@ function monitorPerformance(_now: number, metadata: VideoFrameCallbackMetadata) 
 		// requestVideoFrameCallback stops firing while the video is paused, so the paused
 		// check above may never run; this is what actually catches it. Without it, resuming
 		// after a pause scores the whole pause as one window and degrades on the first frame.
+		//
+		// A long gap is not always a stall, though: a renderer that cannot keep up presents one
+		// frame per second too, and only the media clock tells the two apart. `currentTime`
+		// keeps advancing while a playing element is being dropped and freezes when the pipeline
+		// stopped producing frames (a rebuffer, a pause, a background tab). Treating the slow
+		// case as a stall left the tier running forever: every callback reset the window before
+		// it could reach six seconds, so a 0.9 fps chain never reached a verdict at all — which
+		// is exactly the shape "the AI tier is unusable and never steps down" has on an
+		// integrated GPU.
+		const previousMediaTime = lastMediaTime;
+		const wallGap = (now - lastFrameAt) / 1000;
+		const currentMediaTime = metadata?.mediaTime ?? video.currentTime;
+		const crawling =
+			!video.seeking &&
+			video.readyState >= video.HAVE_FUTURE_DATA &&
+			Number.isFinite(previousMediaTime) &&
+			currentMediaTime - previousMediaTime >= wallGap * 0.5;
 		resetMonitorWindow(now);
-		monitorBadWindows = 0;
+		if (monitorGapSkip) {
+			// The gap belongs to the rebuild that just started the window. It is spent now: at one
+			// frame per second no window ever reaches six seconds, so a flag that waits for a judged
+			// window would suppress every later gap as well.
+			monitorGapSkip = false;
+			monitorBadWindows = 0;
+		} else if (crawling) {
+			// One bad window's worth of evidence: the clock ran for a second and one frame came
+			// out of it. Two in a row walk the ladder, the same as two judged windows.
+			noteBadWindow(video);
+		} else {
+			monitorBadWindows = 0;
+		}
 	}
 	lastFrameAt = now;
 	// One presented frame, unless the browser is re-presenting the same media frame (a
@@ -261,6 +311,15 @@ function monitorPerformance(_now: number, metadata: VideoFrameCallbackMetadata) 
 		monitorBadWindows = 0;
 		return;
 	}
+	noteBadWindow(video);
+}
+
+/**
+ * Records one window that judged the tier too heavy, and walks the ladder when the device has
+ * confirmed it twice. Shared by the judged windows and by the long gaps a crawling renderer
+ * leaves, so a 1 fps tier steps down by the same rule as a 12 fps one.
+ */
+function noteBadWindow(video: HTMLVideoElement) {
 	if (!store.state.settings.upscaleAutoDegrade) {
 		// The user chose to keep the enhancement on and absorb the stutter.
 		return;
@@ -331,7 +390,13 @@ function degradeOneStep(video: HTMLVideoElement | undefined, target: HTMLCanvasE
 	const step = pickDegradeStep(video, target);
 	toast.add({
 		style: ToastStyle.Neutral,
-		content: i18n.global.t("room.upscale.degraded"),
+		// On the integrated GPU the cause is the environment, not the tier list: name it, with the
+		// one place it can be changed, instead of letting the viewer guess why the picture crawls.
+		content: i18n.global.t(
+			probeAdapter().class === "integrated"
+				? "room.upscale.degraded-integrated-gpu"
+				: "room.upscale.degraded",
+		),
 		duration: 6000,
 	});
 	// Transient on purpose: the ladder reacts to this device and this moment (another tab on
@@ -344,37 +409,45 @@ function degradeOneStep(video: HTMLVideoElement | undefined, target: HTMLCanvasE
 	resetMonitorWindow();
 }
 
-// A rebuild costs a GPU device and a pipeline, so the viewport has to settle first;
-// otherwise dragging a window edge would rebuild it dozens of times.
+// A size change after it settles costs a rebuild (WebGPU bakes its target in) or a re-plan plus
+// a fresh set of render targets (WebGL2, up to ~390 MiB of half-float textures for the HQ chain at
+// 4K), so the viewport has to settle first: one update per settled size, not one per resize event
+// while a window edge is being dragged. A media element's own `resize` — an HLS variant switch —
+// shares the timer for the same reason.
 const VIEWPORT_SETTLE_MS = 250;
 let viewportTimer: ReturnType<typeof setTimeout> | undefined;
 /** The intrinsic size the current pipeline was built for, so a resize can be compared. */
 let lastVideoSize = { width: 0, height: 0 };
 
-function handleViewportChange() {
-	const video = props.video;
-	if (!renderer || !video || !canvas) {
-		return;
-	}
-	if (!capturedTarget) {
-		// The WebGL2 chains take their render size straight from the canvas every frame, so
-		// resizing it is all a viewport change needs. Rebuilding them re-links the whole chain
-		// (55 programs for the HQ tier) and restarts the frame loop for a size the running
-		// pipeline already reads.
-		sizeCanvas(video, canvas);
-		renderer.redraw?.();
-		return;
-	}
-	// The WebGPU presets capture their target size when the pipeline is built, so entering
-	// fullscreen (or resizing the window) has to rebuild them — otherwise the canvas keeps the
-	// old resolution and the browser stretches it, which loses exactly what the tier bought.
+function scheduleTargetUpdate() {
 	if (viewportTimer !== undefined) {
 		clearTimeout(viewportTimer);
 	}
 	viewportTimer = setTimeout(() => {
 		viewportTimer = undefined;
-		void start();
+		if (!renderer || !props.video || !canvas) {
+			return;
+		}
+		if (capturedTarget) {
+			// The WebGPU presets capture their target size when the pipeline is built, so entering
+			// fullscreen (or resizing the window) has to rebuild them — otherwise the canvas keeps
+			// the old resolution and the browser stretches it, which loses exactly what the tier
+			// bought.
+			void start();
+			return;
+		}
+		// The WebGL2 chains read the canvas size every frame and re-plan in place, so the target is
+		// all that has to move. Nothing is re-linked: the programs are cached per GL context.
+		sizeCanvas(props.video, canvas, supersample());
+		renderer.redraw?.();
 	}, VIEWPORT_SETTLE_MS);
+}
+
+function handleViewportChange() {
+	if (!renderer || !props.video || !canvas) {
+		return;
+	}
+	scheduleTargetUpdate();
 }
 
 function stopRenderers() {
@@ -389,6 +462,7 @@ function stopRenderers() {
 	renderer = null;
 	canvas = null;
 	capturedTarget = false;
+	reportEnhancementBackend(null);
 	if (captionTimer !== undefined) {
 		clearInterval(captionTimer);
 		captionTimer = undefined;
@@ -464,7 +538,9 @@ async function start() {
 	if (!video || !element) {
 		return;
 	}
-	sizeCanvas(video, element);
+	// Sized optimistically: a WebGPU preset bakes this size into its pipeline, and it is the one
+	// backend that can afford the CNN floor. A WebGL2 fallback takes the floor back below.
+	sizeCanvas(video, element, cnnTier());
 	const current = ++generation;
 	const abort = new AbortController();
 	startAbort = abort;
@@ -538,8 +614,9 @@ async function start() {
 				}
 				// This second canvas is brand new, so it still holds the 300x150 default. The
 				// WebGL2 chain sizes its whole pipeline from the canvas, so without this it drew
-				// a 2:1 picture the browser then letterboxed over the 16:9 video.
-				sizeCanvas(video, webglCanvas);
+				// a 2:1 picture the browser then letterboxed over the 16:9 video. No CNN floor:
+				// this backend renders every pass of the chain at whatever the canvas holds.
+				sizeCanvas(video, webglCanvas, false);
 				if (props.mode === "anime4k-quality") {
 					// The heavy tier runs the same A+A (HQ) chain the WebGPU "quality" preset does,
 					// so the two AI tiers differ on WebGL2 the way they do on a WebGPU device.
@@ -591,6 +668,15 @@ async function start() {
 	renderer = created;
 	canvas = element;
 	capturedTarget = captured;
+	reportEnhancementBackend(captured ? "webgpu" : "webgl2");
+	if (cnnTier() && !captured) {
+		// A WebGL2 chain started after the optimistic sizing above. Take the CNN floor back
+		// before its first planned frame: at 1.25x the target sits 4% past Anime4K's 1.2x gate,
+		// which runs the x2 stage and renders all 46 passes of the HQ chain at 4K for a picture
+		// that is then squeezed into a 1350p canvas. The chain re-plans from the canvas, so this
+		// costs one re-size rather than a rebuild.
+		sizeCanvas(video, canvas, false);
+	}
 	// A tier that started cleanly clears the last failure; the panel shows whichever
 	// cause is still current. The target label is not cleared here: the renderers report it
 	// on their first drawn frame, and start() has already drawn that frame by now.
@@ -602,6 +688,7 @@ async function start() {
 	monitorBadWindows = 0;
 	resetMonitorWindow();
 	monitorSkipWindow = true;
+	monitorGapSkip = true;
 	scheduleMonitor();
 }
 
@@ -628,20 +715,10 @@ function onVideoResize() {
 		return;
 	}
 	lastVideoSize = { width, height };
-	if (!capturedTarget) {
-		// Rebuild the canvas for the variant's own aspect; the chain re-plans on the next frame.
-		sizeCanvas(video, canvas);
-		renderer.redraw?.();
-		return;
-	}
-	// Same settle as a viewport change: one variant switch should rebuild once.
-	if (viewportTimer !== undefined) {
-		clearTimeout(viewportTimer);
-	}
-	viewportTimer = setTimeout(() => {
-		viewportTimer = undefined;
-		void start();
-	}, VIEWPORT_SETTLE_MS);
+	// One variant switch is one update: the WebGL2 canvas gets the variant's own aspect (the
+	// chain re-plans on the next frame), a WebGPU preset is rebuilt. Both wait out a ladder that
+	// is still settling.
+	scheduleTargetUpdate();
 }
 
 function onSeeking() {
@@ -697,7 +774,7 @@ watch(
 			return;
 		}
 		// Every other driver reads the canvas size every frame, so a resize is enough.
-		sizeCanvas(video, canvas);
+		sizeCanvas(video, canvas, supersample());
 		renderer?.redraw?.();
 	},
 );
@@ -718,7 +795,7 @@ watch(
 				void start();
 				return;
 			}
-			sizeCanvas(video, canvas);
+			sizeCanvas(video, canvas, supersample());
 			renderer?.redraw?.();
 		}
 	},

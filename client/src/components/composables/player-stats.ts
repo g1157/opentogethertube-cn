@@ -5,14 +5,9 @@ import type { UpscaleMode } from "@/stores/settings";
 /** The live sync engine's counters, mirrored into a module ref by the room. */
 import { syncMetrics } from "@/util/playback-sync-diagnostics";
 import { medianFrameInterval } from "@/util/upscale/pacing";
-import {
-	canAffordCnnUpscale,
-	computeCanvasSize,
-	isCnnUpscaleTier,
-	MAX_DPR,
-	MAX_SCALE,
-} from "@/util/upscale/scale";
-import { enhancementTarget, lastEnhancementError } from "@/util/upscale/status";
+import { probeAdapter, shortRendererName, type AdapterClass } from "@/util/upscale/adapter";
+import { computeCanvasSize, MAX_DPR, MAX_SCALE, usesCnnSupersampling } from "@/util/upscale/scale";
+import { enhancementBackend, enhancementTarget, lastEnhancementError } from "@/util/upscale/status";
 
 export interface PlayerStatsRow {
 	labelKey: string;
@@ -63,6 +58,8 @@ export interface PlayerStatsInput {
 		viewportHeight: number;
 		webgpu: boolean;
 		gpuName: string | null;
+		/** What the browser is rendering on, whatever the WebGPU availability. */
+		adapter: { class: AdapterClass; name: string | null };
 	};
 }
 
@@ -148,8 +145,10 @@ export function collectPlayerStats(input: PlayerStatsInput): PlayerStatsSection[
 					boxHeight: video.getBoundingClientRect().height,
 					dpr: Math.min(input.device.dpr || 1, MAX_DPR),
 					requestedScale: input.settings.upscaleScale,
-					cnnUpscale:
-						isCnnUpscaleTier(input.settings.upscaleMode) && canAffordCnnUpscale(),
+					cnnUpscale: usesCnnSupersampling(
+						input.settings.upscaleMode,
+						enhancementBackend.value,
+					),
 				})
 			: null;
 	const scale = canvas && width > 0 ? canvas.width / width : null;
@@ -275,12 +274,31 @@ export function collectPlayerStats(input: PlayerStatsInput): PlayerStatsSection[
 					: "player.stats.unavailable",
 			};
 
+	// The adapter is reported independently of WebGPU: Firefox exposes no adapter, and a
+	// browser on the integrated GPU is the usual reason a heavy tier crawls.
+	const adapterName = input.device.adapter.name;
+	const adapterClassKey =
+		input.device.adapter.class === "discrete"
+			? "player.stats.gpu-discrete"
+			: input.device.adapter.class === "integrated"
+				? "player.stats.gpu-integrated"
+				: "player.stats.gpu-unknown";
+	const adapterRow: PlayerStatsRow | null = adapterName
+		? { labelKey: "player.stats.gpu-adapter", value: adapterName }
+		: null;
+	const adapterClassRow: PlayerStatsRow = {
+		labelKey: "player.stats.gpu-adapter-class",
+		valueKey: adapterClassKey,
+	};
+
 	const deviceRows: PlayerStatsRow[] = [
 		{
 			labelKey: "player.stats.viewport",
 			value: `${input.device.viewportWidth}×${input.device.viewportHeight} · DPR ${input.device.dpr}`,
 		},
 		webgpuRow,
+		...(adapterRow ? [adapterRow] : []),
+		adapterClassRow,
 		{ labelKey: "player.stats.max-scale", value: `${MAX_SCALE}×` },
 	];
 
@@ -354,6 +372,10 @@ export function usePlayerStats(
 	let pageFpsSamples: number[] = [];
 	let pageFps: number | null = null;
 	let gpuName: string | null = null;
+	// Probed once per page, and cheap enough to read on every tick: the answer cannot change
+	// while this document lives.
+	const probed = probeAdapter();
+	const adapterInfo = { class: probed.class, name: shortRendererName(probed.renderer) };
 
 	const input = (): PlayerStatsInput => {
 		const room = store.state.room;
@@ -389,6 +411,7 @@ export function usePlayerStats(
 				viewportHeight: typeof window !== "undefined" ? window.innerHeight : 0,
 				webgpu: typeof navigator !== "undefined" && "gpu" in navigator,
 				gpuName,
+				adapter: adapterInfo,
 			},
 		};
 	};

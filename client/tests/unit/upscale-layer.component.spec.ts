@@ -10,6 +10,16 @@ const drivers = vi.hoisted(() => ({
 	anime4kUltra: vi.fn(),
 	probe: vi.fn(),
 }));
+const adapterState = vi.hoisted(() => ({
+	current: { class: "unknown", renderer: null } as {
+		class: "discrete" | "integrated" | "unknown";
+		renderer: string | null;
+	},
+}));
+vi.mock("@/util/upscale/adapter", async importOriginal => {
+	const actual = await importOriginal<typeof import("@/util/upscale/adapter")>();
+	return { ...actual, probeAdapter: () => adapterState.current };
+});
 
 vi.mock("@/util/upscale/cas", () => ({ startSharpenRenderer: drivers.sharpen }));
 vi.mock("@/util/upscale/film", () => ({ startFilmRenderer: drivers.film }));
@@ -75,8 +85,12 @@ function fakeVideo() {
 	}) as HTMLVideoElement["cancelVideoFrameCallback"];
 	return {
 		video,
-		/** Present one frame after the given elapsed time. */
-		fire(deltaMs: number) {
+		/**
+		 * Present one frame after the given elapsed time. `mediaAdvanceMs` says how far the media
+		 * clock moved in that time: equal to the wall clock while playback runs at 1x, 0 while the
+		 * pipeline has nothing to present (a rebuffer), and larger across a seek.
+		 */
+		fire(deltaMs: number, mediaAdvanceMs = deltaMs) {
 			clock += deltaMs;
 			const next = [...callbacks.entries()][0];
 			if (!next) {
@@ -86,7 +100,7 @@ function fakeVideo() {
 			// Playback runs at 1x, so the media clock follows the wall clock and a frame
 			// presented late leaves a gap in the media times the pacing check can see.
 			next[1](clock, {
-				mediaTime: clock / 1000 + mediaOffset,
+				mediaTime: clock / 1000 + mediaOffset - (deltaMs - mediaAdvanceMs) / 1000,
 			} as VideoFrameCallbackMetadata);
 		},
 		/** Jump the media clock like a seek does, announced the way the element announces it. */
@@ -121,6 +135,7 @@ describe("enhancement layer lifecycle", () => {
 	});
 	afterEach(() => {
 		Reflect.deleteProperty(navigator, "gpu");
+		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
 		vi.clearAllMocks();
 	});
@@ -141,7 +156,7 @@ describe("enhancement layer lifecycle", () => {
 		expect(live.redraw).toHaveBeenCalledTimes(1);
 	});
 
-	it("redraws a paused sharpen picture after a viewport resize", async () => {
+	it("redraws a paused sharpen picture after a viewport resize settles", async () => {
 		const live = renderer();
 		drivers.sharpen.mockReturnValueOnce(live);
 		const { wrapper } = mountComponent(UpscaleLayer, {
@@ -149,10 +164,34 @@ describe("enhancement layer lifecycle", () => {
 		});
 		await settle();
 		window.dispatchEvent(new Event("resize"));
+		// The target moves once the viewport settles: a WebGL2 re-size re-plans the chain and
+		// hands the old render targets back, so a drag must not do it per resize event.
+		await new Promise(resolve => setTimeout(resolve, 300));
 		await settle();
 
 		expect(live.redraw).toHaveBeenCalledTimes(1);
 		expect(drivers.sharpen).toHaveBeenCalledTimes(1);
+		wrapper.unmount();
+	});
+
+	it("redraws once for a burst of viewport resizes", async () => {
+		// Dragging a window edge fires resize on every frame. Each one would re-plan the HQ
+		// chain and re-allocate up to ~390 MiB of half-float targets.
+		const live = renderer();
+		drivers.anime4kWebGL.mockReturnValueOnce(live);
+		drivers.probe.mockImplementationOnce(() => Promise.resolve(false));
+		const { wrapper } = mountComponent(UpscaleLayer, {
+			props: { video: fakeVideo().video, mode: "anime4k" },
+		});
+		await settle();
+		for (let i = 0; i < 20; i++) {
+			window.dispatchEvent(new Event("resize"));
+		}
+		await new Promise(resolve => setTimeout(resolve, 300));
+		await settle();
+
+		expect(live.redraw).toHaveBeenCalledTimes(1);
+		expect(drivers.anime4kWebGL).toHaveBeenCalledTimes(1);
 		wrapper.unmount();
 	});
 
@@ -488,6 +527,100 @@ describe("enhancement layer lifecycle", () => {
 			fire(100);
 		}
 		expect(store.state.settings.upscaleScale).toBe(0.75);
+	});
+
+	it("steps down when the device presents one frame per second", async () => {
+		// A renderer that far behind presents one frame per second instead of stopping, and its
+		// media clock keeps running. Resetting the window on every such gap (as the stall check
+		// used to) meant a tier at 0.9 fps never reached six seconds and never stepped down: the
+		// heavy AI chain stayed on screen at one frame per second for as long as the viewer left
+		// it there. Measured on an Intel UHD: HQ at 1080p, 916 ms per frame.
+		const { video, fire } = fakeVideo();
+		drivers.probe.mockImplementationOnce(() => Promise.resolve(false));
+		const { store } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "anime4k" },
+		});
+		store.commit("settings/UPDATE", { upscaleMode: "anime4k" });
+		await settle();
+
+		// Two long gaps after the rebuild's own first one, which is discounted.
+		for (let i = 0; i < 3; i++) {
+			fire(1100);
+		}
+
+		expect(store.state.settings.upscaleMode).toBe("film");
+	});
+
+	it("leaves the tier alone when a playing video simply stopped presenting", async () => {
+		// The other long gap: the decoder has nothing, so the media clock is frozen too and the
+		// element reports it through `readyState`. That is a rebuffer, not a slow renderer.
+		const { video, fire } = fakeVideo();
+		drivers.probe.mockImplementationOnce(() => Promise.resolve(false));
+		const { store } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "anime4k" },
+		});
+		store.commit("settings/UPDATE", { upscaleMode: "anime4k" });
+		await settle();
+		Object.defineProperty(video, "readyState", { value: 1, configurable: true });
+
+		for (let i = 0; i < 6; i++) {
+			// A long gap whose media clock did not advance either.
+			fire(1500, 0);
+		}
+
+		expect(store.state.settings.upscaleMode).toBe("anime4k");
+	});
+
+	it("keeps a WebGL2 CNN tier at the displayed size instead of the 1.25x floor", async () => {
+		// The floor pushes the target 4% past Anime4K's 1.2x gate, which turns on the x2 stage and
+		// renders every remaining pass at twice the source. The WebGPU presets can pay for that;
+		// the WebGL2 fallback measured 83 ms/frame for S and 916 ms/frame for HQ on an Intel UHD.
+		const { video } = fakeVideo();
+		vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query }));
+		drivers.probe.mockImplementationOnce(() => Promise.resolve(false));
+		const { wrapper } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "anime4k" },
+		});
+		await settle();
+
+		expect(drivers.anime4kWebGL).toHaveBeenCalledTimes(1);
+		// 1920x1080 source in a 1280x720 box: "auto" clamps up to 1x, and the floor is not added.
+		expect(wrapper.find("canvas").element.width).toBe(1920);
+	});
+
+	it("lets the WebGPU preset supersample past the CNN gate", async () => {
+		const { video } = fakeVideo();
+		vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query }));
+		const { wrapper } = mountComponent(UpscaleLayer, {
+			props: { video, mode: "anime4k" },
+		});
+		await settle();
+
+		expect(drivers.anime4k).toHaveBeenCalledTimes(1);
+		expect(wrapper.find("canvas").element.width).toBe(2400);
+	});
+
+	it("names the integrated GPU in the degrade notice", async () => {
+		// A viewer on a hybrid laptop sees "reduced" and has no idea why; the browser cannot be
+		// moved to the other adapter from the page, so the notice has to name the cause.
+		adapterState.current = {
+			class: "integrated",
+			renderer: "ANGLE (Intel, Intel(R) UHD Graphics (0x0000A78B) Direct3D11 vs_5_0 ps_5_0)",
+		};
+		const { video, fire } = fakeVideo();
+		const { store } = mountComponent(UpscaleLayer, { props: { video, mode: "sharpen" } });
+		await settle();
+
+		for (let i = 0; i < 200; i++) {
+			fire(100);
+		}
+
+		expect(store.state.settings.upscaleScale).not.toBe("auto");
+		const notices = (
+			store.state as unknown as { toast: { notifications: { content: string }[] } }
+		).toast.notifications;
+		expect(notices.map(n => n.content).join(" ")).toContain("核显");
+		adapterState.current = { class: "unknown", renderer: null };
 	});
 
 	it("does not step down for the seeks a room does while watching", async () => {

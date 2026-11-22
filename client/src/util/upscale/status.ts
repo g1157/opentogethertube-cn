@@ -19,3 +19,15 @@ export const enhancementTarget = ref<string | null>(null);
 export function reportEnhancementTarget(label: string | null): void {
 	enhancementTarget.value = label;
 }
+
+/**
+ * The engine the AI tiers ended up on. The sizing rule needs it — only the WebGPU presets can
+ * afford the x2 intermediates the CNN floor causes (see `usesCnnSupersampling`) — and so do the
+ * details panel and the queue badge, which otherwise preview a target the layer will not render.
+ * `null` until an AI tier has started, and after the layer goes away.
+ */
+export const enhancementBackend = ref<"webgpu" | "webgl2" | null>(null);
+
+export function reportEnhancementBackend(backend: "webgpu" | "webgl2" | null): void {
+	enhancementBackend.value = backend;
+}

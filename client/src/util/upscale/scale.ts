@@ -71,6 +71,24 @@ export function canAffordCnnUpscale(): boolean {
 	return !window.matchMedia("(pointer: coarse)").matches;
 }
 
+/** The engine the enhancement actually started on, as the layer reports it. */
+export type EnhancementBackend = "webgpu" | "webgl2";
+
+/**
+ * Whether "auto" should push the target past Anime4K's 1.2x gate on this tier.
+ *
+ * Crossing the gate makes the chain run its x2 upscale stage, and from there *every* remaining
+ * pass renders at twice the source — for a 1080p source that is 3840x2160 for all 46 passes of
+ * the HQ chain. The WebGPU presets pay that on the adapter the probe accepted; the WebGL2
+ * fallback (an integrated GPU, Firefox's Windows builds, Safari) pays it on the CPU-fed driver
+ * and measured 83 ms/frame for S and 916 ms/frame for HQ on an Intel UHD 780. There the floor is
+ * dropped and an explicit 1.5x-2x remains how a viewer asks for the upscale stage; the restore
+ * passes alone are still what the tier adds over the plain video.
+ */
+export function usesCnnSupersampling(mode: string, backend: EnhancementBackend | null): boolean {
+	return backend === "webgpu" && isCnnUpscaleTier(mode) && canAffordCnnUpscale();
+}
+
 export interface CanvasSizeInput {
 	nativeWidth: number;
 	nativeHeight: number;
