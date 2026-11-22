@@ -17,6 +17,29 @@
 需要 Docker Engine、Compose v2 和 Git（只用来取部署文件）。发布镜像是 **linux/amd64**，适配常见
 云服务器；`docker compose pull` 从公开的 `ghcr.io/g1157/opentogethertube-cn` 拉取，不需要登录
 （部分网络访问 ghcr.io 可能缓慢或超时；可配置可用代理，或在其他机器 `docker save` 后传输导入）。
+
+  国内服务器常见的问题是 **只在 blob 阶段卡住**：`ghcr.io` 的 API 与 manifest 正常，层却走
+  `pkg-containers.githubusercontent.com` —— 2026-11-22 在腾讯云实测直连该 CDN 只有 13.8 KB/s
+  （302 MB 的镜像约需 6 小时，所以 `docker pull` 看起来像不动）。中途中断还会在本地留下损坏的层，
+  下次拉同一个镜像会报 `unexpected commit digest ... failed precondition`；先
+  `sudo docker system prune -f` 清掉，再改用国内镜像：
+
+  ```bash
+  sudo docker pull ghcr.nju.edu.cn/g1157/opentogethertube-cn:v1.4.24
+  sudo docker tag  ghcr.nju.edu.cn/g1157/opentogethertube-cn:v1.4.24 \
+                    ghcr.io/g1157/opentogethertube-cn:v1.4.24
+  sudo docker compose up -d
+  ```
+
+  拉完核对提交，标签里的 revision 必须等于 `git rev-parse v1.4.24`：
+
+  ```bash
+  sudo docker image inspect ghcr.io/g1157/opentogethertube-cn:v1.4.24 \
+    --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+  ```
+
+  反向隧道借本机代理（`ssh -R 10808:127.0.0.1:10808` + `skopeo copy`）也可行，但速度受本地上行
+  限制（实测 640 KB/s），国内镜像通常快一个数量级。
 从 `v1.4.20` 起，镜像采用独立多阶段构建：按本仓 `yarn.lock` 和 Yarn 补丁执行
 `workspaces focus ott-server --production`，再从干净的 Node 官方层只复制本仓运行产物。
 固定的系统基础镜像是：
