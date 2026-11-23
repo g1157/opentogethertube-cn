@@ -2,7 +2,7 @@ import express from "express";
 import { z } from "zod";
 import { Counter, Histogram } from "prom-client";
 import { getLogger } from "../logger.js";
-import { ALL_VIDEO_SERVICES } from "ott-common/constants.js";
+import { ALL_VIDEO_SERVICES, PLAYBACK_DRIFT_BUCKET_SECONDS } from "ott-common/constants.js";
 
 // biome-ignore lint/correctness/noUnusedVariables: biome migration
 const log = getLogger("api/playback");
@@ -12,6 +12,14 @@ const MAX_SECONDS = 24 * 60 * 60;
 const MAX_EVENTS = 100_000;
 /** Reports are counters, not events; one every few seconds per client is plenty. */
 const REPORT_INTERVAL_MS = 5000;
+
+/**
+ * The fixed bucket labels of ott_playback_drift_seconds. Derived from the shared bounds so a
+ * client can never widen the label set: the index is the only thing it supplies.
+ */
+const DRIFT_BUCKET_LABELS = PLAYBACK_DRIFT_BUCKET_SECONDS.map(bound =>
+	Number.isFinite(bound) ? String(bound) : "inf",
+);
 
 const reportSchema = z.object({
 	service: z.string().min(1).max(32),
@@ -26,6 +34,13 @@ const reportSchema = z.object({
 	rateWrites: z.number().int().min(0).max(MAX_EVENTS).optional(),
 	deadlineSeeks: z.number().int().min(0).max(MAX_EVENTS).optional(),
 	maxDriftSeconds: z.number().finite().min(0).max(MAX_SECONDS).optional(),
+	bendSeconds: z.number().finite().min(0).max(MAX_SECONDS).optional(),
+	// Exactly one entry per bucket: the labels are fixed server-side, so a wrong length is a
+	// broken client, not something to interpolate into a time series.
+	driftBucketSeconds: z
+		.array(z.number().finite().min(0).max(MAX_SECONDS))
+		.length(DRIFT_BUCKET_LABELS.length)
+		.optional(),
 	totalFrames: z.number().int().min(0).max(MAX_EVENTS).optional(),
 	droppedFrames: z.number().int().min(0).max(MAX_EVENTS).optional(),
 });
@@ -104,6 +119,18 @@ const histogramMaxDrift = new Histogram({
 	buckets: [0.15, 0.3, 0.5, 1, 3, 10],
 });
 
+const counterBendSeconds = new Counter({
+	name: "ott_playback_bend_seconds",
+	help: "Time the sync engine held a rate bend, by service",
+	labelNames: ["service"],
+});
+
+const counterDriftSeconds = new Counter({
+	name: "ott_playback_drift_seconds",
+	help: "Time spent at a room-clock drift inside each fixed bucket, by service",
+	labelNames: ["service", "bucket"],
+});
+
 const counterTotalFrames = new Counter({
 	name: "ott_playback_total_frames",
 	help: "Video frames produced by the media pipeline, by service",
@@ -178,6 +205,18 @@ router.post("/quality", (req, res) => {
 	}
 	if (report.maxDriftSeconds !== undefined) {
 		histogramMaxDrift.observe(labels, report.maxDriftSeconds);
+	}
+	if (report.bendSeconds !== undefined) {
+		counterBendSeconds.inc(labels, report.bendSeconds);
+	}
+	if (report.driftBucketSeconds !== undefined) {
+		report.driftBucketSeconds.forEach((seconds, index) => {
+			// The array length is validated above, so every index has a fixed label; a zero
+			// bucket is skipped so a quiet service does not create series per bucket forever.
+			if (seconds > 0) {
+				counterDriftSeconds.inc({ ...labels, bucket: DRIFT_BUCKET_LABELS[index] }, seconds);
+			}
+		});
 	}
 	if (report.totalFrames !== undefined) {
 		counterTotalFrames.inc(labels, report.totalFrames);

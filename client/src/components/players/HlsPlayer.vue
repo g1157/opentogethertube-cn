@@ -48,7 +48,7 @@ import { referrerPolicyValue } from "@/util/media-access";
 import { ToastStyle } from "@/models/toast";
 import toast from "@/util/toast";
 import { i18n } from "@/i18n";
-import { calculateCurrentPosition } from "ott-common/timestamp";
+import { roomStartPosition } from "@/util/start-position";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
 import { visibleBufferSeconds } from "@/util/media-buffer";
 import { hlsBufferBudget } from "@/util/hls-buffer";
@@ -302,6 +302,20 @@ async function setPlaybackRate(rate: number): Promise<void> {
 	recovery.setPlaybackRate(rate);
 }
 
+/**
+ * The sync engine's micro corrections play the element resampled, which is cleaner than the
+ * time-stretch warp close to 1.0. Returns false for an element without the property so the
+ * engine keeps its coarser behaviour there.
+ */
+function setPreservesPitch(preserve: boolean): boolean {
+	const video = videoElem.value;
+	if (!video || !("preservesPitch" in video)) {
+		return false;
+	}
+	video.preservesPitch = preserve;
+	return true;
+}
+
 function setAudioBoost(boost: number): void {
 	audioBoost.setBoost(boost);
 }
@@ -358,6 +372,7 @@ function attachSource() {
 		rememberedBandwidth ?? 5_000_000,
 		BACK_BUFFER_SECONDS,
 	);
+	const startPosition = roomStartPosition(store.state.room, recovery.getPosition());
 	const engine = new Hls({
 		maxBufferLength: initialBudget.forwardSeconds,
 		// The byte budget is converted to time above; keeping the absolute cap equal to the
@@ -374,6 +389,10 @@ function attachSource() {
 		// otherwise fetch from zero and we would seek afterwards, costing an extra round trip
 		// every time someone enters the room.
 		autoStartLoad: false,
+		// The early startLoad below only sets the force flag; once the manifest is parsed
+		// hls.js restarts at config.startPosition, so the position has to live here. Live keeps
+		// its default (-1: the edge) because the room clock cannot describe a sliding window.
+		...(startPosition !== null ? { startPosition } : {}),
 		// Start at the level the remembered estimate supports instead of the manifest's
 		// first variant, and let ABR take over from the first fragment.
 		...(rememberedBandwidth !== null
@@ -454,28 +473,10 @@ function attachSource() {
 
 	engine.loadSource(videoUrl.value);
 	engine.attachMedia(videoElem.value);
-	engine.startLoad(hlsStartPosition());
+	// autoStartLoad is off, so this only arms the forced start; the position itself comes
+	// from the config above once the manifest has been parsed.
+	engine.startLoad(startPosition ?? -1);
 	emit("apiready");
-}
-
-/**
- * Where this client should begin loading: the room's current position when it is playing,
- * the saved position when it is paused, and the recovery snapshot as a last resort.
- */
-function hlsStartPosition(): number {
-	const room = store.state.room;
-	if (room.isPlaying && room.playbackStartTime) {
-		return Math.max(
-			0,
-			calculateCurrentPosition(
-				room.playbackStartTime,
-				Date.now(),
-				room.playbackPosition,
-				room.playbackSpeed,
-			),
-		);
-	}
-	return Math.max(0, room.playbackPosition || recovery.getPosition());
 }
 
 onMounted(() => {
@@ -638,6 +639,7 @@ defineExpose({
 	getAvailablePlaybackRates,
 	getPlaybackRate,
 	setPlaybackRate,
+	setPreservesPitch,
 	setAudioBoost,
 	setAudioEq,
 	retry: recovery.retry,

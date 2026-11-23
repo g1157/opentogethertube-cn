@@ -123,8 +123,55 @@ describe("playback quality measurement", () => {
 			rateWrites: 0,
 			deadlineSeeks: 0,
 			maxDriftSeconds: 0,
+			bendSeconds: 0,
+			driftBucketSeconds: [0, 0, 0, 0, 0, 0],
 			totalFrames: 0,
 			droppedFrames: 0,
+		});
+	});
+
+	it("reports per-window drift buckets and bend time with the same reset rule", () => {
+		const sync = {
+			rateWrites: 0,
+			deadlineSeeks: 0,
+			maxAbsDrift: 0.4,
+			driftSeconds: [1.2, 2.46, 0.35, 0.04, 0, 0],
+			bendSeconds: 6.44,
+		};
+		quality = createPlaybackQuality({
+			service: () => "hls",
+			send: report => sent.push(report),
+			now: () => now,
+			getSyncCounters: () => sync,
+		});
+		playFromFirstFrame();
+		now += 10_000;
+		quality.flush();
+		// Both are rounded to the 0.1 s the buckets are measured in.
+		expect(sent[0]).toMatchObject({
+			bendSeconds: 6.4,
+			driftBucketSeconds: [1.2, 2.5, 0.4, 0, 0, 0],
+		});
+
+		// A mid-session window reports only its own growth.
+		sync.driftSeconds = [2.2, 2.46, 0.35, 0.04, 0, 0];
+		sync.bendSeconds = 7.04;
+		now += 10_000;
+		quality.flush();
+		expect(sent[1]).toMatchObject({
+			bendSeconds: 0.6,
+			driftBucketSeconds: [1, 0, 0, 0, 0, 0],
+		});
+
+		// The counters went backwards: the engine was reset under us, so the whole value
+		// belongs to this window instead of a negative delta.
+		sync.driftSeconds = [0.34, 0, 0, 0, 0, 0];
+		sync.bendSeconds = 0.24;
+		now += 10_000;
+		quality.flush();
+		expect(sent[2]).toMatchObject({
+			bendSeconds: 0.2,
+			driftBucketSeconds: [0.3, 0, 0, 0, 0, 0],
 		});
 	});
 

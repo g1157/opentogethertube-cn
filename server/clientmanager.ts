@@ -422,7 +422,12 @@ async function onClientReauth(client: Client, token: AuthToken, session: Session
 	}
 	// A full sync gives the client its new role and permissions without a reconnect.
 	client.send(
-		Object.assign({ action: "sync" }, room.syncableState()) as unknown as ServerMessageSync,
+		Object.assign(
+			{ action: "sync" },
+			room.syncableState(),
+			// Re-samples the position together with `serverTime`, so both describe one instant.
+			room.playbackClock(),
+		) as unknown as ServerMessageSync,
 	);
 }
 
@@ -450,6 +455,8 @@ async function joinAuthenticatedClient(client: Client, token: AuthToken, session
 	const syncMsg = Object.assign(
 		{ action: "sync" },
 		room.syncableState(),
+		// The full sync carries a position, so it carries the instant it was sampled.
+		room.playbackClock(),
 	) as unknown as ServerMessageSync;
 	client.send(syncMsg);
 
@@ -483,7 +490,7 @@ async function joinAuthenticatedClient(client: Client, token: AuthToken, session
 	// viewer to re-align and briefly freeze their playback.
 	const positionMsg: ServerMessageSync = {
 		action: "sync",
-		playbackPosition: room.realPlaybackPosition,
+		...room.playbackClock(),
 	};
 	client.send(positionMsg);
 
@@ -588,7 +595,10 @@ async function onClientMessage(client: Client, msg: ClientMessage) {
 		if (msg.action === "ping") {
 			// DirectClient answers latency probes in onData; a probe that arrives through the
 			// balancer lands here instead, and without a reply the client never gets a sample.
-			client.send({ action: "pong", t0: msg.t0 });
+			// Both paths spend the same per-connection budget, so a burst stays bounded.
+			if (client.takeLatencyReplyToken()) {
+				client.send({ action: "pong", t0: msg.t0, serverTime: Date.now() });
+			}
 			return;
 		}
 		if (msg.action === "kickme") {

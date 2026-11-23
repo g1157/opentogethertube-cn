@@ -325,6 +325,11 @@ async function getRoomUnlocked(
 			? await getTemporaryRoomPasswordHash(fixedState.name)
 			: await storage.getRoomPasswordHash(fixedState.name);
 		const room = new Room(fixedState);
+		if (room.isTemporary && room.isPlaying) {
+			// A temporary room comes back playing, but nobody watched while the process was
+			// down: resume from the snapshot position instead of advancing by the downtime.
+			room.reanchorRestoredPlayback();
+		}
 		await addRoom(room);
 		return ok(room);
 	}

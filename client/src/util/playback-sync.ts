@@ -1,4 +1,5 @@
 import {
+	PLAYBACK_DRIFT_BUCKET_SECONDS,
 	PLAYBACK_INITIAL_MAX_DRIFT_SECONDS,
 	PLAYBACK_INITIAL_SYNC_COOLDOWN_MS,
 	PLAYBACK_MIN_SEEK_BUFFER_SECONDS,
@@ -28,6 +29,27 @@ interface PlaybackSyncOptions {
 	/** Null for players with discrete rates (YouTube/PeerTube) or no rate setter (Vimeo). */
 	getBendBase?(): number | null;
 	setLocalRate?(rate: number): void | Promise<void>;
+	/**
+	 * Toggles the browser's pitch-preserving time-stretch. The micro band plays resampled:
+	 * Chromium's own media code notes that WSOLA time-stretching warbles most close to 1.0,
+	 * while resampling is clean but shifts pitch, which costs nothing for a few percent on a
+	 * drift too small to hear as a tempo change. Return false when the element cannot switch,
+	 * which disables the micro band entirely.
+	 */
+	setPreservesPitch?(preserve: boolean): boolean | void;
+	/**
+	 * Starting latency estimates for the seek lead, in seconds. The first seek after a reset
+	 * pays for a cold load of a new source; every later seek only pays for the fetch of the
+	 * region it jumps into. Overridable so tests about something other than the lead can pin
+	 * it to zero.
+	 */
+	initialSeekLeadSeconds?: { load: number; seek: number };
+	/**
+	 * The last position a seek may target (the media's end or its trim), or null when it is
+	 * unknown. A predicted target past it would be clamped by the element, and the native
+	 * seek hold would then wait for a position the media does not have.
+	 */
+	getSeekLimit?(): number | null;
 	/** The slow-device A/B switch; false makes the engine behave like a player that
 	 * cannot change rates (coarser seeks instead of a continuously re-timed bend). */
 	allowRateBend?(): boolean;
@@ -48,6 +70,15 @@ export interface PlaybackSyncMetrics {
 	/** Largest absolute drift seen since the counters last reset. Bending only engages
 	 * past 0.3s, so this says whether the field even reaches that zone. */
 	maxAbsDrift: number;
+	/** Seconds spent with |drift| in each bucket of PLAYBACK_DRIFT_BUCKET_SECONDS, so a
+	 * session that sat 20ms off throughout is distinguishable from one that sat 280ms off. */
+	driftSeconds: number[];
+	/** Seconds during which a rate bend (or the micro band) was actually applied. */
+	bendSeconds: number;
+	/** Current lead added to a seek target after the first one, in seconds. */
+	seekLeadSeconds: number;
+	/** Current lead added to the first seek after a reset (cold load), in seconds. */
+	loadLeadSeconds: number;
 }
 
 interface SeekRequestOptions {
@@ -82,19 +113,63 @@ const RATE_WRITE_THRESHOLD = 0.002;
 const CHEAP_SEEK_DRIFT = BEND_START;
 /** Embedded players seek by reload/estimation; only a visible drift is worth that. */
 const EXPENSIVE_SEEK_DRIFT = 1;
+/**
+ * A paused native element has no audio pipeline running, so placing it on the room's exact
+ * frame costs nothing. Without this, every viewer froze wherever its own element was (up to
+ * the 300ms dead band apart) and the room never showed the same frame twice.
+ */
+const PAUSED_FRAME_DRIFT = 0.04;
+/**
+ * Longest gap a single drift observation may be credited with. A throttled background tab or
+ * a stalled timer otherwise turns minutes of wall clock into "minutes of perfect sync".
+ */
+const MAX_OBSERVATION_STEP_SECONDS = 1;
+/**
+ * A hard seek while the room plays targets the room position plus the time the player needs to
+ * fetch, decode and resume. Without it every seek leaves the viewer behind by exactly that
+ * latency and the bend spends the next 10-20s at 8-15% recovering it.
+ */
+// Starting points before a device has taught the engine its own latency. Deliberately on the
+// low side: an overestimate leaves the viewer ahead of the room, which only a slow-down can
+// undo, while an underestimate is the lag the engine always had.
+const DEFAULT_LOAD_LEAD_SECONDS = 0.5;
+const DEFAULT_SEEK_LEAD_SECONDS = 0.3;
+/** An estimate outside this range is a measurement error, not a slow device. */
+const MAX_SEEK_LEAD_SECONDS = 3;
+/** Fraction of the observed prediction error applied to the estimate. */
+const LEAD_CORRECTION = 0.5;
+/**
+ * Fine band below the bend start: two viewers could otherwise sit 300ms apart forever, and the
+ * bend's own 150ms stop left its residual uncorrected. Small enough that 1-2% of rate is not
+ * heard as a tempo change.
+ */
+const MICRO_START = 0.06;
+const MICRO_STOP = 0.02;
+/** Quantisation of the micro rate offset; rewriting the rate every tick is audible. */
+const MICRO_STEP = 0.005;
+const MICRO_MAX_OFFSET = 0.02;
+/** |drift| that saturates the band: 0.08s of drift is the largest micro correction worth it. */
+const MICRO_DRIFT_FULL = 4;
+/** Consecutive observations needed before a noisy read may start the micro band. */
+const MICRO_WINDOW = 3;
 
 /**
  * The one passive policy shared by the periodic tick and the room-sync path. A rate bend
- * absorbs seconds of drift while playing; when it is unavailable, native media gets a
- * 300 ms dead band and an embedded player keeps the 1 s one it always had in the tick.
+ * absorbs seconds of drift while playing; when it is unavailable, a paused native element
+ * gets one frame, other native media keeps its 300ms dead band, and an embedded player
+ * keeps the 1s one it always had in the tick.
  */
 function passiveSeekLimit(
 	canBend: boolean,
 	initialSync: boolean,
 	seekIsExpensive: boolean,
+	pausedNative: boolean,
 ): number {
 	if (canBend) {
 		return initialSync ? PLAYBACK_INITIAL_MAX_DRIFT_SECONDS : HARD_SEEK_DRIFT;
+	}
+	if (pausedNative) {
+		return PAUSED_FRAME_DRIFT;
 	}
 	return seekIsExpensive ? EXPENSIVE_SEEK_DRIFT : CHEAP_SEEK_DRIFT;
 }
@@ -115,6 +190,27 @@ function bendCeiling(magnitude: number): number {
 function bendDeadlineMs(magnitude: number, ceiling: number): number {
 	const needed = (magnitude / ceiling) * 1000 * 1.25;
 	return Math.min(MAX_BEND_DEADLINE_MS, Math.max(BEND_DEADLINE_MS, needed));
+}
+
+/** A configured or default lead, kept inside the range a real device can produce. */
+function leadOrDefault(value: number | undefined, fallback: number): number {
+	const lead = value ?? fallback;
+	return Number.isFinite(lead) ? Math.min(MAX_SEEK_LEAD_SECONDS, Math.max(0, lead)) : fallback;
+}
+
+/**
+ * Micro offsets are quantised to MICRO_STEP so the rate is written once per audible step
+ * instead of once per 250ms tick. Rounding is half up: |drift| / 4 clamped to 0.005-0.02,
+ * divided by the step and rounded (0.03s -> 0.0075 -> 2 steps -> 0.01). The epsilon keeps a
+ * binary 2.4999999999999996 from rounding the wrong way (0.05s -> 0.015, not 0.01).
+ */
+function quantiseMicroOffset(drift: number): number {
+	const size = Math.min(
+		MICRO_MAX_OFFSET,
+		Math.max(MICRO_STEP, Math.abs(drift) / MICRO_DRIFT_FULL),
+	);
+	const steps = Math.round(size / MICRO_STEP + 1e-9);
+	return Math.sign(drift) * Math.min(MICRO_MAX_OFFSET / MICRO_STEP, steps) * MICRO_STEP;
 }
 
 /** Give each range request time to finish; room seeks always take priority over drift correction. */
@@ -138,9 +234,46 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 	/** Largest drift seen during the current bend; the deadline follows the catch-up size. */
 	let bendPeak = 0;
 	let bendDeadlineAt = 0;
+	/** The room position a paused correction already targeted, so one attempt is the limit. */
+	let pausedSeekTarget: number | null = null;
+	/**
+	 * Latency estimates for a seek target. They survive reset(): a new source on the same
+	 * device is as slow as the last one, so only the "cold load" estimate has to be
+	 * re-learned per source.
+	 */
+	const seekLeadSeconds = {
+		load: leadOrDefault(options.initialSeekLeadSeconds?.load, DEFAULT_LOAD_LEAD_SECONDS),
+		seek: leadOrDefault(options.initialSeekLeadSeconds?.seek, DEFAULT_SEEK_LEAD_SECONDS),
+	};
+	/** The next lead-bearing seek is the cold one that follows a reset(). */
+	let coldSeekPending = true;
+	/** Which estimate the in-flight seek used, so the next observation can correct exactly it. */
+	let pendingSeekLead: "load" | "seek" | null = null;
+	/** The micro band's rate offset, held until its quantised value changes. */
+	let microActive = false;
+	let microOffset: number | null = null;
+	let microBase: number | null = null;
+	/** Signed drifts of the last consecutive observations, for the micro band's entry rule. */
+	let microWindow: number[] = [];
+	let microWindowSequence = -1;
+	/** What the element's pitch preservation is set to; null when unknown after a reset. */
+	let appliedPreservesPitch: boolean | null = null;
+	/** A player that cannot switch pitch preservation keeps the pre-micro behaviour. */
+	let pitchUnsupported = false;
 	let rateWrites = 0;
 	let deadlineSeeks = 0;
 	let maxAbsDrift = 0;
+	const driftSeconds: number[] = PLAYBACK_DRIFT_BUCKET_SECONDS.map(() => 0);
+	let bendSeconds = 0;
+	/**
+	 * Drift is credited for the gap between two consecutive observations. Every tick takes the
+	 * next sequence number, so a tick that could not observe (paused, buffering, seeking, a
+	 * pending read) leaves a hole and the next observation starts a fresh chain instead of
+	 * crediting time the room did not actually spend playing.
+	 */
+	let tickSequence = 0;
+	let lastObservationSequence = -1;
+	let lastObservationAt = 0;
 
 	function getBendBase() {
 		// The diagnostic switch in the playback details panel turns the engine into a
@@ -153,6 +286,16 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		return options.setLocalRate && base != null && Number.isFinite(base) && base > 0
 			? base
 			: null;
+	}
+
+	/**
+	 * The room's own speed, whether or not this viewer lets the engine bend it. Seek
+	 * prediction and "what rate does the room expect" must not change with a correction
+	 * preference; only the corrections themselves do.
+	 */
+	function roomSpeed(): number | null {
+		const base = options.getBendBase?.();
+		return base != null && Number.isFinite(base) && base > 0 ? base : null;
 	}
 
 	function writeRate(rate: number) {
@@ -179,9 +322,41 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		}
 	}
 
+	/**
+	 * Returns whether the element accepted the request. A player that does not implement the
+	 * setter, or reports that its element has no `preservesPitch`, leaves the micro band off:
+	 * without resampling, a 1-2% rate change is exactly where time-stretch artifacts peak.
+	 */
+	function applyPreservesPitch(preserve: boolean): boolean {
+		if (appliedPreservesPitch === preserve) {
+			return true;
+		}
+		const setter = options.setPreservesPitch;
+		if (!setter) {
+			pitchUnsupported = true;
+			return false;
+		}
+		let supported = true;
+		try {
+			supported = setter(preserve) !== false;
+		} catch {
+			// An element that throws on the property simply keeps preserving pitch.
+			supported = false;
+		}
+		if (!supported) {
+			pitchUnsupported = true;
+			appliedPreservesPitch = null;
+			return false;
+		}
+		appliedPreservesPitch = preserve;
+		return true;
+	}
+
 	function cancelBend() {
 		if (bendStartedAt !== null) {
-			const base = getBendBase() ?? bendBase;
+			// The speed the room has now, not the one the bend started from: a room speed
+			// change is applied to the element before this runs, and must not be undone.
+			const base = roomSpeed() ?? bendBase;
 			if (base !== null) {
 				void writeRate(base);
 			}
@@ -194,23 +369,158 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		appliedRate = null;
 	}
 
+	/**
+	 * The micro band shares the element's rate with the bend, so every interrupt that ends a
+	 * bend has to end it too: restore the base rate and the element's pitch preservation.
+	 */
+	function cancelMicroBend() {
+		const wasActive = microActive;
+		const base = microBase;
+		microActive = false;
+		microOffset = null;
+		microBase = null;
+		if (!wasActive) {
+			return;
+		}
+		// Restore the speed the room has now. The band only starts at a room speed of 1, but
+		// it is often ended by a speed change (a temporary 2x gesture, the speed menu) that
+		// the player has already applied; writing the old base back would silently undo it.
+		void writeRate(roomSpeed() ?? base ?? 1);
+		applyPreservesPitch(true);
+	}
+
+	/** Every path that cancels a correction: pause, seek, recovery, buffering, source change... */
+	function cancelCorrections() {
+		cancelBend();
+		cancelMicroBend();
+		// A gap, a seek or a reset always restarts the micro band's entry window.
+		microWindow = [];
+		microWindowSequence = -1;
+	}
+
 	/** A room speed/state update may have overwritten the last local rate. */
 	function invalidateRate() {
 		generation++;
 		inFlight = null;
-		cancelBend();
+		cancelCorrections();
+		// A reloaded element preserves pitch by default, so what was applied is unknown again.
+		appliedPreservesPitch = null;
 	}
 
 	function resetMetrics() {
 		rateWrites = 0;
 		deadlineSeeks = 0;
 		maxAbsDrift = 0;
+		driftSeconds.fill(0);
+		bendSeconds = 0;
+		lastObservationSequence = -1;
+		lastObservationAt = 0;
+	}
+
+	function driftBucket(magnitude: number) {
+		const index = PLAYBACK_DRIFT_BUCKET_SECONDS.findIndex(bound => magnitude < bound);
+		return index === -1 ? PLAYBACK_DRIFT_BUCKET_SECONDS.length - 1 : index;
+	}
+
+	/** Time-weighted distribution of the drift; the first observation of a chain adds nothing. */
+	function recordDriftObservation(magnitude: number, bending: boolean, sequence: number) {
+		const at = Date.now();
+		if (sequence === lastObservationSequence + 1) {
+			const step = Math.min((at - lastObservationAt) / 1000, MAX_OBSERVATION_STEP_SECONDS);
+			if (step > 0) {
+				driftSeconds[driftBucket(magnitude)] += step;
+				if (bending) {
+					bendSeconds += step;
+				}
+			}
+		}
+		lastObservationSequence = sequence;
+		lastObservationAt = at;
+	}
+
+	/**
+	 * The micro band may only start on the median of the last three consecutive observations.
+	 * A single noisy read is not a drift, and a hole in the chain (a gap, a seek, a reset)
+	 * restarts the window rather than mixing observations from before it.
+	 */
+	function recordMicroObservation(drift: number, sequence: number) {
+		if (microWindow.length > 0 && sequence === microWindowSequence + 1) {
+			microWindow.push(drift);
+			if (microWindow.length > MICRO_WINDOW) {
+				microWindow.shift();
+			}
+		} else {
+			microWindow = [drift];
+		}
+		microWindowSequence = sequence;
+	}
+
+	/** Signed median of the entry window, or null while the window is not full. */
+	function microMedian() {
+		if (microWindow.length < MICRO_WINDOW) {
+			return null;
+		}
+		const sorted = [...microWindow].sort((left, right) => left - right);
+		return sorted[Math.floor(sorted.length / 2)];
+	}
+
+	/**
+	 * The micro band plays the element resampled, which is only inaudible while the audio is not
+	 * already time-stretched: at any other room speed resampling would shift the pitch.
+	 */
+	function microBendAvailable(base: number) {
+		return base === 1 && !pitchUnsupported && options.setPreservesPitch !== undefined;
+	}
+
+	/**
+	 * Below the bend start the drift is too small for a bounce in tempo but large enough to keep
+	 * two viewers apart forever. The rate is rewritten only when the quantised offset changes.
+	 */
+	async function regulateMicroBend(base: number, drift: number, magnitude: number) {
+		if (!microBendAvailable(base) || magnitude <= MICRO_STOP) {
+			cancelMicroBend();
+			return;
+		}
+		if (!microActive) {
+			// Both the current read and the median have to be in the band: one read is noise,
+			// and a drift already on its way down needs no correction.
+			const median = microMedian();
+			if (magnitude < MICRO_START || median === null || Math.abs(median) < MICRO_START) {
+				return;
+			}
+		}
+		const offset = quantiseMicroOffset(drift);
+		if (offset === 0) {
+			return;
+		}
+		if (!microActive) {
+			if (!applyPreservesPitch(false)) {
+				// A player that cannot resample keeps today's behaviour: nothing below 0.3s.
+				cancelMicroBend();
+				return;
+			}
+			microActive = true;
+			microBase = base;
+			microOffset = offset;
+			await writeRate(base * (1 + offset));
+			return;
+		}
+		if (offset !== microOffset) {
+			microOffset = offset;
+			await writeRate(base * (1 + offset));
+		}
 	}
 
 	function reset() {
 		invalidateRate();
+		appliedPreservesPitch = null;
+		pitchUnsupported = false;
 		lastSeekAt = -Infinity;
 		bufferedSinceLastSeek = false;
+		pausedSeekTarget = null;
+		// A new source is a cold load again: the next seek pays for the fetch, not a jump.
+		coldSeekPending = true;
+		pendingSeekLead = null;
 		initialSyncUntil = Date.now() + PLAYBACK_INITIAL_SYNC_COOLDOWN_MS;
 		pendingSeek = true;
 		pendingSeekToleratesDrift = false;
@@ -230,6 +540,27 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			Number.isFinite(state.position) &&
 			state.position >= 0
 		);
+	}
+
+	/**
+	 * A paused room on a cheap native seek can be aligned to the frame immediately. Buffering
+	 * is excluded because a stopped element with no buffer says nothing about where it sits, and
+	 * embedded players are excluded because their seek is a reload.
+	 */
+	function isPausedNative(state: PlaybackSyncState) {
+		return !state.playing && !state.buffering && !(options.seekIsExpensive?.() ?? false);
+	}
+
+	/**
+	 * Only one corrective seek per paused target: a player that snaps to a keyframe keeps
+	 * reporting drift, and seeking it every tick would never land and never stop moving.
+	 */
+	function claimPausedSeek(position: number) {
+		if (pausedSeekTarget === position) {
+			return false;
+		}
+		pausedSeekTarget = position;
+		return true;
 	}
 
 	/**
@@ -265,19 +596,56 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		);
 	}
 
+	/**
+	 * A seek while the room is playing lands where the room will be when the player is able to
+	 * resume, not where it is now: the fetch, decode and resume after the jump otherwise leave
+	 * the viewer behind by exactly that latency. A paused room has no clock to run ahead of, an
+	 * embedded player reloads instead of seeking, and a live edge owns its own timeline.
+	 */
+	function seekLeadApplies(state: PlaybackSyncState) {
+		return state.playing && !state.live && !(options.seekIsExpensive?.() ?? false);
+	}
+
+	/**
+	 * The target of a hard seek plus the estimate it used. The estimate is learned from the
+	 * drift the seek leaves behind (see tick), not from a stopwatch: the residual drift at the
+	 * next observation is exactly the prediction error.
+	 */
+	function seekTarget(state: PlaybackSyncState) {
+		if (!seekLeadApplies(state)) {
+			return state.position;
+		}
+		const kind: "load" | "seek" = coldSeekPending ? "load" : "seek";
+		coldSeekPending = false;
+		// The room clock runs at the room speed, so the latency it runs through scales with it.
+		const target = state.position + seekLeadSeconds[kind] * (roomSpeed() ?? 1);
+		const limit = options.getSeekLimit?.();
+		if (limit != null && Number.isFinite(limit) && target > limit) {
+			// Near the end there is nothing to run ahead into. Seek where the room is (or to
+			// the end itself) and learn nothing from a seek that was not a prediction.
+			pendingSeekLead = null;
+			return Math.max(state.position, Math.min(target, limit));
+		}
+		pendingSeekLead = kind;
+		return target;
+	}
+
 	async function seek(state: PlaybackSyncState, reason = "drift") {
-		console.debug("playback-sync: hard seek", { reason, position: state.position });
+		// A newer seek replaces the guess the previous one was going to learn from.
+		pendingSeekLead = null;
+		cancelCorrections();
+		const target = seekTarget(state);
+		console.debug("playback-sync: hard seek", { reason, position: target });
 		if (reason === "bend-deadline") {
 			// The catch-up a rate bend could not converge is the "8-second fallback" the
 			// investigation doc wants measured on real devices.
 			deadlineSeeks++;
 		}
-		cancelBend();
 		lastSeekAt = Date.now();
 		bufferedSinceLastSeek = state.buffering;
 		const currentGeneration = generation;
 		try {
-			await options.setPosition(state.position);
+			await options.setPosition(target);
 		} catch (error) {
 			if (!disposed && currentGeneration === generation) {
 				options.onError(error);
@@ -304,10 +672,20 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		const drift = Math.abs(latest.position - position);
 		maxAbsDrift = Math.max(maxAbsDrift, drift);
 		const canBend = latest.playing && !latest.temporarySpeed && getBendBase() !== null;
+		const pausedNative = isPausedNative(latest);
 		// A room sync must not freeze playback for a drift the rate bend can absorb. Without
-		// a bend, the shared passive policy picks the dead band by seek cost.
-		const limit = passiveSeekLimit(canBend, false, options.seekIsExpensive?.() ?? false);
-		if ((!Number.isFinite(position) || drift > limit) && hasSeekBuffer(latest)) {
+		// a bend, the shared passive policy picks the dead band by state and seek cost.
+		const limit = passiveSeekLimit(
+			canBend,
+			false,
+			options.seekIsExpensive?.() ?? false,
+			pausedNative,
+		);
+		if (
+			(!Number.isFinite(position) || drift > limit) &&
+			hasSeekBuffer(latest) &&
+			(!pausedNative || claimPausedSeek(latest.position))
+		) {
 			await seek(latest, reason);
 		}
 	}
@@ -316,6 +694,7 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		if (disposed) {
 			return;
 		}
+		const sequence = ++tickSequence;
 		const state = options.getState();
 		if (source !== state.source || player !== state.player) {
 			source = state.source;
@@ -325,12 +704,22 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		if (state.live) {
 			// Live HLS owns its timeline (sliding window/live edge). Treating its currentTime
 			// as a VOD position would hard-seek it backwards on every sync message.
-			cancelBend();
+			cancelCorrections();
 			return;
+		}
+		if (state.playing) {
+			// Playback resumed: the next pause is a new frame every viewer has to land on.
+			pausedSeekTarget = null;
 		}
 		bufferedSinceLastSeek ||= state.buffering;
 		if (!canObserve(state) || !state.playing || state.temporarySpeed) {
-			cancelBend();
+			cancelCorrections();
+		}
+		if (!state.playing) {
+			// A paused room has no latency to learn from. Buffering and seeking keep the marker:
+			// the element is simply not observable yet, and the first real read after the seek
+			// carries the prediction error.
+			pendingSeekLead = null;
 		}
 		if (!canSeek(state)) {
 			return;
@@ -367,39 +756,84 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 				return;
 			}
 			if (!canObserve(latest) || !Number.isFinite(position)) {
-				cancelBend();
+				cancelCorrections();
 				return;
 			}
 			const drift = latest.position - position;
 			const magnitude = Math.abs(drift);
 			maxAbsDrift = Math.max(maxAbsDrift, magnitude);
+			// The residual drift of the first observation after a seek is the seek's prediction
+			// error: a positive drift means the player is still behind, so the latency was
+			// underestimated. One correction per seek, and a paused room has no error to learn.
+			if (pendingSeekLead !== null) {
+				if (latest.playing) {
+					const kind = pendingSeekLead;
+					// Drift is media time; the estimate is wall time. They differ by the room speed.
+					const error = Math.max(
+						-MAX_SEEK_LEAD_SECONDS,
+						Math.min(MAX_SEEK_LEAD_SECONDS, drift / (roomSpeed() ?? 1)),
+					);
+					seekLeadSeconds[kind] = Math.min(
+						MAX_SEEK_LEAD_SECONDS,
+						Math.max(0, seekLeadSeconds[kind] + LEAD_CORRECTION * error),
+					);
+				}
+				pendingSeekLead = null;
+			}
+			// Only a playing room has a drift worth distributing over time; a paused or stalled
+			// observation is a hole in the chain, not a bucket entry.
+			if (latest.playing) {
+				recordDriftObservation(magnitude, bendStartedAt !== null || microActive, sequence);
+				recordMicroObservation(drift, sequence);
+			}
 			const base = getBendBase();
 			const canBend = latest.playing && !latest.temporarySpeed && base !== null;
 			// A viewer that just joined or switched sources gets a short grace period. During
 			// it, only a very large drift may seek; otherwise we would discard the buffer that
 			// is still filling and start the seek/rebuffer loop.
 			const initialSync = Date.now() < initialSyncUntil;
+			const pausedNative = isPausedNative(latest);
 			// While playing, a rate change absorbs up to HARD_SEEK_DRIFT; a paused room or a
-			// player without a rate setter still seeks as soon as the drift is visible.
+			// player without a rate setter still seeks as soon as the drift is visible, and a
+			// paused native element is not held back by the cooldown it does not pay for.
 			const seekLimit = passiveSeekLimit(
 				canBend,
 				initialSync,
 				options.seekIsExpensive?.() ?? false,
+				pausedNative,
 			);
-			if (magnitude > seekLimit && canSeekNow(latest) && hasSeekBuffer(latest)) {
-				await seek(latest, "drift-large");
+			const maySeek = () =>
+				pausedNative ? claimPausedSeek(latest.position) : canSeekNow(latest);
+			if (magnitude > seekLimit && hasSeekBuffer(latest) && maySeek()) {
+				await seek(latest, pausedNative ? "paused-frame" : "drift-large");
 				return;
 			}
 			if (!canBend) {
+				cancelCorrections();
+				return;
+			}
+			if (
+				(bendBase !== null && bendBase !== base) ||
+				(microBase !== null && microBase !== base)
+			) {
+				cancelCorrections();
+			}
+			// A drift past the bend start belongs to the bend alone: give back the micro rate and
+			// the element's pitch preservation before the bend writes its own rate.
+			if (magnitude >= BEND_START) {
+				cancelMicroBend();
+			}
+			// Tolerate floating point subtraction at exactly 150 ms. The bend keeps the band
+			// between its stop and its start; below the stop it ends and leaves the remainder
+			// to the micro band on a later tick.
+			if (bendStartedAt !== null && magnitude <= BEND_STOP + 1e-9) {
 				cancelBend();
 				return;
 			}
-			if (bendBase !== null && bendBase !== base) {
-				cancelBend();
-			}
-			// Tolerate floating point subtraction at exactly 150 ms.
-			if (bendStartedAt !== null ? magnitude <= BEND_STOP + 1e-9 : magnitude < BEND_START) {
-				cancelBend();
+			// A running bend holds its rate down to its stop, so only a drift with no bend behind
+			// it is handed to the micro band below the bend start.
+			if (magnitude < BEND_START && bendStartedAt === null) {
+				await regulateMicroBend(base, drift, magnitude);
 				return;
 			}
 			const ceiling = bendCeiling(magnitude);
@@ -468,14 +902,23 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 	}
 
 	function dispose() {
-		cancelBend();
+		pendingSeekLead = null;
+		cancelCorrections();
 		disposed = true;
 		generation++;
 		inFlight = null;
 	}
 
 	function getMetrics(): PlaybackSyncMetrics {
-		return { rateWrites, deadlineSeeks, maxAbsDrift };
+		return {
+			rateWrites,
+			deadlineSeeks,
+			maxAbsDrift,
+			driftSeconds: [...driftSeconds],
+			bendSeconds,
+			seekLeadSeconds: seekLeadSeconds.seek,
+			loadLeadSeconds: seekLeadSeconds.load,
+		};
 	}
 
 	return { tick, requestSeek, reset, invalidateRate, dispose, getMetrics, resetMetrics };

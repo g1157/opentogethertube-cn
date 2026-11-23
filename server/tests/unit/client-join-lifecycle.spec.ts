@@ -202,6 +202,31 @@ describe("disconnects while joining a room", () => {
 		);
 	}, 10000);
 
+	it("timestamps every sync that carries a position with the server's clock", async () => {
+		const startedAt = Date.now();
+		const client = authenticate("first");
+		await vi.waitFor(() => expect(room.getUser(client.id)).toBeDefined());
+		await settle();
+
+		const syncs = client.sendRaw.mock.calls
+			.map(([message]) => JSON.parse(message) as { action: string })
+			.filter(message => message.action === "sync") as {
+			action: string;
+			playbackPosition?: number;
+			serverTime?: number;
+		}[];
+		const positionSyncs = syncs.filter(message => message.playbackPosition !== undefined);
+		// The full sync and the follow-up position for a join that moved the clock.
+		expect(positionSyncs.length).toBeGreaterThanOrEqual(2);
+		const finishedAt = Date.now();
+		for (const sync of positionSyncs) {
+			// Every position needs the instant it was sampled: a client anchors the clock at it,
+			// and a missing timestamp leaves a late joiner a full one-way delay behind.
+			expect(sync.serverTime).toBeGreaterThanOrEqual(startedAt);
+			expect(sync.serverTime).toBeLessThanOrEqual(finishedAt);
+		}
+	});
+
 	it("gives a re-authenticated viewer their new identity without leaving the room", async () => {
 		const client = authenticate("first");
 		await vi.waitFor(() => expect(room.getUser(client.id)).toBeDefined());
@@ -217,6 +242,7 @@ describe("disconnects while joining a room", () => {
 			id: 4242,
 			username: "account",
 		} as User);
+		const reauthenticatedAt = Date.now();
 		expect(await client.reauthenticate("user-token")).toBe(true);
 
 		const user = room.getUser(client.id);
@@ -224,7 +250,12 @@ describe("disconnects while joining a room", () => {
 		expect(room.getRole(user)).toBe(Role.RegisteredUser);
 		expect(room.realusers).toHaveLength(1);
 		const sent = client.sendRaw.mock.calls.map(([message]) => JSON.parse(message));
-		expect(sent.some(msg => msg.action === "sync")).toBe(true);
+		// The join sent its own syncs earlier; the last one is the refreshed state.
+		const sync = sent.filter(message => message.action === "sync").at(-1);
+		expect(sync).toBeDefined();
+		// The refreshed state carries a position, so it carries the instant it was sampled.
+		expect(sync.serverTime).toBeGreaterThanOrEqual(reauthenticatedAt);
+		expect(sync.playbackPosition).toBeCloseTo(room.realPlaybackPosition, 0);
 	});
 
 	it("preserves the member and connection identity when the new account lookup fails", async () => {

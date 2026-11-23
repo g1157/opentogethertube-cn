@@ -1,3 +1,5 @@
+import { PLAYBACK_DRIFT_BUCKET_SECONDS } from "ott-common/constants";
+
 /**
  * Per-source playback quality, measured on the client because only the client sees
  * startup, rebuffering and real play time. Reports go to the server as counters so the
@@ -24,6 +26,10 @@ export interface PlaybackQualityReport {
 	/** The largest drift the sync engine saw for this source, in seconds. Bending only
 	 * engages past 0.3s, so this says whether the field even reaches that zone. */
 	maxDriftSeconds: number;
+	/** Per-window seconds during which a rate bend was applied. */
+	bendSeconds: number;
+	/** Per-window seconds spent in each |drift| bucket, in 0.1s steps (6 buckets). */
+	driftBucketSeconds: number[];
 	/** Media-pipeline frame deltas: frames produced and frames dropped rather than
 	 * displayed — the industry-standard stutter counters. */
 	totalFrames: number;
@@ -35,7 +41,14 @@ interface PlaybackQualityOptions {
 	send: (report: PlaybackQualityReport) => void;
 	now?: () => number;
 	/** Live sync counters; their per-window deltas ride along with every report. */
-	getSyncCounters?: () => { rateWrites: number; deadlineSeeks: number; maxAbsDrift: number };
+	getSyncCounters?: () => {
+		rateWrites: number;
+		deadlineSeeks: number;
+		maxAbsDrift: number;
+		/** Absent on a caller that predates the drift distribution. */
+		driftSeconds?: number[];
+		bendSeconds?: number;
+	};
 	/** Media-pipeline frame counters (`getVideoPlaybackQuality`); null when unavailable. */
 	getFrameQuality?: () => { total: number; dropped: number } | null;
 }
@@ -59,6 +72,8 @@ export function createPlaybackQuality(options: PlaybackQualityOptions) {
 	let errors = 0;
 	// Window bases for the counters that keep running between reports.
 	let lastSyncCounters = { rateWrites: 0, deadlineSeeks: 0 };
+	let lastDriftSeconds: number[] = [];
+	let lastBendSeconds = 0;
 	let lastFrameCounters = { total: 0, dropped: 0 };
 
 	/**
@@ -67,6 +82,11 @@ export function createPlaybackQuality(options: PlaybackQualityOptions) {
 	 */
 	function deltaOf(current: number, previous: number): number {
 		return current >= previous ? current - previous : Math.max(0, current);
+	}
+
+	/** A tenth of a second is the resolution of a time-weighted bucket, not a value to keep. */
+	function tenths(value: number): number {
+		return Math.round(value * 10) / 10;
 	}
 
 	function collectPlayTime() {
@@ -101,6 +121,13 @@ export function createPlaybackQuality(options: PlaybackQualityOptions) {
 		const deadlineSeeks = sync
 			? deltaOf(sync.deadlineSeeks, lastSyncCounters.deadlineSeeks)
 			: 0;
+		const bendSeconds = tenths(sync ? deltaOf(sync.bendSeconds ?? 0, lastBendSeconds) : 0);
+		// The same counter displacement rule as above, per bucket: a shorter array means the
+		// counters were reset, so everything the window still holds belongs to this report.
+		const driftSeconds = sync?.driftSeconds ?? [];
+		const driftBucketSeconds = PLAYBACK_DRIFT_BUCKET_SECONDS.map((_bound, index) =>
+			tenths(deltaOf(driftSeconds[index] ?? 0, lastDriftSeconds[index] ?? 0)),
+		);
 		const totalFrames = frames ? deltaOf(frames.total, lastFrameCounters.total) : 0;
 		const droppedFrames = frames ? deltaOf(frames.dropped, lastFrameCounters.dropped) : 0;
 		if (service === null || playSeconds < MIN_REPORTABLE_PLAY_SECONDS) {
@@ -119,6 +146,8 @@ export function createPlaybackQuality(options: PlaybackQualityOptions) {
 			// A maximum, not a counter: reporting the same value again after a mid-session
 			// flush is honest, and the engine resets it per source.
 			maxDriftSeconds: sync ? Math.round(sync.maxAbsDrift * 1000) / 1000 : 0,
+			bendSeconds,
+			driftBucketSeconds,
 			totalFrames,
 			droppedFrames,
 		};
@@ -135,6 +164,8 @@ export function createPlaybackQuality(options: PlaybackQualityOptions) {
 		const sync = options.getSyncCounters?.();
 		if (sync) {
 			lastSyncCounters = { rateWrites: sync.rateWrites, deadlineSeeks: sync.deadlineSeeks };
+			lastDriftSeconds = sync.driftSeconds ?? [];
+			lastBendSeconds = sync.bendSeconds ?? 0;
 		}
 		const frames = options.getFrameQuality?.() ?? null;
 		if (frames) {

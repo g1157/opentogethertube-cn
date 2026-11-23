@@ -4,7 +4,7 @@ import type { VideoId } from "ott-common/models/video";
 import type { MediaLoadingState } from "./media-loading-state";
 
 export interface PlaybackPreparationState {
-	phase: "idle" | "aligning" | "preparing" | "waiting-ack" | "failed";
+	phase: "idle" | "aligning" | "preparing" | "buffering" | "parking" | "waiting-ack" | "failed";
 	active: boolean;
 	priming: boolean;
 	failed: boolean;
@@ -38,13 +38,39 @@ interface PreparationOptions {
 	sendFailed?(preparationId: string, reason: string): void;
 	onChange(state: PlaybackPreparationState): void;
 	onError(error: unknown): void;
+	/** Injectable clock so the paused-wait fallback can be driven in tests. */
+	now?(): number;
 }
 
 const POSITION_TOLERANCE = 0.25;
+/** A parked frame this close to the target is exact; anything else is a player estimate. */
+const PARKED_PRECISION = 0.05;
 const MAX_REALIGNMENTS = 2;
+/**
+ * A browser that keeps buffering while paused fills the runway on its own. One that does not
+ * (some mobile browsers stop the download until the element plays) would wait here forever,
+ * so after this window without progress the round continues while playing instead.
+ */
+const PAUSED_WAIT_MS = 2000;
+/** Growth of the runway that counts as "it is still filling" over one paused window. */
+const PAUSED_WAIT_PROGRESS_SECONDS = 0.25;
+
+/**
+ * 0 while this browser is inside a preparation round and the room is not playing yet, so
+ * none of the opening is audible, and 1 as soon as the room starts or the round ends. The
+ * video volume is multiplied by it instead of muting the element: un-muting without a user
+ * gesture can pause playback under autoplay policies.
+ */
+export function preparationSilenceFactor(
+	state: PlaybackPreparationState,
+	roomPlaying: boolean,
+): number {
+	return state.active && !roomPlaying ? 0 : 1;
+}
 
 /** Only the server-selected first viewer may prime a paused, previously empty room. */
 export function createPlaybackPreparation(options: PreparationOptions) {
+	const now = options.now ?? (() => Date.now());
 	let context: (PlaybackPreparation & { source: VideoId; player: object | null }) | null = null;
 	let phase: PlaybackPreparationState["phase"] = "idle";
 	let generation = 0;
@@ -55,6 +81,19 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 	/** The preparation this viewer already reported itself hidden for. */
 	let hiddenReportedId: string | null = null;
 	let disposed = false;
+	/**
+	 * "align" ends at the first confirmed frame on the target. From there on the element is
+	 * expected to move forward while the runway fills, so a distance from the target is no
+	 * longer a missed frame; "park" brings it back before acknowledging.
+	 */
+	let stage: "align" | "runway" | "park" = "align";
+	/** Park seeks are issued once; the parked position is only re-read afterwards. */
+	let parkAttempts = 0;
+	/** Start of the current paused wait and the runway it saw, for the mobile fallback. */
+	let pausedWaitSince: number | null = null;
+	let pausedWaitRunway = 0;
+	/** Some players only fill their buffer while playing, so this lasts for the round. */
+	let playingWait = false;
 
 	function publish(next: PlaybackPreparationState["phase"]) {
 		if (phase === next) {
@@ -67,6 +106,14 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 			priming: phase === "preparing",
 			failed: phase === "failed",
 		});
+	}
+
+	function resetStage() {
+		stage = "align";
+		parkAttempts = 0;
+		pausedWaitSince = null;
+		pausedWaitRunway = 0;
+		playingWait = false;
 	}
 
 	function isOwner(state: PreparationInput) {
@@ -141,6 +188,7 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 		inFlight = null;
 		positioned = false;
 		realignments = 0;
+		resetStage();
 		context = isOwner(state)
 			? { ...state.preparation!, source: state.source!, player: state.player }
 			: null;
@@ -159,6 +207,24 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 			state.loading.currentTime !== null &&
 			Number.isFinite(state.loading.currentTime)
 		);
+	}
+
+	/**
+	 * Seconds of media buffered ahead of the position the room will start at. Measured from
+	 * the target, not from the moving currentTime: playing forward does not make the runway
+	 * the room needs any longer. A browser with no readable buffer counts as satisfied.
+	 */
+	function runwayFromTarget(state: PreparationInput, target: number): number | null {
+		const loading = state.loading;
+		if (!loading || loading.currentTime === null || !Number.isFinite(loading.currentTime)) {
+			return null;
+		}
+		const ahead = loading.bufferAhead;
+		if (ahead === null || !Number.isFinite(ahead)) {
+			return null;
+		}
+		// Milliseconds are the resolution a readiness value needs; the sum of two floats is not.
+		return Math.max(0, Math.round((loading.currentTime + ahead - target) * 1000) / 1000);
 	}
 
 	function canPosition(state: PreparationInput) {
@@ -203,7 +269,12 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 			phase === "failed" ||
 			phase === "waiting-ack" ||
 			!canPosition(state) ||
-			(positioned && (!usable(state) || !hasFrame(state) || !state.playing || state.blocked))
+			(stage === "align"
+				? // Before the first confirmed frame the element has to be playing, because only
+					// a playing picture proves the frame is really on screen.
+					positioned &&
+					(!usable(state) || !hasFrame(state) || !state.playing || state.blocked)
+				: !usable(state) || state.blocked)
 		) {
 			return;
 		}
@@ -217,77 +288,131 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 		const current = () =>
 			generation === currentGeneration && inFlight === request && matches(options.getState());
 		try {
-			const position = await options.getPosition();
-			if (!current() || !canContinue()) {
-				return;
-			}
-			if (!Number.isFinite(position) || position < 0) {
-				throw new Error("The player did not report a valid preparation position");
-			}
-			const needsSeek = Math.abs(position - preparation.position) > POSITION_TOLERANCE;
-			if (needsSeek) {
-				if (positioned && realignments++ >= MAX_REALIGNMENTS) {
-					throw new Error("The first visible frame repeatedly missed the saved position");
-				}
-				publish("aligning");
-				await options.pause();
+			if (stage === "align") {
+				// Stage 1: put the picture on the saved frame. Until a frame lands there the
+				// element may still be anywhere, so a repeated miss is a real failure.
+				const position = await options.getPosition();
 				if (!current() || !canContinue()) {
+					return;
+				}
+				if (!Number.isFinite(position) || position < 0) {
+					throw new Error("The player did not report a valid preparation position");
+				}
+				const needsSeek = Math.abs(position - preparation.position) > POSITION_TOLERANCE;
+				if (needsSeek) {
+					if (positioned && realignments++ >= MAX_REALIGNMENTS) {
+						throw new Error(
+							"The first visible frame repeatedly missed the saved position",
+						);
+					}
+					publish("aligning");
+					await options.pause();
+					if (!current() || !canContinue()) {
+						return;
+					}
+					await options.setPosition(preparation.position);
+					if (!current()) {
+						return;
+					}
+					positioned = true;
+					publish("preparing");
+					return;
+				}
+				positioned = true;
+				publish("preparing");
+				const aligned = options.getState();
+				if (!usable(aligned) || !aligned.playing || aligned.blocked || !hasFrame(aligned)) {
+					return;
+				}
+				// The frame at the target is confirmed. Everything below may deliberately move
+				// the element away from it, so only the stage above may count a miss.
+				stage = "runway";
+			}
+			if (stage === "runway") {
+				const waiting = options.getState();
+				const requiredBuffer = playbackReadyBufferSeconds(waiting.source?.service);
+				const runway = runwayFromTarget(waiting, preparation.position);
+				if (runway !== null && runway < requiredBuffer) {
+					if (playingWait) {
+						// Already waiting while playing: pausing again would stop the very
+						// download that is supposed to catch up.
+						publish("preparing");
+						return;
+					}
+					const at = now();
+					const entering = pausedWaitSince === null;
+					const waitingSince = pausedWaitSince ?? at;
+					if (entering) {
+						pausedWaitSince = at;
+						pausedWaitRunway = runway;
+					}
+					// Paused, so the picture stays on the first frame and the element cannot
+					// run away from the target while the download catches up.
+					publish("buffering");
+					if (at - waitingSince >= PAUSED_WAIT_MS) {
+						if (runway - pausedWaitRunway < PAUSED_WAIT_PROGRESS_SECONDS) {
+							// Nothing arrived in a whole paused window: this browser does not
+							// buffer while paused, so spend the rest of the round playing.
+							playingWait = true;
+							publish("preparing");
+							return;
+						}
+						// Still filling: judge the next window on its own progress.
+						pausedWaitSince = at;
+						pausedWaitRunway = runway;
+					}
+					if (entering) {
+						// Room.vue also pauses for this phase; pausing here keeps the engine
+						// self-contained for a harness that only reacts to the phase.
+						await options.pause();
+					}
+					return;
+				}
+				pausedWaitSince = null;
+				stage = "park";
+			}
+			// Stage 3: park exactly on the saved frame and acknowledge that position, so every
+			// viewer starts the room on the same frame instead of wherever its element stopped.
+			publish("parking");
+			if (parkAttempts === 0) {
+				await options.pause();
+				if (!current() || !usable(options.getState()) || options.getState().blocked) {
 					return;
 				}
 				await options.setPosition(preparation.position);
 				if (!current()) {
 					return;
 				}
-				positioned = true;
-				publish("preparing");
+			}
+			parkAttempts++;
+			const parked = await options.getPosition();
+			if (!current()) {
 				return;
 			}
-			positioned = true;
-			publish("preparing");
 			const latest = options.getState();
-			if (!usable(latest) || !latest.playing || latest.blocked || !hasFrame(latest)) {
+			if (!usable(latest) || latest.blocked || !hasFrame(latest)) {
+				// The seek is still running; the loading state ticks again when it is done.
 				return;
 			}
-			const bufferAhead = latest.loading?.bufferAhead ?? null;
-			const requiredBuffer = playbackReadyBufferSeconds(latest.source?.service);
-			if (bufferAhead !== null && bufferAhead < requiredBuffer) {
-				// The picture is up, but starting now would immediately drain the buffer.
-				// Stay paused in the room clock and wait for the runway to fill.
-				publish("preparing");
+			const offset = Number.isFinite(parked)
+				? Math.abs(parked - preparation.position)
+				: Number.POSITIVE_INFINITY;
+			// The park seek is issued once: a player that snaps to a nearby keyframe cannot be
+			// improved by seeking again, so it is accepted at the old tolerance, not in a loop.
+			const landed =
+				offset <= PARKED_PRECISION || (parkAttempts >= 1 && offset <= POSITION_TOLERANCE);
+			if (!landed) {
 				return;
 			}
-
-			// Freeze this browser too while the ready message makes its round trip. Otherwise
-			// a slow connection would silently consume more of the saved scene before resume.
 			publish("waiting-ack");
-			await options.pause();
-			if (!current() || !usable(options.getState()) || options.getState().blocked) {
-				if (current()) {
-					publish("preparing");
-				}
-				return;
-			}
-			const pausedPosition = await options.getPosition();
-			if (!current() || !usable(options.getState()) || options.getState().blocked) {
-				if (current()) {
-					publish("preparing");
-				}
-				return;
-			}
-			if (
-				!Number.isFinite(pausedPosition) ||
-				Math.abs(pausedPosition - preparation.position) > POSITION_TOLERANCE
-			) {
-				// Recheck after pausing rather than acknowledge an old, asynchronously read time.
-				publish("preparing");
-				return;
-			}
 			options.sendReady({
 				id: preparation.id,
-				position: pausedPosition,
+				// Where the element really is, so the server's own position check still means
+				// something; the room starts from the round's position either way.
+				position: parked,
 				firstFrame: true,
-				bufferAhead: options.getState().loading?.bufferAhead ?? null,
-				...(options.getState().visible === false ? { visible: false } : {}),
+				bufferAhead: runwayFromTarget(latest, preparation.position),
+				...(latest.visible === false ? { visible: false } : {}),
 			});
 		} catch (error) {
 			if (current()) {
@@ -309,6 +434,7 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 		inFlight = null;
 		positioned = false;
 		realignments = 0;
+		resetStage();
 		publish("aligning");
 	}
 

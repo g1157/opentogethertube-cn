@@ -389,8 +389,11 @@ watch(
 	},
 );
 // Ducking multiplies the user's volume instead of overwriting it, so voice can lower the video
-// without the slider jumping.
-const effectiveVolume = computed(() => volume.volume.value * volume.duckFactor.value);
+// without the slider jumping. A preparation round silences it the same way: the opening must
+// not be audible before the room starts.
+const effectiveVolume = computed(
+	() => volume.volume.value * volume.duckFactor.value * volume.preparationFactor.value,
+);
 watch(effectiveVolume, v => {
 	if (player.value) {
 		player.value.setVolume(v);

@@ -4,14 +4,25 @@ import type {
 	ClientMessageAuthenticate,
 	ServerMessage,
 	ServerMessageActionType,
+	ServerMessagePong,
 } from "ott-common/models/messages";
 import { OttWebsocketError, type AuthToken } from "ott-common/models/types";
-import { noteLatencySample, resetLatencySamples } from "@/util/connection-latency";
+import {
+	noteLatencySample,
+	resetLatencySamples,
+	subscribeServerClock,
+} from "@/util/connection-latency";
 
 /** A generic close may be transient; retry a couple of times before giving up. */
 const MAX_UNKNOWN_RECONNECTS = 2;
 /** Latency probes are client-driven; this is long enough to be free and short enough to stay current. */
 const LATENCY_PROBE_INTERVAL_MS = 15_000;
+/**
+ * A joining client needs several samples at once: the clock offset comes from the reply
+ * with the smallest round trip, and a single probe on a busy link is the least reliable one.
+ */
+const LATENCY_BURST_SIZE = 3;
+const LATENCY_BURST_SPACING_MS = 250;
 /**
  * A half-open socket keeps its OPEN state and silently swallows messages; unanswered probes
  * are the only signal. Two missed replies (one interval each) is ~30–45s since the last pong.
@@ -101,6 +112,12 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 	private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 	private connectTimeout: ReturnType<typeof setTimeout> | null = null;
 	private latencyTimer: ReturnType<typeof setInterval> | null = null;
+	private burstTimers: ReturnType<typeof setTimeout>[] = [];
+	/** Probe send times on the monotonic clock; the epoch `t0` stays on the wire. */
+	private probeSentAt = new Map<number, number>();
+	/** The join burst runs once per connection, and only for a server that shares its clock. */
+	private burstSent = false;
+	private stopClockSubscription: (() => void) | null = null;
 	/** Probes sent since the last pong; see MAX_UNANSWERED_PROBES. */
 	private unansweredProbes = 0;
 	private readonly onOnline = () => {
@@ -119,8 +136,16 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 		// making them watch the remaining backoff. Only for a drop we already know about: a
 		// first connect that is still in flight must not be restarted (it would also be
 		// relabelled as a session resume).
-		if (!document.hidden && this.active.value && !this.connected.value && this.issue.value) {
+		if (document.hidden) {
+			return;
+		}
+		if (this.active.value && !this.connected.value && this.issue.value) {
 			this.reconnect();
+			return;
+		}
+		// A hidden tab was throttled, so its probes may be minutes old and its estimate stale.
+		if (this.active.value && this.connected.value) {
+			this.sendLatencyProbe("extra");
 		}
 	};
 	private messageHandlers = new Map<ServerMessageActionType, ((msg: ServerMessage) => void)[]>();
@@ -165,6 +190,9 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 	private doConnect(url: string) {
 		this.clearTimers();
 		this.closeSocket();
+		// A reconnect may land on another server, so the old round trips and the clock offset
+		// they produced describe a path that no longer exists.
+		resetLatencySamples();
 		this.connected.value = false;
 		try {
 			const socket = new WebSocket(url);
@@ -343,8 +371,7 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 				const msg = JSON.parse(e.data) as ServerMessage;
 				if (msg.action === "pong") {
 					// Echoed send timestamp; no handler is registered for the reply itself.
-					this.unansweredProbes = 0;
-					noteLatencySample(Date.now() - msg.t0);
+					this.onPongReply(msg);
 					return;
 				}
 				if (
@@ -376,8 +403,17 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 	private startLatencyProbes() {
 		this.stopLatencyProbes();
 		this.unansweredProbes = 0;
+		this.burstSent = false;
 		this.sendLatencyProbe();
 		this.latencyTimer = setInterval(() => this.sendLatencyProbe(), LATENCY_PROBE_INTERVAL_MS);
+		// A local clock step invalidated the samples; measure again right away instead of
+		// waiting for the next interval with no usable offset.
+		this.stopClockSubscription = subscribeServerClock(event => {
+			if (event === "reset") {
+				this.sendLatencyProbe("extra");
+				this.burstSent = false;
+			}
+		});
 	}
 
 	private stopLatencyProbes() {
@@ -385,9 +421,61 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 			clearInterval(this.latencyTimer);
 			this.latencyTimer = null;
 		}
+		for (const timer of this.burstTimers) {
+			clearTimeout(timer);
+		}
+		this.burstTimers = [];
+		this.probeSentAt.clear();
+		this.stopClockSubscription?.();
+		this.stopClockSubscription = null;
 	}
 
-	private sendLatencyProbe() {
+	/**
+	 * Turn a reply into a sample. The round trip is measured on the monotonic clock, so a
+	 * wall-clock step during the probe cannot invent a bogus latency; `t0` only has to be an
+	 * echoable number. When the server shared its own clock, the sample also gives the
+	 * offset between the two clocks.
+	 */
+	private onPongReply(msg: ServerMessagePong) {
+		const sentAt = this.probeSentAt.get(msg.t0);
+		this.probeSentAt.delete(msg.t0);
+		const receivedAt = Date.now();
+		const rttMs = sentAt === undefined ? receivedAt - msg.t0 : performance.now() - sentAt;
+		// Any reply proves the socket is alive, whatever its latency.
+		this.unansweredProbes = 0;
+		if (typeof msg.serverTime === "number" && Number.isFinite(msg.serverTime)) {
+			// Assume the reply spent half the round trip on the way back.
+			noteLatencySample(rttMs, receivedAt, msg.serverTime - (receivedAt - rttMs / 2));
+			this.startLatencyBurst();
+		} else {
+			// An older server has no clock to share; the round trip still helps.
+			noteLatencySample(rttMs, receivedAt);
+		}
+	}
+
+	/**
+	 * Take a few samples in quick succession once a reply proves the server shares its
+	 * clock. They are sent on their own timers, not on the periodic one, so a reply that a
+	 * legacy server drops can never look like a dead socket.
+	 */
+	private startLatencyBurst() {
+		if (this.burstSent) {
+			return;
+		}
+		this.burstSent = true;
+		for (let index = 1; index <= LATENCY_BURST_SIZE; index++) {
+			this.burstTimers.push(
+				setTimeout(() => this.sendLatencyProbe("extra"), index * LATENCY_BURST_SPACING_MS),
+			);
+		}
+	}
+
+	/**
+	 * `periodic` probes answer for the half-open detection; `extra` probes (the join burst, a
+	 * tab that came back, a clock step) are free, so a server that ignores them cannot make
+	 * the client believe its socket died.
+	 */
+	private sendLatencyProbe(kind: "periodic" | "extra" = "periodic") {
 		if (
 			!this.active.value ||
 			!this.connected.value ||
@@ -395,15 +483,27 @@ export class OttRoomConnectionReal implements OttRoomConnection {
 		) {
 			return;
 		}
-		if (this.unansweredProbes >= MAX_UNANSWERED_PROBES) {
+		if (kind === "periodic" && this.unansweredProbes >= MAX_UNANSWERED_PROBES) {
 			// The socket still looks open but nothing is coming back: treat it as a drop so
 			// the reconnect path takes over instead of leaving the room silently dead.
 			this.failConnection("network");
 			return;
 		}
 		try {
-			this.socket.send(JSON.stringify({ action: "ping", t0: Date.now() }));
-			this.unansweredProbes += 1;
+			const t0 = Date.now();
+			this.probeSentAt.set(t0, performance.now());
+			// Only probes still on the wire matter; this keeps a lost reply from growing it.
+			while (this.probeSentAt.size > 8) {
+				const oldest = this.probeSentAt.keys().next().value;
+				if (oldest === undefined) {
+					break;
+				}
+				this.probeSentAt.delete(oldest);
+			}
+			this.socket.send(JSON.stringify({ action: "ping", t0 }));
+			if (kind === "periodic") {
+				this.unansweredProbes += 1;
+			}
 		} catch {
 			// A probe must never surface as an error; the next tick retries.
 		}

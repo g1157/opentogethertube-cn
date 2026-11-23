@@ -506,6 +506,20 @@ async function setPlaybackRate(rate: number): Promise<void> {
 	recovery.setPlaybackRate(rate);
 }
 
+/**
+ * The sync engine's micro corrections play the element resampled, which is cleaner than the
+ * time-stretch warp close to 1.0. Returns false for an element without the property so the
+ * engine keeps its coarser behaviour there.
+ */
+function setPreservesPitch(preserve: boolean): boolean {
+	const video = videoElem.value;
+	if (!video || !("preservesPitch" in video)) {
+		return false;
+	}
+	video.preservesPitch = preserve;
+	return true;
+}
+
 function setAudioBoost(boost: number): void {
 	audioBoost.setBoost(boost);
 }
@@ -825,6 +839,7 @@ defineExpose({
 	getAvailablePlaybackRates,
 	getPlaybackRate,
 	setPlaybackRate,
+	setPreservesPitch,
 	setAudioBoost,
 	setAudioEq,
 	retry: recovery.retry,

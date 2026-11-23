@@ -48,6 +48,13 @@ export interface ServerMessageSync extends ServerMessageBase {
 	queueMode?: QueueMode;
 	isPlaying?: boolean;
 	playbackPosition?: number;
+	/**
+	 * The server's clock (`Date.now()`) at the instant `playbackPosition` was sampled.
+	 * Optional so a client keeps working against a server that does not send it; a client
+	 * that has it (and a measured clock offset) anchors the position at the server's clock
+	 * instead of at the moment the message happened to arrive.
+	 */
+	serverTime?: number;
 	/** Monotonic id of the last explicit seek; a change forces a hard seek. */
 	seekId?: number;
 	/** The room remains paused while this viewer prepares the saved playback position. */
@@ -199,6 +206,11 @@ export interface ServerMessageSignal extends ServerMessageBase {
 export interface ServerMessagePong extends ServerMessageBase {
 	action: "pong";
 	t0: number;
+	/**
+	 * The server's clock when the reply was built. Optional for older servers: without it
+	 * the client can measure a round trip but not its own offset from the server's clock.
+	 */
+	serverTime?: number;
 }
 
 export type UserUpdate =

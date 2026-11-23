@@ -13,7 +13,10 @@ describe("first viewer playback preparation", () => {
 	let setPosition: ReturnType<typeof vi.fn<[number], void>>;
 	let pause: ReturnType<typeof vi.fn<[], void | Promise<void>>>;
 	let sendReady: ReturnType<typeof vi.fn>;
+	let sendFailed: ReturnType<typeof vi.fn>;
 	let onError: ReturnType<typeof vi.fn>;
+	/** Injected clock; the paused-wait fallback is decided on it, not on wall time. */
+	let clock: number;
 
 	beforeEach(() => {
 		const video = { service: "direct", id: "https://media.test/episode.mp4" } as const;
@@ -44,13 +47,17 @@ describe("first viewer playback preparation", () => {
 			input.playing = false;
 		});
 		sendReady = vi.fn();
+		sendFailed = vi.fn();
 		onError = vi.fn();
+		clock = 0;
 		preparation = createPlaybackPreparation({
 			getState: () => input,
 			getPosition,
 			setPosition,
 			pause,
 			sendReady,
+			sendFailed,
+			now: () => clock,
 			onChange: value => {
 				status = value;
 			},
@@ -85,17 +92,21 @@ describe("first viewer playback preparation", () => {
 		expect(input.playing).toBe(false);
 		expect(status.phase).toBe("waiting-ack");
 		expect(sendReady).toHaveBeenCalledOnce();
+		// The acknowledgement is the room's saved frame, not wherever this element happened
+		// to stop, and the runway is measured from that frame.
 		expect(sendReady).toHaveBeenCalledWith({
 			id: "resume-one",
-			position: 125.05,
+			position: 125,
 			firstFrame: true,
-			bufferAhead: 8,
+			bufferAhead: 8.05,
 		});
 		for (let i = 0; i < 20; i++) {
 			await preparation.tick();
 		}
 		expect(sendReady).toHaveBeenCalledTimes(1);
-		expect(setPosition).toHaveBeenCalledTimes(1);
+		// The second seek is the park back onto the saved frame before acknowledging.
+		expect(setPosition).toHaveBeenCalledTimes(2);
+		expect(setPosition).toHaveBeenLastCalledWith(125);
 		input.roomPlaying = true;
 		input.preparation = null;
 		await preparation.tick();
@@ -128,11 +139,128 @@ describe("first viewer playback preparation", () => {
 		input.loading = { phase: null, currentTime: 125.05, bufferAhead: 1 };
 		await preparation.tick();
 		expect(sendReady).not.toHaveBeenCalled();
-		expect(status.phase).toBe("preparing");
+		// Waiting paused keeps the picture on the first frame while the runway fills.
+		expect(status.phase).toBe("buffering");
+		expect(input.playing).toBe(false);
 
 		input.loading = { phase: null, currentTime: 125.05, bufferAhead: 5 };
 		await preparation.tick();
 		expect(sendReady).toHaveBeenCalledOnce();
+	});
+
+	it("waits paused through a slow runway instead of throwing the viewer out", async () => {
+		await preparation.tick();
+		frame();
+		// The frame is on the target but only half a second of runway is buffered.
+		input.loading = { phase: null, currentTime: 125.05, bufferAhead: 0.5 };
+		await preparation.tick();
+		expect(status.phase).toBe("buffering");
+		expect(status.priming).toBe(false);
+		expect(input.playing).toBe(false);
+
+		// The runway fills slowly. Nothing here may look like a missed frame: the element is
+		// measured against the room's start position, not against where it happens to be.
+		for (let index = 0; index < 20; index++) {
+			clock += 500;
+			input.loading = { phase: null, currentTime: 125.05, bufferAhead: 0.5 + index * 0.1 };
+			await preparation.tick();
+			expect(status.failed).toBe(false);
+		}
+		expect(sendReady).not.toHaveBeenCalled();
+		expect(sendFailed).not.toHaveBeenCalled();
+		expect(onError).not.toHaveBeenCalled();
+
+		input.loading = { phase: null, currentTime: 125.05, bufferAhead: 3 };
+		await preparation.tick();
+		expect(sendReady).toHaveBeenCalledOnce();
+		expect(sendReady).toHaveBeenCalledWith({
+			id: "resume-one",
+			position: 125,
+			firstFrame: true,
+			bufferAhead: 3.05,
+		});
+	});
+
+	it("keeps playing when a paused element does not fill its buffer", async () => {
+		await preparation.tick();
+		frame();
+		input.loading = { phase: null, currentTime: 125.05, bufferAhead: 0.5 };
+		await preparation.tick();
+		expect(status.phase).toBe("buffering");
+
+		// A whole paused window without any growth: this browser stops downloading while
+		// paused, so waiting paused can never succeed here.
+		clock += 2000;
+		await preparation.tick();
+		expect(status.phase).toBe("preparing");
+		expect(status.priming).toBe(true);
+
+		// It plays on past the target with almost no buffer ahead. Whatever the distance from
+		// the target, this stage must never call that a missed frame.
+		input.playing = true;
+		for (let second = 1; second <= 2; second++) {
+			clock += 1000;
+			position = 125 + second;
+			input.loading = { phase: null, currentTime: 125 + second, bufferAhead: 0.1 };
+			input.frameVersion++;
+			await preparation.tick();
+			expect(status.failed).toBe(false);
+			expect(sendReady).not.toHaveBeenCalled();
+		}
+		expect(onError).not.toHaveBeenCalled();
+		expect(sendFailed).not.toHaveBeenCalled();
+
+		// Three seconds past the target the runway measured from it is finally enough.
+		clock += 1000;
+		position = 128;
+		input.loading = { phase: null, currentTime: 128, bufferAhead: 0.1 };
+		await preparation.tick();
+		expect(status.phase).toBe("waiting-ack");
+		expect(input.playing).toBe(false);
+		expect(setPosition).toHaveBeenLastCalledWith(125);
+		expect(sendReady).toHaveBeenCalledWith({
+			id: "resume-one",
+			position: 125,
+			firstFrame: true,
+			bufferAhead: 3.1,
+		});
+	});
+
+	it("acknowledges a player that lands a tenth of a second off the parked frame", async () => {
+		await preparation.tick();
+		frame();
+		// A player that snaps to a nearby keyframe cannot do better than this.
+		setPosition.mockImplementation((target: number) => {
+			position = target + 0.1;
+		});
+		await preparation.tick();
+		expect(setPosition).toHaveBeenCalledTimes(2);
+		expect(sendReady).toHaveBeenCalledOnce();
+		// The acknowledgement says where the element really is, so the server can still
+		// reject a viewer that is not on the round's frame.
+		expect(sendReady).toHaveBeenCalledWith({
+			id: "resume-one",
+			position: 125.1,
+			firstFrame: true,
+			bufferAhead: 8.05,
+		});
+	});
+
+	it("does not seek in a loop when a player cannot park on the frame at all", async () => {
+		await preparation.tick();
+		frame();
+		setPosition.mockImplementation((target: number) => {
+			position = target - 0.5;
+		});
+		for (let index = 0; index < 5; index++) {
+			await preparation.tick();
+		}
+		// One park attempt only: the server's own deadline decides what happens to a player
+		// that cannot land, and no failure is reported for it.
+		expect(setPosition).toHaveBeenCalledTimes(2);
+		expect(sendReady).not.toHaveBeenCalled();
+		expect(sendFailed).not.toHaveBeenCalled();
+		expect(onError).not.toHaveBeenCalled();
 	});
 
 	it.each([
@@ -151,9 +279,9 @@ describe("first viewer playback preparation", () => {
 		expect(sendReady).toHaveBeenCalledOnce();
 		expect(sendReady).toHaveBeenCalledWith({
 			id: "resume-one",
-			position: 125.05,
+			position: 125,
 			firstFrame: true,
-			bufferAhead: 8,
+			bufferAhead: 8.05,
 		});
 	});
 
@@ -307,9 +435,9 @@ describe("first viewer playback preparation", () => {
 		expect(sendReady).toHaveBeenCalledOnce();
 		expect(sendReady).toHaveBeenCalledWith({
 			id: "next-preparation",
-			position: 125.05,
+			position: 125,
 			firstFrame: true,
-			bufferAhead: 8,
+			bufferAhead: 8.05,
 		});
 	});
 
@@ -319,7 +447,8 @@ describe("first viewer playback preparation", () => {
 		pause.mockReturnValueOnce(new Promise<void>(done => (resolve = done)));
 		const pending = preparation.tick();
 		await Promise.resolve();
-		expect(status.phase).toBe("waiting-ack");
+		// Parking is the pause-and-seek stage; the acknowledgement only follows it.
+		expect(status.phase).toBe("parking");
 		input.error = true;
 		resolve();
 		await pending;

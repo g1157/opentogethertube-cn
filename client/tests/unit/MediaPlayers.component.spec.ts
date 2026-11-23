@@ -426,6 +426,8 @@ describe("native and HLS player reliability", () => {
 			capLevelToPlayerSize: true,
 			// Loading starts where playback begins, not at zero.
 			autoStartLoad: false,
+			// The room is paused at the start of the video, so loading begins there.
+			startPosition: 0,
 		});
 		engine.listeners.get(Hls.Events.MANIFEST_PARSED)?.(Hls.Events.MANIFEST_PARSED, {});
 		expect(wrapper.emitted("ready")).toBeUndefined();
@@ -442,6 +444,34 @@ describe("native and HLS player reliability", () => {
 		expect(engine.config.maxBufferLength).toBe(changedBudget.forwardSeconds);
 		expect(engine.config.maxMaxBufferLength).toBe(changedBudget.maxForwardSeconds);
 		expect(hlsMock.instances).toHaveLength(1);
+	});
+
+	it("opens hls.js at the room position and leaves a live source on its own edge", async () => {
+		const page = mountComponent(HlsPlayer, {
+			props: { videoUrl: "https://media.example/episode.m3u8" },
+		});
+		wrapper = page.wrapper;
+
+		page.store.commit("room/SYNC", {
+			currentSource: { service: "hls", id: "episode" },
+			isPlaying: false,
+			playbackPosition: 100,
+		});
+		await wrapper.setProps({ videoUrl: "https://media.example/positioned.m3u8" });
+		const config = hlsMock.instances[1].config as unknown as Record<string, unknown>;
+		// hls.js restarts a forced early startLoad from config.startPosition once the manifest
+		// is parsed, so the position has to travel here rather than in the startLoad argument.
+		expect(config.startPosition).toBeCloseTo(100, 6);
+
+		page.store.commit("room/SYNC", {
+			currentSource: { service: "hls", id: "live", isLive: true },
+			isPlaying: false,
+			playbackPosition: 100,
+		});
+		await wrapper.setProps({ videoUrl: "https://media.example/live.m3u8" });
+		const liveConfig = hlsMock.instances[2].config as unknown as Record<string, unknown>;
+		// A sliding live window has no position the room clock can describe.
+		expect(liveConfig.startPosition ?? -1).toBe(-1);
 	});
 
 	it("keeps hls.js on its default loader for an ordinary source", () => {

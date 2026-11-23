@@ -118,9 +118,56 @@ describe("Room manager", () => {
 			expect(loadedRoom.playbackPosition).toBeCloseTo(20, 1);
 			expect(loadedRoom.playbackPosition).toBeCloseTo(room.realPlaybackPosition, 1);
 			expect(loadedRoom._playbackStart).not.toBeNull();
-			// The reconstructed room keeps playing, so its position advances past the snapshot
-			// instead of staying frozen at the value it was saved with.
-			expect(loadedRoom.realPlaybackPosition).toBeGreaterThan(20);
+			// The snapshot describes a single instant, so reconstructing it must not add the ten
+			// seconds that had already elapsed when it was taken.
+			expect(loadedRoom.realPlaybackPosition).toBeCloseTo(20, 0);
+		});
+
+		it("stores a playing room's position and anchor for the same instant", () => {
+			const room = new Room({ name: "test-snapshot-anchor", isTemporary: true });
+			room.currentSource = { service: "direct", id: "video" };
+			room.isPlaying = true;
+			room.playbackPosition = 0;
+			// The room has been playing for ten minutes from the start of the video.
+			room._playbackStart = dayjs().subtract(600, "second");
+
+			const loadedRoom = new Room(
+				redisStateToState(JSON.parse(room.serializeState()) as RoomStateFromRedis),
+			);
+			loadedRoom.queue.onDirty(undefined);
+
+			// Restoring immediately must not add those ten minutes a second time (which used to
+			// put the room at 1200s).
+			expect(loadedRoom.playbackPosition).toBeCloseTo(600, 0);
+			expect(loadedRoom.realPlaybackPosition).toBeCloseTo(600, 0);
+		});
+
+		it("does not count process downtime as watched when restoring a temporary room", async () => {
+			const roomName = "test-restore-downtime";
+			await roommanager.createRoom({ name: roomName, isTemporary: true });
+			const room = (await roommanager.getRoom(roomName)).unwrap();
+			room.currentSource = { service: "direct", id: "video" };
+			room.playbackPosition = 600;
+			room.isPlaying = true;
+			room._playbackStart = dayjs();
+			await room.saveStateToRedisDebounced.flush();
+
+			await roommanager.unloadRoom(roomName, UnloadReason.Admin, { preserveRedis: true });
+
+			// Simulate ten minutes of process downtime: the snapshot still holds its own save
+			// time as the anchor, so a naive restore adds the downtime to the position.
+			const saved = JSON.parse(
+				(await redisClient.get(`room:${roomName}`)) as string,
+			) as RoomStateFromRedis;
+			(saved as unknown as { _playbackStart: string })._playbackStart = dayjs()
+				.subtract(600, "second")
+				.toISOString();
+			await redisClient.set(`room:${roomName}`, JSON.stringify(saved));
+
+			const restored = (await roommanager.getRoom(roomName)).unwrap();
+			expect(restored.isPlaying).toBe(true);
+			expect(restored.playbackPosition).toBeCloseTo(600, 0);
+			expect(restored.realPlaybackPosition).toBeCloseTo(600, 0);
 		});
 
 		it("should preserve saved links when an empty permanent room unloads before restoration", async () => {

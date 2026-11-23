@@ -38,6 +38,19 @@ export const PLAYBACK_INITIAL_SYNC_COOLDOWN_MS = 8000;
 export const PLAYBACK_INITIAL_MAX_DRIFT_SECONDS = 10;
 /** Do not hard-seek while a native player has less than this much buffer ahead. */
 export const PLAYBACK_MIN_SEEK_BUFFER_SECONDS = 1.5;
+/**
+ * Upper bounds of the |drift| buckets the sync engine measures seconds in. One maximum cannot
+ * tell "20 ms off all session" from "280 ms off all session"; the last bucket is open-ended.
+ * Shared with the server so its metric labels and the client's indices cannot drift apart.
+ */
+export const PLAYBACK_DRIFT_BUCKET_SECONDS: readonly number[] = [
+	0.04,
+	0.08,
+	0.15,
+	0.3,
+	1,
+	Number.POSITIVE_INFINITY,
+];
 
 export function playbackReadyBufferSeconds(service: string | undefined): number {
 	return service === "hls" || service === "dash"

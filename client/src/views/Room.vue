@@ -579,6 +579,7 @@ import { PlayerActionsKey } from "@/util/player-actions";
 import {
 	createPlaybackPreparation,
 	type PlaybackPreparationState,
+	preparationSilenceFactor,
 } from "@/util/playback-preparation";
 import type { MediaLoadingState } from "@/util/media-loading-state";
 import { useTemporaryPlaybackSpeed } from "@/util/temporary-playback-speed";
@@ -591,7 +592,14 @@ import { useVoice } from "@/util/voice";
 import { createPlaybackQuality, sendPlaybackQualityReport } from "@/util/playback-quality";
 import { installMediaSession } from "@/util/media-session";
 import { createNextMediaPrefetch } from "@/util/next-media-prefetch";
-import { getRttEstimateMs } from "@/util/connection-latency";
+import {
+	getRttEstimateMs,
+	getServerClockOffsetMs,
+	isServerClockUncertain,
+	subscribeServerClock,
+} from "@/util/connection-latency";
+import { attachServerClock } from "@/stores/room";
+import { canStartPreparedLocally, preparedStartDelayMs } from "@/util/prepared-start";
 import { collectPlaybackDiagnostics } from "@/util/playback-diagnostics";
 
 // biome-ignore lint/nursery/noVueOptionsApi: TODO: convert to setup
@@ -1036,6 +1044,163 @@ export default defineComponent({
 			() => void applyIsPlaying(),
 			{ flush: "post" },
 		);
+		/**
+		 * The preparation round this viewer began locally, from the round's scheduled start,
+		 * before the server's confirming `isPlaying` sync. Kept as the round id so a replaced
+		 * round can never inherit it, and cleared whenever the round is confirmed or revoked.
+		 */
+		const locallyStartedRound = ref<string | null>(null);
+		/**
+		 * The round whose scheduled start already fired here. A start is attempted once per
+		 * round: after it was revoked (never confirmed, or refused by the browser) the start
+		 * time is in the past, and re-arming on the next sync or clock sample would start this
+		 * viewer alone again, with sound, every time anything about the round changed.
+		 */
+		let firedRoundId: string | null = null;
+		let preparedStartTimer: ReturnType<typeof setTimeout> | null = null;
+		let preparedStartRevokeTimer: ReturnType<typeof setTimeout> | null = null;
+		/**
+		 * The confirming sync is one round trip behind the scheduled start. A start the room
+		 * never confirms was not going to happen (someone paused, sought, skipped or the round
+		 * was replaced), and this viewer must not keep playing alone.
+		 */
+		const PREPARED_START_CONFIRM_MS = 3000;
+		const localStartIsActive = computed(
+			() =>
+				locallyStartedRound.value !== null &&
+				locallyStartedRound.value === store.state.room.playbackPreparation?.id &&
+				!store.state.room.isPlaying,
+		);
+		// Nothing of the opening may be audible before the room starts. Derived from the
+		// engine's state instead of toggled by hand, so a cancel, a failure, a source change
+		// or an early return cannot leave the video silent.
+		const preparationSilence = computed(() =>
+			// A local start already began the round for this viewer, so nothing is opening here.
+			localStartIsActive.value || store.state.room.isPlaying
+				? 1
+				: preparationSilenceFactor(
+						playbackPreparationState.value,
+						store.state.room.isPlaying,
+				  ),
+		);
+		watch(
+			preparationSilence,
+			silence => {
+				volume.preparationFactor.value = silence;
+			},
+			{ immediate: true, flush: "sync" },
+		);
+
+		function clearPreparedStartTimers() {
+			if (preparedStartTimer !== null) {
+				clearTimeout(preparedStartTimer);
+				preparedStartTimer = null;
+			}
+			if (preparedStartRevokeTimer !== null) {
+				clearTimeout(preparedStartRevokeTimer);
+				preparedStartRevokeTimer = null;
+			}
+		}
+
+		/**
+		 * Give up a local start the room did not confirm. `wantsPlayback()` becomes false with
+		 * the flag, so applying playback pauses the element and the silence rules apply again.
+		 */
+		function revokePreparedStart() {
+			clearPreparedStartTimers();
+			if (locallyStartedRound.value === null) {
+				return;
+			}
+			locallyStartedRound.value = null;
+			void applyIsPlaying();
+		}
+
+		function firePreparedStart(roundId: string) {
+			preparedStartTimer = null;
+			if (disposed || store.state.room.isPlaying) {
+				return;
+			}
+			if (store.state.room.playbackPreparation?.id !== roundId) {
+				return;
+			}
+			if (playbackPreparationState.value.phase !== "waiting-ack") {
+				return;
+			}
+			firedRoundId = roundId;
+			locallyStartedRound.value = roundId;
+			// The lifted silence and the start have to happen in the same instant; the
+			// multiplier follows `localStartIsActive` through the watch above.
+			void applyIsPlaying().then(applied => {
+				if (!applied && !disposed && locallyStartedRound.value === roundId) {
+					// The browser refused the start (autoplay policy, a player that is not ready):
+					// nothing is playing, so do not keep this viewer's silence lifted either.
+					revokePreparedStart();
+				}
+			});
+			preparedStartRevokeTimer = setTimeout(() => {
+				preparedStartRevokeTimer = null;
+				if (!store.state.room.isPlaying) {
+					revokePreparedStart();
+				}
+			}, PREPARED_START_CONFIRM_MS);
+		}
+
+		/**
+		 * Arm, keep or revoke the local start from the current state (round, phase, offset,
+		 * playing) instead of from the path that changed it, so no path can leave a stale timer
+		 * or a stuck local start behind.
+		 */
+		function reconcilePreparedStart() {
+			if (disposed) {
+				return;
+			}
+			const preparation = store.state.room.playbackPreparation;
+			if (
+				locallyStartedRound.value !== null &&
+				locallyStartedRound.value !== preparation?.id
+			) {
+				// Someone paused, sought, skipped or started another round: stop playing alone.
+				revokePreparedStart();
+				return;
+			}
+			if (store.state.room.isPlaying) {
+				// The confirmation arrived; ordinary room playback owns the element from here.
+				clearPreparedStartTimers();
+				locallyStartedRound.value = null;
+				return;
+			}
+			if (locallyStartedRound.value !== null) {
+				// Already started; the confirmation deadline above is its only exit.
+				return;
+			}
+			if (preparedStartTimer !== null) {
+				clearTimeout(preparedStartTimer);
+				preparedStartTimer = null;
+			}
+			if (preparation && preparation.id === firedRoundId) {
+				// One attempt per round; from here the confirming sync is the only way in.
+				return;
+			}
+			const startAt = preparation?.startAt ?? null;
+			const offsetMs = getServerClockOffsetMs();
+			if (!canStartPreparedLocally(playbackPreparationState.value.phase, startAt, offsetMs)) {
+				return;
+			}
+			const roundId = preparation!.id;
+			const delay = preparedStartDelayMs(startAt as number, offsetMs as number);
+			// A start that already passed fires at once, which is the best this viewer can do.
+			preparedStartTimer = setTimeout(() => firePreparedStart(roundId), delay);
+		}
+
+		watch(
+			[
+				() => store.state.room.playbackPreparation,
+				() => store.state.room.isPlaying,
+				() => playbackPreparationState.value.phase,
+			],
+			() => reconcilePreparedStart(),
+			{ flush: "post" },
+		);
 
 		function roomPosition() {
 			if (!currentSource.value?.id) {
@@ -1055,7 +1220,12 @@ export default defineComponent({
 			getState: () => ({
 				source: currentSource.value?.id ? currentSource.value : null,
 				player: player.player.value,
-				ready: player.apiReady.value && !playbackPreparationState.value.active,
+				// After a local clock jump the room position may be off by the whole jump until
+				// a probe is answered; seeking to it would throw the viewer somewhere random.
+				ready:
+					player.apiReady.value &&
+					!playbackPreparationState.value.active &&
+					!isServerClockUncertain(),
 				error: store.state.playerStatus === PlayerStatus.error,
 				blocked: mediaPlaybackBlocked.value,
 				seeking: player.isSeeking(),
@@ -1079,11 +1249,24 @@ export default defineComponent({
 			// Embedded players (YouTube / Vimeo / PeerTube / Bilibili) seek by API reload or
 			// estimate; a sub-second correction costs more than the drift it removes.
 			seekIsExpensive: () => !player.supportsRateBend(),
+			// A predicted seek target must stay inside the media (and its trim).
+			getSeekLimit: () => seekBounds()?.end ?? null,
 			setLocalRate: rate => {
 				const instance = player.player.value;
 				if (instance?.supportsRateBend === true) {
 					return (instance as MediaPlayerWithPlaybackRate).setPlaybackRate(rate);
 				}
+			},
+			// The sub-0.3s correction plays the element resampled, which is only inaudible on a
+			// native element that can toggle `preservesPitch`. Embedded players cannot, so the
+			// engine keeps its coarser behaviour for them.
+			setPreservesPitch: preserve => {
+				const instance = player.player.value;
+				const setter = (instance as MediaPlayerWithPlaybackRate | null)?.setPreservesPitch;
+				if (instance?.supportsRateBend !== true || typeof setter !== "function") {
+					return false;
+				}
+				return setter.call(instance, preserve);
 			},
 			onError: error => console.warn("Could not synchronize playback position", error),
 		});
@@ -1272,6 +1455,10 @@ export default defineComponent({
 		 * room's playback state, so a caller that would apply it too can skip the duplicate.
 		 */
 		function timestampUpdate(): boolean {
+			// Reading the offset also runs its clock-step guard. Without a read here a system
+			// clock correction would only be noticed by the next probe reply, up to a probe
+			// interval later, and the room position would be off by the step until then.
+			getServerClockOffsetMs();
 			truePosition.value = roomPosition();
 			sliderPosition.value = _.clamp(
 				pendingSeekTarget.value ?? truePosition.value,
@@ -1358,6 +1545,9 @@ export default defineComponent({
 			clearPendingLocalSeek();
 			playbackPreparation.dispose();
 			playbackSync.dispose();
+			// The watcher above stops with the component; the multiplier is a module
+			// singleton, so leaving it at 0 would silence the next room.
+			volume.preparationFactor.value = 1;
 			playbackStatusUnsub?.();
 			playbackStatusUnsub = null;
 			window.removeEventListener("pagehide", flushPlaybackQuality);
@@ -1476,6 +1666,13 @@ export default defineComponent({
 			} else {
 				void playbackPreparation.tick();
 			}
+			// The room just paused, so apply the pause before the corrective seek below: a paused
+			// element can be placed on the room's frame without an audio flush, and every viewer
+			// has to freeze on that same frame instead of wherever its own element stopped.
+			const pauseFirst = msg.isPlaying === false;
+			if (pauseFirst) {
+				await applyIsPlaying();
+			}
 			if (msg.playbackPosition !== undefined || "currentSource" in msg) {
 				if (!playbackPreparationState.value.active) {
 					// An explicit seek is an instruction, not drift: follow it immediately.
@@ -1492,9 +1689,10 @@ export default defineComponent({
 				timestampUpdate();
 			}
 			if (
-				msg.isPlaying !== undefined ||
-				msg.playbackPosition !== undefined ||
-				"playbackPreparation" in msg
+				!pauseFirst &&
+				(msg.isPlaying !== undefined ||
+					msg.playbackPosition !== undefined ||
+					"playbackPreparation" in msg)
 			) {
 				await applyIsPlaying();
 			}
@@ -1522,6 +1720,8 @@ export default defineComponent({
 		}
 
 		let roomCreatedUnsub: (() => void) | null = null;
+		let stopServerClockSubscription: (() => void) | null = null;
+		let stopRoomAnchorSubscription: (() => void) | null = null;
 		onMounted(async () => {
 			// A transient token failure (rate limit, tunnel blip, cold server) must never
 			// wedge the room on "connecting..." forever: waitForToken now times out, and
@@ -1547,6 +1747,10 @@ export default defineComponent({
 			}
 
 			connection.addMessageHandler("sync", onSyncMsg);
+			// The measured clock offset arrives after the join's syncs and can change later; the
+			// anchor and a pending scheduled start both follow it.
+			stopServerClockSubscription = subscribeServerClock(() => reconcilePreparedStart());
+			stopRoomAnchorSubscription = attachServerClock(store);
 			if (!connection.active.value) {
 				connection.connect(route.params.roomId as string);
 			}
@@ -1563,6 +1767,11 @@ export default defineComponent({
 				clearTimeout(roomCreatedTimer);
 				roomCreatedTimer = null;
 			}
+			clearPreparedStartTimers();
+			stopServerClockSubscription?.();
+			stopServerClockSubscription = null;
+			stopRoomAnchorSubscription?.();
+			stopRoomAnchorSubscription = null;
 			connection.removeMessageHandler("sync", onSyncMsg);
 			connection.disconnect();
 
@@ -1675,7 +1884,10 @@ export default defineComponent({
 		function wantsPlayback() {
 			return (
 				!pendingLocalSeek.value &&
-				(store.state.room.isPlaying || playbackPreparationState.value.priming)
+				(store.state.room.isPlaying ||
+					playbackPreparationState.value.priming ||
+					// The round's scheduled start already fired on this clock.
+					localStartIsActive.value)
 			);
 		}
 

@@ -22,6 +22,8 @@ const report = {
 	rateWrites: 240,
 	deadlineSeeks: 2,
 	maxDriftSeconds: 0.9,
+	bendSeconds: 12.5,
+	driftBucketSeconds: [30.5, 12, 2.5, 0, 0, 0],
 	totalFrames: 10_000,
 	droppedFrames: 37,
 };
@@ -46,6 +48,20 @@ describe("playback quality reports", () => {
 		expect(metrics).toContain(`ott_playback_deadline_seeks{service="${service}"} 2`);
 		expect(metrics).toContain(`ott_playback_max_drift_seconds_count{service="${service}"} 1`);
 		expect(metrics).toContain(`ott_playback_max_drift_seconds_sum{service="${service}"} 0.9`);
+		expect(metrics).toContain(`ott_playback_bend_seconds{service="${service}"} 12.5`);
+		// One series per fixed bucket label, and none for a bucket the session never sat in.
+		expect(metrics).toContain(
+			`ott_playback_drift_seconds{service="${service}",bucket="0.04"} 30.5`,
+		);
+		expect(metrics).toContain(
+			`ott_playback_drift_seconds{service="${service}",bucket="0.08"} 12`,
+		);
+		expect(metrics).toContain(
+			`ott_playback_drift_seconds{service="${service}",bucket="0.15"} 2.5`,
+		);
+		expect(metrics).not.toContain(
+			`ott_playback_drift_seconds{service="${service}",bucket="0.3"}`,
+		);
 		expect(metrics).toContain(`ott_playback_total_frames{service="${service}"} 10000`);
 		expect(metrics).toContain(`ott_playback_dropped_frames{service="${service}"} 37`);
 	});
@@ -68,6 +84,23 @@ describe("playback quality reports", () => {
 		const metrics = await register.metrics();
 		expect(metrics).not.toContain('ott_playback_rate_writes{service="vimeo"}');
 		expect(metrics).not.toContain('ott_playback_max_drift_seconds_count{service="vimeo"}');
+		expect(metrics).not.toContain('ott_playback_bend_seconds{service="vimeo"}');
+		expect(metrics).not.toContain('ott_playback_drift_seconds{service="vimeo"');
+	});
+
+	it("accumulates bend and drift seconds across reports", async () => {
+		for (const address of ["10.1.2.1", "10.1.2.2"]) {
+			await request(app)
+				.post("/api/playback/quality")
+				.set("X-Forwarded-For", address)
+				.send({ ...report, service: "tubi" })
+				.expect(204);
+		}
+		const metrics = await register.metrics();
+		expect(metrics).toContain('ott_playback_bend_seconds{service="tubi"} 25');
+		expect(metrics).toContain('ott_playback_drift_seconds{service="tubi",bucket="0.04"} 61');
+		// A quiet bucket has no series at all, not a zero one.
+		expect(metrics).not.toContain('ott_playback_drift_seconds{service="tubi",bucket="inf"}');
 	});
 
 	it("collapses unknown service labels into other (cardinality safety)", async () => {
@@ -102,6 +135,17 @@ describe("playback quality reports", () => {
 		["a startup beyond a day", { ...report, startup: 24 * 60 * 60 + 1 }, "10.1.1.3"],
 		["a fractional rebuffer count", { ...report, rebuffers: 1.5 }, "10.1.1.4"],
 		["an unknown field type", { ...report, seeks: "3" }, "10.1.1.5"],
+		[
+			"a five-element drift bucket array",
+			{ ...report, driftBucketSeconds: [1, 2, 3, 4, 5] },
+			"10.1.1.7",
+		],
+		["a negative bend time", { ...report, bendSeconds: -1 }, "10.1.1.8"],
+		[
+			"a negative drift bucket",
+			{ ...report, driftBucketSeconds: [0, 0, -1, 0, 0, 0] },
+			"10.1.1.9",
+		],
 		["an empty body", {}, "10.1.1.6"],
 	];
 	it.each(rejected)("rejects %s", async (_name, body, address) => {

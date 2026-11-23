@@ -6,6 +6,13 @@
  */
 const SEEK_TOLERANCE_SECONDS = 0.25;
 
+/**
+ * A paused element has no audio pipeline running to flush, so it can be placed on the exact
+ * frame the room named. Viewers frozen a fraction of a second apart after a pause are the
+ * symptom of applying the playing tolerance here.
+ */
+const PAUSED_SEEK_TOLERANCE_SECONDS = 0.02;
+
 /** Hold native playback while a new position is being fetched and decoded. */
 export function createMediaSeek(getMedia: () => HTMLVideoElement | undefined) {
 	let target: number | null = null;
@@ -15,7 +22,13 @@ export function createMediaSeek(getMedia: () => HTMLVideoElement | undefined) {
 		if (!media || !Number.isFinite(position) || position < 0) {
 			return;
 		}
-		if (Math.abs(media.currentTime - position) <= SEEK_TOLERANCE_SECONDS) {
+		// The element clamps a target past its end, and ready() below would then wait for a
+		// position the media does not have. Hold the position that can actually be reached.
+		if (Number.isFinite(media.duration) && media.duration > 0 && position > media.duration) {
+			position = media.duration;
+		}
+		const tolerance = media.paused ? PAUSED_SEEK_TOLERANCE_SECONDS : SEEK_TOLERANCE_SECONDS;
+		if (Math.abs(media.currentTime - position) <= tolerance) {
 			return;
 		}
 		// Set the hold before pause: a parent's pause handler may immediately request play.

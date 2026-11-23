@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OttRoomConnectionReal } from "@/plugins/connection";
+import { getServerClockOffsetMs, resetLatencySamples } from "@/util/connection-latency";
 
 class TestWebSocket extends EventTarget {
 	static CONNECTING = 0;
@@ -32,7 +33,19 @@ class TestWebSocket extends EventTarget {
 describe("room WebSocket recovery", () => {
 	let connection: OttRoomConnectionReal;
 	beforeEach(() => {
-		vi.useFakeTimers();
+		// The monotonic clock is faked together with the wall clock. With only `Date` faked,
+		// every advance looks like a system clock step to the latency estimate, which then
+		// asks for a fresh probe — a real reaction, but not the behaviour under test here.
+		vi.useFakeTimers({
+			toFake: [
+				"setTimeout",
+				"clearTimeout",
+				"setInterval",
+				"clearInterval",
+				"Date",
+				"performance",
+			],
+		});
 		const saved = new Map<string, string>();
 		vi.stubGlobal("localStorage", {
 			getItem: (key: string) => saved.get(key) ?? null,
@@ -48,10 +61,12 @@ describe("room WebSocket recovery", () => {
 		localStorage.setItem("token", "test-session");
 		connection = new OttRoomConnectionReal();
 		connection.addMessageHandler("sync", () => undefined);
+		resetLatencySamples();
 	});
 	afterEach(() => {
 		connection.disconnect();
 		localStorage.clear();
+		resetLatencySamples();
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
 		vi.useRealTimers();
@@ -64,6 +79,57 @@ describe("room WebSocket recovery", () => {
 		socket.message({ action: "sync", name: "test-room" });
 		return socket;
 	}
+
+	function sentProbes(socket: TestWebSocket): unknown[] {
+		return socket.send.mock.calls
+			.map(([text]) => JSON.parse(text as string))
+			.filter(message => message.action === "ping");
+	}
+
+	it("bursts probes once the server shares its clock, and only then", () => {
+		const socket = join();
+		const onJoin = sentProbes(socket).length;
+		// An older server answers without its own clock, so the offset is unknowable and a
+		// burst would only be dropped replies nobody can use.
+		socket.message({ action: "pong", t0: Date.now() });
+		vi.advanceTimersByTime(1000);
+		expect(sentProbes(socket)).toHaveLength(onJoin);
+
+		// The first reply with a server time starts the burst: the offset comes from the
+		// sample with the smallest round trip, and one probe is the least reliable sample.
+		socket.message({ action: "pong", t0: Date.now(), serverTime: Date.now() });
+		vi.advanceTimersByTime(250);
+		expect(sentProbes(socket)).toHaveLength(onJoin + 1);
+		vi.advanceTimersByTime(500);
+		expect(sentProbes(socket)).toHaveLength(onJoin + 3);
+	});
+
+	it("starts every connection with a fresh clock estimate", () => {
+		const socket = join();
+		socket.message({ action: "pong", t0: Date.now(), serverTime: Date.now() + 60_000 });
+		expect(getServerClockOffsetMs()).toBeCloseTo(60_000, -1);
+
+		// A reconnect may land on another server, so the old offset describes nothing.
+		connection.reconnect();
+		const second = TestWebSocket.sockets[1];
+		second.open();
+		second.message({ action: "sync", name: "test-room" });
+		expect(getServerClockOffsetMs()).toBeNull();
+	});
+
+	it("does not count dropped burst probes as unanswered", () => {
+		const socket = join();
+		socket.message({ action: "pong", t0: Date.now(), serverTime: Date.now() });
+		// Three burst probes go unanswered; that must not look like a dead socket.
+		vi.advanceTimersByTime(750);
+		expect(connection.connected.value).toBe(true);
+		vi.advanceTimersByTime(15000);
+		vi.advanceTimersByTime(15000);
+		expect(connection.connected.value).toBe(true);
+		// Only the periodic probes count, and they run out as they always did.
+		vi.advanceTimersByTime(15000);
+		expect(connection.connected.value).toBe(false);
+	});
 
 	it("authenticates on open and only reports connected after the full room sync", () => {
 		const connected = vi.fn();

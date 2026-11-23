@@ -32,7 +32,9 @@ describe("room state types", () => {
 		type ExRoom = Pick<Partial<ConvertToJsonSafe<RoomStateSyncable>>, B>;
 		expectTypeOf<ExMsg>().toEqualTypeOf<ExRoom>();
 
-		expectTypeOf<Omit<ServerMessageSync, "action">>().toEqualTypeOf<
+		// `serverTime` is not room state: it is the instant the carried position was sampled,
+		// so a client can anchor it at the server's clock instead of at its arrival.
+		expectTypeOf<Omit<ServerMessageSync, "action" | "serverTime">>().toEqualTypeOf<
 			Partial<ConvertToJsonSafe<RoomStateSyncable>>
 		>();
 	});

@@ -102,7 +102,9 @@ describe("websocket boundary", () => {
 			);
 			const pongs = responses.filter(message => message.action === "pong");
 			const errors = responses.filter(message => message.action === "error");
-			expect(pongs.length).toBe(40);
+			// A joining client gets a short burst of replies, then one per second: the flood is
+			// still bounded, and the probes over the budget are dropped silently.
+			expect(pongs.length).toBe(5);
 			expect(errors.length).toBeGreaterThan(0);
 			expect(errors[0].name).toBe("TooManyRequests");
 			expect(client.kick).not.toHaveBeenCalled();

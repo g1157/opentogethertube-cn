@@ -11,7 +11,11 @@ import {
 } from "vitest";
 import dayjs from "dayjs";
 import tokens, { type SessionInfo } from "../../auth/tokens.js";
-import { RoomRequestType, type UndoRequest } from "ott-common/models/messages.js";
+import {
+	RoomRequestType,
+	type ServerMessageSync,
+	type UndoRequest,
+} from "ott-common/models/messages.js";
 import {
 	type AuthToken,
 	BehaviorOption,
@@ -73,6 +77,113 @@ describe("Room", () => {
 		const syncState = room.syncableState();
 
 		expect(syncState.playbackPosition).toBeCloseTo(expectedPlaybackPosition, 1);
+	});
+
+	it("publishes the fresh position when only the current source's metadata changed", async () => {
+		const room = new Room({ name: "test-metadata-sync", isTemporary: true });
+		vi.spyOn(room, "publish").mockResolvedValue(undefined);
+		room.currentSource = { service: "direct", id: "video1" };
+		room.playbackPosition = 100;
+		room.isPlaying = true;
+		room._playbackStart = dayjs().subtract(600, "second");
+		// These assignments dirty their props; an earlier sync would have cleared them, and the
+		// bug only shows when the metadata update is the sole reason for the message.
+		await room.sync();
+		vi.mocked(room.publish).mockClear();
+
+		// A subtitle belongs to the same video, so updateQueueItem marks only the current
+		// source dirty. Without a position in that message a client re-anchored its clock
+		// around the old position and moved everyone by their own drift.
+		await room.updateQueueItem(
+			{
+				type: RoomRequestType.UpdateQueueItemRequest,
+				video: { service: "direct", id: "video1" },
+				// An older client clears the track with null, which reaches the same path as a
+				// real subtitle change without resolving a URL.
+				update: { subtitleUrl: null as unknown as string },
+			},
+			{ clientId: "client", username: "tester", role: Role.UnregisteredUser },
+		);
+		const expected = room.realPlaybackPosition;
+		await room.sync();
+
+		const sync = vi
+			.mocked(room.publish)
+			.mock.calls.map(([message]) => message)
+			.find((message): message is ServerMessageSync => message.action === "sync");
+		expect(sync).toBeDefined();
+		expect(sync?.playbackPosition).toBeCloseTo(expected, 1);
+		expect(expected).toBeGreaterThan(600);
+		await room.saveStateToRedisDebounced.flush();
+	});
+
+	describe("sync message timestamps", () => {
+		/** The last sync message the room published. */
+		function publishedSync(room: Room): ServerMessageSync {
+			const sync = vi
+				.mocked(room.publish)
+				.mock.calls.map(([message]) => message)
+				.filter((message): message is ServerMessageSync => message.action === "sync")
+				.at(-1);
+			expect(sync).toBeDefined();
+			return sync!;
+		}
+
+		it("timestamps a sync that carries a position with the server's clock", async () => {
+			const room = new Room({ name: "test-position-clock", isTemporary: true });
+			vi.spyOn(room, "publish").mockResolvedValue(undefined);
+			room.currentSource = { service: "direct", id: "video1" };
+			room.playbackPosition = 100;
+			room._dirty.add("currentSource");
+			const before = Date.now();
+			await room.sync();
+			const after = Date.now();
+
+			const sync = publishedSync(room);
+			expect(sync.playbackPosition).toBe(100);
+			// Without the sampling instant a client can only anchor the position at the moment
+			// the message reached it, which is the whole one-way delay of the link behind.
+			expect(sync.serverTime).toBeGreaterThanOrEqual(before);
+			expect(sync.serverTime).toBeLessThanOrEqual(after);
+		});
+
+		it("timestamps the sync of an explicit seek, where only the position is dirty", async () => {
+			const room = new Room({ name: "test-seek-clock", isTemporary: true });
+			vi.spyOn(room, "publish").mockResolvedValue(undefined);
+			room.currentSource = { service: "direct", id: "video1", length: 600 };
+			room.isPlaying = true;
+			room._playbackStart = dayjs();
+			await room.sync();
+			vi.mocked(room.publish).mockClear();
+
+			const before = Date.now();
+			await room.seek(
+				{ type: RoomRequestType.SeekRequest, value: 300 },
+				{ clientId: "client", username: "tester", role: Role.UnregisteredUser },
+			);
+			await room.sync();
+			const after = Date.now();
+
+			const sync = publishedSync(room);
+			// A seek dirties neither the source nor the playing flag, and it is the one message
+			// every viewer has to land on the same frame for.
+			expect(sync.isPlaying).toBeUndefined();
+			expect(sync.playbackPosition).toBeCloseTo(300, 0);
+			expect(sync.serverTime).toBeGreaterThanOrEqual(before);
+			expect(sync.serverTime).toBeLessThanOrEqual(after);
+			await room.saveStateToRedisDebounced.flush();
+		});
+
+		it("leaves the sampling instant off a sync that carries no position", async () => {
+			const room = new Room({ name: "test-metadata-clock", isTemporary: true });
+			vi.spyOn(room, "publish").mockResolvedValue(undefined);
+			room._dirty.add("title");
+			await room.sync();
+
+			const sync = publishedSync(room);
+			expect(sync.playbackPosition).toBeUndefined();
+			expect(sync.serverTime).toBeUndefined();
+		});
 	});
 
 	describe("Room Requests", () => {

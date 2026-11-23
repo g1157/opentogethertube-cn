@@ -6,7 +6,10 @@ import { MediaPlayer as DashSdk } from "dashjs";
 import DirectPlayer from "@/components/players/DirectPlayer.vue";
 import HlsPlayer from "@/components/players/HlsPlayer.vue";
 import DashPlayer from "@/components/players/DashPlayer.vue";
-import type { MediaPlayer } from "@/components/composables/media-player";
+import type {
+	MediaPlayer,
+	MediaPlayerWithPlaybackRate,
+} from "@/components/composables/media-player";
 import type { MediaLoadingState } from "@/util/media-loading-state";
 import { mountComponent } from "./component-test-utils";
 
@@ -304,6 +307,34 @@ describe("native player loading-state integration", () => {
 		};
 	}
 
+	it("opens a DASH stream at the room position and leaves a live source on its own edge", async () => {
+		const target = mountPlayer(players[2]);
+		target.store.commit("room/SYNC", {
+			currentSource: { service: "dash", id: "episode" },
+			isPlaying: false,
+			playbackPosition: 310,
+		});
+		await target.wrapper.setProps({ videoUrl: "https://media.example/positioned.mpd" });
+		const engine = dashMock.instances.at(-1)!;
+		// dash.js applies the start time itself, so the player does not fetch from zero and
+		// then seek; initialize's third argument is autoplay.
+		expect(engine.initialize).toHaveBeenLastCalledWith(
+			target.video,
+			"https://media.example/positioned.mpd",
+			false,
+			310,
+		);
+
+		target.store.commit("room/SYNC", {
+			currentSource: { service: "dash", id: "live", isLive: true },
+			isPlaying: false,
+			playbackPosition: 310,
+		});
+		await target.wrapper.setProps({ videoUrl: "https://media.example/live.mpd" });
+		// The room clock cannot describe a sliding live window, so no start time is imposed.
+		expect(dashMock.instances.at(-1)!.initialize.mock.calls.at(-1)?.[3]).toBeUndefined();
+	});
+
 	it("applies a changed DASH buffer target without replacing the playing engine", async () => {
 		const target = mountPlayer(players[2]);
 		const engine = dashMock.instances.at(-1)!;
@@ -366,6 +397,28 @@ describe("native player loading-state integration", () => {
 	}
 
 	describe.each(players)("$name", fixture => {
+		it("toggles pitch preservation on its element and reports an element without it", () => {
+			const target = mountPlayer(fixture);
+			const toggle = (target.api as MediaPlayerWithPlaybackRate).setPreservesPitch;
+			expect(toggle).toBeTypeOf("function");
+			// jsdom has no preservesPitch; the players feature-detect exactly like this.
+			expect(toggle?.(false)).toBe(false);
+
+			Object.defineProperty(HTMLMediaElement.prototype, "preservesPitch", {
+				configurable: true,
+				writable: true,
+				value: true,
+			});
+			try {
+				expect(toggle?.(false)).toBe(true);
+				expect(target.video.preservesPitch).toBe(false);
+				expect(toggle?.(true)).toBe(true);
+				expect(target.video.preservesPitch).toBe(true);
+			} finally {
+				Reflect.deleteProperty(HTMLMediaElement.prototype, "preservesPitch");
+			}
+		});
+
 		it("starts from loadeddata with only current-frame data and a tiny buffer", async () => {
 			const target = mountPlayer(fixture);
 			state(target.video).readyState = 1;
@@ -619,6 +672,8 @@ describe("native player loading-state integration", () => {
 			target.video,
 			players[2].props.videoUrl,
 			false,
+			// Paused at the start of the video: no start time is imposed on dash.js.
+			undefined,
 		);
 		engine.listeners.get(DashSdk.events.MANIFEST_LOADED)!();
 		expect(target.wrapper.emitted("ready")).toHaveLength(1);

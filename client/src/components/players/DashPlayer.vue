@@ -42,6 +42,7 @@ import { isUsableDuration } from "@/util/video-length";
 import { visibleBufferSeconds } from "@/util/media-buffer";
 import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
 import { createMediaSeek } from "@/util/media-seek";
+import { roomStartPosition } from "@/util/start-position";
 import { ToastStyle } from "@/models/toast";
 import toast from "@/util/toast";
 import { i18n } from "@/i18n";
@@ -399,6 +400,20 @@ function setPlaybackRate(rate: number): Promise<void> {
 	return Promise.resolve();
 }
 
+/**
+ * The sync engine's micro corrections play the element resampled, which is cleaner than the
+ * time-stretch warp close to 1.0. Returns false for an element without the property so the
+ * engine keeps its coarser behaviour there.
+ */
+function setPreservesPitch(preserve: boolean): boolean {
+	const video = videoElem.value;
+	if (!video || !("preservesPitch" in video)) {
+		return false;
+	}
+	video.preservesPitch = preserve;
+	return true;
+}
+
 function setAudioBoost(boost: number): void {
 	audioBoost.setBoost(boost);
 }
@@ -439,7 +454,15 @@ function loadVideoSource(resumePosition: number | null = null, resetRecovery = t
 	dash.value = undefined;
 
 	dash.value = MediaPlayer().create();
-	dash.value.initialize(videoElem.value, props.videoUrl, false);
+	// Open at the room position instead of fetching from zero and seeking afterwards. A
+	// recovery reboot already knows where it was, so its resume position wins.
+	const startTime = resumePosition ?? roomStartPosition(store.state.room, recovery.getPosition());
+	dash.value.initialize(
+		videoElem.value,
+		props.videoUrl,
+		false,
+		startTime !== null && startTime > 0 ? startTime : undefined,
+	);
 	if (ttlmCaption.value) {
 		dash.value.attachTTMLRenderingDiv(ttlmCaption.value);
 	}
@@ -678,6 +701,7 @@ defineExpose({
 	getAvailablePlaybackRates,
 	getPlaybackRate,
 	setPlaybackRate,
+	setPreservesPitch,
 	setAudioBoost,
 	setAudioEq,
 } satisfies MediaPlayerWithCaptions & MediaPlayerWithQuality & MediaPlayerWithPlaybackRate & MediaPlayerWithAudioBoost);

@@ -1297,7 +1297,14 @@ export class Room implements RoomState {
 		// seek, speed change), so a snapshot taken while playing carried the position from the
 		// last pause. A process killed by the OOM killer then restored the room minutes behind.
 		// Always write where the room actually is, the same way syncableState does.
+		const now = dayjs();
 		state.playbackPosition = this.realPlaybackPosition;
+		if (this.isPlaying) {
+			// A restored room adds everything between `_playbackStart` and load time to the
+			// stored position. The position above is sampled now, so the anchor has to be now
+			// too; keeping the anchor of the last pause/seek counted that span twice.
+			state._playbackStart = now;
+		}
 		if (this.bufferingGateHeld) {
 			// Preserve playback intent through a crash without persisting the transient hold.
 			state.resumeOnNextJoin = true;
@@ -1305,7 +1312,7 @@ export class Room implements RoomState {
 		if (this.temporarySpeed) {
 			// A crash/restart must never turn a held gesture into a permanent speed setting.
 			state.playbackSpeed = this.temporarySpeed.previousSpeed;
-			state._playbackStart = this.isPlaying ? dayjs() : null;
+			state._playbackStart = this.isPlaying ? now : null;
 		}
 		if (state.owner) {
 			// The owner row includes the argon2 hash and salt. Redundant in Redis (the
@@ -1321,6 +1328,17 @@ export class Room implements RoomState {
 		const sync = _.pick(this, syncableProps);
 		sync.playbackPosition = this.realPlaybackPosition;
 		return sync;
+	}
+
+	/**
+	 * The playback position together with the server-clock instant it was sampled at, taken
+	 * from one call so the two always describe the same moment. A sync message carries both
+	 * (see `ServerMessageSync.serverTime`): without the timestamp a client can only guess
+	 * how long the message spent in flight before it read it.
+	 */
+	public playbackClock(): { playbackPosition: number; serverTime: number } {
+		const serverTime = Date.now();
+		return { playbackPosition: this.realPlaybackPosition, serverTime };
 	}
 
 	public serializeSyncableState(): string {
@@ -1374,12 +1392,28 @@ export class Room implements RoomState {
 		};
 
 		const state: RoomStateSyncable = this.syncableState();
+		const clock = this.playbackClock();
 		// hasOwner is the safe sync field, while the snapshot stores the owner identity.
 		const isAnyDirtyStorable =
 			this._dirty.has("hasOwner") ||
 			Array.from(this._dirty).some(prop => storableProps.includes(prop as any));
 
 		msg = Object.assign(msg, _.pick(state, Array.from(this._dirty)));
+		if (
+			["currentSource", "isPlaying", "playbackSpeed", "playbackPosition"].some(prop =>
+				this._dirty.has(prop as RoomDirtyProp),
+			)
+		) {
+			// A client anchors its clock on the position a sync carries. A message that changes
+			// the source or the clock without one made it re-anchor around its old position, so
+			// a metadata-only update moved every viewer by its own drift. This is outgoing only:
+			// the dirty set and the persisted snapshot are unchanged.
+			msg.playbackPosition = clock.playbackPosition;
+			// The matching sample instant, so an arriving message does not become the anchor.
+			// A position that is dirty on its own (an explicit seek) needs it most: that is the
+			// message every viewer is supposed to land on the same frame for.
+			msg.serverTime = clock.serverTime;
+		}
 		const persistentSettings: (keyof RoomStatePersistable)[] = [
 			"title",
 			"description",
@@ -1929,6 +1963,16 @@ export class Room implements RoomState {
 	/** Marks a room rebuilt from storage: no playback intent survives outside Redis. */
 	public restoreFromStorage(): void {
 		this.restoredFromStorage = true;
+	}
+
+	/**
+	 * Keeps the room where its snapshot left it. The snapshot's anchor is the save time, so a
+	 * room restored minutes later would otherwise count the process downtime as watching.
+	 */
+	public reanchorRestoredPlayback(): void {
+		if (this.isPlaying) {
+			this._playbackStart = dayjs();
+		}
 	}
 
 	private canPreparePlayback(): boolean {

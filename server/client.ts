@@ -18,8 +18,12 @@ import { Counter } from "prom-client";
 
 const log = getLogger("client");
 
-/** Floor between two latency-probe replies for one client; probes are client-driven. */
-const LATENCY_PROBE_INTERVAL_MS = 1000;
+/**
+ * Latency-probe replies per connection: a short burst on join (the client needs several
+ * samples to find its clock offset), then one per second. A flood is still bounded.
+ */
+const LATENCY_PROBE_BURST = 5;
+const LATENCY_PROBE_REFILL_PER_SEC = 1;
 const MAX_WEBSOCKET_BUFFERED_BYTES = 8 * 1024 * 1024;
 
 export type ClientEvents = "auth" | "reauth" | "message" | "disconnect";
@@ -51,6 +55,9 @@ export abstract class Client {
 	private bus: EventEmitter;
 	private disconnected = false;
 	private reauthenticating = false;
+	/** Probe reply budget; see LATENCY_PROBE_BURST. */
+	private latencyTokens = LATENCY_PROBE_BURST;
+	private latencyTokensUpdatedAt = 0;
 
 	constructor(room: string) {
 		this.id = uuidv4();
@@ -160,6 +167,25 @@ export abstract class Client {
 	abstract sendRaw(msg: string): void;
 	abstract kick(code: OttWebsocketError): void;
 
+	/**
+	 * Spend one probe reply from this connection's budget. A joining client needs a short
+	 * burst to get several round trips at once; the refill of one per second still bounds
+	 * a flood. Both transports answer probes, so the budget lives on the connection.
+	 */
+	takeLatencyReplyToken(now = Date.now()): boolean {
+		const elapsedSec = Math.max(0, now - this.latencyTokensUpdatedAt) / 1000;
+		this.latencyTokens = Math.min(
+			LATENCY_PROBE_BURST,
+			this.latencyTokens + elapsedSec * LATENCY_PROBE_REFILL_PER_SEC,
+		);
+		this.latencyTokensUpdatedAt = now;
+		if (this.latencyTokens < 1) {
+			return false;
+		}
+		this.latencyTokens -= 1;
+		return true;
+	}
+
 	getClientInfo(): ClientInfo {
 		if (!this.session) {
 			log.warn("Client has no session, client info will be incomplete");
@@ -189,7 +215,6 @@ export class DirectClient extends Client {
 	/** Every pong sets this back to true; a sweep that finds it false terminates the socket. */
 	isAlive = true;
 	private authTimeout: ReturnType<typeof setTimeout>;
-	private lastLatencyReplyAt = 0;
 	private terminated = false;
 
 	constructor(room: string, socket: WebSocket) {
@@ -250,16 +275,15 @@ export class DirectClient extends Client {
 	}
 
 	/**
-	 * Answer a latency probe. Clients use the echo to estimate how long a room sync spends
-	 * in flight; the reply is tiny, but one per probe per second is plenty for that.
+	 * Answer a latency probe. Clients use the echoed send time for the round trip and the
+	 * server time to place a sync on the server's clock; an over-budget probe is dropped
+	 * silently, because the next refill answers it.
 	 */
 	private replyToLatencyProbe(t0: number) {
-		const now = Date.now();
-		if (now - this.lastLatencyReplyAt < LATENCY_PROBE_INTERVAL_MS) {
+		if (!this.takeLatencyReplyToken()) {
 			return;
 		}
-		this.lastLatencyReplyAt = now;
-		this.send({ action: "pong", t0 });
+		this.send({ action: "pong", t0, serverTime: Date.now() });
 	}
 
 	onClose() {

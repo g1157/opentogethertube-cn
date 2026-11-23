@@ -11,6 +11,12 @@ const isMuted = ref(false);
  * duck the video while someone is speaking, so the slider never fights the ducking.
  */
 const duckFactor = ref(1);
+/**
+ * Second multiplier for the same reason: a preparation round has to stay inaudible until the
+ * room actually starts. Room.vue derives it from the preparation engine instead of toggling
+ * it by hand, so no early return or error path can leave the video silent.
+ */
+const preparationFactor = ref(1);
 
 // The volume refs are module-level singletons; their persistence watchers must be
 // singletons too, otherwise every useVolume() caller commits the same UPDATE once
@@ -61,7 +67,7 @@ export function useVolume() {
 
 	bindVolumeWatchers(store);
 
-	return { volume, prevVolume, isMuted, duckFactor };
+	return { volume, prevVolume, isMuted, duckFactor, preparationFactor };
 }
 
 export interface MediaPlayer {
@@ -115,6 +121,12 @@ export interface MediaPlayerWithCaptions extends MediaPlayer {
 export interface MediaPlayerWithPlaybackRate extends MediaPlayer {
 	getPlaybackRate(): number;
 	setPlaybackRate(rate: number): void | Promise<void>;
+	/**
+	 * Toggles the element's pitch-preserving time-stretch. The sync engine's fine corrections
+	 * use it to play resampled, where Chromium's time-stretch warbles worst. Returns false when
+	 * the element has no `preservesPitch`, which turns that correction off.
+	 */
+	setPreservesPitch?(preserve: boolean): boolean;
 }
 
 export interface MediaPlayerWithQuality extends MediaPlayer {
