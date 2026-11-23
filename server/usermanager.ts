@@ -39,6 +39,7 @@ import {
 } from "ott-common/models/zod-schemas.js";
 import { ZodError } from "zod";
 import { fromZodError } from "zod-validation-error";
+import { asyncHandler } from "./util/async-handler.js";
 
 const log = getLogger("usermanager");
 export const router = express.Router();
@@ -127,91 +128,95 @@ router.get("/", nocache(), (req, res) => {
 	}
 });
 
-router.post("/", nocache(), async (req, res) => {
-	if (!req.body.username) {
-		res.status(400).json({
-			success: false,
-			error: {
-				message: "Missing argument (username)",
-			},
-		});
-		return;
-	}
-	if (req.body.username.length > USERNAME_LENGTH_MAX) {
-		// throw new LengthOutOfRangeException("Username length", { max: USERNAME_LENGTH_MAX });
-		res.status(400).json({
-			success: false,
-			error: {
-				name: "LengthOutOfRangeException",
-				message: `Username length must be less than or equal to ${USERNAME_LENGTH_MAX}`,
-			},
-		});
-		return;
-	}
-	let oldUsername: string = "";
-	if (req.user) {
-		oldUsername = req.user.username;
-		req.user.username = req.body.username;
-		try {
-			// HACK: the unique constraint on the model is fucking broken
-			if (await isUsernameTaken(req.body.username)) {
-				throw new UsernameTakenError();
-			}
-			await req.user.save();
-		} catch (err) {
-			if (
-				err.name === "SequelizeUniqueConstraintError" ||
-				err.name === "UsernameTakenError"
-			) {
-				await req.user.reload();
-				res.status(400).json({
-					success: false,
-					error: {
-						name: "UsernameTaken",
-						message: "Somebody else is already using that username.",
-					},
-				});
-				return;
-			} else {
-				log.error(`Unknown error occurred when saving user to database ${err.message}`);
-				res.status(500).json({
-					success: false,
-					error: {
-						message: "An unknown error occurred.",
-					},
-				});
-				return;
-			}
-		}
-		res.json({
-			success: true,
-		});
-	} else {
-		if (!req.ottsession) {
-			log.error("ottsession missing from request");
-			res.json({
+router.post(
+	"/",
+	nocache(),
+	asyncHandler(async (req, res) => {
+		if (!req.body.username) {
+			res.status(400).json({
 				success: false,
+				error: {
+					message: "Missing argument (username)",
+				},
 			});
 			return;
 		}
-		if (req.ottsession.isLoggedIn) {
-			// should be impossible
-			log.warn("no user, but logged in. forcing session into logged out state");
-			req.ottsession = {
-				isLoggedIn: false,
-				username: generateGuestNickname(req.get("accept-language")),
-			};
+		if (req.body.username.length > USERNAME_LENGTH_MAX) {
+			// throw new LengthOutOfRangeException("Username length", { max: USERNAME_LENGTH_MAX });
+			res.status(400).json({
+				success: false,
+				error: {
+					name: "LengthOutOfRangeException",
+					message: `Username length must be less than or equal to ${USERNAME_LENGTH_MAX}`,
+				},
+			});
+			return;
 		}
-		oldUsername = req.ottsession.username;
-		req.ottsession.username = req.body.username;
-		await tokens.setSessionInfo(req.token!, req.ottsession);
-		res.json({
-			success: true,
-		});
-	}
-	log.info(`${oldUsername} changed username to ${req.body.username}`);
-	onUserModified(req.token!);
-});
+		let oldUsername: string = "";
+		if (req.user) {
+			oldUsername = req.user.username;
+			req.user.username = req.body.username;
+			try {
+				// HACK: the unique constraint on the model is fucking broken
+				if (await isUsernameTaken(req.body.username)) {
+					throw new UsernameTakenError();
+				}
+				await req.user.save();
+			} catch (err) {
+				if (
+					err.name === "SequelizeUniqueConstraintError" ||
+					err.name === "UsernameTakenError"
+				) {
+					await req.user.reload();
+					res.status(400).json({
+						success: false,
+						error: {
+							name: "UsernameTaken",
+							message: "Somebody else is already using that username.",
+						},
+					});
+					return;
+				} else {
+					log.error(`Unknown error occurred when saving user to database ${err.message}`);
+					res.status(500).json({
+						success: false,
+						error: {
+							message: "An unknown error occurred.",
+						},
+					});
+					return;
+				}
+			}
+			res.json({
+				success: true,
+			});
+		} else {
+			if (!req.ottsession) {
+				log.error("ottsession missing from request");
+				res.json({
+					success: false,
+				});
+				return;
+			}
+			if (req.ottsession.isLoggedIn) {
+				// should be impossible
+				log.warn("no user, but logged in. forcing session into logged out state");
+				req.ottsession = {
+					isLoggedIn: false,
+					username: generateGuestNickname(req.get("accept-language")),
+				};
+			}
+			oldUsername = req.ottsession.username;
+			req.ottsession.username = req.body.username;
+			await tokens.setSessionInfo(req.token!, req.ottsession);
+			res.json({
+				success: true,
+			});
+		}
+		log.info(`${oldUsername} changed username to ${req.body.username}`);
+		onUserModified(req.token!);
+	}),
+);
 
 /**
  * Reset consecutive username failures on success, but refund only this request's IP
@@ -228,161 +233,176 @@ async function clearSuccessfulLoginPoints(usernameIPkey: string, ipAddr: string)
 	}
 }
 
-router.post("/login", async (req, res, next) => {
-	const ipAddr = req.ip;
-	const identifier = req.body.user ?? req.body.email ?? req.body.username;
-	// Fold only the quota key; Passport still receives the original credential text.
-	const usernameIPkey = `${String(identifier ?? "").toLowerCase()}_${ipAddr}`;
-	const rateLimited = conf.get("rate_limit.enabled");
+function loginAsync(req: express.Request, user: User): Promise<void> {
+	return new Promise((resolve, reject) => {
+		req.login(user, err => (err ? reject(err) : resolve()));
+	});
+}
 
-	if (rateLimited) {
-		// Reserve the username budget first: a rejected username must not spend IP points.
-		// Both reservations precede authentication, so a burst cannot pass a read-only check.
-		const budgets = [
-			{ limiter: limiterConsecutiveFailsByUsernameAndIP, key: usernameIPkey },
-			{ limiter: limiterSlowBruteByIP, key: ipAddr },
-		];
-		const reservations: typeof budgets = [];
-		try {
-			for (const budget of budgets) {
-				await budget.limiter.consume(budget.key);
-				reservations.push(budget);
-			}
-		} catch (e) {
-			// A rejected consume may not have charged a point (e.g. an in-memory block).
-			// Refund only successful reservations, never the rejecting bucket itself.
-			await Promise.all(
-				reservations.map(async ({ limiter, key }) => {
-					try {
-						await limiter.reward(key);
-					} catch (refundError) {
-						log.warn(
-							`Failed to refund unused login reservation: ${String(refundError)}`,
-						);
-					}
-				}),
-			);
-			if (!(e instanceof RateLimiterRes)) {
-				next(
-					e instanceof Error ? e : new Error("Could not reserve login rate-limit points"),
+function logoutAsync(req: express.Request): Promise<void> {
+	return new Promise((resolve, reject) => {
+		req.logout(err => (err ? reject(err) : resolve()));
+	});
+}
+
+function authenticateLocal(
+	req: express.Request,
+	res: express.Response,
+	next: express.NextFunction,
+): Promise<{ error?: Error; user?: User }> {
+	return new Promise(resolve => {
+		passport.authenticate("local", (error: Error | null, user?: User | false) => {
+			resolve({ error: error ?? undefined, user: user || undefined });
+		})(req, res, next);
+	});
+}
+
+router.post(
+	"/login",
+	asyncHandler(async (req, res, next) => {
+		const ipAddr = req.ip;
+		const identifier = req.body.user ?? req.body.email ?? req.body.username;
+		// Fold only the quota key; Passport still receives the original credential text.
+		const usernameIPkey = `${String(identifier ?? "").toLowerCase()}_${ipAddr}`;
+		const rateLimited = conf.get("rate_limit.enabled");
+
+		if (rateLimited) {
+			// Reserve the username budget first: a rejected username must not spend IP points.
+			// Both reservations precede authentication, so a burst cannot pass a read-only check.
+			const budgets = [
+				{ limiter: limiterConsecutiveFailsByUsernameAndIP, key: usernameIPkey },
+				{ limiter: limiterSlowBruteByIP, key: ipAddr },
+			];
+			const reservations: typeof budgets = [];
+			try {
+				for (const budget of budgets) {
+					await budget.limiter.consume(budget.key);
+					reservations.push(budget);
+				}
+			} catch (e) {
+				// A rejected consume may not have charged a point (e.g. an in-memory block).
+				// Refund only successful reservations, never the rejecting bucket itself.
+				await Promise.all(
+					reservations.map(async ({ limiter, key }) => {
+						try {
+							await limiter.reward(key);
+						} catch (refundError) {
+							log.warn(
+								`Failed to refund unused login reservation: ${String(refundError)}`,
+							);
+						}
+					}),
 				);
+				if (!(e instanceof RateLimiterRes)) {
+					next(
+						e instanceof Error
+							? e
+							: new Error("Could not reserve login rate-limit points"),
+					);
+					return;
+				}
+				const retrySecs = Math.max(1, Math.ceil(e.msBeforeNext / 1000));
+				res.set("Retry-After", String(retrySecs));
+				res.status(429).json({
+					error: {
+						name: "TooManyRequests",
+						message: "Too many attempts.",
+					},
+				});
 				return;
 			}
-			const retrySecs = Math.max(1, Math.ceil(e.msBeforeNext / 1000));
-			res.set("Retry-After", String(retrySecs));
-			res.status(429).json({
-				error: {
-					name: "TooManyRequests",
-					message: "Too many attempts.",
-				},
-			});
-			return;
 		}
-	}
 
-	// For backwards compatibility
-	req.body.user = identifier;
+		// For backwards compatibility
+		req.body.user = identifier;
 
-	passport.authenticate("local", (err, user: User) => {
-		if (err) {
+		const { error, user } = await authenticateLocal(req, res, next);
+		if (error) {
 			res.status(401).json({
 				success: false,
 				error: {
-					message: err.message,
+					message: error.message,
 				},
 			});
 			return;
 		}
-		if (user) {
-			if (rateLimited) {
-				void clearSuccessfulLoginPoints(usernameIPkey, ipAddr);
-			}
-			req.login(user, async err => {
-				if (err) {
-					log.error("Unknown error when logging in");
-					res.status(500).json({
-						success: false,
-						error: {
-							message: "An unknown error occurred when logging in.",
-						},
-					});
-					return;
-				}
-				// Rotate the token on privilege change: reusing the pre-login guest token
-				// would let anyone who planted it (shared computer, subdomain cookie)
-				// take over the account after login (session fixation).
-				const newToken: AuthToken = await tokens.mint();
-				req.ottsession = { isLoggedIn: true, user_id: user.id };
-				await tokens.setSessionInfo(newToken, req.ottsession);
-				try {
-					onUserLogIn(user, newToken);
-				} catch (err) {
-					log.error(
-						`An unknown error occurred when running onUserLogIn: ${err} ${err.message}`,
-					);
-				}
-				if (req.token) {
-					await tokens.revoke(req.token);
-				}
-				req.token = newToken;
-				res.cookie(conf.get("auth_cookie_name"), newToken, {
-					httpOnly: true,
-					sameSite: "lax",
-					secure: !conf.get("force_insecure_cookies"),
-				});
-				res.json({
-					success: true,
-					user: _.pick(user, ["email", "username"]),
-					token: newToken,
-				});
-			});
-		} else {
+		if (!user) {
 			res.status(401).json({
 				success: false,
 				error: {
 					message: "Either the user or password was not provided.",
 				},
 			});
+			return;
 		}
-	})(req, res, next);
-});
+		if (rateLimited) {
+			void clearSuccessfulLoginPoints(usernameIPkey, ipAddr);
+		}
+		await loginAsync(req, user);
+		// Rotate the token on privilege change: reusing the pre-login guest token
+		// would let anyone who planted it (shared computer, subdomain cookie)
+		// take over the account after login (session fixation).
+		const newToken: AuthToken = await tokens.mint();
+		req.ottsession = { isLoggedIn: true, user_id: user.id };
+		await tokens.setSessionInfo(newToken, req.ottsession);
+		try {
+			onUserLogIn(user, newToken);
+		} catch (err) {
+			log.error(`An unknown error occurred when running onUserLogIn: ${err} ${err.message}`);
+		}
+		if (req.token) {
+			await tokens.revoke(req.token);
+		}
+		req.token = newToken;
+		res.cookie(conf.get("auth_cookie_name"), newToken, {
+			httpOnly: true,
+			sameSite: "lax",
+			secure: !conf.get("force_insecure_cookies"),
+		});
+		res.json({
+			success: true,
+			user: _.pick(user, ["email", "username"]),
+			token: newToken,
+		});
+	}),
+);
 
-router.post("/logout", async (req, res) => {
-	if (req.user) {
-		const user = req.user;
-		req.logout(async err => {
-			if (err) {
-				log.error(`Error logging out user ${err}`);
-				return;
-			}
-			req.ottsession = {
-				isLoggedIn: false,
-				username: generateGuestNickname(req.get("accept-language")),
-			};
-			await tokens.setSessionInfo(req.token!, req.ottsession);
-			onUserLogOut(user, req.token!);
-			res.json({
-				success: true,
+router.post(
+	"/logout",
+	asyncHandler(async (req, res) => {
+		if (!req.user) {
+			res.status(400).json({
+				success: false,
+				error: {
+					message: "Not logged in.",
+				},
 			});
+			return;
+		}
+		const user = req.user;
+		await logoutAsync(req);
+		req.ottsession = {
+			isLoggedIn: false,
+			username: generateGuestNickname(req.get("accept-language")),
+		};
+		await tokens.setSessionInfo(req.token!, req.ottsession);
+		onUserLogOut(user, req.token!);
+		res.json({
+			success: true,
 		});
-	} else {
-		res.status(400).json({
-			success: false,
-			error: {
-				message: "Not logged in.",
-			},
-		});
-	}
-});
+	}),
+);
 
-router.post("/register", async (req, res) => {
-	if (!(await consumeRateLimitPoints(res, req.ip, 100))) {
-		return;
-	}
-	try {
-		const result = await registerUser(req.body);
-		log.info(`User registered: ${result.id}`);
-		req.login(result, async () => {
+router.post(
+	"/register",
+	asyncHandler(async (req, res) => {
+		if (!(await consumeRateLimitPoints(res, req.ip, 100))) {
+			return;
+		}
+		try {
+			const result = await registerUser(req.body);
+			log.info(`User registered: ${result.id}`);
+			await loginAsync(req, result);
 			// Rotate the token here as well: registration is a privilege change too.
 			const newToken: AuthToken = await tokens.mint();
 			req.ottsession = { isLoggedIn: true, user_id: result.id };
@@ -408,75 +428,75 @@ router.post("/register", async (req, res) => {
 				user: _.pick(result, ["email", "username"]),
 				token: newToken,
 			});
-		});
-	} catch (err) {
-		if (err instanceof Error) {
-			log.error(`Unable to register user ${err} ${err.message}`);
-			if (err instanceof UniqueConstraintError) {
-				const fields = Object.keys(err.fields);
-				res.status(400).json({
-					success: false,
-					error: {
-						name: "AlreadyInUse",
-						fields: fields,
-						message: `${fields.join(",")} ${
-							fields.length > 1 ? "are" : "is"
-						} already in use.`,
-					},
-				});
-				return;
-			} else if (err.name === "FeatureDisabledException") {
-				res.status(403).json({
-					success: false,
-					error: err,
-				});
-				return;
-			} else if (err.name === "UsernameTakenError") {
-				res.status(400).json({
-					success: false,
-					error: {
-						name: "AlreadyInUse",
-						fields: ["username"],
-						message: "Username is already in use.",
-					},
-				});
-				return;
-			} else if (err.name === "EmailAlreadyInUseError") {
-				res.status(400).json({
-					success: false,
-					error: {
-						name: "AlreadyInUse",
-						fields: ["email"],
-						message: "Email is already associated with an account.",
-					},
-				});
-				return;
-			} else if (
-				err.name === "SequelizeValidationError" ||
-				err.name === "BadPasswordError" ||
-				err.name === "LengthOutOfRangeException"
-			) {
-				res.status(400).json({
-					success: false,
-					error: {
-						name: "ValidationError",
-						message: err.message,
-					},
-				});
-				return;
+		} catch (err) {
+			if (err instanceof Error) {
+				log.error(`Unable to register user ${err} ${err.message}`);
+				if (err instanceof UniqueConstraintError) {
+					const fields = Object.keys(err.fields);
+					res.status(400).json({
+						success: false,
+						error: {
+							name: "AlreadyInUse",
+							fields: fields,
+							message: `${fields.join(",")} ${
+								fields.length > 1 ? "are" : "is"
+							} already in use.`,
+						},
+					});
+					return;
+				} else if (err.name === "FeatureDisabledException") {
+					res.status(403).json({
+						success: false,
+						error: err,
+					});
+					return;
+				} else if (err.name === "UsernameTakenError") {
+					res.status(400).json({
+						success: false,
+						error: {
+							name: "AlreadyInUse",
+							fields: ["username"],
+							message: "Username is already in use.",
+						},
+					});
+					return;
+				} else if (err.name === "EmailAlreadyInUseError") {
+					res.status(400).json({
+						success: false,
+						error: {
+							name: "AlreadyInUse",
+							fields: ["email"],
+							message: "Email is already associated with an account.",
+						},
+					});
+					return;
+				} else if (
+					err.name === "SequelizeValidationError" ||
+					err.name === "BadPasswordError" ||
+					err.name === "LengthOutOfRangeException"
+				) {
+					res.status(400).json({
+						success: false,
+						error: {
+							name: "ValidationError",
+							message: err.message,
+						},
+					});
+					return;
+				}
+			} else {
+				log.error(`Unable to register user`);
 			}
-		} else {
-			log.error(`Unable to register user`);
+			res.status(500).json({
+				success: false,
+				error: {
+					name: "Unknown",
+					message: "An unknown error occurred. Try again later.",
+				},
+			});
 		}
-		res.status(500).json({
-			success: false,
-			error: {
-				name: "Unknown",
-				message: "An unknown error occurred. Try again later.",
-			},
-		});
-	}
-});
+	}),
+);
 
 class BadPasswordError extends OttException {
 	constructor() {
@@ -674,6 +694,7 @@ function passportErrorHandler(err, req: express.Request, res: express.Response, 
 		req.logout(err => {
 			if (err) {
 				log.error(`Error logging out user ${err}`);
+				next(err);
 				return;
 			}
 			next();
@@ -1067,16 +1088,20 @@ async function clearAllRateLimiting() {
 }
 
 if (conf.get("env") === "test") {
-	router.get("/test/forceLogin", async (req, res) => {
-		const user = await getUser({ user: req.query.user?.toString() ?? "forced@localhost" });
-		req.login(user, async err => {
+	router.get(
+		"/test/forceLogin",
+		asyncHandler(async (req, res) => {
+			const user = await getUser({
+				user: req.query.user?.toString() ?? "forced@localhost",
+			});
+			await loginAsync(req, user);
 			req.ottsession = { isLoggedIn: true, user_id: user.id };
 			await tokens.setSessionInfo(req.token!, req.ottsession);
 			res.json({
-				success: !!err,
+				success: true,
 			});
-		});
-	});
+		}),
+	);
 }
 
 export default {

@@ -396,13 +396,13 @@ export default class InvidiousAdapter extends ServiceAdapter {
 		const url = this.manifestUrl(host, id, kind);
 		try {
 			await assertPublicMediaUrl(url);
-			const resp = await fetchManifestText(
-				url,
-				this.api,
-				kind === "dash"
-					? "application/dash+xml,text/plain;q=0.9,*/*;q=0.8"
-					: "application/vnd.apple.mpegurl,application/x-mpegURL,text/plain;q=0.9,*/*;q=0.8",
-			);
+			const resp = await fetchManifestText(url, {
+				http: this.api,
+				accept:
+					kind === "dash"
+						? "application/dash+xml,text/plain;q=0.9,*/*;q=0.8"
+						: "application/vnd.apple.mpegurl,application/x-mpegURL,text/plain;q=0.9,*/*;q=0.8",
+			});
 			const text = resp.data;
 			if (kind === "dash") {
 				const metadata = await parseDashMetadata(text);

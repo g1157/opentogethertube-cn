@@ -50,6 +50,8 @@ import toast from "@/util/toast";
 import { i18n } from "@/i18n";
 import { calculateCurrentPosition } from "ott-common/timestamp";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
+import { visibleBufferSeconds } from "@/util/media-buffer";
+import { hlsBufferBudget } from "@/util/hls-buffer";
 import { isUsableDuration } from "@/util/video-length";
 import type {
 	MediaPlayerWithAudioBoost,
@@ -67,10 +69,6 @@ interface Props {
 	referrerPolicy?: string;
 }
 
-/** Forward buffer while the tab is hidden; the picture nobody is watching needs less. */
-const HIDDEN_TAB_BUFFER_SECONDS = 60;
-/** How far past the buffer target hls.js may grow while the connection and memory allow. */
-const MAX_BUFFER_MULTIPLIER = 6;
 /** Ceiling for buffered media. A room stall pauses everyone, so depth is worth the memory. */
 const MAX_BUFFER_BYTES = 256 * 1024 * 1024;
 /** Devices below this much RAM keep a smaller byte budget. */
@@ -353,15 +351,22 @@ function attachSource() {
 
 	const bufferSeconds = store.state.settings.hlsBufferSeconds;
 	const rememberedBandwidth = recallHlsBandwidthEstimate();
+	const bufferMaxBytes = isLowMemoryDevice() ? LOW_MEMORY_BUFFER_BYTES : MAX_BUFFER_BYTES;
+	const initialBudget = hlsBufferBudget(
+		bufferSeconds,
+		bufferMaxBytes,
+		rememberedBandwidth ?? 5_000_000,
+		BACK_BUFFER_SECONDS,
+	);
 	const engine = new Hls({
-		maxBufferLength: bufferSeconds,
-		// Longer than the target on purpose: hls.js keeps loading past it while the connection
-		// allows, which is the "buffer more when you can" behaviour of the big players.
-		maxMaxBufferLength: bufferSeconds * MAX_BUFFER_MULTIPLIER,
-		maxBufferSize: isLowMemoryDevice() ? LOW_MEMORY_BUFFER_BYTES : MAX_BUFFER_BYTES,
-		// Going back is part of watching together (re-seeks, undo); hls.js' 30s default is
-		// thinner than what a room rewind asks for.
-		backBufferLength: BACK_BUFFER_SECONDS,
+		maxBufferLength: initialBudget.forwardSeconds,
+		// The byte budget is converted to time above; keeping the absolute cap equal to the
+		// target prevents hls.js' 8x size heuristic from growing far past the budget.
+		maxMaxBufferLength: initialBudget.maxForwardSeconds,
+		maxBufferSize: bufferMaxBytes,
+		// Going back is part of watching together (re-seeks, undo); the helper also caps it
+		// so the forward and backward windows together stay inside the byte budget.
+		backBufferLength: initialBudget.backSeconds,
 		// The room player is usually smaller than the source's top rendition; there is no
 		// point fetching 4K into a small box. A manual quality pick can still exceed it.
 		capLevelToPlayerSize: true,
@@ -394,6 +399,7 @@ function attachSource() {
 		qualities.videoTracks.value = getVideoTracks();
 		qualities.currentVideoTrack.value = engine.autoLevelEnabled ? -1 : engine.currentLevel;
 		captions.captionsTracks.value = getCaptionsTracks();
+		applyBufferBudget(engine);
 		emit("apiready");
 	});
 
@@ -442,6 +448,7 @@ function attachSource() {
 		if (hls === engine) {
 			qualities.currentActiveQuality.value = getCurrentActiveQuality();
 			rememberHlsBandwidthEstimate(engine.bandwidthEstimate);
+			applyBufferBudget(engine);
 		}
 	});
 
@@ -547,21 +554,35 @@ function isLowMemoryDevice(): boolean {
 	return typeof memory === "number" && memory <= LOW_MEMORY_DEVICE_GB;
 }
 
+/** The active rendition, or the engine's own link estimate before a level is chosen. */
+function currentHlsBitrate(engine: Hls): number {
+	const index = engine.currentLevel >= 0 ? engine.currentLevel : engine.nextLevel;
+	return engine.levels[index]?.bitrate ?? engine.bandwidthEstimate ?? 0;
+}
+
 /**
  * A hidden tab usually still plays audio, but nobody sees the picture; buffering the full
- * window there spends bandwidth and memory on frames that were never shown.
+ * window there spends bandwidth and memory on frames that were never shown. The byte
+ * budget is converted to time for the active bitrate, so a high-quality rendition cannot
+ * turn the user's "300 s" preference into hundreds of megabytes.
  */
-function applyVisibleBufferTarget() {
-	if (!hls) {
+function applyBufferBudget(engine = hls) {
+	if (!engine) {
 		return;
 	}
-	const target = document.hidden
-		? Math.min(store.state.settings.hlsBufferSeconds, HIDDEN_TAB_BUFFER_SECONDS)
-		: store.state.settings.hlsBufferSeconds;
-	hls.config.maxBufferLength = target;
-	// A visible tab may grow past the target while the connection allows; a hidden one keeps
-	// a flat window, because nobody sees the frames it would be fetching.
-	hls.config.maxMaxBufferLength = document.hidden ? target : target * MAX_BUFFER_MULTIPLIER;
+	const budget = hlsBufferBudget(
+		visibleBufferSeconds(store.state.settings.hlsBufferSeconds, document.hidden),
+		isLowMemoryDevice() ? LOW_MEMORY_BUFFER_BYTES : MAX_BUFFER_BYTES,
+		currentHlsBitrate(engine),
+		BACK_BUFFER_SECONDS,
+	);
+	engine.config.maxBufferLength = budget.forwardSeconds;
+	engine.config.maxMaxBufferLength = budget.maxForwardSeconds;
+	engine.config.backBufferLength = budget.backSeconds;
+}
+
+function applyVisibleBufferTarget() {
+	applyBufferBudget();
 }
 
 function onVisibilityChange() {

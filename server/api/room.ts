@@ -254,7 +254,7 @@ const patchRoom: RequestHandler<{ name: string }, unknown, OttApiRequestPatchRoo
 				// HACK: force the room to send the updated user info to the client
 				for (const user of room.realusers) {
 					if (user.user_id === room.owner?.id) {
-						room.syncUser(room.getUserInfo(user.id));
+						await room.syncUser(room.getUserInfo(user.id));
 						break;
 					}
 				}

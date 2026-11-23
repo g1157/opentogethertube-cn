@@ -10,6 +10,7 @@ import express from "express";
 import { z } from "zod";
 import { getLogger } from "../logger.js";
 import { consumeRateLimitPoints } from "../rate-limit.js";
+import { asyncHandler } from "../util/async-handler.js";
 
 const log = getLogger("api/danmaku");
 
@@ -313,140 +314,149 @@ function detailUrl(id: string): string {
 
 const router = express.Router();
 
-router.get("/girigiri/search", async (req, res) => {
-	if (!(await consumeRateLimitPoints(res, req.ip, GIRIGIRI_POINTS))) {
-		return;
-	}
-	const wd = typeof req.query.wd === "string" ? req.query.wd.trim() : "";
-	if (wd.length === 0 || wd.length > 64) {
-		res.status(400).json({ results: [] });
-		return;
-	}
-	const cached = searchCache.get(wd);
-	if (cached !== undefined) {
-		if (cached === null) {
+router.get(
+	"/girigiri/search",
+	asyncHandler(async (req, res) => {
+		if (!(await consumeRateLimitPoints(res, req.ip, GIRIGIRI_POINTS))) {
+			return;
+		}
+		const wd = typeof req.query.wd === "string" ? req.query.wd.trim() : "";
+		if (wd.length === 0 || wd.length > 64) {
+			res.status(400).json({ results: [] });
+			return;
+		}
+		const cached = searchCache.get(wd);
+		if (cached !== undefined) {
+			if (cached === null) {
+				res.status(502).json({ results: [] });
+				return;
+			}
+			res.json({ results: cached });
+			return;
+		}
+		const query = new URLSearchParams({
+			vod_name: wd,
+			offset: "0",
+			limit: String(SEARCH_LIMIT),
+			format: "json",
+		});
+		const { body, failure } = await fetchText(
+			`${GIRIGIRI_API_BASE}/Vod/get_list?${query.toString()}`,
+		);
+		if (body === null) {
+			// A short negative entry stops a failing upstream from being replayed on every hit.
+			// Local slot contention is not an upstream failure: caching it would keep every
+			// viewer reading "unavailable" for a minute because of one busy moment here.
+			if (failure !== "busy") {
+				searchCache.set(wd, null, NEGATIVE_TTL_MS);
+			}
 			res.status(502).json({ results: [] });
 			return;
 		}
-		res.json({ results: cached });
-		return;
-	}
-	const query = new URLSearchParams({
-		vod_name: wd,
-		offset: "0",
-		limit: String(SEARCH_LIMIT),
-		format: "json",
-	});
-	const { body, failure } = await fetchText(
-		`${GIRIGIRI_API_BASE}/Vod/get_list?${query.toString()}`,
-	);
-	if (body === null) {
-		// A short negative entry stops a failing upstream from being replayed on every hit.
-		// Local slot contention is not an upstream failure: caching it would keep every
-		// viewer reading "unavailable" for a minute because of one busy moment here.
-		if (failure !== "busy") {
-			searchCache.set(wd, null, NEGATIVE_TTL_MS);
-		}
-		res.status(502).json({ results: [] });
-		return;
-	}
-	const results = parseSearch(body);
-	// An empty result is as likely to be a hiccup as a real miss; remember it briefly.
-	searchCache.set(wd, results, results.length === 0 ? NEGATIVE_TTL_MS : SEARCH_TTL_MS);
-	res.json({ results });
-});
+		const results = parseSearch(body);
+		// An empty result is as likely to be a hiccup as a real miss; remember it briefly.
+		searchCache.set(wd, results, results.length === 0 ? NEGATIVE_TTL_MS : SEARCH_TTL_MS);
+		res.json({ results });
+	}),
+);
 
-router.get("/girigiri/episodes", async (req, res) => {
-	if (!(await consumeRateLimitPoints(res, req.ip, GIRIGIRI_POINTS))) {
-		return;
-	}
-	const id = typeof req.query.id === "string" ? req.query.id.trim() : "";
-	if (!SHOW_ID.test(id)) {
-		res.status(400).json({ lines: [] });
-		return;
-	}
-	const cached = episodesCache.get(id);
-	if (cached !== undefined) {
-		if (cached === null) {
+router.get(
+	"/girigiri/episodes",
+	asyncHandler(async (req, res) => {
+		if (!(await consumeRateLimitPoints(res, req.ip, GIRIGIRI_POINTS))) {
+			return;
+		}
+		const id = typeof req.query.id === "string" ? req.query.id.trim() : "";
+		if (!SHOW_ID.test(id)) {
+			res.status(400).json({ lines: [] });
+			return;
+		}
+		const cached = episodesCache.get(id);
+		if (cached !== undefined) {
+			if (cached === null) {
+				res.status(404).json({ lines: [] });
+				return;
+			}
+			res.json({ lines: cached });
+			return;
+		}
+		const { body, failure } = await fetchText(detailUrl(id));
+		if (body === null) {
+			if (failure !== "busy") {
+				episodesCache.set(id, null, NEGATIVE_TTL_MS);
+			}
+			res.status(502).json({ lines: [] });
+			return;
+		}
+		const lines = parseEpisodeLines(body, id);
+		if (lines.length === 0) {
+			episodesCache.set(id, null, NEGATIVE_TTL_MS);
 			res.status(404).json({ lines: [] });
 			return;
 		}
-		res.json({ lines: cached });
-		return;
-	}
-	const { body, failure } = await fetchText(detailUrl(id));
-	if (body === null) {
-		if (failure !== "busy") {
-			episodesCache.set(id, null, NEGATIVE_TTL_MS);
-		}
-		res.status(502).json({ lines: [] });
-		return;
-	}
-	const lines = parseEpisodeLines(body, id);
-	if (lines.length === 0) {
-		episodesCache.set(id, null, NEGATIVE_TTL_MS);
-		res.status(404).json({ lines: [] });
-		return;
-	}
-	episodesCache.set(id, lines);
-	res.json({ lines });
-});
+		episodesCache.set(id, lines);
+		res.json({ lines });
+	}),
+);
 
-router.get("/girigiri/track", async (req, res) => {
-	if (!(await consumeRateLimitPoints(res, req.ip, GIRIGIRI_POINTS))) {
-		return;
-	}
-	const page = typeof req.query.page === "string" ? req.query.page : "";
-	const match = TRACK_PAGE.exec(page);
-	if (!match) {
-		res.status(400).json({ error: "invalid page" });
-		return;
-	}
-	const cached = trackCache.get(page);
-	if (cached !== undefined) {
-		if (cached === null) {
+router.get(
+	"/girigiri/track",
+	asyncHandler(async (req, res) => {
+		if (!(await consumeRateLimitPoints(res, req.ip, GIRIGIRI_POINTS))) {
+			return;
+		}
+		const page = typeof req.query.page === "string" ? req.query.page : "";
+		const match = TRACK_PAGE.exec(page);
+		if (!match) {
+			res.status(400).json({ error: "invalid page" });
+			return;
+		}
+		const cached = trackCache.get(page);
+		if (cached !== undefined) {
+			if (cached === null) {
+				res.status(502).json({ error: "the track is unavailable" });
+				return;
+			}
+			sendXml(res, cached);
+			return;
+		}
+		const [, showId, lineNumber, episodeNumber] = match;
+		const detail = await fetchText(detailUrl(showId));
+		const lines = detail.body === null ? [] : parseEpisodeLines(detail.body, showId);
+		const resolved = findEpisode(lines, Number(lineNumber), Number(episodeNumber));
+		const videoUrl = resolved?.episode.url ?? null;
+		const trackUrl = videoUrl === null ? null : girigiriTrackPath(videoUrl);
+		if (trackUrl === null) {
+			// Only local slot contention says nothing about the track; a response that arrived but
+			// named no resolvable episode (or an unreachable upstream) is worth remembering.
+			if (detail.failure !== "busy") {
+				trackCache.set(page, null, NEGATIVE_TTL_MS);
+			}
+			res.status(502).json({ error: "could not resolve the track" });
+			return;
+		}
+		const track = await fetchText(trackUrl, TRACK_TIMEOUT_MS, DANMAKU_MAX_XML_BYTES);
+		let xml = track.body;
+		if (xml !== null) {
+			try {
+				assertDanmakuTrack(xml);
+			} catch {
+				xml = null;
+			}
+		}
+		// Fewer than one comment, a track that cannot be parsed or an unreachable download: all of them
+		// are worth remembering, but not a request that never left this server.
+		if (xml === null || !xml.includes("<d ")) {
+			if (track.failure !== "busy") {
+				trackCache.set(page, null, NEGATIVE_TTL_MS);
+			}
 			res.status(502).json({ error: "the track is unavailable" });
 			return;
 		}
-		sendXml(res, cached);
-		return;
-	}
-	const [, showId, lineNumber, episodeNumber] = match;
-	const detail = await fetchText(detailUrl(showId));
-	const lines = detail.body === null ? [] : parseEpisodeLines(detail.body, showId);
-	const resolved = findEpisode(lines, Number(lineNumber), Number(episodeNumber));
-	const videoUrl = resolved?.episode.url ?? null;
-	const trackUrl = videoUrl === null ? null : girigiriTrackPath(videoUrl);
-	if (trackUrl === null) {
-		// Only local slot contention says nothing about the track; a response that arrived but
-		// named no resolvable episode (or an unreachable upstream) is worth remembering.
-		if (detail.failure !== "busy") {
-			trackCache.set(page, null, NEGATIVE_TTL_MS);
-		}
-		res.status(502).json({ error: "could not resolve the track" });
-		return;
-	}
-	const track = await fetchText(trackUrl, TRACK_TIMEOUT_MS, DANMAKU_MAX_XML_BYTES);
-	let xml = track.body;
-	if (xml !== null) {
-		try {
-			assertDanmakuTrack(xml);
-		} catch {
-			xml = null;
-		}
-	}
-	// Fewer than one comment, a track that cannot be parsed or an unreachable download: all of them
-	// are worth remembering, but not a request that never left this server.
-	if (xml === null || !xml.includes("<d ")) {
-		if (track.failure !== "busy") {
-			trackCache.set(page, null, NEGATIVE_TTL_MS);
-		}
-		res.status(502).json({ error: "the track is unavailable" });
-		return;
-	}
-	trackCache.set(page, xml);
-	sendXml(res, xml);
-});
+		trackCache.set(page, xml);
+		sendXml(res, xml);
+	}),
+);
 
 function sendXml(res: express.Response, xml: string) {
 	// The upstream cache is a day; keep the same lifetime here so a track is fetched once

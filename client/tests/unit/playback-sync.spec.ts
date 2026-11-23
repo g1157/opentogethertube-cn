@@ -48,10 +48,14 @@ describe("room playback synchronization", () => {
 		vi.advanceTimersByTime(250);
 		await sync.tick();
 		expect(setPosition).toHaveBeenCalledTimes(2);
-		getPosition.mockReturnValue(99.5);
-		vi.advanceTimersByTime(2000);
+		// A drift just above the native dead band still waits out the full cooldown.
+		getPosition.mockReturnValue(99.6);
+		vi.advanceTimersByTime(1999);
 		await sync.tick();
 		expect(setPosition).toHaveBeenCalledTimes(2);
+		vi.advanceTimersByTime(1);
+		await sync.tick();
+		expect(setPosition).toHaveBeenCalledTimes(3);
 	});
 
 	it("suspends drift correction entirely while the element is buffering", async () => {
@@ -330,6 +334,60 @@ describe("native playback rate correction", () => {
 		await sync.tick();
 		expect(setPosition).toHaveBeenCalledOnce();
 		expect(setPosition).toHaveBeenCalledWith(100);
+	});
+
+	it("uses the tight native dead band when the player has no rate setter", async () => {
+		base = null;
+		getPosition.mockReturnValue(99.6);
+		vi.advanceTimersByTime(2000);
+		await sync.tick();
+		expect(setPosition).toHaveBeenCalledWith(100);
+	});
+
+	it("does not reload an embedded player for sub-second drift", async () => {
+		const embedded = createPlaybackSync({
+			getState: () => ({ ...state }),
+			getPosition,
+			setPosition,
+			getBendBase: () => null,
+			seekIsExpensive: () => true,
+			onError,
+		});
+		await embedded.tick();
+		setPosition.mockClear();
+
+		getPosition.mockReturnValue(99.4);
+		vi.advanceTimersByTime(2000);
+		await embedded.tick();
+		expect(setPosition).not.toHaveBeenCalled();
+
+		getPosition.mockReturnValue(98.6);
+		vi.advanceTimersByTime(2000);
+		await embedded.tick();
+		expect(setPosition).toHaveBeenCalledWith(100);
+		embedded.dispose();
+	});
+
+	it("applies the same expensive-seek dead band to a room sync", async () => {
+		const embedded = createPlaybackSync({
+			getState: () => ({ ...state }),
+			getPosition,
+			setPosition,
+			getBendBase: () => null,
+			seekIsExpensive: () => true,
+			onError,
+		});
+		await embedded.tick();
+		setPosition.mockClear();
+
+		getPosition.mockReturnValue(99.4);
+		await embedded.requestSeek("room-sync", { tolerateSmallDrift: true });
+		expect(setPosition).not.toHaveBeenCalled();
+
+		getPosition.mockReturnValue(98.6);
+		await embedded.requestSeek("room-sync", { tolerateSmallDrift: true });
+		expect(setPosition).toHaveBeenCalledWith(100);
+		embedded.dispose();
 	});
 
 	it("absorbs a room sync drift up to three seconds instead of seeking", async () => {

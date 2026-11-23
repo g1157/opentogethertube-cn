@@ -10,6 +10,13 @@ const AUTH_TOKEN_MAX_LENGTH = 1024;
 const playbackPreparedSchema = z.object({
 	id: z.string().max(100),
 	position: z.number().finite(),
+	/** A native player's measured media duration, used only when the source has none. */
+	durationSeconds: z
+		.number()
+		.finite()
+		.min(0)
+		.max(7 * 24 * 60 * 60)
+		.optional(),
 	bufferAhead: z
 		.number()
 		.finite()

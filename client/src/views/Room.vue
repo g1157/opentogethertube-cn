@@ -552,7 +552,7 @@ import RestoreQueue from "@/components/RestoreQueue.vue";
 import VoteSkip from "@/components/VoteSkip.vue";
 import { waitForToken } from "@/util/token";
 import { secondsToTimestamp } from "@/util/timestamp";
-import { resolveVideoLength } from "@/util/video-length";
+import { isUsableDuration, resolveVideoLength } from "@/util/video-length";
 import {
 	useCaptions,
 	useDanmaku,
@@ -877,6 +877,9 @@ export default defineComponent({
 		const iTimestampUpdater: Ref<ReturnType<typeof setInterval> | null> = ref(null);
 		let disposed = false;
 		let playbackApplication = 0;
+		/** The clock ticks at 4 Hz; a play() self-heal needs at most one attempt per second. */
+		const PLAYBACK_SELF_HEAL_INTERVAL_MS = 1000;
+		let lastPlaybackSelfHealAt = 0;
 		let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
 		let lastDiagnosticsSample: { at: number; bufferAhead: number | null } | null = null;
 		const localPlaying = ref(false);
@@ -970,8 +973,31 @@ export default defineComponent({
 			getPosition: () => player.getPosition(),
 			setPosition: position => player.setPosition(position),
 			pause: () => player.pause(),
-			sendReady: playbackPrepared =>
-				connection.send({ action: "status", status: PlayerStatus.ready, playbackPrepared }),
+			sendReady: playbackPrepared => {
+				// A source whose probe failed has no server-side length; the native player's
+				// measured duration lets the room notice the end and advance the queue. A known
+				// length needs no message, so the acknowledgement stays unchanged for it.
+				const sourceLength = currentSource.value?.length;
+				const measured = isUsableDuration(sourceLength)
+					? null
+					: resolveVideoLength(
+							null,
+							// The preparation can complete before the store's duration commit lands.
+							statsVideoElement.value?.duration ?? store.state.playerDuration,
+					  );
+				const durationSeconds =
+					measured !== null && measured > 0 && measured <= 7 * 24 * 60 * 60
+						? measured
+						: undefined;
+				connection.send({
+					action: "status",
+					status: PlayerStatus.ready,
+					playbackPrepared: {
+						...playbackPrepared,
+						...(durationSeconds !== undefined ? { durationSeconds } : {}),
+					},
+				});
+			},
 			sendFailed: (preparationId, reason) =>
 				connection.send({
 					action: "status",
@@ -980,7 +1006,9 @@ export default defineComponent({
 						id: preparationId,
 						position: 0,
 						failed: true,
-						reason,
+						// The wire schema rejects a longer reason and a rejected message kicks the
+						// viewer; a diagnostic must never cost them the room.
+						reason: reason.slice(0, 200),
 					},
 				}),
 			onChange: state => {
@@ -1048,6 +1076,9 @@ export default defineComponent({
 			// A per-device preference: a viewer who sees judder can turn bending off once
 			// and keep it off on this browser.
 			allowRateBend: () => store.state.settings.rateBendEnabled,
+			// Embedded players (YouTube / Vimeo / PeerTube / Bilibili) seek by API reload or
+			// estimate; a sub-second correction costs more than the drift it removes.
+			seekIsExpensive: () => !player.supportsRateBend(),
 			setLocalRate: rate => {
 				const instance = player.player.value;
 				if (instance?.supportsRateBend === true) {
@@ -1070,15 +1101,26 @@ export default defineComponent({
 		// separate watchers the reset ran first and every switched-away source reported
 		// rateWrites/deadlineSeeks/maxDrift as 0.
 		let reportedSourceKey: string | null = null;
+		let reportedPlayer: object | null = null;
 		watch(
 			[currentSource, player.player],
 			() => {
 				const source = currentSource.value;
 				const key = source?.id ? `${source.service}:${source.id}` : null;
+				const nextPlayer = player.player.value;
+				const playerChanged = nextPlayer !== reportedPlayer;
+				// A sync that only adds metadata (for example the duration learned from a
+				// preparation acknowledgement) replaces the object but is still the same media.
+				// Resetting the sync engine here would pause and reseek a playing video for a
+				// field nobody changed. Only a new service:id or a new player is a real switch.
+				if (key === reportedSourceKey && !playerChanged) {
+					return;
+				}
 				if (key !== reportedSourceKey) {
 					reportedSourceKey = key;
 					playbackQuality.noteSourceChanged(source?.service ?? null);
 				}
+				reportedPlayer = nextPlayer;
 				playbackApplication++;
 				localPlaying.value = false;
 				localMediaState.value = null;
@@ -1216,15 +1258,14 @@ export default defineComponent({
 		});
 		// The prefetch is only a cache warm-up. Once the room switches sources, the player
 		// needs that bandwidth for the first frame and the buffer runway; abort the old
-		// request instead of letting it compete with the real load.
-		watch(
-			() => currentSource.value?.id,
-			() => nextPrefetch.reset(),
-		);
-		watch(
-			() => store.state.room.queue.length,
-			() => nextPrefetch.reset(),
-		);
+		// request instead of letting it compete with the real load. Watching the next item's
+		// identity, not just the queue length, also catches a vote reorder that changes what
+		// will play next without changing the number of items.
+		const nextQueueKey = computed(() => {
+			const next = store.state.room.queue[0];
+			return next?.id ? `${next.service}:${next.id}` : null;
+		});
+		watch([() => currentSource.value?.id, nextQueueKey], () => nextPrefetch.reset());
 
 		/**
 		 * Refresh everything that follows the clock. Returns whether it already applied the
@@ -1265,8 +1306,10 @@ export default defineComponent({
 				!mediaPlaybackBlocked.value &&
 				!playbackPreparationState.value.active &&
 				!pendingLocalSeek.value &&
-				!mediaEndedRecently.value
+				!mediaEndedRecently.value &&
+				Date.now() - lastPlaybackSelfHealAt >= PLAYBACK_SELF_HEAL_INTERVAL_MS
 			) {
+				lastPlaybackSelfHealAt = Date.now();
 				void applyIsPlaying();
 				return true;
 			}
@@ -1397,6 +1440,8 @@ export default defineComponent({
 			}
 		}
 
+		let handledSeekId: number | undefined;
+
 		async function onSyncMsg(msg: ServerMessageSync) {
 			if (disposed) {
 				return;
@@ -1422,12 +1467,26 @@ export default defineComponent({
 					return;
 				}
 			}
-			void playbackPreparation.tick();
+			const explicitSeek = typeof msg.seekId === "number" && msg.seekId !== handledSeekId;
+			if (explicitSeek) {
+				handledSeekId = msg.seekId;
+				// The server cancels the round when it applies an explicit seek; reconcile
+				// before deciding whether this device may follow it immediately.
+				await playbackPreparation.tick();
+			} else {
+				void playbackPreparation.tick();
+			}
 			if (msg.playbackPosition !== undefined || "currentSource" in msg) {
 				if (!playbackPreparationState.value.active) {
-					// A room sync should not freeze this device for a drift the rate bend
-					// can absorb; large drift (joining, switching sources) still seeks.
-					void playbackSync.requestSeek("room-sync", { tolerateSmallDrift: true });
+					// An explicit seek is an instruction, not drift: follow it immediately.
+					// Ordinary room syncs keep the small-drift dead band and rate bend.
+					if (explicitSeek) {
+						await playbackSync.requestSeek("room-seek");
+					} else {
+						void playbackSync.requestSeek("room-sync", {
+							tolerateSmallDrift: true,
+						});
+					}
 				}
 				clearPendingLocalSeek();
 				timestampUpdate();
@@ -1719,8 +1778,11 @@ export default defineComponent({
 
 		function onPlayerApiReady() {
 			console.debug("internal player API is now ready");
-			timestampUpdate();
-			void applyIsPlaying();
+			// The clock refresh may already have started the self-heal play(); applying the
+			// same room state again would issue a duplicate play() for one readiness event.
+			if (!timestampUpdate()) {
+				void applyIsPlaying();
+			}
 		}
 
 		async function onPlaybackChange(changeTo: boolean) {
@@ -1995,6 +2057,9 @@ export default defineComponent({
 			if (document.hidden) {
 				cancelGestures();
 			}
+			// Let a hidden tab report that it cannot prime a first frame, and let a tab
+			// returning to the foreground re-check the current round.
+			void playbackPreparation.tick();
 		}
 		watch(currentSource, () => {
 			cancelGestures();

@@ -151,7 +151,12 @@ export default defineConfig({
 						id.includes("node_modules/shaders") ||
 						id.includes("node_modules/three") ||
 						id.includes("anime4k-webgpu") ||
-						id.includes("node_modules/jassub")
+						id.includes("node_modules/jassub") ||
+						// Optional players and the queue's drag-and-drop SDK are reached only
+						// through async components; keep them out of the startup vendor chunk.
+						id.includes("@vimeo/player") ||
+						id.includes("@peertube/embed-api") ||
+						id.includes("sortablejs")
 					) {
 						return;
 					}

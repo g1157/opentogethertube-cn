@@ -39,6 +39,7 @@ import { computed, onBeforeUnmount, onMounted, ref, toRefs, watch } from "vue";
 import type { CaptionTrack, VideoTrack } from "@/models/media-tracks";
 import { createMediaLoadingState, type MediaLoadingState } from "@/util/media-loading-state";
 import { isUsableDuration } from "@/util/video-length";
+import { visibleBufferSeconds } from "@/util/media-buffer";
 import { createMediaRecovery, nativeMediaError } from "@/util/media-recovery";
 import { createMediaSeek } from "@/util/media-seek";
 import { ToastStyle } from "@/models/toast";
@@ -407,7 +408,8 @@ function setAudioEq(preset: AudioEqPreset): void {
 }
 
 function forwardBufferSettings() {
-	const seconds = store.state.settings.hlsBufferSeconds;
+	// The same hidden-tab budget as HLS: a background viewer’s frames are not being seen.
+	const seconds = visibleBufferSeconds(store.state.settings.hlsBufferSeconds, document.hidden);
 	return {
 		bufferTimeDefault: seconds,
 		bufferTimeAtTopQuality: seconds,
@@ -553,11 +555,16 @@ function loadVideoSource(resumePosition: number | null = null, resetRecovery = t
 	emit("apiready");
 }
 
+function applyVisibleBufferTarget() {
+	dash.value?.updateSettings({ streaming: { buffer: forwardBufferSettings() } });
+}
+
 onMounted(() => {
 	if (!videoElem.value) {
 		console.error("Dash player video element not found");
 		return;
 	}
+	document.addEventListener("visibilitychange", applyVisibleBufferTarget);
 	loadingState.attach();
 	loadVideoSource();
 });
@@ -627,6 +634,7 @@ function onProgress() {
 }
 
 onBeforeUnmount(() => {
+	document.removeEventListener("visibilitychange", applyVisibleBufferTarget);
 	sourceGeneration++;
 	streamReady = false;
 	pendingPosition = null;
@@ -643,10 +651,7 @@ watch(videoUrl, () => {
 	loadVideoSource();
 });
 
-watch(
-	() => store.state.settings.hlsBufferSeconds,
-	() => dash.value?.updateSettings({ streaming: { buffer: forwardBufferSettings() } }),
-);
+watch(() => store.state.settings.hlsBufferSeconds, applyVisibleBufferTarget);
 
 defineExpose({
 	supportsRateBend: true,

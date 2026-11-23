@@ -25,6 +25,7 @@ import { setupPostgresMetricsCollection } from "./storage.metrics.js";
 import cookieparser from "cookie-parser";
 import { clientStaticFiles, setNoStoreHeaders } from "./client-assets.js";
 import { installSecurityHeaders } from "./security-headers.js";
+import { apiErrorHandler } from "./api/error-handler.js";
 
 const app = express();
 
@@ -76,8 +77,20 @@ export async function main() {
 		setupPostgresMetricsCollection(sequelize);
 	}
 
-	process.on("SIGINT", shutdown);
-	process.on("SIGTERM", shutdown);
+	const handleShutdown = async () => {
+		try {
+			await shutdown();
+		} catch (error) {
+			getLogger("app").error(`Shutdown failed: ${String(error)}`);
+			process.exit(1);
+		}
+	};
+	process.on("SIGINT", () => {
+		void handleShutdown();
+	});
+	process.on("SIGTERM", () => {
+		void handleShutdown();
+	});
 	installUnhandledRejectionLogger();
 
 	app.use(metricsMiddleware);
@@ -224,6 +237,17 @@ export async function main() {
 		});
 	}
 
+	// Errors raised before a route (notably body-parser) bypass the API router, so give
+	// `/api` requests the same JSON error shape here as well.
+	app.use((error, req, res, next) => {
+		const apiPath = `${conf.get("base_url")}/api`;
+		if (req.path === apiPath || req.path.startsWith(`${apiPath}/`)) {
+			apiErrorHandler(error, req, res, next);
+			return;
+		}
+		next(error);
+	});
+
 	initExtractor();
 
 	//start our server
@@ -274,4 +298,11 @@ async function shutdown() {
 	process.exit(0);
 }
 
-main();
+main().catch(error => {
+	getLogger("app").error(
+		`Failed to start: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+	);
+	// A partially initialized process still holds Redis/DB handles; staying alive would
+	// serve nothing but keep the failure hidden from the supervisor until the next probe.
+	process.exit(1);
+});

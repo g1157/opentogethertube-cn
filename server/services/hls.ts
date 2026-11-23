@@ -56,11 +56,16 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 
 	async handleM3u8(url: URL.UrlWithStringQuery): Promise<Video> {
 		const parser = new M3u8Parser();
+		const appOrigin = appOriginFromHostname(conf.get("hostname"));
 		// Manifest URLs are user supplied; never follow redirects that could land on an
 		// intranet address and only fetch hosts that resolve publicly.
 		await assertPublicMediaUrl(url.href);
-		const resp = await fetchManifestText(url.href, axios, HLS_MANIFEST_ACCEPT);
-		const cors = corsFromHeaders(resp.headers as Record<string, unknown>);
+		const resp = await fetchManifestText(url.href, {
+			http: axios,
+			accept: HLS_MANIFEST_ACCEPT,
+			origin: appOrigin,
+		});
+		const cors = corsFromHeaders(resp.headers as Record<string, unknown>, appOrigin);
 		parser.push(resp.data);
 		parser.end();
 		const manifest = parser.manifest;
@@ -117,7 +122,11 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 			const playlistUrl = URL.resolve(url.href, lowestBitratePlaylist.uri);
 			log.silly(`new playlist path ${playlistUrl}`);
 			await assertPublicMediaUrl(playlistUrl);
-			const respStreams = await fetchManifestText(playlistUrl, axios, HLS_MANIFEST_ACCEPT);
+			const respStreams = await fetchManifestText(playlistUrl, {
+				http: axios,
+				accept: HLS_MANIFEST_ACCEPT,
+				origin: appOrigin,
+			});
 			const parser2 = new M3u8Parser();
 			parser2.push(respStreams.data);
 			parser2.end();
@@ -139,7 +148,11 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 			throw new M3u8ParseError("Duration of the selected playlist is 0");
 		}
 
-		const access = await this.probeSegmentAccess(mediaPlaylist.url, mediaPlaylist.segments);
+		const access = await this.probeSegmentAccess(
+			mediaPlaylist.url,
+			mediaPlaylist.segments,
+			appOrigin,
+		);
 
 		return {
 			service: "hls",
@@ -167,13 +180,14 @@ export default class HlsVideoAdapter extends ServiceAdapter {
 	private async probeSegmentAccess(
 		playlistUrl: string,
 		segments: { uri: string }[],
+		appOrigin: string,
 	): Promise<MediaAccessProbe> {
 		const firstSegment = segments[0]?.uri;
 		if (!firstSegment) {
 			return {};
 		}
 		const segmentUrl = URL.resolve(playlistUrl, firstSegment);
-		return await probeMediaAccess(segmentUrl, appOriginFromHostname(conf.get("hostname")));
+		return await probeMediaAccess(segmentUrl, appOrigin);
 	}
 }
 

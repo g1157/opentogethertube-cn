@@ -324,10 +324,19 @@ function updatePlayerBox() {
 	playerBox.value = measurePlayerBox();
 }
 onMounted(() => {
+	// Only an add-preview item draws the enhancement target; a long queue must not install
+	// one window resize listener per row just to measure the player that is not there.
+	if (!props.isPreview) {
+		return;
+	}
 	updatePlayerBox();
 	window.addEventListener("resize", updatePlayerBox);
 });
-onBeforeUnmount(() => window.removeEventListener("resize", updatePlayerBox));
+onBeforeUnmount(() => {
+	if (props.isPreview) {
+		window.removeEventListener("resize", updatePlayerBox);
+	}
+});
 const renderedTarget = computed(() => {
 	if (!props.isPreview || store.state.settings.upscaleMode === "off" || !playerBox.value) {
 		return null;

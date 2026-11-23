@@ -1,5 +1,30 @@
 # 版本记录（简体中文分支）
 
+-   **v1.4.25**：全项目复查后的可靠性与播放链路加固。**无数据库迁移。**
+    **服务端**：Express 4 的 async 路由 rejection 不再让请求挂起；登录 / 注册 / 登出改为可 await，
+    启动、关闭与 passport 错误统一进入 JSON 错误处理；body-parser 的 400/413/415 返回一致结构；
+    API 默认 `no-store`；CORS 探针发送真实 `Origin` 并拒绝别的站点 allowlist；建房在密码或
+    checkpoint 失败时清理数据库行与 Redis 键；VideoQueue 的插入/移动边界检查移入锁内。
+    **Redis / 房间调度**：node-redis v4 的常用命令不再绕过 5s 截止（`multi().exec()` 同样有
+    调用方截止）；内存 tick 与 DB/Redis checkpoint 拆分，8 个慢 checkpoint 不再阻塞其他房间的
+    换片、准备轮兜底和周期同步。
+    **播放同步**：tick 与收到 sync 共用 `passiveSeekLimit`（可微调 3s；无微调时原生 300ms /
+    嵌入式 1s）；显式 seek 通过单调 `seekId` 立即硬定位；`media-seek` 死区 50ms → 250ms，避免
+    开头不必要的 pause/seek；后台准备标签页主动上报 `visible:false`；准备轮启动使用相对定时器，
+    墙钟回拨不再卡住；未知时长 VOD 通过准备回执时长完成片尾检测；同源元数据更新不再重置
+    `playbackSync`；准备失败原因截断到 wire schema 上限；后台 90s 内的 buffering 报告不再暂停
+    前台观众。
+    **资源与首屏**：HLS 按当前码率把字节预算换算为前向/回退秒数，`maxBufferSize` 不再是名义值；
+    HLS 带宽估计增加 7 天时效、网络变慢失效和 saveData 处理；DASH 与 HLS 共用隐藏标签页 60s
+    上限；预取保持到响应体结束并限制 256 KiB / 8s；Vimeo / PeerTube / Sortable 移出启动 vendor
+    （vendor 约 1119 → 931 → 852 KB）；非预览队列项不再安装 resize 监听。
+    另核对了另一份审查的 10 条：9 条成立并已修，Balancer 仅完成请求体 16 MiB 上限，响应体流式
+    转发仍未做。
+    **验证**：`yarn lint-ci` 退出 0（0 error / 26 既有 warning）；`yarn build` 退出 0；`yarn test`
+    2573 通过 / 24 跳过（客户端 1164、服务端 1237、common 103、edge 31、ott-vis 2、datasource 6、
+    panel 30）；Rust fmt、严格 clippy、非 harness 全量测试通过。**未覆盖**：真实手机 / 弱网 /
+    低内存 GPU / HDR，以及 HLS 切档后的瞬时内存峰值。
+
 各版本的改动与数据库迁移情况。发布提交对应 Git 标签 `v0.15.0-cn2` 起；更早的历史见
 `archive/history` 分支与 `v0.14.1` 标签。`v1.0.0` 起跳出 cn 序列，作为本分支的正式大版本，
 标签与镜像名不再带 cn 编号。

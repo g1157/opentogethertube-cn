@@ -205,8 +205,11 @@ const themeMint: ThemeDefinition = {
 };
 
 const vuetify = createVuetify({
-	components,
-	directives,
+	// SFC templates are rewritten to direct component imports by vite-plugin-vuetify in the
+	// production build, so registering every component only ships unused vendor bytes.
+	// Development and component tests also mount a few runtime `template` strings, which the
+	// compiler cannot rewrite; keep the full registry there, where bundle size does not matter.
+	...(import.meta.env.PROD ? {} : { components, directives }),
 	icons: {
 		defaultSet: "mdi",
 		aliases,

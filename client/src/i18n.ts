@@ -26,8 +26,11 @@ function setI18nLanguage(lang: string) {
 }
 
 export async function loadLanguageAsync(lang: string): Promise<string> {
-	// If the same language
-	if (i18n.global.locale === lang) {
+	// In composition mode `locale` is a ref, so comparing the object to the string is
+	// always false and every selection used to fall through to the loader list.
+	const current = i18n.global.locale;
+	const currentLocale = typeof current === "string" ? current : current.value;
+	if (currentLocale === lang) {
 		return setI18nLanguage(lang);
 	}
 

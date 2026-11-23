@@ -2,11 +2,13 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import roommanager from "../../roommanager.js";
 import { RoomNameTakenException } from "../../exceptions.js";
 import { buildClients, redisClient } from "../../redisclient.js";
+import { loadModels } from "../../models/index.js";
 import storage from "../../storage.js";
 import type { RoomOptions } from "ott-common/models/types.js";
 
 describe("concurrent room admission", () => {
 	beforeAll(async () => {
+		loadModels();
 		await buildClients();
 	});
 	afterEach(() => {
@@ -48,6 +50,19 @@ describe("concurrent room admission", () => {
 			reason: expect.any(RoomNameTakenException),
 		});
 		expect(roommanager.rooms).toHaveLength(1);
+	});
+
+	it("removes a permanent room row when admitting it fails after the save", async () => {
+		vi.spyOn(redisClient, "exists").mockResolvedValue(0);
+		vi.spyOn(storage, "isRoomNameTaken").mockResolvedValue(false);
+		vi.spyOn(storage, "updateRoom").mockResolvedValue(false);
+
+		await expect(roommanager.createRoom({ name: "rollback-room" })).rejects.toThrow(
+			"Failed to persist",
+		);
+		expect(roommanager.rooms).toHaveLength(0);
+		// The failed attempt must not leave a row that makes the next create say "taken".
+		expect(await storage.getRoomByName("rollback-room")).toBeNull();
 	});
 
 	it("does not expose a room whose load epoch failed and permits a later retry", async () => {

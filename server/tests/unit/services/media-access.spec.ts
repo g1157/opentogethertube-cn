@@ -34,7 +34,20 @@ describe("media access probe", () => {
 
 		expect(result).toEqual({ cors: true });
 		expect(mockGet).toHaveBeenCalledOnce();
-		expect(mockGet.mock.calls[0][1].headers).toMatchObject({ Referer: `${APP_ORIGIN}/` });
+		expect(mockGet.mock.calls[0][1].headers).toMatchObject({
+			Origin: APP_ORIGIN,
+			Referer: `${APP_ORIGIN}/`,
+		});
+	});
+
+	it("does not treat another site's allowlist entry as a grant", async () => {
+		mockGet.mockResolvedValueOnce(
+			response(206, { "access-control-allow-origin": "https://other.example" }),
+		);
+
+		const result = await probeMediaAccess(SEGMENT, APP_ORIGIN);
+
+		expect(result).toEqual({ cors: false });
 	});
 
 	it("asks without a Referer once the host refuses this origin", async () => {
@@ -45,6 +58,7 @@ describe("media access probe", () => {
 
 		expect(result).toEqual({ cors: true, mediaAccess: { referrerPolicy: "no-referrer" } });
 		expect(mockGet).toHaveBeenCalledTimes(2);
+		expect(mockGet.mock.calls[1][1].headers).toMatchObject({ Origin: APP_ORIGIN });
 		expect(mockGet.mock.calls[1][1].headers).not.toHaveProperty("Referer");
 	});
 

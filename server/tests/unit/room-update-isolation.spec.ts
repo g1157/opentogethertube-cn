@@ -54,7 +54,8 @@ describe("periodic room update isolation", () => {
 
 		expect(fast.update).toHaveBeenCalledTimes(4);
 		expect(fast.sync).toHaveBeenCalledTimes(4);
-		expect(slow.update).toHaveBeenCalledTimes(1);
+		// The stuck checkpoint no longer stops the in-memory tick.
+		expect(slow.update).toHaveBeenCalledTimes(4);
 		expect(slow.sync).toHaveBeenCalledTimes(1);
 	});
 
@@ -84,12 +85,15 @@ describe("periodic room update isolation", () => {
 		expect(
 			rooms.reduce((count, room) => count + vi.mocked(room.sync).mock.calls.length, 0),
 		).toBe(8);
+		// Every room keeps ticking even while the eight checkpoint slots are held.
+		for (const room of rooms) {
+			expect(room.update).toHaveBeenCalledTimes(4);
+		}
 		for (const release of releases.splice(0)) {
 			release();
 		}
 		await vi.advanceTimersByTimeAsync(0);
 		for (const room of rooms) {
-			expect(room.update).toHaveBeenCalledTimes(1);
 			expect(room.sync).toHaveBeenCalledTimes(1);
 		}
 	});
@@ -109,7 +113,8 @@ describe("periodic room update isolation", () => {
 		}
 		await vi.advanceTimersByTimeAsync(0);
 
-		expect(removed.update).not.toHaveBeenCalled();
+		// The in-memory tick may have run before the unload; its queued checkpoint must not.
+		expect(removed.update).toHaveBeenCalledTimes(1);
 		expect(removed.sync).not.toHaveBeenCalled();
 	});
 

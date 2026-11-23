@@ -9,6 +9,7 @@ import usermanager from "../usermanager.js";
 import { requireApiKey } from "../admin.js";
 import { conf } from "../ott-config.js";
 import { consumeRateLimitPoints } from "../rate-limit.js";
+import { asyncHandler } from "../util/async-handler.js";
 
 export type { SessionInfo } from "./tokens.js";
 
@@ -97,55 +98,58 @@ export async function authTokenMiddleware(
 	next();
 }
 
-router.get("/grant", async (req, res) => {
-	// Minting a 512-byte token plus a multi-day Redis session is not free, and this
-	// is the only token endpoint that accepted unlimited anonymous traffic.
-	if (!(await consumeRateLimitPoints(res, req.ip, 20))) {
-		return;
-	}
-	if (req.headers.authorization) {
-		log.debug("authorization header found");
-		if (req.headers.authorization.startsWith("Bearer")) {
-			const token: AuthToken = req.headers.authorization.split(" ")[1];
-			if (await tokens.validate(token)) {
-				log.debug("token is already valid");
-				res.cookie(conf.get("auth_cookie_name"), token, {
-					httpOnly: true,
-					sameSite: "lax",
-					secure: !conf.get("force_insecure_cookies"),
-				}).json({
-					token,
-				});
-				return;
-			} else {
-				log.debug("token invalid");
-			}
-		} else {
-			log.debug(`authorization header incorrect format: ${req.headers.authorization}`);
+router.get(
+	"/grant",
+	asyncHandler(async (req, res) => {
+		// Minting a 512-byte token plus a multi-day Redis session is not free, and this
+		// is the only token endpoint that accepted unlimited anonymous traffic.
+		if (!(await consumeRateLimitPoints(res, req.ip, 20))) {
+			return;
 		}
-	}
-	log.debug("minting new auth token...");
-	const token: AuthToken = await tokens.mint();
-	await tokens.setSessionInfo(token, createSession(req.get("accept-language")));
-	res.cookie(conf.get("auth_cookie_name"), token, {
-		httpOnly: true,
-		sameSite: "lax",
-		secure: !conf.get("force_insecure_cookies"),
-	}).json({
-		token,
-	});
-});
+		if (req.headers.authorization) {
+			log.debug("authorization header found");
+			if (req.headers.authorization.startsWith("Bearer")) {
+				const token: AuthToken = req.headers.authorization.split(" ")[1];
+				if (await tokens.validate(token)) {
+					log.debug("token is already valid");
+					res.cookie(conf.get("auth_cookie_name"), token, {
+						httpOnly: true,
+						sameSite: "lax",
+						secure: !conf.get("force_insecure_cookies"),
+					}).json({
+						token,
+					});
+					return;
+				} else {
+					log.debug("token invalid");
+				}
+			} else {
+				log.debug(`authorization header incorrect format: ${req.headers.authorization}`);
+			}
+		}
+		log.debug("minting new auth token...");
+		const token: AuthToken = await tokens.mint();
+		await tokens.setSessionInfo(token, createSession(req.get("accept-language")));
+		res.cookie(conf.get("auth_cookie_name"), token, {
+			httpOnly: true,
+			sameSite: "lax",
+			secure: !conf.get("force_insecure_cookies"),
+		}).json({
+			token,
+		});
+	}),
+);
 
 router.get(
 	"/discord",
-	async (req, res, next) => {
+	asyncHandler(async (req, res, next) => {
 		// A repeated query parameter (?redirect=a&redirect=b) arrives as an array; only a
 		// plain string can be a redirect target.
 		const requestedRedirect: unknown = req.query.redirect;
 		(req.session as MySession).postLoginRedirect =
 			typeof requestedRedirect === "string" ? requestedRedirect : "/";
 		next();
-	},
+	}),
 	passport.authenticate("discord", { keepSessionInfo: true }),
 );
 router.get(
@@ -154,7 +158,7 @@ router.get(
 		failureRedirect: "/",
 		keepSessionInfo: true,
 	}),
-	async (_req, res) => {
+	asyncHandler(async (_req, res) => {
 		const req = _req as express.Request;
 		if (!req.user) {
 			res.status(400).json({
@@ -202,7 +206,7 @@ router.get(
 		log.debug(`redirecting to ${redirect}`);
 		res.redirect(redirect); // Successful auth
 		delete (req.session as MySession).postLoginRedirect;
-	},
+	}),
 );
 
 export default {

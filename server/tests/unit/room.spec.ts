@@ -173,6 +173,8 @@ describe("Room", () => {
 					{ token: user.token },
 				);
 				expect(room.playbackPosition).toEqual(15);
+				expect(room.seekId).toBe(1);
+				expect(room._dirty.has("seekId")).toBe(true);
 			});
 
 			it.each([undefined, null])("should not seek if value is %s", async v => {
@@ -535,6 +537,33 @@ describe("Room", () => {
 				expect(room.prevQueue).toBeNull();
 			});
 		});
+	});
+
+	it("re-sorts a vote queue after a vote, not on every idle tick", async () => {
+		const room = new Room({ name: "vote-order", queueMode: QueueMode.Vote });
+		room.currentSource = { service: "direct", id: "current.mp4", length: 10 };
+		room.queue = new VideoQueue([
+			{ service: "direct", id: "first.mp4", length: 10 },
+			{ service: "direct", id: "second.mp4", length: 10 },
+		]);
+		const orderBy = vi.spyOn(room.queue, "orderBy");
+
+		await room.update();
+		expect(orderBy).toHaveBeenCalledTimes(1);
+		orderBy.mockClear();
+
+		// The sync checkpoint clears the dirty set before the next tick; the sort flag must
+		// survive that, otherwise a queue change would never be ordered again.
+		room._dirty.clear();
+		await room.update();
+		expect(orderBy).not.toHaveBeenCalled();
+
+		await room.vote(
+			{ video: room.queue.items[0], add: true } as never,
+			{ clientId: "voter" } as never,
+		);
+		await room.update();
+		expect(orderBy).toHaveBeenCalledTimes(1);
 	});
 
 	describe("auto dequeuing next video", () => {

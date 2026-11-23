@@ -51,37 +51,130 @@ function buildOptions(): RedisClientOptions<redis.RedisDefaultModules> {
 	return redisOptions;
 }
 
-function applyCommandTimeout(client: RedisClientType<redis.RedisDefaultModules>): void {
-	// The generated command methods go through sendCommand, so wrapping it here gives every
-	// command the same deadline. Subscribers are duplicated clients and are not wrapped:
-	// their subscriptions stay open for the process's lifetime by design.
-	const sendCommand = client.sendCommand?.bind(client);
-	if (typeof sendCommand !== "function") {
-		// Unit tests replace the driver with a mock that exposes commands directly.
+/** Commands the application actually awaits; generated methods bypass `sendCommand`. */
+const TIMED_COMMANDS = [
+	"get",
+	"set",
+	"setEx",
+	"exists",
+	"del",
+	"incr",
+	"incrBy",
+	"expire",
+	"pExpire",
+	"ttl",
+	"pTTL",
+	"keys",
+	"info",
+	"dbSize",
+	"publish",
+	"eval",
+	"ping",
+] as const;
+
+type RedisCommand = (...args: unknown[]) => unknown;
+
+export function applyCommandTimeout(client: RedisClientType<redis.RedisDefaultModules>): void {
+	// Unit tests replace the driver with a mock that exposes commands directly.
+	if (typeof client.commandOptions !== "function") {
 		return;
 	}
-	client.sendCommand = (async (args: never, options?: never) => {
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		try {
-			return await Promise.race([
-				sendCommand(args, options),
-				new Promise((_resolve, reject) => {
-					timer = setTimeout(() => {
-						reject(
-							new Error(
-								`Redis command timed out after ${REDIS_COMMAND_TIMEOUT_MS}ms`,
-							),
-						);
-					}, REDIS_COMMAND_TIMEOUT_MS);
-					timer.unref();
-				}),
-			]);
-		} finally {
-			if (timer) {
+
+	const record = client as unknown as Record<string, RedisCommand | undefined>;
+	for (const name of TIMED_COMMANDS) {
+		const original = record[name];
+		if (typeof original !== "function") {
+			continue;
+		}
+		record[name] = async (...args: unknown[]) => {
+			const controller = new AbortController();
+			const timer = setTimeout(() => controller.abort(), REDIS_COMMAND_TIMEOUT_MS);
+			timer.unref?.();
+			try {
+				// Passing the command options as the first argument makes node-redis attach the
+				// signal to this queued command; aborting therefore removes it from the queue
+				// instead of only letting the caller give up.
+				const options = client.commandOptions({ signal: controller.signal });
+				return await original.call(client, options, ...args);
+			} catch (error) {
+				if (controller.signal.aborted) {
+					throw new Error(
+						`Redis ${name} command timed out after ${REDIS_COMMAND_TIMEOUT_MS}ms`,
+					);
+				}
+				throw error;
+			} finally {
 				clearTimeout(timer);
 			}
-		}
-	}) as unknown as typeof client.sendCommand;
+		};
+	}
+
+	// Multi/exec is used by the rate limiter. node-redis does not accept a per-command
+	// signal for the queued batch, so at least fail the caller at the deadline; the socket
+	// remains the owner of a command that was already sent.
+	const multi = record.multi;
+	if (typeof multi === "function") {
+		record.multi = (...args: unknown[]) => {
+			const instance = multi.call(client, ...args) as {
+				exec?: (...execArgs: unknown[]) => unknown;
+			};
+			if (typeof instance?.exec !== "function") {
+				return instance;
+			}
+			const exec = instance.exec.bind(instance);
+			instance.exec = async (...execArgs: unknown[]) => {
+				let timer: ReturnType<typeof setTimeout> | undefined;
+				try {
+					return await Promise.race([
+						Promise.resolve(exec(...execArgs)),
+						new Promise((_resolve, reject) => {
+							timer = setTimeout(() => {
+								reject(
+									new Error(
+										`Redis multi command timed out after ${REDIS_COMMAND_TIMEOUT_MS}ms`,
+									),
+								);
+							}, REDIS_COMMAND_TIMEOUT_MS);
+							timer.unref?.();
+						}),
+					]);
+				} finally {
+					if (timer) {
+						clearTimeout(timer);
+					}
+				}
+			};
+			return instance;
+		};
+	}
+
+	// Direct `sendCommand` callers are rare but still need the same deadline. The generated
+	// commands above do not pass through this method, so both layers are required.
+	const sendCommand = client.sendCommand?.bind(client);
+	if (typeof sendCommand === "function") {
+		client.sendCommand = (async (args: never, options?: never) => {
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			try {
+				return await Promise.race([
+					sendCommand(args, options),
+					new Promise((_resolve, reject) => {
+						timer = setTimeout(() => {
+							reject(
+								new Error(
+									`Redis command timed out after ${REDIS_COMMAND_TIMEOUT_MS}ms`,
+								),
+							);
+						}, REDIS_COMMAND_TIMEOUT_MS);
+						timer.unref?.();
+					}),
+				]);
+			} finally {
+				if (timer) {
+					clearTimeout(timer);
+				}
+			}
+		}) as unknown as typeof client.sendCommand;
+	}
 }
 
 export let redisClient: RedisClientType<redis.RedisDefaultModules>;

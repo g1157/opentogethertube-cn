@@ -32,6 +32,7 @@ describe("first viewer playback preparation", () => {
 			recovering: false,
 			loading: null,
 			frameVersion: 0,
+			visible: true,
 		};
 		position = 0;
 		status = { phase: "idle", active: false, priming: false, failed: false };
@@ -99,6 +100,25 @@ describe("first viewer playback preparation", () => {
 		input.preparation = null;
 		await preparation.tick();
 		expect(status.active).toBe(false);
+	});
+
+	it("reports a hidden background tab instead of waiting for the round deadline", async () => {
+		input.visible = false;
+		await preparation.tick();
+		expect(sendReady).toHaveBeenCalledOnce();
+		expect(sendReady).toHaveBeenCalledWith({
+			id: "resume-one",
+			position: 125,
+			firstFrame: false,
+			visible: false,
+		});
+		// The report is one-shot for this round, not a message per clock tick.
+		await preparation.tick();
+		expect(sendReady).toHaveBeenCalledOnce();
+		// If the server has not processed the drop yet, coming back must not report again.
+		input.visible = true;
+		await preparation.tick();
+		expect(sendReady).toHaveBeenCalledOnce();
 	});
 
 	it("waits for the buffer runway before acknowledging readiness", async () => {

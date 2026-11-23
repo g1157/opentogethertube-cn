@@ -5,6 +5,7 @@ import { conf } from "../ott-config.js";
 import { setNoStoreHeaders } from "../client-assets.js";
 import { getVoiceUsageSnapshot } from "../voice-budget.js";
 import { safeCompareApiKey } from "../admin.js";
+import { asyncHandler } from "../util/async-handler.js";
 
 const router = express.Router();
 // biome-ignore lint/correctness/noUnusedVariables: biome migration
@@ -30,25 +31,31 @@ function isLocalOrAdmin(req: express.Request): boolean {
 	return local || safeCompareApiKey(req.get("apikey"));
 }
 
-router.get("/metrics", async (req, res) => {
-	if (!isLocalOrAdmin(req)) {
-		res.sendStatus(403);
-		return;
-	}
-	res.type("text/plain; version=0.0.4").send(await register.metrics());
-});
+router.get(
+	"/metrics",
+	asyncHandler(async (req, res) => {
+		if (!isLocalOrAdmin(req)) {
+			res.sendStatus(403);
+			return;
+		}
+		res.type("text/plain; version=0.0.4").send(await register.metrics());
+	}),
+);
 
 /**
  * Local estimate of voice relay usage, in the unit Cloudflare bills on. This is not the invoice;
  * reconcile it against the Cloudflare dashboard so the budget brake tracks real spend.
  */
-router.get("/voice", async (req, res) => {
-	if (!isLocalOrAdmin(req)) {
-		res.sendStatus(403);
-		return;
-	}
-	setNoStoreHeaders(res);
-	res.json(await getVoiceUsageSnapshot());
-});
+router.get(
+	"/voice",
+	asyncHandler(async (req, res) => {
+		if (!isLocalOrAdmin(req)) {
+			res.sendStatus(403);
+			return;
+		}
+		setNoStoreHeaders(res);
+		res.json(await getVoiceUsageSnapshot());
+	}),
+);
 
 export default router;

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use futures_util::Future;
-use http_body_util::{BodyExt, Full};
+use http_body_util::{BodyExt, Full, Limited};
 use hyper::service::Service;
 use hyper::StatusCode;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
@@ -29,6 +29,10 @@ use crate::connection::BALANCER_ID;
 use crate::monolith::MonolithProxyTarget;
 
 static NOTFOUND: &[u8] = b"Not Found";
+
+/// API bodies are small; a balancer must not turn an unauthenticated upload into an
+/// unbounded allocation. Larger payloads get a 413 before any upstream connection.
+const MAX_PROXY_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 
 static ROUTER: Lazy<Router<&'static str>> = Lazy::new(|| {
     let mut router = Router::new();
@@ -381,7 +385,15 @@ async fn proxy_request(
         // TODO: update X-Forwarded-For header
         // TODO: stream the body instead of loading it all into memory?
 
-        let body: Bytes = body.collect().await?.to_bytes();
+        let body: Bytes = match Limited::new(body, MAX_PROXY_REQUEST_BYTES).collect().await {
+            Ok(collected) => collected.to_bytes(),
+            Err(_) => {
+                return Ok(Response::builder()
+                    .status(StatusCode::PAYLOAD_TOO_LARGE)
+                    .body(Full::new(Bytes::from_static(b"request body too large")))
+                    .expect("failed to build payload-too-large response"));
+            }
+        };
         let out_body: reqwest::Body = reqwest::Body::from(body);
         let req = client
             .request(parts.method, url)
@@ -571,6 +583,11 @@ mod test {
     use super::*;
     use std::future::pending;
 
+    /// The proxy in-flight gauge is process-wide, so the two tests that reset and read it
+    /// must not overlap; the default test harness runs them on separate threads.
+    static IN_FLIGHT_METRIC_TEST_LOCK: Lazy<tokio::sync::Mutex<()>> =
+        Lazy::new(|| tokio::sync::Mutex::new(()));
+
     fn reset_readiness_metrics() {
         GAUGE_DISCOVERY_COMPLETED.set(0);
         GAUGE_DISCOVERED_MONOLITHS.set(0);
@@ -707,8 +724,9 @@ mod test {
         assert_eq!(GAUGE_HEALTHY.get(), 0);
     }
 
-    #[test]
-    fn proxy_request_in_flight_guard_updates_gauge_on_drop() {
+    #[tokio::test]
+    async fn proxy_request_in_flight_guard_updates_gauge_on_drop() {
+        let _lock = IN_FLIGHT_METRIC_TEST_LOCK.lock().await;
         reset_proxy_request_metrics();
         assert_eq!(GAUGE_PROXY_REQUESTS_IN_FLIGHT.get(), 0);
 
@@ -722,6 +740,7 @@ mod test {
 
     #[tokio::test]
     async fn proxy_request_in_flight_guard_cleans_up_on_task_abort() {
+        let _lock = IN_FLIGHT_METRIC_TEST_LOCK.lock().await;
         reset_proxy_request_metrics();
         assert_eq!(GAUGE_PROXY_REQUESTS_IN_FLIGHT.get(), 0);
 

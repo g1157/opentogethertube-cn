@@ -29,6 +29,8 @@ export interface RoomState {
 	queue: QueueItem[];
 	isPlaying: boolean;
 	playbackPosition: number;
+	/** Monotonic id of the last explicit room seek; a change forces a hard seek. */
+	seekId?: number;
 	playbackPreparation: PlaybackPreparation | null;
 	playbackSpeed: number;
 	temporaryPlaybackSpeed: TemporaryPlaybackSpeed | null;

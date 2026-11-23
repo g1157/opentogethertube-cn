@@ -5,6 +5,8 @@ import { referrerPolicyValue } from "./media-access";
 export const PREFETCH_LEAD_SECONDS = 30;
 /** Enough of a progressive file to cover DNS, TLS and the first range request. */
 export const PREFETCH_BYTES = 262_144;
+/** A host that ignores Range must not keep a warm-up socket alive forever. */
+const PREFETCH_TIMEOUT_MS = 8_000;
 
 export interface MediaCandidate {
 	key: string;
@@ -74,23 +76,53 @@ export function createNextMediaPrefetch(options: NextMediaPrefetchOptions) {
 		inFlight = controller;
 		const signal = controller.signal;
 		const policy = referrerPolicyValue(candidate.referrerPolicy);
+		const timer = setTimeout(() => controller.abort(), PREFETCH_TIMEOUT_MS);
+		timer.unref?.();
+		let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+		const cancelOnAbort = () => {
+			void reader?.cancel().catch(() => undefined);
+		};
+		signal.addEventListener("abort", cancelOnAbort, { once: true });
 		try {
-			if (candidate.service === "direct" || candidate.service === "googledrive") {
-				const headers = { Range: `bytes=0-${PREFETCH_BYTES - 1}` };
-				// An ordinary source keeps exactly the request it made before the probe existed.
-				await fetchImpl(
-					candidate.url,
-					policy ? { headers, referrerPolicy: policy, signal } : { headers, signal },
-				);
+			const response = await fetchImpl(
+				candidate.url,
+				policy
+					? candidate.service === "direct" || candidate.service === "googledrive"
+						? {
+								headers: { Range: `bytes=0-${PREFETCH_BYTES - 1}` },
+								referrerPolicy: policy,
+								signal,
+							}
+						: { referrerPolicy: policy, signal }
+					: candidate.service === "direct" || candidate.service === "googledrive"
+						? { headers: { Range: `bytes=0-${PREFETCH_BYTES - 1}` }, signal }
+						: { signal },
+			);
+			if (!response.ok || !response.body) {
+				await response.body?.cancel().catch(() => undefined);
 				return;
 			}
-			await fetchImpl(
-				candidate.url,
-				policy ? { referrerPolicy: policy, signal } : { signal },
-			);
+			if (candidate.service !== "direct" && candidate.service !== "googledrive") {
+				// A manifest is fetched again by the real player; headers already warmed DNS/TLS.
+				await response.body.cancel().catch(() => undefined);
+				return;
+			}
+			reader = response.body.getReader();
+			let read = 0;
+			while (read < PREFETCH_BYTES && !signal.aborted) {
+				const chunk = await reader.read();
+				if (chunk.done) {
+					break;
+				}
+				read += chunk.value.byteLength;
+			}
+			// Do not spend the room's bandwidth on a host that ignores Range.
+			await reader.cancel().catch(() => undefined);
 		} catch {
 			// A prefetch that fails is simply a prefetch that did not help.
 		} finally {
+			signal.removeEventListener("abort", cancelOnAbort);
+			clearTimeout(timer);
 			if (inFlight === controller) {
 				inFlight = null;
 			}

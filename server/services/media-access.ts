@@ -54,14 +54,25 @@ function diagnostics(headers: Record<string, unknown>): MediaAccess | null {
  * Read the status line and headers only, never the body: a host may ignore Range and start
  * streaming a multi-megabyte segment. A network failure returns null, which callers read as
  * "no verdict" rather than "blocked".
+ *
+ * The browser sends `Origin` on every cross-origin media request, so the probe does too:
+ * a host may answer with a different site's origin, which is not a CORS grant for this app.
  */
-async function probeHeaders(link: string, referer?: string): Promise<ProbeResponse | null> {
+async function probeHeaders(
+	link: string,
+	requestOrigin: string,
+	referer?: string,
+): Promise<ProbeResponse | null> {
 	try {
 		await assertPublicMediaUrl(link);
 		const response = await axios.get(link, {
 			timeout: PROBE_TIMEOUT_MS,
 			responseType: "stream",
-			headers: { Range: "bytes=0-0", ...(referer ? { Referer: referer } : {}) },
+			headers: {
+				Range: "bytes=0-0",
+				Origin: requestOrigin,
+				...(referer ? { Referer: referer } : {}),
+			},
 			validateStatus: () => true,
 			// A redirect can turn a public URL into an intranet one; never follow it here.
 			maxRedirects: 0,
@@ -82,18 +93,18 @@ async function probeHeaders(link: string, referer?: string): Promise<ProbeRespon
  * another origin can send.
  */
 export async function probeMediaAccess(link: string, appOrigin: string): Promise<MediaAccessProbe> {
-	const asBrowser = await probeHeaders(link, `${appOrigin}/`);
+	const asBrowser = await probeHeaders(link, appOrigin, `${appOrigin}/`);
 	if (asBrowser && isFinalMediaResponse(asBrowser.status)) {
 		const mediaAccess = diagnostics(asBrowser.headers);
 		return {
-			cors: corsFromHeaders(asBrowser.headers),
+			cors: corsFromHeaders(asBrowser.headers, appOrigin),
 			...(mediaAccess ? { mediaAccess } : {}),
 		};
 	}
-	const withoutReferer = await probeHeaders(link);
+	const withoutReferer = await probeHeaders(link, appOrigin);
 	if (withoutReferer && isFinalMediaResponse(withoutReferer.status)) {
 		return {
-			cors: corsFromHeaders(withoutReferer.headers),
+			cors: corsFromHeaders(withoutReferer.headers, appOrigin),
 			mediaAccess: {
 				referrerPolicy: "no-referrer",
 				...diagnostics(withoutReferer.headers),

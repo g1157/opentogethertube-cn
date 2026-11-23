@@ -1,5 +1,10 @@
-/** Below this distance a hard seek costs more than it corrects; the rate bend handles it. */
-const SEEK_TOLERANCE_SECONDS = 0.05;
+/**
+ * Below this distance a hard seek costs more than it corrects: pausing and seeking a
+ * playing element flushes the audio pipeline, which is audible as a stutter. The playback
+ * sync dead band and the preparation tolerance are both at least this wide, so skipping
+ * the seek does not make either state machine inconsistent.
+ */
+const SEEK_TOLERANCE_SECONDS = 0.25;
 
 /** Hold native playback while a new position is being fetched and decoded. */
 export function createMediaSeek(getMedia: () => HTMLVideoElement | undefined) {

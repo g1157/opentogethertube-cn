@@ -9,6 +9,7 @@ import HlsPlayer from "@/components/players/HlsPlayer.vue";
 import OmniPlayer from "@/components/players/OmniPlayer.vue";
 import type { MediaPlayer, MediaPlayerWithCaptions } from "@/components/composables/media-player";
 import { DEFAULT_HLS_BUFFER_SECONDS, HLS_BUFFER_SECONDS_OPTIONS } from "@/stores/settings";
+import { hlsBufferBudget } from "@/util/hls-buffer";
 import { mountComponent } from "./component-test-utils";
 
 interface HlsDouble {
@@ -410,12 +411,17 @@ describe("native and HLS player reliability", () => {
 		});
 		wrapper = page.wrapper;
 		const engine = hlsMock.instances[0];
+		const initialBudget = hlsBufferBudget(
+			DEFAULT_HLS_BUFFER_SECONDS,
+			256 * 1024 * 1024,
+			5_000_000,
+			180,
+		);
 		expect(engine.config).toEqual({
-			maxBufferLength: DEFAULT_HLS_BUFFER_SECONDS,
-			// The ceiling sits above the target so a fast connection keeps buffering.
-			maxMaxBufferLength: DEFAULT_HLS_BUFFER_SECONDS * 6,
+			maxBufferLength: initialBudget.forwardSeconds,
+			maxMaxBufferLength: initialBudget.maxForwardSeconds,
 			maxBufferSize: 256 * 1024 * 1024,
-			backBufferLength: 180,
+			backBufferLength: initialBudget.backSeconds,
 			// Level selection follows the size the picture is drawn at, not the source ladder.
 			capLevelToPlayerSize: true,
 			// Loading starts where playback begins, not at zero.
@@ -432,8 +438,9 @@ describe("native and HLS player reliability", () => {
 		)!;
 		page.store.commit("settings/UPDATE", { hlsBufferSeconds: changed });
 		await nextTick();
-		expect(engine.config.maxBufferLength).toBe(changed);
-		expect(engine.config.maxMaxBufferLength).toBe(changed * 6);
+		const changedBudget = hlsBufferBudget(changed, 256 * 1024 * 1024, 5_000_000, 180);
+		expect(engine.config.maxBufferLength).toBe(changedBudget.forwardSeconds);
+		expect(engine.config.maxMaxBufferLength).toBe(changedBudget.maxForwardSeconds);
 		expect(hlsMock.instances).toHaveLength(1);
 	});
 

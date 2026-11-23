@@ -11,11 +11,22 @@ import { conf } from "./ott-config.js";
 import announceapi from "./api/announce.js";
 import dataapi from "./api/data.js";
 import danmakuapi from "./api/danmaku.js";
+import { apiErrorHandler } from "./api/error-handler.js";
+import { asyncHandler } from "./util/async-handler.js";
 
 const log = getLogger("api");
 export function buildApiRouter(): express.Router {
 	log.debug("Building API router");
 	const router = express.Router();
+
+	// Room state, account data and password verdicts depend on the auth token in a cookie or
+	// header. A shared cache must not store them even when a route forgot to say so; the
+	// routes that intentionally cache (add preview, girigiri tracks) set their own header
+	// afterwards and win.
+	router.use((_req, res, next) => {
+		res.set("Cache-Control", "no-store");
+		next();
+	});
 
 	router.use("/status", statusapi);
 	// Anonymous quality counters; guests watch too, so this stays outside auth.
@@ -42,7 +53,9 @@ export function buildApiRouter(): express.Router {
 			next();
 		})(req, res, next);
 	});
-	router.use(auth.authTokenMiddleware);
+	// The token lookup is async; a Redis failure must reach the error handler instead of
+	// leaving the request open.
+	router.use(asyncHandler(auth.authTokenMiddleware));
 	router.use("/user", usermanager.router);
 	router.use("/user", userapi);
 	router.use("/room", roomapi);
@@ -53,6 +66,9 @@ export function buildApiRouter(): express.Router {
 			router.use("/dev", (await import("./api/dev.js")).default);
 		})();
 	}
+
+	// Must come after every route so a forwarded rejection is answered as JSON.
+	router.use(apiErrorHandler);
 
 	return router;
 }

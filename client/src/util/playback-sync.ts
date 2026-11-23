@@ -31,6 +31,12 @@ interface PlaybackSyncOptions {
 	/** The slow-device A/B switch; false makes the engine behave like a player that
 	 * cannot change rates (coarser seeks instead of a continuously re-timed bend). */
 	allowRateBend?(): boolean;
+	/**
+	 * A player whose seek is a reload or an imprecise estimate (YouTube, Vimeo, PeerTube,
+	 * Bilibili) must not be nudged for sub-second drift: each correction is far more
+	 * disruptive than the drift. Native media can seek cheaply, so it gets the tight limit.
+	 */
+	seekIsExpensive?(): boolean;
 	onError(error: unknown): void;
 }
 
@@ -72,6 +78,26 @@ const BEND_DEADLINE_MS = 8000;
 /** A catch-up that cannot converge inside this long is worth one visible seek after all. */
 const MAX_BEND_DEADLINE_MS = 30000;
 const RATE_WRITE_THRESHOLD = 0.002;
+/** Non-bend drift a cheap native seek may correct; also the sync path's old dead band. */
+const CHEAP_SEEK_DRIFT = BEND_START;
+/** Embedded players seek by reload/estimation; only a visible drift is worth that. */
+const EXPENSIVE_SEEK_DRIFT = 1;
+
+/**
+ * The one passive policy shared by the periodic tick and the room-sync path. A rate bend
+ * absorbs seconds of drift while playing; when it is unavailable, native media gets a
+ * 300 ms dead band and an embedded player keeps the 1 s one it always had in the tick.
+ */
+function passiveSeekLimit(
+	canBend: boolean,
+	initialSync: boolean,
+	seekIsExpensive: boolean,
+): number {
+	if (canBend) {
+		return initialSync ? PLAYBACK_INITIAL_MAX_DRIFT_SECONDS : HARD_SEEK_DRIFT;
+	}
+	return seekIsExpensive ? EXPENSIVE_SEEK_DRIFT : CHEAP_SEEK_DRIFT;
+}
 
 /**
  * The rate ceiling for a drift: 8% inside the gentle zone, growing linearly once a full
@@ -278,9 +304,9 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 		const drift = Math.abs(latest.position - position);
 		maxAbsDrift = Math.max(maxAbsDrift, drift);
 		const canBend = latest.playing && !latest.temporarySpeed && getBendBase() !== null;
-		// A room sync must not freeze playback for a drift the rate bend can absorb; without
-		// a rate setter (or while paused) only the 300 ms dead band is forgiven.
-		const limit = canBend ? HARD_SEEK_DRIFT : BEND_START;
+		// A room sync must not freeze playback for a drift the rate bend can absorb. Without
+		// a bend, the shared passive policy picks the dead band by seek cost.
+		const limit = passiveSeekLimit(canBend, false, options.seekIsExpensive?.() ?? false);
 		if ((!Number.isFinite(position) || drift > limit) && hasSeekBuffer(latest)) {
 			await seek(latest, reason);
 		}
@@ -355,11 +381,11 @@ export function createPlaybackSync(options: PlaybackSyncOptions) {
 			const initialSync = Date.now() < initialSyncUntil;
 			// While playing, a rate change absorbs up to HARD_SEEK_DRIFT; a paused room or a
 			// player without a rate setter still seeks as soon as the drift is visible.
-			const seekLimit = canBend
-				? initialSync
-					? PLAYBACK_INITIAL_MAX_DRIFT_SECONDS
-					: HARD_SEEK_DRIFT
-				: 1;
+			const seekLimit = passiveSeekLimit(
+				canBend,
+				initialSync,
+				options.seekIsExpensive?.() ?? false,
+			);
 			if (magnitude > seekLimit && canSeekNow(latest) && hasSeekBuffer(latest)) {
 				await seek(latest, "drift-large");
 				return;

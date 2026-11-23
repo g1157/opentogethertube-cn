@@ -52,6 +52,8 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 	let positioned = false;
 	let realignments = 0;
 	let cancelledId: string | null = null;
+	/** The preparation this viewer already reported itself hidden for. */
+	let hiddenReportedId: string | null = null;
 	let disposed = false;
 
 	function publish(next: PlaybackPreparationState["phase"]) {
@@ -102,6 +104,36 @@ export function createPlaybackPreparation(options: PreparationOptions) {
 
 	function reconcile() {
 		const state = options.getState();
+		const preparation = state.preparation;
+		// A background tab cannot show the first frame the round is waiting for. Tell the
+		// room instead of letting every other viewer wait out the full deadline; once the
+		// server drops this viewer, returning to the tab does not rejoin the snapshot.
+		if (
+			!disposed &&
+			preparation &&
+			state.visible === false &&
+			preparation.id !== cancelledId &&
+			preparation.id !== hiddenReportedId &&
+			state.connected &&
+			state.clientId &&
+			(preparation.eligible
+				? preparation.eligible.includes(state.clientId)
+				: preparation.clientId === state.clientId) &&
+			preparation.video.service === state.source?.service &&
+			preparation.video.id === state.source?.id
+		) {
+			hiddenReportedId = preparation.id;
+			try {
+				options.sendReady({
+					id: preparation.id,
+					position: preparation.position,
+					firstFrame: false,
+					visible: false,
+				});
+			} catch (error) {
+				options.onError(error);
+			}
+		}
 		if (matches(state)) {
 			return;
 		}

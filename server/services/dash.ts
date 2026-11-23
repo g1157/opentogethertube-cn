@@ -13,6 +13,8 @@ import { corsFromHeaders } from "./cors-probe.js";
 import { parseIso8601Duration } from "./parsing/iso8601.js";
 import { parseDashMetadata } from "./parsing/dash-metadata.js";
 import { fetchManifestText } from "./parsing/manifest-fetch.js";
+import { appOriginFromHostname } from "./media-access.js";
+import { conf } from "../ott-config.js";
 
 const DASH_URL_REGEX = /\/*\.(mpd)$/;
 const DASH_DURATION_REGEX = /^P(?:\d+D)?(?:T(?:\d+H)?(?:\d+M)?(?:\d+(?:\.\d+)?S)?)?$/;
@@ -54,10 +56,11 @@ export default class DashVideoAdapter extends ServiceAdapter {
 	}
 
 	async handleMpd(url: URL.UrlWithStringQuery): Promise<Video> {
+		const appOrigin = appOriginFromHostname(conf.get("hostname"));
 		// Manifest URLs are user supplied; never follow redirects that could land on an
 		// intranet address and only fetch hosts that resolve publicly.
 		await assertPublicMediaUrl(url.href);
-		const resp = await fetchManifestText(url.href);
+		const resp = await fetchManifestText(url.href, { origin: appOrigin });
 		const metadata = await parseDashMetadata(resp.data);
 		if (metadata.dynamic || !metadata.duration) {
 			throw new UnsupportedVideoType("livestream");
@@ -79,7 +82,7 @@ export default class DashVideoAdapter extends ServiceAdapter {
 			length: duration,
 			width: metadata.width,
 			height: metadata.height,
-			cors: corsFromHeaders(resp.headers as Record<string, unknown>),
+			cors: corsFromHeaders(resp.headers as Record<string, unknown>, appOrigin),
 			dash_url: url.href,
 		};
 	}

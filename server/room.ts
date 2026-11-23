@@ -122,6 +122,12 @@ import {
 import { Mutex } from "@divine/synchronization";
 
 const TEMPORARY_PLAYBACK_GESTURE_ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
+/**
+ * A hidden tab's 5 s heartbeat is itself throttled (often to once a minute), so a short
+ * freshness window would bring its buffering report back into the gate. When a genuinely
+ * fresh hidden report arrives it still excludes the viewer until they return.
+ */
+const BUFFER_GATE_DIAGNOSTICS_MAX_AGE_MS = 90_000;
 const NATIVE_ODYSEE_MIME_REGEX = /video\/mp4|application\/(?:vnd\.apple\.mpegurl|x-mpegURL)/;
 /** How many recent room events stay available for undo. */
 const RECENT_EVENTS_LIMIT = 20;
@@ -193,6 +199,8 @@ export interface RoomState extends RoomOptions, RoomStateComputed {
 	queue: VideoQueue;
 	isPlaying: boolean;
 	playbackPosition: number;
+	/** Monotonic id for explicit seeks; lets clients seek hard instead of bending. */
+	seekId: number;
 	playbackSpeed: number;
 	temporaryPlaybackSpeed: TemporaryPlaybackSpeed | null;
 	playbackPreparation: PlaybackPreparation | null;
@@ -249,6 +257,7 @@ const syncableProps: (keyof RoomStateSyncable)[] = [
 	"queue",
 	"isPlaying",
 	"playbackPosition",
+	"seekId",
 	"playbackSpeed",
 	"temporaryPlaybackSpeed",
 	"playbackPreparation",
@@ -376,10 +385,18 @@ export class Room implements RoomState {
 	_prevQueue: QueueItem[] | null = null;
 	_isPlaying = false;
 	_playbackPosition = 0;
+	/** Monotonic id for explicit seeks; not persisted, but synced with the position. */
+	seekId = 0;
 	_playbackSpeed = 1;
 	private temporarySpeed: (TemporaryPlaybackSpeed & { previousSpeed: number }) | null = null;
 	private temporarySpeedTimer: ReturnType<typeof setTimeout> | null = null;
 	private playbackStartTimer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * The start timer is relative (monotonic) and therefore survives a wall-clock jump.
+	 * Its callback sets this before the Date-based guard runs, so a backward jump cannot
+	 * make the room wait for wall time to catch up.
+	 */
+	private playbackStartTimerDue = false;
 	/**
 	 * When the Redis snapshot last captured the playback position. A room that just plays
 	 * never dirties a storable field, so without this checkpoint the only snapshot was the
@@ -397,6 +414,8 @@ export class Room implements RoomState {
 	votesToSkip: Set<string> = new Set();
 
 	_dirty: Set<RoomDirtyProp> = new Set();
+	/** A vote or queue change since the last vote-mode sort; survives the dirty-set cleanup. */
+	private queueOrderDirty = true;
 	/** Events this room published recently; undo may only replay one of these. */
 	private recentEvents: ServerMessageEvent[] = [];
 	private readonly syncLock = new Mutex();
@@ -520,7 +539,10 @@ export class Room implements RoomState {
 			this.votesToSkip = new Set();
 		}
 
-		this.queue.onDirty(() => this.markDirty("queue"));
+		this.queue.onDirty(() => {
+			this.markDirty("queue");
+			this.queueOrderDirty = true;
+		});
 	}
 
 	public get name(): string {
@@ -565,6 +587,7 @@ export class Room implements RoomState {
 
 	public set queueMode(value: QueueMode) {
 		this._queueMode = value;
+		this.queueOrderDirty = true;
 		this.markDirty("queueMode");
 	}
 
@@ -778,11 +801,25 @@ export class Room implements RoomState {
 		// Only explicit buffering can hold the room: none/error are not a readiness vote.
 		// A single viewer counts too, but someone whose wait already ran out must report
 		// ready first — otherwise the hold would repeat forever.
-		const waiting = eligible.filter(
-			user =>
-				user.playerStatus === PlayerStatus.buffering &&
-				!this.bufferGateExhausted.has(user.id),
-		);
+		const waiting = eligible.filter(user => {
+			if (
+				user.playerStatus !== PlayerStatus.buffering ||
+				this.bufferGateExhausted.has(user.id)
+			) {
+				return false;
+			}
+			// A background tab can buffer for a long time while its viewer is doing something
+			// else. With an up-to-date hidden=true report it must not pause the foreground
+			// audience; when it returns and reports hidden=false it can hold the room again.
+			const diagnostics = user.diagnostics;
+			if (
+				diagnostics?.hidden === true &&
+				Date.now() - (diagnostics.receivedAt ?? 0) <= BUFFER_GATE_DIAGNOSTICS_MAX_AGE_MS
+			) {
+				return false;
+			}
+			return true;
+		});
 		if (waiting.length === 0) {
 			await this.releaseBufferGate();
 			return;
@@ -1143,11 +1180,12 @@ export class Room implements RoomState {
 					}
 				}
 			}
-			if (
-				this.playbackPreparation?.startAt !== undefined &&
-				this.playbackPreparation?.startAt !== null &&
-				Date.now() >= this.playbackPreparation.startAt
-			) {
+			const startAt = this.playbackPreparation?.startAt;
+			const startDue =
+				startAt !== undefined &&
+				startAt !== null &&
+				(this.playbackStartTimerDue || Date.now() >= startAt);
+			if (startDue) {
 				await this.startPreparedPlayback();
 			}
 		}
@@ -1184,15 +1222,16 @@ export class Room implements RoomState {
 		}
 
 		if (
-			this.users.length > 0 &&
+			this.realusers.length > 0 &&
 			this._keepAlivePing.add(conf.get("room.unload_after") * 0.9, "second").isBefore(dayjs())
 		) {
 			this._keepAlivePing = dayjs();
 			await redisClient.expire(`room:${this.name}`, conf.get("room.expire_after"));
 		}
 
-		// sort queue according to queue mode
-		if (this.queueMode === QueueMode.Vote) {
+		// Sort queue according to queue mode. A tick with no vote or queue change would
+		// otherwise re-sort (and serialize) the whole queue every second for nothing.
+		if (this.queueMode === QueueMode.Vote && this.queueOrderDirty) {
 			await this.queue.orderBy(
 				[
 					video => {
@@ -1202,6 +1241,8 @@ export class Room implements RoomState {
 				],
 				["desc"],
 			);
+			// Clear after the sort: orderBy's own markDirty must not schedule another one.
+			this.queueOrderDirty = false;
 		}
 
 		if (conf.get("video.sponsorblock.enabled") && this.autoSkipSegmentCategories.length > 0) {
@@ -1703,6 +1744,7 @@ export class Room implements RoomState {
 			clearTimeout(this.playbackStartTimer);
 			this.playbackStartTimer = null;
 		}
+		this.playbackStartTimerDue = false;
 	}
 
 	/** The viewers who can report readiness for a held source, snapshotted at round start. */
@@ -1749,20 +1791,21 @@ export class Room implements RoomState {
 		const now = Date.now();
 		const eligible = this.playbackEligibleIds(preparation);
 		preparation.fallback = fallback;
+		this.clearPlaybackStartTimer();
 		if (eligible.length <= 1) {
 			// A single viewer has nobody to wait for; there is no reason to add the lead.
 			preparation.startAt = now;
+			this.playbackStartTimerDue = true;
 			this.markDirty("playbackPreparation");
 			void this.startPreparedPlayback();
 			return;
 		}
 		preparation.startAt = now + PLAYBACK_START_LEAD_MS;
 		this.markDirty("playbackPreparation");
-		this.clearPlaybackStartTimer();
-		this.playbackStartTimer = setTimeout(
-			() => void this.startPreparedPlayback(),
-			Math.max(0, preparation.startAt - now),
-		);
+		this.playbackStartTimer = setTimeout(() => {
+			this.playbackStartTimerDue = true;
+			void this.startPreparedPlayback();
+		}, PLAYBACK_START_LEAD_MS);
 		this.playbackStartTimer.unref?.();
 	}
 
@@ -1771,7 +1814,7 @@ export class Room implements RoomState {
 		if (!preparation || preparation.startAt === undefined || preparation.startAt === null) {
 			return;
 		}
-		if (Date.now() + 50 < preparation.startAt) {
+		if (!this.playbackStartTimerDue && Date.now() + 50 < preparation.startAt) {
 			return;
 		}
 		const startAt = preparation.startAt;
@@ -1789,6 +1832,10 @@ export class Room implements RoomState {
 		this.restoredFromStorage = false;
 		this.playbackPosition = preparation.position;
 		this.isPlaying = true;
+		// A prepared start is still a fresh play for the buffer gate: without this, a
+		// readiness round longer than the start grace lets the first buffering report pause
+		// the video again immediately.
+		this.lastPlayAt = Date.now();
 		this._playbackStart = dayjs(startAt);
 		this.markDirty("playbackPreparation");
 		this.markDirty("isPlaying");
@@ -1930,6 +1977,8 @@ export class Room implements RoomState {
 		if (eligible.length === 0) {
 			return;
 		}
+		// A fresh round starts clean; an old start timer must not carry its due flag into it.
+		this.clearPlaybackStartTimer();
 		const now = Date.now();
 		this.playbackPreparation = {
 			id: randomUUID(),
@@ -1970,6 +2019,7 @@ export class Room implements RoomState {
 			this.dropPlaybackParticipant(clientId);
 			return;
 		}
+		this.notePreparedDuration(preparation, prepared);
 		if (
 			status !== PlayerStatus.ready ||
 			prepared.firstFrame === false ||
@@ -2059,6 +2109,8 @@ export class Room implements RoomState {
 			.inc(this.calcDurationFromPlaybackStart());
 		this.playbackPosition = value;
 		this._playbackStart = dayjs();
+		this.seekId++;
+		this.markDirty("seekId");
 	}
 
 	/**
@@ -2442,6 +2494,38 @@ export class Room implements RoomState {
 		await this.evaluateBufferGate();
 	}
 
+	/**
+	 * A Direct/HLS/DASH source whose probe failed has no length, so the room cannot see the
+	 * end and the next queue item never starts. The native player knows the duration by the
+	 * time it reports a first frame; accept it only for the source this round is preparing,
+	 * and only while the source still has no usable length. The object is mutated in place:
+	 * assigning `currentSource` would cancel the round that is reporting it.
+	 */
+	private notePreparedDuration(
+		preparation: PlaybackPreparation,
+		prepared: PlaybackPrepared,
+	): void {
+		const duration = prepared.durationSeconds;
+		if (duration === undefined || !Number.isFinite(duration) || duration <= 0) {
+			return;
+		}
+		const source = this.currentSource;
+		if (
+			!source ||
+			source.isLive ||
+			source.service !== preparation.video.service ||
+			source.id !== preparation.video.id
+		) {
+			return;
+		}
+		const current = source.length;
+		if (typeof current === "number" && Number.isFinite(current) && current > 0) {
+			return;
+		}
+		source.length = duration;
+		this.markDirty("currentSource");
+	}
+
 	public async updateUser(request: UpdateUser, context: RoomRequestContext): Promise<void> {
 		this.log.debug(`User was updated: ${request.info.id} ${JSON.stringify(request.info)}`);
 		for (let i = 0; i < this.realusers.length; i++) {
@@ -2671,6 +2755,7 @@ export class Room implements RoomState {
 			// 	throw new VoteNotFoundException();
 			// }
 		}
+		this.queueOrderDirty = true;
 		this.markDirty("voteCounts");
 	}
 

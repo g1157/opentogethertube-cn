@@ -6,7 +6,8 @@ export function isUsableDuration(value: number | null | undefined): value is num
 /**
  * The length the player UI runs on: the server-provided length wins, and the locally
  * measured media duration fills in when it is missing (a failed metadata probe queues a
- * direct link with an unknown length). The local value never leaves the client.
+ * direct link with an unknown length). When the server length is missing, the same value
+ * is sent in the preparation acknowledgement so the room can detect the source's end.
  */
 export function resolveVideoLength(
 	sourceLength: number | null | undefined,

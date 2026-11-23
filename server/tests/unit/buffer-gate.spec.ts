@@ -80,6 +80,38 @@ describe("room buffering gate", () => {
 		expect(room.bufferingGateHeld).toBe(true);
 	});
 
+	it("does not pause a foreground audience for a hidden tab's buffering report", async () => {
+		await start();
+		await room.updateUser(
+			{
+				type: RoomRequestType.UpdateUser,
+				info: {
+					id: "bob",
+					status: PlayerStatus.buffering,
+					diagnostics: { sampledAt: Date.now(), hidden: true, bufferAhead: 0.2 },
+				},
+			},
+			context("bob"),
+		);
+		expect(room.isPlaying).toBe(true);
+		expect(room.bufferingGateHeld).toBe(false);
+
+		// Returning to the foreground restores the normal wait contract.
+		await room.updateUser(
+			{
+				type: RoomRequestType.UpdateUser,
+				info: {
+					id: "bob",
+					status: PlayerStatus.buffering,
+					diagnostics: { sampledAt: Date.now(), hidden: false, bufferAhead: 0.2 },
+				},
+			},
+			context("bob"),
+		);
+		expect(room.isPlaying).toBe(false);
+		expect(room.bufferingGateHeld).toBe(true);
+	});
+
 	it("stores diagnostics without changing the player status or engaging the gate", async () => {
 		await start();
 		const before = room.realusers.find(user => user.id === "bob")?.playerStatus;

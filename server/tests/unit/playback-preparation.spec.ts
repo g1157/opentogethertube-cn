@@ -140,7 +140,96 @@ describe("preparing playback after a room was empty", () => {
 		// Two viewers use the one-second lead so both clients can apply the same start.
 		expect(room.isPlaying).toBe(false);
 		advanceTime(1);
+		vi.advanceTimersByTime(1000);
 		await room.update();
+		expect(room.isPlaying).toBe(true);
+	});
+
+	it("learns a missing source length from the preparation acknowledgement", async () => {
+		const unknown = new Room({ name: "unknown-duration", isTemporary: true });
+		allRooms.push(unknown);
+		unknown.currentSource = { service: "direct", id: "unknown-duration.mp4" };
+		unknown.playbackPosition = 0;
+		unknown.resumeOnNextJoin = true;
+		await unknown.joinRoom(
+			{ type: RoomRequestType.JoinRequest, info: { id: "viewer", username: "viewer" } },
+			context("viewer"),
+		);
+		const preparation = unknown.playbackPreparation!;
+		expect(preparation).not.toBeNull();
+
+		await report(
+			"viewer",
+			{
+				id: preparation.id,
+				position: 0,
+				durationSeconds: 99.5,
+				firstFrame: true,
+				bufferAhead: 8,
+			},
+			PlayerStatus.ready,
+			unknown,
+		);
+		expect(unknown.currentSource?.length).toBe(99.5);
+		expect(unknown._dirty.has("currentSource")).toBe(true);
+
+		// The learned length makes the normal end detection advance the queue.
+		await unknown.pause();
+		unknown.playbackPosition = 100;
+		await unknown.play();
+		unknown.queue = new VideoQueue([{ service: "direct", id: "next.mp4", length: 10 }]);
+		await unknown.update();
+		expect(unknown.currentSource).toMatchObject({ service: "direct", id: "next.mp4" });
+	});
+
+	it("drops a viewer that reports a hidden tab from the readiness round", async () => {
+		await watchThenLeave();
+		await Promise.all([join("first"), join("second")]);
+		const preparation = room.playbackPreparation!;
+		preparation.eligible = ["first", "second"];
+
+		await report("first", {
+			id: preparation.id,
+			position: 125,
+			firstFrame: false,
+			visible: false,
+		});
+		expect(preparation.eligible).toEqual(["second"]);
+		expect(room.isPlaying).toBe(false);
+
+		// The remaining viewer is now the whole round, so its ready starts immediately.
+		await report("second", {
+			id: preparation.id,
+			position: 125,
+			firstFrame: true,
+			bufferAhead: 8,
+		});
+		expect(room.isPlaying).toBe(true);
+	});
+
+	it("starts on the monotonic deadline even if the wall clock jumps backward", async () => {
+		await watchThenLeave();
+		await Promise.all([join("first"), join("second")]);
+		const preparation = room.playbackPreparation!;
+		preparation.eligible = ["first", "second"];
+		await report("first", {
+			id: preparation.id,
+			position: 125,
+			firstFrame: true,
+			bufferAhead: 8,
+		});
+		await report("second", {
+			id: preparation.id,
+			position: 125,
+			firstFrame: true,
+			bufferAhead: 8,
+		});
+		expect(room.isPlaying).toBe(false);
+
+		// The timer is due in one second. A wall-clock jump must not make the room wait
+		// another minute for a start it already scheduled.
+		vi.setSystemTime(Date.now() - 60_000);
+		vi.advanceTimersByTime(1000);
 		expect(room.isPlaying).toBe(true);
 	});
 

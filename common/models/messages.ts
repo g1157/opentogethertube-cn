@@ -48,6 +48,8 @@ export interface ServerMessageSync extends ServerMessageBase {
 	queueMode?: QueueMode;
 	isPlaying?: boolean;
 	playbackPosition?: number;
+	/** Monotonic id of the last explicit seek; a change forces a hard seek. */
+	seekId?: number;
 	/** The room remains paused while this viewer prepares the saved playback position. */
 	playbackPreparation?: PlaybackPreparation | null;
 	currentSource?: QueueItem | null;
@@ -295,6 +297,8 @@ export interface PlaybackReadyInfo {
 export interface PlaybackPrepared {
 	id: string;
 	position: number;
+	/** Media duration measured by the client; fills a missing source length. */
+	durationSeconds?: number;
 	/** Seconds buffered ahead of the first frame; omitted by older clients. */
 	bufferAhead?: number | null;
 	/** Whether the client actually rendered a frame. Older clients imply true. */

@@ -114,13 +114,15 @@ export class VideoQueue extends Dirtyable {
 
 	/** Insert the given video at the given index. */
 	async insert(video: Video | QueueItem, index: number) {
-		if (index < 0 || index > this._items.length) {
-			throw new Error("Index out of bounds");
-		}
 		if (video === null || video === undefined) {
 			throw new Error("Cannot enqueue null or undefined items");
 		}
 		await this.lock.protect(() => {
+			// Check against the length under the lock: another queued operation may have
+			// shrunk the queue between the caller reading `items` and this insertion.
+			if (index < 0 || index > this._items.length) {
+				throw new Error("Index out of bounds");
+			}
 			if (this._items.length + 1 > MAX_QUEUE_ITEMS) {
 				throw new BadApiArgumentException(
 					"queue",
@@ -142,13 +144,13 @@ export class VideoQueue extends Dirtyable {
 		if (fromIdx === toIdx) {
 			return;
 		}
-		if (fromIdx < 0 || fromIdx >= this._items.length) {
-			throw new Error("'fromIdx' out of bounds");
-		}
-		if (toIdx < 0 || toIdx >= this._items.length) {
-			throw new Error("'toIdx' out of bounds");
-		}
 		return this.lock.protect(() => {
+			if (fromIdx < 0 || fromIdx >= this._items.length) {
+				throw new Error("'fromIdx' out of bounds");
+			}
+			if (toIdx < 0 || toIdx >= this._items.length) {
+				throw new Error("'toIdx' out of bounds");
+			}
 			const item = this._items.splice(fromIdx, 1)[0];
 			this._items.splice(toIdx, 0, item);
 			this.markDirty();

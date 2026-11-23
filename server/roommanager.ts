@@ -78,6 +78,7 @@ async function addRoom(room: Room) {
 const MAX_CONCURRENT_ROOM_UPDATES = 8;
 const roomUpdateSlots = new Semaphore(MAX_CONCURRENT_ROOM_UPDATES);
 const roomUpdates = new Map<Room, Promise<void>>();
+const roomCheckpoints = new Map<Room, Promise<void>>();
 let updaterInterval: ReturnType<typeof setInterval> | null = null;
 
 export async function start() {
@@ -124,8 +125,14 @@ export function redisStateToState(state: RoomStateFromRedis): RoomState {
 }
 
 export async function update(): Promise<void> {
-	// Explicit callers can await their snapshot; periodic ticks never await all rooms.
-	await Promise.all([...rooms].map(scheduleRoomUpdate));
+	// Explicit callers can await both the in-memory tick and its checkpoint. Periodic ticks
+	// schedule the two independently so slow persistence never stops playback state checks.
+	await Promise.all(
+		[...rooms].map(async room => {
+			await scheduleRoomUpdate(room);
+			await scheduleRoomCheckpoint(room);
+		}),
+	);
 }
 
 function scheduleRoomUpdate(room: Room): Promise<void> {
@@ -133,21 +140,23 @@ function scheduleRoomUpdate(room: Room): Promise<void> {
 	if (pending) {
 		return pending;
 	}
-	// The queue contains at most one task per loaded Room object, not one per interval.
+	// One in-memory tick per room. Its checkpoint is scheduled only after the tick finishes,
+	// so a checkpoint can never read a half-applied state, but a slow checkpoint does not
+	// keep the next tick from running.
 	const task = (async () => {
+		const endTimer = histUpdateDuration.startTimer();
 		try {
-			await roomUpdateSlots.protect(async () => {
-				if (!rooms.includes(room)) {
-					return;
-				}
-				const endTimer = histUpdateDuration.startTimer();
-				try {
-					await updateRoom(room);
-				} finally {
-					endTimer();
-				}
-			});
+			if (!rooms.includes(room)) {
+				return;
+			}
+			await room.update();
+			if (rooms.includes(room)) {
+				void scheduleRoomCheckpoint(room);
+			}
+		} catch (e) {
+			log.error(`Error updating room ${room.name}: ${e}`);
 		} finally {
+			endTimer();
 			roomUpdates.delete(room);
 		}
 	})();
@@ -155,25 +164,36 @@ function scheduleRoomUpdate(room: Room): Promise<void> {
 	return task;
 }
 
-async function updateRoom(room: Room): Promise<void> {
-	try {
-		await room.update();
-		if (!rooms.includes(room)) {
-			return;
-		}
-		await room.sync();
-	} catch (e) {
-		log.error(`Error updating room ${room.name}: ${e}`);
+function scheduleRoomCheckpoint(room: Room): Promise<void> {
+	const pending = roomCheckpoints.get(room);
+	if (pending) {
+		return pending;
 	}
-
-	if (rooms.includes(room) && room.isStale) {
+	// Checkpoints are the slow DB/Redis part; cap them independently of the tick above.
+	const task = (async () => {
 		try {
-			// Unload by object identity, never a replacement room with the same name.
-			await unloadRoom(room, UnloadReason.Keepalive);
+			await roomUpdateSlots.protect(async () => {
+				if (!rooms.includes(room)) {
+					return;
+				}
+				await room.sync();
+			});
 		} catch (e) {
-			log.error(`Error unloading room ${room.name}: ${e}`);
+			log.error(`Error checkpointing room ${room.name}: ${e}`);
+		} finally {
+			roomCheckpoints.delete(room);
 		}
-	}
+		if (rooms.includes(room) && room.isStale) {
+			try {
+				// Unload by object identity, never a replacement room with the same name.
+				await unloadRoom(room, UnloadReason.Keepalive);
+			} catch (e) {
+				log.error(`Error unloading room ${room.name}: ${e}`);
+			}
+		}
+	})();
+	roomCheckpoints.set(room, task);
+	return task;
 }
 
 export async function createRoom(
@@ -208,13 +228,45 @@ async function createRoomUnlocked(
 			throw new Error(`Failed to save room ${options.name} to storage`);
 		}
 	}
-	if (options.password) {
-		await setRoomPassword(room, options.password);
+	try {
+		if (options.password) {
+			await setRoomPassword(room, options.password);
+		}
+		await room.update();
+		await room.sync();
+		await addRoom(room);
+	} catch (error) {
+		// The row (and possibly the password hash) is already written. Leaving it behind
+		// makes the next create of the same name fail with "taken" while no room was ever
+		// admitted, so remove exactly what this attempt wrote before reporting the failure.
+		await rollbackRoomCreation(room);
+		throw error;
 	}
-	await room.update();
-	await room.sync();
-	await addRoom(room);
 	log.info(`Room created: ${room.name}`);
+}
+
+async function rollbackRoomCreation(room: Room): Promise<void> {
+	try {
+		await room.onBeforeUnload();
+	} catch (error) {
+		log.warn(`Failed to settle a rejected room ${room.name}: ${String(error)}`);
+	}
+	try {
+		await redisClient.del(`room:${room.name}`);
+		await redisClient.del(`room-sync:${room.name}`);
+		if (room.isTemporary) {
+			await redisClient.del(temporaryPasswordKey(room.name));
+		}
+	} catch (error) {
+		log.warn(`Failed to clear Redis state for a rejected room ${room.name}: ${String(error)}`);
+	}
+	if (!room.isTemporary) {
+		try {
+			await storage.deleteRoom(room.name);
+		} catch (error) {
+			log.error(`Failed to remove the row of a rejected room ${room.name}: ${String(error)}`);
+		}
+	}
 }
 
 /**
@@ -372,10 +424,10 @@ export function on<E extends RoomManagerEvents>(event: E, listener: RoomManagerE
 	bus.on(event, listener);
 }
 
-/** Per-room work duration; waiting for a concurrency slot is not included. */
+/** In-memory room tick duration; checkpoint wait and persistence are not included. */
 const histUpdateDuration = new Histogram({
 	name: "ott_room_manager_update_duration_seconds",
-	help: "How long one room update and checkpoint takes, excluding slot wait",
+	help: "How long one room's in-memory update takes, excluding checkpoint wait",
 	buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
 });
 

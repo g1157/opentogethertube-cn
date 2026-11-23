@@ -11,6 +11,7 @@ import { OttApiRequestAccountUpdateSchema } from "ott-common/models/zod-schemas.
 import { Room as DbRoomModel } from "../models/index.js";
 import { consumeRateLimitPoints } from "../rate-limit.js";
 import usermanager from "../usermanager.js";
+import { asyncHandler } from "../util/async-handler.js";
 
 const router = express.Router();
 const ACCOUNT_READ_RATE_LIMIT_POINTS = 1;
@@ -224,9 +225,9 @@ const getOwnedRooms: RequestHandler<never, OttResponseBody<{ data: RoomListItem[
 	});
 };
 
-router.get("/account", getAccount);
-router.patch("/account", patchAccount);
-router.delete("/account/discord", deleteDiscordLink);
-router.get("/owned-rooms", getOwnedRooms);
+router.get("/account", asyncHandler(getAccount));
+router.patch("/account", asyncHandler(patchAccount));
+router.delete("/account/discord", asyncHandler(deleteDiscordLink));
+router.get("/owned-rooms", asyncHandler(getOwnedRooms));
 
 export default router;
