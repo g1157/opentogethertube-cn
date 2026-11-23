@@ -24,6 +24,9 @@
     2573 通过 / 24 跳过（客户端 1164、服务端 1237、common 103、edge 31、ott-vis 2、datasource 6、
     panel 30）；Rust fmt、严格 clippy、非 harness 全量测试通过。**未覆盖**：真实手机 / 弱网 /
     低内存 GPU / HDR，以及 HLS 切档后的瞬时内存峰值。
+    **发布**：首轮 `v1.4.25` 标签的 checks 在 Node 26 的 jsdom `localStorage` 测试与
+    Windows Cypress 9.5.1 二进制解包上失败，未产出镜像；修正测试与 Windows 安装环境后重建同名
+    标签（此前没有任何镜像或部署引用它）。
 
 各版本的改动与数据库迁移情况。发布提交对应 Git 标签 `v0.15.0-cn2` 起；更早的历史见
 `archive/history` 分支与 `v0.14.1` 标签。`v1.0.0` 起跳出 cn 序列，作为本分支的正式大版本，

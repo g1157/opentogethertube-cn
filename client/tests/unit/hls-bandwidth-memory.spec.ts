@@ -6,8 +6,21 @@ import {
 
 describe("HLS bandwidth hint", () => {
 	let connection: { effectiveType?: string; saveData?: boolean };
+	let storage: Map<string, string>;
 	beforeEach(() => {
-		window.localStorage.clear();
+		// Node 26's jsdom no longer exposes a working localStorage without a file
+		// backing; the production code already degrades safely, but the test should
+		// exercise the same API a browser provides.
+		storage = new Map();
+		Object.defineProperty(window, "localStorage", {
+			configurable: true,
+			value: {
+				getItem: (key: string) => storage.get(key) ?? null,
+				setItem: (key: string, value: string) => storage.set(key, String(value)),
+				removeItem: (key: string) => storage.delete(key),
+				clear: () => storage.clear(),
+			},
+		});
 		connection = { effectiveType: "4g" };
 		Object.defineProperty(navigator, "connection", {
 			configurable: true,

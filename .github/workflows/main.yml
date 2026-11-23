@@ -123,6 +123,10 @@ jobs:
             VITEST_MIN_THREADS: "1"
             VITEST_MAX_FORKS: "2"
             VITEST_MIN_FORKS: "1"
+            # This job never runs Cypress. Downloading the 9.5.1 app for the Grafana
+            # dev dependency is flaky on windows-latest and has failed the release
+            # gate while unpacking; the JS package still installs.
+            CYPRESS_INSTALL_BINARY: "0"
         steps:
             - uses: actions/checkout@v4
             - name: Use Node.js 22
