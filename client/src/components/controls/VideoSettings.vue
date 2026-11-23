@@ -3,7 +3,7 @@
 	     picture, so adjusting a setting cost you sight of what you were adjusting. The sheet
 	     leaves the video visible above it; desktop and fullscreen keep the anchored menu. -->
 	<component
-		:is="asSheet ? 'v-bottom-sheet' : 'v-menu'"
+		:is="overlayComponent"
 		ref="menu"
 		v-model="isMenuOpen"
 		v-bind="asSheet ? sheetProps : menuProps"
@@ -707,6 +707,7 @@
 
 <script lang="ts" setup>
 import { ref, computed, nextTick, watch } from "vue";
+import { VBottomSheet, VMenu } from "vuetify/components";
 import { useI18n } from "vue-i18n";
 import { useMediaQuery } from "@vueuse/core";
 import {
@@ -917,6 +918,9 @@ const canHover = useMediaQuery("(hover: hover) and (pointer: fine)");
 const menu = ref<{ updateLocation?: () => void } | null>(null);
 /** Portrait phones: a sheet from the bottom instead of a menu floating over the video. */
 const asSheet = computed(() => props.compact === true);
+// Use the imported components, not string names: the production build does not register
+// every Vuetify component globally, so a runtime `is="v-menu"` would render nothing.
+const overlayComponent = computed(() => (asSheet.value ? VBottomSheet : VMenu));
 const menuProps = {
 	location: "top end",
 	origin: "auto",

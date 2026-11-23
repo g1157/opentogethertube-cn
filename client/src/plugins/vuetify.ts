@@ -1,7 +1,5 @@
 import "vuetify/styles";
 import { createVuetify, type ThemeDefinition } from "vuetify";
-import * as components from "vuetify/components";
-import * as directives from "vuetify/directives";
 import { aliases, mdi } from "vuetify/iconsets/mdi-svg";
 
 const themeDark: ThemeDefinition = {
@@ -205,11 +203,6 @@ const themeMint: ThemeDefinition = {
 };
 
 const vuetify = createVuetify({
-	// SFC templates are rewritten to direct component imports by vite-plugin-vuetify in the
-	// production build, so registering every component only ships unused vendor bytes.
-	// Development and component tests also mount a few runtime `template` strings, which the
-	// compiler cannot rewrite; keep the full registry there, where bundle size does not matter.
-	...(import.meta.env.PROD ? {} : { components, directives }),
 	icons: {
 		defaultSet: "mdi",
 		aliases,

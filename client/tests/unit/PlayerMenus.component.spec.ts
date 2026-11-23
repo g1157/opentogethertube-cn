@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computed, defineComponent, nextTick, ref } from "vue";
-import { VMenu } from "vuetify/components";
+import { VDefaultsProvider, VMenu } from "vuetify/components";
 import { RoomRequestType } from "ott-common/models/messages";
 import { PlayerStatus, Role } from "ott-common/models/types";
 import VideoSettings from "@/components/controls/VideoSettings.vue";
@@ -79,7 +79,7 @@ class TestResizeObserver {
 
 function menuHarness(kind: MenuKind) {
 	return defineComponent({
-		components: { VideoSettings, PlaybackRateSwitcher },
+		components: { VideoSettings, PlaybackRateSwitcher, VDefaultsProvider },
 		setup() {
 			const store = useStore();
 			const controls = useMediaPlayer();
