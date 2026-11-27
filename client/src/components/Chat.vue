@@ -18,7 +18,17 @@
 			</v-btn>
 			<h4>{{ $t("chat.title") }}</h4>
 		</div>
-		<div ref="messages" @scroll="onScroll" class="messages grow">
+		<!-- A log region announces new messages to screen readers, but only while chat is
+		     open: the floating overlay fires on every message of a busy room. -->
+		<div
+			ref="messages"
+			@scroll="onScroll"
+			class="messages grow"
+			role="log"
+			:aria-label="$t('chat.title')"
+			:aria-live="activated ? 'polite' : 'off'"
+			aria-relevant="additions"
+		>
 			<div class="grow"><!-- Spacer --></div>
 			<div v-if="activated && chatMessages.length === 0" class="chat-empty">
 				<p>{{ $t("chat.empty") }}</p>

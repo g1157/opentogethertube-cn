@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h } from "vue";
-import { QueueMode } from "ott-common/models/types";
+import { QueueMode, Role } from "ott-common/models/types";
 import { RoomRequestType } from "ott-common/models/messages";
 import type { QueueItem } from "ott-common/models/video";
 import VideoQueueItem from "@/components/VideoQueueItem.vue";
@@ -243,6 +243,112 @@ describe("VideoQueueItem component", () => {
 				request: { type: RoomRequestType.OrderRequest, fromIdx: 1, toIdx: 2 },
 			},
 		]);
+	});
+
+	it("moves a queued video one step up and down from the menu", async () => {
+		const { wrapper, store, connection } = mountItem({ isPreview: false, index: 1 });
+		store.commit("room/SYNC", { queueMode: QueueMode.Manual });
+		store.state.room.queue = [video, { ...video, id: "2" }, { ...video, id: "3" }];
+		await wrapper.vm.$nextTick();
+		await openMenu(wrapper);
+
+		(document.querySelector('[data-cy="menu-btn-move-up"]') as HTMLElement).click();
+		(document.querySelector('[data-cy="menu-btn-move-down"]') as HTMLElement).click();
+
+		expect(connection.sent).toEqual([
+			{
+				action: "req",
+				request: { type: RoomRequestType.OrderRequest, fromIdx: 1, toIdx: 0 },
+			},
+			{
+				action: "req",
+				request: { type: RoomRequestType.OrderRequest, fromIdx: 1, toIdx: 2 },
+			},
+		]);
+	});
+
+	it("disables the move that would leave the queue", async () => {
+		const queue = [video, { ...video, id: "2" }, { ...video, id: "3" }];
+
+		const first = mountItem({ isPreview: false, index: 0 });
+		first.store.commit("room/SYNC", { queueMode: QueueMode.Manual });
+		first.store.state.room.queue = queue;
+		await first.wrapper.vm.$nextTick();
+		await openMenu(first.wrapper);
+		expect(
+			(document.querySelector('[data-cy="menu-btn-move-up"]') as HTMLElement).className,
+		).toContain("v-list-item--disabled");
+		expect(
+			(document.querySelector('[data-cy="menu-btn-move-down"]') as HTMLElement).className,
+		).not.toContain("v-list-item--disabled");
+		document.querySelectorAll(".v-overlay-container").forEach(el => el.remove());
+
+		const last = mountItem({ isPreview: false, index: 2 });
+		last.store.commit("room/SYNC", { queueMode: QueueMode.Manual });
+		last.store.state.room.queue = queue;
+		await last.wrapper.vm.$nextTick();
+		await openMenu(last.wrapper);
+		expect(
+			(document.querySelector('[data-cy="menu-btn-move-up"]') as HTMLElement).className,
+		).not.toContain("v-list-item--disabled");
+		expect(
+			(document.querySelector('[data-cy="menu-btn-move-down"]') as HTMLElement).className,
+		).toContain("v-list-item--disabled");
+	});
+
+	it("reorders from the keyboard on the drag handle", async () => {
+		const { wrapper, store, connection } = mountItem({ isPreview: false, index: 1 });
+		store.commit("room/SYNC", { queueMode: QueueMode.Manual });
+		store.state.room.queue = [video, { ...video, id: "2" }, { ...video, id: "3" }];
+		await wrapper.vm.$nextTick();
+
+		const handle = wrapper.get(".drag-handle");
+		expect(handle.attributes("role")).toBe("button");
+		expect(handle.attributes("tabindex")).toBe("0");
+		expect(handle.attributes("aria-keyshortcuts")).toBe("Alt+ArrowUp Alt+ArrowDown");
+		expect(handle.attributes("aria-label")).toContain("2");
+
+		(handle.element as HTMLElement).focus();
+		await handle.trigger("keydown", { key: "ArrowUp", altKey: true });
+		await handle.trigger("keydown", { key: "ArrowDown", altKey: true });
+
+		expect(connection.sent).toEqual([
+			{
+				action: "req",
+				request: { type: RoomRequestType.OrderRequest, fromIdx: 1, toIdx: 0 },
+			},
+			{
+				action: "req",
+				request: { type: RoomRequestType.OrderRequest, fromIdx: 1, toIdx: 2 },
+			},
+		]);
+	});
+
+	it("ignores arrow keys without alt on the drag handle", async () => {
+		const { wrapper, store, connection } = mountItem({ isPreview: false, index: 1 });
+		store.commit("room/SYNC", { queueMode: QueueMode.Manual });
+		store.state.room.queue = [video, { ...video, id: "2" }, { ...video, id: "3" }];
+		await wrapper.vm.$nextTick();
+
+		await wrapper.get(".drag-handle").trigger("keydown", { key: "ArrowUp" });
+
+		expect(connection.sent).toEqual([]);
+	});
+
+	it("hides the reorder entries without the order permission", async () => {
+		const { wrapper, store } = mountItem({ isPreview: false, index: 1 });
+		store.commit("room/SYNC", { queueMode: QueueMode.Manual });
+		// The store treats a missing self as the room owner, who holds every grant.
+		store.commit("users/INIT_USERS", [
+			{ id: "guest", name: "guest", isLoggedIn: false, status: 1, role: Role.UnregisteredUser },
+		]);
+		store.commit("users/SET_YOU", { info: { id: "guest" } });
+		store.state.room.grants.setRoleGrants(Role.UnregisteredUser, []);
+		await wrapper.vm.$nextTick();
+		await openMenu(wrapper);
+
+		expect(document.querySelector('[data-cy="menu-btn-move-up"]')).toBeNull();
+		expect(document.querySelector('[data-cy="menu-btn-move-down"]')).toBeNull();
 	});
 
 	it("offers the series probe for direct previews and emits the URL", async () => {

@@ -48,15 +48,19 @@
 				</v-card>
 			</v-dialog>
 		</div>
+		<!-- Sortable renders each item as a direct child of this element, so it is the list.
+		     The wrapper above also holds the empty state and the queue controls. -->
 		<Sortable
 			:list="store.state.room.queue"
 			@move.capture="() => granted('manage-queue.order')"
 			@end="onQueueDragDrop"
 			:options="{ animation: 200, handle: '.drag-handle' }"
 			item-key="id"
+			role="list"
+			:aria-label="$t('video-queue.label')"
 		>
 			<template #item="{ element, index }">
-				<VideoQueueItem :key="element.id" :item="element" :index="index" />
+				<VideoQueueItem :key="element.id" :item="element" :index="index" role="listitem" />
 			</template>
 		</Sortable>
 	</div>

@@ -15,6 +15,17 @@
 						store.state.room.queueMode !== QueueMode.Vote &&
 						granted('manage-queue.order')
 					"
+					role="button"
+					tabindex="0"
+					:aria-label="
+						$t('video-queue-item.reorder', {
+							position: (index ?? 0) + 1,
+							total: store.state.room.queue.length,
+						})
+					"
+					aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+					@keydown.alt.up.prevent="moveUp"
+					@keydown.alt.down.prevent="moveDown"
 				>
 					<v-icon :icon="mdiFormatAlignJustify" />
 				</span>
@@ -163,6 +174,26 @@
 						</v-list-item>
 						<v-list-item
 							class="button-with-icon"
+							@click="moveUp"
+							v-if="canReorder"
+							:disabled="!canMoveUp"
+							data-cy="menu-btn-move-up"
+						>
+							<v-icon :icon="mdiArrowUpBold" />
+							<span>{{ $t("video-queue-item.move-up") }}</span>
+						</v-list-item>
+						<v-list-item
+							class="button-with-icon"
+							@click="moveDown"
+							v-if="canReorder"
+							:disabled="!canMoveDown"
+							data-cy="menu-btn-move-down"
+						>
+							<v-icon :icon="mdiArrowDownBold" />
+							<span>{{ $t("video-queue-item.move-down") }}</span>
+						</v-list-item>
+						<v-list-item
+							class="button-with-icon"
 							@click="moveToTop"
 							v-if="
 								!isPreview &&
@@ -243,6 +274,8 @@
 
 <script lang="ts" setup>
 import {
+	mdiArrowDownBold,
+	mdiArrowUpBold,
 	mdiFormatAlignJustify,
 	mdiThumbUp,
 	mdiPlay,
@@ -544,6 +577,36 @@ function playNow() {
 }
 
 /**
+ * Moves the video one position up the queue.
+ */
+function moveUp() {
+	const from = index.value ?? 0;
+	if (from > 0) {
+		roomapi.queueMove(from, from - 1);
+	}
+}
+
+/**
+ * Moves the video one position down the queue.
+ */
+function moveDown() {
+	const from = index.value ?? 0;
+	if (from < store.state.room.queue.length - 1) {
+		roomapi.queueMove(from, from + 1);
+	}
+}
+
+/** The drag handle is the pointer path to reordering; these are its keyboard twin. */
+const canReorder = computed(
+	() =>
+		!props.isPreview &&
+		store.state.room.queueMode !== QueueMode.Vote &&
+		granted("manage-queue.order"),
+);
+const canMoveUp = computed(() => (index.value ?? 0) > 0);
+const canMoveDown = computed(() => (index.value ?? 0) < store.state.room.queue.length - 1);
+
+/**
  * Moves the video to the top of the queue.
  */
 function moveToTop() {
@@ -691,6 +754,13 @@ watchEffect(() => {
 		cursor: move;
 
 		opacity: 0;
+
+		/* The handle is a tab stop: a keyboard user has to see where focus went. */
+		&:focus-visible {
+			opacity: 1;
+			outline: 2px solid #fff;
+			outline-offset: -6px;
+		}
 
 		transition: all 0.4s ease;
 

@@ -366,6 +366,35 @@ describe("Chat component", () => {
 		expect(wrapper.get(".text").text()).toContain("foo");
 	});
 
+	it("announces new messages only while chat is open", async () => {
+		const { wrapper } = mountComponent(Chat);
+		const log = wrapper.get(".messages");
+
+		expect(log.attributes("role")).toBe("log");
+		expect(log.attributes("aria-relevant")).toBe("additions");
+		expect(log.attributes("aria-label")).toBeTruthy();
+		// The floating overlay must not interrupt a screen reader on every message.
+		expect(log.attributes("aria-live")).toBe("off");
+
+		await wrapper.get('[data-cy="chat-activate"]').trigger("click");
+		await nextTick();
+
+		expect(wrapper.get(".messages").attributes("aria-live")).toBe("polite");
+	});
+
+	it("keeps the log region but stops announcing when chat closes", async () => {
+		const { wrapper } = mountComponent(Chat);
+		chatActions(wrapper).setActivated(true);
+		await nextTick();
+		expect(wrapper.get(".messages").attributes("aria-live")).toBe("polite");
+
+		await wrapper.get('[data-cy="chat-deactivate"]').trigger("click");
+		await nextTick();
+
+		expect(wrapper.get(".messages").attributes("aria-live")).toBe("off");
+		expect(wrapper.get(".messages").attributes("role")).toBe("log");
+	});
+
 	it("keeps the message list scrolled to the bottom when receiving messages", async () => {
 		const { wrapper, connection } = mountComponent(Chat);
 		await wrapper.get('[data-cy="chat-activate"]').trigger("click");

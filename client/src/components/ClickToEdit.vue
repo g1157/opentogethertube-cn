@@ -10,11 +10,22 @@
 				ref="editor"
 				v-model="valueDirty"
 				@keyup.enter="apply"
-				@keyup.esc="abort"
+				@keyup.esc="abortAndRestoreFocus"
 				@blur="abort"
 			/>
 		</div>
-		<div v-else @click="activate" class="editable" ref="display">
+		<!-- Button semantics on a div: the editor replaces this element, and a native
+		     button would change the inline layout the timestamp relies on. -->
+		<div
+			v-else
+			@click="activate"
+			@keydown="onDisplayKeydown"
+			@keyup="onDisplayKeyup"
+			class="editable"
+			ref="display"
+			role="button"
+			tabindex="0"
+		>
 			{{ typeof modelValue === "number" ? valueFormatter(modelValue) : modelValue }}
 		</div>
 	</div>
@@ -52,6 +63,24 @@ const valueDirty = ref("");
 const display: Ref<HTMLDivElement | undefined> = ref();
 const editorWidth = ref(120);
 
+/**
+ * Activation waits for keyup. Focusing the editor on keydown let the same Enter keyup land
+ * in the text field, whose own keyup.enter applies — closing the editor the user just opened.
+ */
+function onDisplayKeydown(e: KeyboardEvent) {
+	if (e.key === " " || e.key === "Spacebar") {
+		// A focused div scrolls the page on Space; a button must not.
+		e.preventDefault();
+	}
+}
+
+function onDisplayKeyup(e: KeyboardEvent) {
+	if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+		e.preventDefault();
+		void activate();
+	}
+}
+
 async function activate() {
 	if (display.value) {
 		editorWidth.value = display.value.offsetWidth + 24;
@@ -76,10 +105,22 @@ function apply() {
 	editing.value = false;
 	model.value = outValue;
 	emit("change", outValue);
+	void restoreDisplayFocus();
 }
 
 function abort() {
 	editing.value = false;
+}
+
+/** Escape is a keyboard exit, so the display takes focus back for the next Tab. */
+function abortAndRestoreFocus() {
+	abort();
+	void restoreDisplayFocus();
+}
+
+async function restoreDisplayFocus() {
+	await nextTick();
+	display.value?.focus();
 }
 </script>
 
@@ -92,5 +133,11 @@ function abort() {
 .editable {
 	cursor: pointer;
 	user-select: none;
+
+	&:focus-visible {
+		outline: 2px solid rgb(var(--v-theme-primary));
+		outline-offset: 2px;
+		border-radius: 3px;
+	}
 }
 </style>
