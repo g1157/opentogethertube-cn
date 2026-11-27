@@ -1,5 +1,5 @@
 <template>
-	<section class="room-list" :aria-busy="isLoading">
+	<section class="room-list" :aria-busy="isLoading || isLoadingMore">
 		<PageHeader :eyebrow="$t('room-list.browse-eyebrow')" :title="$t('nav.browse')">
 			<v-btn
 				v-if="rooms.length > 0"
@@ -12,6 +12,21 @@
 				{{ $t("room-list.create") }}
 			</v-btn>
 		</PageHeader>
+
+		<div v-if="rooms.length > 0" class="room-controls">
+			<label class="room-search">
+				<span>{{ $t("room-list.search") }}</span>
+				<input v-model="search" type="search" data-cy="rooms-search" />
+			</label>
+			<label class="room-sort">
+				<span>{{ $t("room-list.sort") }}</span>
+				<select v-model="sortOrder" data-cy="rooms-sort">
+					<option value="default">{{ $t("room-list.sort-default") }}</option>
+					<option value="name">{{ $t("room-list.sort-name") }}</option>
+					<option value="users">{{ $t("room-list.sort-users") }}</option>
+				</select>
+			</label>
+		</div>
 
 		<div
 			v-if="isLoading"
@@ -42,6 +57,14 @@
 			>
 				{{ $t("room-list.create") }}
 			</v-btn>
+		</div>
+		<div
+			v-else-if="displayRooms.length === 0"
+			class="list-state"
+			role="status"
+			data-cy="rooms-no-match"
+		>
+			<p>{{ $t("room-list.no-match") }}</p>
 		</div>
 		<ul v-else class="room-grid">
 			<li v-for="room in displayRooms" :key="room.name">
@@ -112,6 +135,23 @@
 				</router-link>
 			</li>
 		</ul>
+		<div
+			v-if="!isLoading && !loadFailed && rooms.length > 0 && hasMore"
+			class="room-pagination"
+		>
+			<p v-if="loadMoreFailed" role="alert" data-cy="rooms-load-more-error">
+				{{ $t("room-list.load-failed") }}
+			</p>
+			<v-btn
+				color="primary"
+				variant="outlined"
+				:loading="isLoadingMore"
+				data-cy="rooms-load-more"
+				@click="loadMoreRooms"
+			>
+				{{ $t(loadMoreFailed ? "common.retry" : "room-list.load-more") }}
+			</v-btn>
+		</div>
 	</section>
 </template>
 
@@ -138,9 +178,32 @@ import placeholderUrl from "@/assets/placeholder.svg";
 const isLoading = ref(false);
 const isCreating = ref(false);
 const loadFailed = ref(false);
+const isLoadingMore = ref(false);
+const loadMoreFailed = ref(false);
+const hasMore = ref(false);
+const nextOffset = ref(0);
+const search = ref("");
+const sortOrder = ref("default");
+const PAGE_SIZE = 24;
 const rooms = ref<RoomListItem[]>([]);
 const store = useStore();
-const displayRooms = computed(() => rooms.value.map(toRoomCard));
+const displayRooms = computed(() => {
+	const query = search.value.trim().toLocaleLowerCase();
+	const filtered = rooms.value.filter(
+		room =>
+			!query ||
+			room.name.toLocaleLowerCase().includes(query) ||
+			room.title?.toLocaleLowerCase().includes(query),
+	);
+	if (sortOrder.value !== "default") {
+		filtered.sort(
+			(a, b) =>
+				(sortOrder.value === "users" ? b.users - a.users : 0) ||
+				a.name.localeCompare(b.name),
+		);
+	}
+	return filtered.map(toRoomCard);
+});
 
 function toRoomCard(room: RoomListItem) {
 	return { ...room, videoTitle: nowPlayingDetails(room.currentSource).title };
@@ -155,15 +218,41 @@ async function loadRooms() {
 	isLoading.value = true;
 	loadFailed.value = false;
 	try {
-		const result = await API.get<RoomListItem[]>("/room/list");
+		const result = await API.get<RoomListItem[]>("/room/list", {
+			params: { limit: PAGE_SIZE, offset: 0 },
+		});
 		if (!Array.isArray(result.data)) {
 			throw new Error("Invalid room list response");
 		}
 		rooms.value = result.data;
+		nextOffset.value = result.data.length;
+		hasMore.value = result.data.length >= PAGE_SIZE;
+		loadMoreFailed.value = false;
 	} catch {
 		loadFailed.value = true;
 	} finally {
 		isLoading.value = false;
+	}
+}
+
+async function loadMoreRooms() {
+	if (isLoading.value || isLoadingMore.value || !hasMore.value) return;
+	isLoadingMore.value = true;
+	loadMoreFailed.value = false;
+	try {
+		const result = await API.get<RoomListItem[]>("/room/list", {
+			params: { limit: PAGE_SIZE, offset: nextOffset.value },
+		});
+		if (!Array.isArray(result.data)) throw new Error("Invalid room list response");
+		const merged = new Map(rooms.value.map(room => [room.name.toLowerCase(), room]));
+		for (const room of result.data) merged.set(room.name.toLowerCase(), room);
+		rooms.value = [...merged.values()];
+		nextOffset.value += result.data.length;
+		hasMore.value = result.data.length >= PAGE_SIZE;
+	} catch {
+		loadMoreFailed.value = true;
+	} finally {
+		isLoadingMore.value = false;
 	}
 }
 
@@ -187,6 +276,47 @@ async function createRoom() {
 	width: min(100%, 76rem);
 	margin-inline: auto;
 	padding: clamp(1.5rem, 4vw, 3rem) clamp(1rem, 3vw, 1.5rem) 3rem;
+}
+.room-controls {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1rem;
+	margin-bottom: 1.5rem;
+}
+.room-controls label {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	color: var(--muted-foreground);
+	font-size: 0.875rem;
+}
+.room-search {
+	flex: 1 1 16rem;
+}
+.room-sort {
+	flex: 1 1 12rem;
+}
+.room-controls input,
+.room-controls select {
+	width: 100%;
+	min-height: 2.75rem;
+	border: 1px solid var(--line-strong);
+	border-radius: 0.5rem;
+	padding: 0.6rem 0.75rem;
+	background: var(--card);
+	color: var(--foreground);
+}
+.room-controls input:focus-visible,
+.room-controls select:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+}
+.room-pagination {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 1rem;
+	margin-top: 1.5rem;
 }
 .list-state {
 	display: flex;

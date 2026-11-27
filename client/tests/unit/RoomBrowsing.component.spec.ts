@@ -69,7 +69,9 @@ describe("Room browsing", () => {
 		await wrapper.get('[data-cy="rooms-load-error"] button').trigger("click");
 		await flushPromises();
 
-		expect(API.get).toHaveBeenNthCalledWith(2, "/room/list");
+		expect(API.get).toHaveBeenNthCalledWith(2, "/room/list", {
+			params: { limit: 24, offset: 0 },
+		});
 		expect(wrapper.find('[data-cy="rooms-load-error"]').exists()).toBe(false);
 		expect(wrapper.findAll('[data-cy="room-card"]')).toHaveLength(1);
 	});
@@ -156,6 +158,72 @@ describe("Room browsing", () => {
 
 		expect(wrapper.find('[data-cy="rooms-empty"]').exists()).toBe(true);
 		expect(wrapper.find('[data-cy="rooms-load-error"]').exists()).toBe(false);
+	});
+
+	it("filters by name and title, sorts, and loads the next page without losing the filter", async () => {
+		const firstPage = Array.from({ length: 24 }, (_, index) =>
+			room({
+				name: `room-${String(index).padStart(2, "0")}`,
+				title: index === 2 ? "Cinema Night" : `Screening ${index}`,
+				users: index,
+			}),
+		);
+		API.get.mockResolvedValueOnce({ data: firstPage }).mockResolvedValueOnce({
+			data: [room({ name: "after-hours", title: "Cinema Late", users: 30 })],
+		});
+		const { wrapper } = mountComponent(RoomList);
+		await flushPromises();
+		expect(API.get).toHaveBeenNthCalledWith(1, "/room/list", {
+			params: { limit: 24, offset: 0 },
+		});
+		await wrapper.get('[data-cy="rooms-search"]').setValue(" ROOM-03 ");
+		expect(wrapper.findAll('[data-cy="room-card"]')).toHaveLength(1);
+		await wrapper.get('[data-cy="rooms-search"]').setValue("cinema");
+		expect(wrapper.get('[data-cy="room-card"] .room-title').text()).toBe("Cinema Night");
+		await wrapper.get('[data-cy="rooms-search"]').setValue("no-match");
+		expect(wrapper.find('[data-cy="rooms-no-match"]').exists()).toBe(true);
+		expect(wrapper.find('[data-cy="rooms-empty"]').exists()).toBe(false);
+		expect(wrapper.find('[data-cy="rooms-load-more"]').exists()).toBe(true);
+		await wrapper.get('[data-cy="rooms-search"]').setValue("cinema");
+		await wrapper.get('[data-cy="rooms-load-more"]').trigger("click");
+		await flushPromises();
+		expect(API.get).toHaveBeenNthCalledWith(2, "/room/list", {
+			params: { limit: 24, offset: 24 },
+		});
+		expect(wrapper.findAll('[data-cy="room-card"]')).toHaveLength(2);
+		expect(wrapper.find('[data-cy="rooms-load-more"]').exists()).toBe(false);
+		await wrapper.get('[data-cy="rooms-sort"]').setValue("users");
+		expect(wrapper.findAll('[data-cy="room-card"]')[0].get(".room-title").text()).toBe(
+			"Cinema Late",
+		);
+		await wrapper.get('[data-cy="rooms-search"]').setValue("");
+		expect(wrapper.findAll('[data-cy="room-card"]')).toHaveLength(25);
+		await wrapper.get('[data-cy="rooms-sort"]').setValue("name");
+		expect(wrapper.findAll('[data-cy="room-card"]')[0].attributes("href")).toBe(
+			"/room/after-hours",
+		);
+	});
+
+	it("keeps loaded cards and retries the same offset after a load-more failure", async () => {
+		const firstPage = Array.from({ length: 24 }, (_, index) => room({ name: `page-${index}` }));
+		API.get
+			.mockResolvedValueOnce({ data: firstPage })
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockResolvedValueOnce({ data: [firstPage[0], room({ name: "next-page" })] });
+		const { wrapper } = mountComponent(RoomList);
+		await flushPromises();
+		await wrapper.get('[data-cy="rooms-load-more"]').trigger("click");
+		await flushPromises();
+		expect(wrapper.findAll('[data-cy="room-card"]')).toHaveLength(24);
+		expect(wrapper.find('[data-cy="rooms-load-more-error"]').exists()).toBe(true);
+		expect(wrapper.find('[data-cy="rooms-load-error"]').exists()).toBe(false);
+		await wrapper.get('[data-cy="rooms-load-more"]').trigger("click");
+		await flushPromises();
+		expect(API.get).toHaveBeenNthCalledWith(3, "/room/list", {
+			params: { limit: 24, offset: 24 },
+		});
+		expect(wrapper.findAll('[data-cy="room-card"]')).toHaveLength(25);
+		expect(wrapper.find('[data-cy="rooms-load-more-error"]').exists()).toBe(false);
 	});
 
 	it.each([

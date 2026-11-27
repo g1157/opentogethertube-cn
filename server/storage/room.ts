@@ -11,8 +11,89 @@ import { deleteAllNotes } from "./roomnote.js";
 
 const log = getLogger("storage/room");
 
+export const ROOM_LIST_DEFAULT_LIMIT = 200;
+export const ROOM_LIST_MAX_LIMIT = 200;
+const ROOM_LIST_CACHE_TTL = 5000;
+const ROOM_LIST_CACHE_MAX_ENTRIES = 128;
+
+type RoomListCache = {
+	generation: number;
+	entries: Map<string, { expiresAt: number; rooms: RoomListItem[] }>;
+};
+const roomListCaches = new WeakMap<Sequelize.Sequelize, RoomListCache>();
+
+export function normalizeRoomListPagination(limit = ROOM_LIST_DEFAULT_LIMIT, offset = 0) {
+	return {
+		limit: Number.isFinite(limit)
+			? Math.min(ROOM_LIST_MAX_LIMIT, Math.max(1, Math.floor(limit)))
+			: ROOM_LIST_DEFAULT_LIMIT,
+		offset: Number.isFinite(offset)
+			? Math.min(
+					Number.MAX_SAFE_INTEGER - ROOM_LIST_MAX_LIMIT,
+					Math.max(0, Math.floor(offset)),
+			  )
+			: 0,
+	};
+}
+
+function getRoomListCache(): RoomListCache {
+	const connection = DbRoomModel.sequelize!;
+	let cache = roomListCaches.get(connection);
+	if (!cache) {
+		cache = { generation: 0, entries: new Map() };
+		roomListCaches.set(connection, cache);
+		const invalidate = () => {
+			cache!.generation++;
+			cache!.entries.clear();
+		};
+		// Invalidate even for writes made outside this storage module (password/visibility changes).
+		for (const hook of [
+			"afterSave",
+			"afterDestroy",
+			"afterBulkCreate",
+			"afterBulkUpdate",
+			"afterBulkDestroy",
+		] as const) {
+			DbRoomModel.addHook(hook, "invalidateRoomList", invalidate);
+		}
+	}
+	return cache;
+}
+
 /** List saved rooms without loading them or making unlisted rooms public. */
-export async function getPermanentRoomList(includeUnlisted = false): Promise<RoomListItem[]> {
+export async function getPermanentRoomList(
+	includeUnlisted = false,
+	limit = ROOM_LIST_DEFAULT_LIMIT,
+	offset = 0,
+): Promise<RoomListItem[]> {
+	({ limit, offset } = normalizeRoomListPagination(limit, offset));
+	const cache = getRoomListCache();
+	const key = `${!!includeUnlisted}:${limit}:${offset}`;
+	const now = Date.now();
+	const cached = cache.entries.get(key);
+	if (cached && cached.expiresAt > now) {
+		// Callers merge live rooms into this array; never let them mutate the cache.
+		return structuredClone(cached.rooms);
+	}
+	for (const [key, entry] of cache.entries) {
+		if (entry.expiresAt <= now) cache.entries.delete(key);
+	}
+	const generation = cache.generation;
+	const dialect = DbRoomModel.sequelize!.getDialect();
+	const firstSource =
+		dialect === "postgres"
+			? Sequelize.literal('"prevQueue"->0')
+			: dialect === "sqlite" || dialect === "mysql" || dialect === "mariadb"
+			? Sequelize.fn("json_extract", Sequelize.col("prevQueue"), Sequelize.literal("'$[0]'"))
+			: null;
+	// Room names are ASCII. Match the API's case-sensitive name ordering even on
+	// PostgreSQL/MySQL installations whose default collation ignores case/punctuation.
+	const nameOrder =
+		dialect === "postgres"
+			? Sequelize.literal('"name" COLLATE "C"')
+			: dialect === "mysql" || dialect === "mariadb"
+			? Sequelize.literal("BINARY `name`")
+			: "name";
 	const rooms = await DbRoomModel.findAll({
 		where: includeUnlisted ? {} : { visibility: Visibility.Public },
 		attributes: [
@@ -21,22 +102,40 @@ export async function getPermanentRoomList(includeUnlisted = false): Promise<Roo
 			"description",
 			"visibility",
 			"queueMode",
-			"prevQueue",
+			firstSource ? [firstSource, "listCurrentSource"] : "prevQueue",
 			"passwordHash",
 		],
+		order: [
+			[nameOrder, "ASC"],
+			["id", "ASC"],
+		],
+		limit,
+		offset,
 	});
-	return rooms.map(room => ({
-		name: room.name,
-		title: room.title,
-		description: room.description,
-		visibility: room.visibility,
-		queueMode: room.queueMode,
-		isTemporary: false,
-		currentSource: room.prevQueue?.[0] ?? null,
-		users: 0,
-		// Only the boolean leaves storage; the hash itself stays in the row.
-		hasPassword: !!room.passwordHash,
-	}));
+	const result = rooms.map(room => {
+		const source = firstSource ? room.get("listCurrentSource") : room.prevQueue?.[0];
+		return {
+			name: room.name,
+			title: room.title,
+			description: room.description,
+			visibility: room.visibility,
+			queueMode: room.queueMode,
+			isTemporary: false,
+			// SQLite returns JSON text for an extracted object; PostgreSQL returns an object.
+			currentSource: (typeof source === "string" ? JSON.parse(source) : source) ?? null,
+			users: 0,
+			// Only the boolean leaves storage; the hash itself stays in the row.
+			hasPassword: !!room.passwordHash,
+		} satisfies RoomListItem;
+	});
+	// A write racing this read must not resurrect a stale public/privileged entry.
+	if (cache.generation === generation) {
+		if (cache.entries.size >= ROOM_LIST_CACHE_MAX_ENTRIES) {
+			cache.entries.delete(cache.entries.keys().next().value);
+		}
+		cache.entries.set(key, { expiresAt: Date.now() + ROOM_LIST_CACHE_TTL, rooms: result });
+	}
+	return structuredClone(result);
 }
 
 function buildFindRoomWhere(roomName: string) {

@@ -21,6 +21,11 @@ import {
 	type UpdateQueueItemRequest,
 } from "ott-common/models/messages.js";
 import storage from "../storage.js";
+import {
+	normalizeRoomListPagination,
+	ROOM_LIST_DEFAULT_LIMIT,
+	ROOM_LIST_MAX_LIMIT,
+} from "../storage/room.js";
 import { Grants } from "ott-common/permissions.js";
 import type {
 	OttApiRequestAddToQueue,
@@ -84,15 +89,50 @@ router.get("/list", async (req, res, next) => {
 		});
 		return;
 	}
-	let rooms: RoomListItem[];
+	const parsePagination = (value: unknown, fallback: number): number | null => {
+		if (value === undefined) return fallback;
+		if (typeof value !== "string" || !/^-?\d+$/.test(value)) return null;
+		const number = Number(value);
+		return Number.isSafeInteger(number) ? number : null;
+	};
+	const requestedLimit = parsePagination(req.query.limit, ROOM_LIST_DEFAULT_LIMIT);
+	const requestedOffset = parsePagination(req.query.offset, 0);
+	if (requestedLimit === null || requestedOffset === null) {
+		res.status(400).json({ success: false, error: "limit and offset must be integers" });
+		return;
+	}
+	const { limit, offset } = normalizeRoomListPagination(requestedLimit, requestedOffset);
+	let rooms: RoomListItem[] = [];
+	const loadedNames = new Set(roommanager.rooms.map(room => room.name.toLowerCase()));
 	try {
-		rooms = await storage.getPermanentRoomList(isAuthorized);
+		if (loadedNames.size === 0) {
+			rooms = await storage.getPermanentRoomList(isAuthorized, limit, offset);
+		} else {
+			// Saved rooms have zero viewers. Read only the prefix needed for the final
+			// users-desc/name-asc page, skipping saved copies of live rooms.
+			const activeCount = roommanager.rooms.filter(
+				room =>
+					(room.visibility === Visibility.Public || isAuthorized) &&
+					room.users.length > 0,
+			).length;
+			const needed = Math.max(0, offset + limit - activeCount);
+			let savedOffset = 0;
+			while (rooms.length < needed) {
+				const batchLimit = Math.min(ROOM_LIST_MAX_LIMIT, needed - rooms.length);
+				const batch = await storage.getPermanentRoomList(
+					isAuthorized,
+					batchLimit,
+					savedOffset,
+				);
+				rooms.push(...batch.filter(room => !loadedNames.has(room.name.toLowerCase())));
+				savedOffset += batch.length;
+				if (batch.length < batchLimit) break;
+			}
+		}
 	} catch (error) {
 		next(error);
 		return;
 	}
-	const loadedNames = new Set(roommanager.rooms.map(room => room.name.toLowerCase()));
-	rooms = rooms.filter(room => !loadedNames.has(room.name.toLowerCase()));
 	for (const room of roommanager.rooms) {
 		if (room.visibility !== Visibility.Public && !isAuthorized) {
 			continue;
@@ -115,7 +155,7 @@ router.get("/list", async (req, res, next) => {
 		rooms = rooms.map(room => (room.hasPassword ? { ...room, currentSource: null } : room));
 	}
 	rooms = _.orderBy(rooms, ["users", "name"], ["desc", "asc"]);
-	res.json(rooms);
+	res.json(loadedNames.size === 0 ? rooms : rooms.slice(offset, offset + limit));
 });
 
 const generateRoom: RequestHandler<unknown, OttResponseBody<OttApiResponseRoomGenerate>> = async (
