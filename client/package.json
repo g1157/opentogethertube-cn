@@ -8,7 +8,8 @@
 		"build": "vite build",
 		"lint": "tsc --noEmit && eslint --cache --ext .js,.ts,.vue --fix .",
 		"i18n:report": "vue-cli-service i18n:report --src \"./src/**/*.?(js|vue)\" --locales \"./src/locales/**/*.json\"",
-		"lint-ci": "tsc --noEmit && eslint --cache .",
+		"lint-ci": "tsc --noEmit && eslint --cache . && node scripts/check-contrast.mjs",
+		"check:contrast": "node scripts/check-contrast.mjs",
 		"test": "NODE_ENV=test vitest run --coverage",
 		"test:component": "NODE_ENV=test vitest run tests/unit/*.component.spec.ts",
 		"cy:run": "yarn test:component"
