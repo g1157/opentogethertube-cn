@@ -1,7 +1,21 @@
 <template>
-	<v-icon :icon="volumeIcon" @click="toggleMute" />
+	<v-btn
+		icon
+		variant="text"
+		size="small"
+		class="media-control"
+		:aria-label="muteLabel"
+		@click="toggleMute"
+		data-cy="volume-toggle"
+	>
+		<v-icon :icon="volumeIcon" />
+		<v-tooltip activator="parent" location="bottom" :disabled="!canHover">
+			<span>{{ muteLabel }}</span>
+		</v-tooltip>
+	</v-btn>
 	<div class="volume">
 		<vue-slider
+			ref="slider"
 			:model-value="volume.volume.value"
 			@update:model-value="changed"
 			:tooltip-placement="'bottom'"
@@ -29,15 +43,34 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import { useMediaQuery } from "@vueuse/core";
 import VueSlider from "vue-slider-component";
 import "vue-slider-component/theme/default.css";
+import { useI18n } from "vue-i18n";
 import { useVolume } from "../composables";
+import { useSliderHandleAttrs } from "./slider-a11y";
 import { mdiVolumeHigh, mdiVolumeMedium, mdiVolumeLow, mdiVolumeOff } from "@mdi/js";
 
 const emit = defineEmits(["update:volume"]);
 
+const { t } = useI18n();
 const volume = useVolume();
+const slider = ref<{ $el?: HTMLElement } | null>(null);
+const canHover = useMediaQuery("(hover: hover) and (pointer: fine)");
+
+/** The button announces what it will do, so mute and unmute must not share a name. */
+const muteLabel = computed(() =>
+	volume.isMuted.value ? t("player.volume-unmute") : t("player.volume-mute"),
+);
+
+// The slider's handle carries its own `role="slider"`; name it and give it the value in
+// words, the same way the progress bar labels its handle.
+useSliderHandleAttrs(slider, () => ({
+	"aria-label": t("player.volume"),
+	"aria-valuetext": `${Math.round(volume.volume.value)}%`,
+}));
+
 const volumeIcon = computed(() => {
 	const volumeLevel = volume.volume.value;
 	if (volume.isMuted.value || volumeLevel === 0) {
@@ -64,6 +97,7 @@ function toggleMute() {
 </script>
 
 <style lang="scss" scoped>
+@use "./media-controls.scss";
 @use "../../variables.scss";
 
 .volume {

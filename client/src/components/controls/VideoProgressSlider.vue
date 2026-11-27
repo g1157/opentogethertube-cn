@@ -33,7 +33,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, type Ref, onMounted, onUpdated, computed, inject, nextTick } from "vue";
+import { ref, type Ref, onMounted, onUpdated, computed, inject } from "vue";
 import VueSlider from "vue-slider-component";
 import { useStore } from "@/store";
 import { secondsToTimestamp } from "@/util/timestamp";
@@ -45,6 +45,7 @@ import { useI18n } from "vue-i18n";
 import "vue-slider-component/theme/default.css";
 import "./slider-tweaks.scss";
 import { useGrants } from "../composables/grants";
+import { useSliderHandleAttrs } from "./slider-a11y";
 
 withDefaults(
 	defineProps<{
@@ -62,21 +63,14 @@ const actions = inject(PlayerActionsKey, undefined);
 
 /**
  * vue-slider renders its own `role="slider"` handle and forwards no label to it, so a
- * screen reader announces an unnamed slider. The library has no prop for it, so the
- * attribute is set on the handle once it exists.
+ * screen reader announces an unnamed slider. The shared helper sets the name when the
+ * handle exists and on a language switch — not on every progress tick, which used to
+ * query the DOM four times a second while a room played.
  */
 const slider = ref<{ $el?: HTMLElement } | null>(null);
 const { t } = useI18n();
 
-function labelSliderHandle(): void {
-	const handle = slider.value?.$el?.querySelector?.(".vue-slider-dot");
-	if (handle && !handle.getAttribute("aria-label")) {
-		handle.setAttribute("aria-label", t("player.progress"));
-	}
-}
-
-onMounted(() => nextTick(labelSliderHandle));
-onUpdated(labelSliderHandle);
+useSliderHandleAttrs(slider, () => ({ "aria-label": t("player.progress") }));
 
 /** The length the slider runs on: the server's value, or the locally measured duration when
  * the source's metadata probe failed (see resolveVideoLength). */

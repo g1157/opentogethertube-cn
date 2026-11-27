@@ -39,6 +39,7 @@
 													:loading="isLoading"
 													:label="$t('login-form.email-or-username')"
 													required
+													autocomplete="username"
 													v-model="emailOrUsername"
 													:error-messages="logInFailureMessage"
 													data-cy="login-user"
@@ -48,6 +49,7 @@
 													:label="$t('login-form.password')"
 													type="password"
 													required
+													autocomplete="current-password"
 													v-model="password"
 													:error-messages="logInFailureMessage"
 													data-cy="login-password"
@@ -97,6 +99,9 @@
 										<v-text-field
 											:loading="isLoading"
 											:label="$t('login-form.email')"
+											type="email"
+											inputmode="email"
+											autocomplete="email"
 											required
 											v-model="email"
 											:error-messages="registerFieldErrors.email"
@@ -106,6 +111,7 @@
 										<v-text-field
 											:loading="isLoading"
 											:label="$t('login-form.username')"
+											autocomplete="username"
 											required
 											v-model="username"
 											:error-messages="registerFieldErrors.username"
@@ -115,6 +121,7 @@
 											:loading="isLoading"
 											:label="$t('login-form.password')"
 											type="password"
+											autocomplete="new-password"
 											required
 											v-model="password"
 											:error-messages="registerFieldErrors.password"
@@ -125,6 +132,7 @@
 											:loading="isLoading"
 											:label="$t('login-form.retype-password')"
 											type="password"
+											autocomplete="new-password"
 											required
 											v-model="password2"
 											:error-messages="registerFieldErrors.password2"

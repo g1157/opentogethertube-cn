@@ -72,6 +72,8 @@
 								:variant="voiceJoined && !voiceMuted ? 'flat' : 'plain'"
 								size="small"
 								density="comfortable"
+								:aria-label="voiceToggleLabel"
+								:aria-pressed="voiceJoined ? voiceMuted : undefined"
 								:data-cy="voiceJoined ? 'voice-mute' : 'voice-join'"
 								@click="voiceJoined ? toggleVoiceMute() : joinVoice()"
 							>
@@ -83,13 +85,7 @@
 									"
 								/>
 								<v-tooltip activator="parent" location="top">
-									{{
-										voiceJoined && voiceMuted
-											? $t("room.voice-unmute")
-											: voiceJoined
-											? $t("room.voice-mute")
-											: $t("room.voice-join")
-									}}
+									{{ voiceToggleLabel }}
 								</v-tooltip>
 							</v-btn>
 							<template v-if="!voiceBarCollapsed">
@@ -98,6 +94,7 @@
 									variant="plain"
 									size="small"
 									density="comfortable"
+									:aria-label="$t('room.voice-leave')"
 									data-cy="voice-leave"
 									@click="leaveVoice()"
 								>
@@ -522,7 +519,7 @@ import {
 } from "vue";
 import AddPreview from "@/components/AddPreview.vue";
 import { calculateCurrentPosition } from "ott-common/timestamp";
-import _ from "lodash";
+import clamp from "lodash/clamp";
 import OmniPlayer from "@/components/players/OmniPlayer.vue";
 import Chat from "@/components/Chat.vue";
 import UserList from "@/components/UserList.vue";
@@ -692,6 +689,14 @@ export default defineComponent({
 			leave: leaveVoice,
 			toggleMute: toggleVoiceMute,
 		} = useVoice();
+
+		/** The icons carry no text, so the button's name has to say what it will do. */
+		const voiceToggleLabel = computed(() => {
+			if (!voiceJoined.value) {
+				return t("room.voice-join");
+			}
+			return voiceMuted.value ? t("room.voice-unmute") : t("room.voice-mute");
+		});
 
 		type VoiceStatusDisplay = {
 			text: string;
@@ -1460,7 +1465,7 @@ export default defineComponent({
 			// interval later, and the room position would be off by the step until then.
 			getServerClockOffsetMs();
 			truePosition.value = roomPosition();
-			sliderPosition.value = _.clamp(
+			sliderPosition.value = clamp(
 				pendingSeekTarget.value ?? truePosition.value,
 				0,
 				resolveVideoLength(
@@ -1843,7 +1848,7 @@ export default defineComponent({
 				// Stack from the pending target: a burst of presses inside one round trip used
 				// to recompute from the same stale room position and collapse into one step.
 				const base = pendingSeekTarget.value ?? truePosition.value;
-				requestRoomSeek(_.clamp(base + delta, bounds.start, bounds.end));
+				requestRoomSeek(clamp(base + delta, bounds.start, bounds.end));
 			}
 		}
 
@@ -1868,7 +1873,7 @@ export default defineComponent({
 			playbackPreparation.cancel();
 			clearPendingLocalSeek();
 			pendingLocalSeek.value = true;
-			const target = _.clamp(position, bounds.start, bounds.end);
+			const target = clamp(position, bounds.start, bounds.end);
 			pendingSeekTarget.value = target;
 			// Freeze this browser before the WebSocket round trip. Native players keep the
 			// hold until the authoritative target has enough data to resume.
@@ -2402,7 +2407,7 @@ export default defineComponent({
 				{ code: "ArrowDown", repeat: true },
 			],
 			(e: KeyboardEvent) => {
-				volume.volume.value = _.clamp(
+				volume.volume.value = clamp(
 					volume.volume.value + 5 * (e.code === "ArrowDown" ? -1 : 1),
 					0,
 					100,
@@ -2565,6 +2570,7 @@ export default defineComponent({
 			voiceAvailable,
 			voiceJoined,
 			voiceMuted,
+			voiceToggleLabel,
 			voiceSpeaking,
 			voiceParticipants,
 			voiceRelay,

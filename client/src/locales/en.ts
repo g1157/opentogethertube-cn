@@ -610,6 +610,7 @@ export default {
 		"link-hint": "Click to copy this link to the add tab.",
 	},
 	"video-queue": {
+		label: "Video queue",
 		"no-videos": "Nothing is up next. The video playing now is shown above the player.",
 		"add-video": "Add a video",
 		shuffle: "Shuffle the queue",
@@ -630,6 +631,9 @@ export default {
 			"Removing a queue item needs a registered account, or the room owner's permission.",
 		"play-next": "Play Next",
 		"play-last": "Play Last",
+		"move-up": "Move up",
+		"move-down": "Move down",
+		"reorder": "Reorder: item {position} of {total}. Alt+Arrow Up or Alt+Arrow Down moves it.",
 		"probe-series": "Find episodes in this series",
 		messages: {
 			"video-added": "Video added",
@@ -993,6 +997,9 @@ export default {
 	player: {
 		"now-playing": "Now playing",
 		progress: "Playback position",
+		volume: "Volume",
+		"volume-mute": "Mute",
+		"volume-unmute": "Unmute",
 		settings: {
 			disabled: "Unavailable",
 			unknown: "Unknown",

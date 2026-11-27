@@ -590,6 +590,7 @@ export default {
 		"link-hint": "点击复制此链接到添加标签页。",
 	},
 	"video-queue": {
+		label: "视频队列",
 		"no-videos": "还没有待播视频。正在播放的视频显示在播放器上方。",
 		"add-video": "添加视频",
 		shuffle: "随机排序队列",
@@ -607,6 +608,9 @@ export default {
 		"remove-needs-account": "移除队列项需要登录账号，或由房主移除。",
 		"play-next": "下一个播放",
 		"play-last": "最后播放",
+		"move-up": "上移一项",
+		"move-down": "下移一项",
+		"reorder": "排序手柄：第 {position} 项，共 {total} 项。按 Alt+↑ 或 Alt+↓ 移动。",
 		"probe-series": "探测同剧集",
 		messages: {
 			"video-added": "视频已添加",
@@ -947,6 +951,9 @@ export default {
 	player: {
 		"now-playing": "正在播放",
 		progress: "播放进度",
+		volume: "音量",
+		"volume-mute": "静音",
+		"volume-unmute": "取消静音",
 		settings: {
 			disabled: "不可用",
 			unknown: "未知",

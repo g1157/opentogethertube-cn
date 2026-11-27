@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ref } from "vue";
+import { ref, nextTick } from "vue";
 import BasicControls from "@/components/controls/BasicControls.vue";
 import Room from "@/views/Room.vue";
 import { PlayerActionsKey } from "@/util/player-actions";
 import { Role } from "ott-common/models/types";
-import { mountComponent } from "./component-test-utils";
+import { flush, mountComponent } from "./component-test-utils";
 
 /**
  * The rewind/skip buttons, the arrow keys and the swipe gesture have to agree on one
@@ -119,5 +119,117 @@ describe("room tab names", () => {
 		expect(names).toContain("队列");
 		expect(names).toContain("添加");
 		expect(names).toContain("设置");
+	});
+});
+
+/**
+ * The voice bar's join/mute and leave buttons were icon-only and carried their text as a
+ * tooltip, which is not an accessible name: axe reported both as unnamed buttons. Mute
+ * and unmute also have to be told apart, and the pressed state reported.
+ */
+describe("room voice button names", () => {
+	beforeEach(() => {
+		const saved = new Map<string, string>();
+		vi.stubGlobal("localStorage", {
+			getItem: (key: string) => saved.get(key) ?? null,
+			setItem: (key: string, value: string) => saved.set(key, String(value)),
+			removeItem: (key: string) => saved.delete(key),
+			clear: () => saved.clear(),
+			key: (index: number) => Array.from(saved.keys())[index] ?? null,
+			get length() {
+				return saved.size;
+			},
+		});
+		localStorage.setItem("token", "component-test-token");
+		vi.stubGlobal("matchMedia", () => ({
+			matches: false,
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+		}));
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	function stubMicrophone() {
+		const track = { enabled: true, stop: vi.fn() };
+		vi.stubGlobal("navigator", {
+			...navigator,
+			mediaDevices: {
+				getUserMedia: vi.fn().mockResolvedValue({
+					getTracks: () => [track],
+					getAudioTracks: () => [track],
+				}),
+			},
+		});
+		vi.stubGlobal(
+			"AudioContext",
+			class {
+				createMediaStreamSource() {
+					return { connect: () => undefined };
+				}
+				createAnalyser() {
+					return { fftSize: 0, getFloatTimeDomainData: () => undefined };
+				}
+				close() {
+					return Promise.resolve();
+				}
+			},
+		);
+	}
+
+	it("names join, mute and leave, and reports the mute state", async () => {
+		stubMicrophone();
+		const { wrapper, connection } = mountComponent(Room, {
+			global: {
+				stubs: {
+					OmniPlayer: true,
+					VideoQueue: true,
+					AddPreview: true,
+					UserList: true,
+					RoomSettingsForm: true,
+					ShareInvite: true,
+					ClientSettingsDialog: true,
+					RoomDisconnected: true,
+					ServerMessageHandler: true,
+					WorkaroundPlaybackStatusUpdater: true,
+					WorkaroundUserStateNotifier: true,
+					RestoreQueue: true,
+					VoteSkip: true,
+				},
+			},
+		});
+		connection.mockReceive({
+			action: "voice",
+			participants: [],
+			iceServers: [],
+			relay: true,
+		});
+		await nextTick();
+
+		const join = wrapper.get('[data-cy="voice-join"]');
+		expect(join.attributes("aria-label")).toBe("加入语音");
+		expect(join.attributes("aria-pressed")).toBeUndefined();
+
+		await join.trigger("click");
+		await flush();
+		await nextTick();
+
+		const mute = wrapper.get('[data-cy="voice-mute"]');
+		expect(mute.attributes("aria-label")).toBe("静音");
+		expect(mute.attributes("aria-pressed")).toBe("false");
+
+		await mute.trigger("click");
+		await nextTick();
+
+		const unmute = wrapper.get('[data-cy="voice-mute"]');
+		expect(unmute.attributes("aria-label")).toBe("取消静音");
+		expect(unmute.attributes("aria-pressed")).toBe("true");
+		expect(wrapper.get('[data-cy="voice-leave"]').attributes("aria-label")).toBe(
+			"退出语音",
+		);
 	});
 });

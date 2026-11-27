@@ -72,14 +72,15 @@
 						/>
 					</div>
 				</v-expand-transition>
-				<div :key="error">{{ error }}</div>
+				<v-alert v-if="error" type="error" variant="tonal" density="compact" role="alert">
+					{{ error }}
+				</v-alert>
 			</v-card-text>
 			<v-card-actions>
 				<v-spacer />
 				<v-btn
+					type="submit"
 					variant="text"
-					@click="submit"
-					role="Submit"
 					:loading="isSubmitting"
 					:disabled="!isFormValid"
 					color="primary"
