@@ -1,10 +1,29 @@
 <template>
-	<v-container>
+	<v-container :aria-busy="isLoading">
 		<v-row v-if="isLoading" justify="center">
 			<v-col cols="12" class="text-center">
 				<v-progress-circular indeterminate />
 			</v-col>
 		</v-row>
+
+		<div
+			v-else-if="loadFailed"
+			class="account-state"
+			role="alert"
+			data-cy="account-load-error"
+		>
+			<v-icon :icon="mdiAlertCircleOutline" :size="36" aria-hidden="true" />
+			<p>{{ $t("account.load-failed") }}</p>
+			<v-btn
+				color="primary"
+				variant="outlined"
+				:prepend-icon="mdiRefresh"
+				data-cy="account-retry"
+				@click="loadAccount"
+			>
+				{{ $t("common.retry") }}
+			</v-btn>
+		</div>
 
 		<template v-else-if="account">
 			<v-row>
@@ -170,11 +189,11 @@
 </template>
 
 <script lang="ts" setup>
-import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
+import { mdiAlertCircleOutline, mdiRefresh } from "@mdi/js";
 import { AxiosError } from "axios";
 import type { OttApiResponseAccount, OttResponseBody } from "ott-common/models/rest-api";
 import isEmail from "validator/es/lib/isEmail";
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import type { VForm } from "vuetify/lib/components/VForm/VForm.mjs";
@@ -187,7 +206,13 @@ import toast from "@/util/toast";
 const { t } = useI18n();
 const router = useRouter();
 const store = useStore();
-const queryClient = useQueryClient();
+
+const account = ref<OttApiResponseAccount | null>(null);
+const isLoading = ref(false);
+const loadFailed = ref(false);
+const isSavingEmail = ref(false);
+const isSavingPassword = ref(false);
+const isSavingDiscord = ref(false);
 
 const email = ref("");
 const currentPassword = ref("");
@@ -243,90 +268,101 @@ function getErrorMessage(err: unknown) {
 	return undefined;
 }
 
-const accountQuery = useQuery({
-	queryKey: ["account"],
-	queryFn: async () => {
-		const resp = await API.get<OttResponseBody<OttApiResponseAccount>>("/user/account");
-		if (!resp.data.success) {
-			throw new Error("Failed to load account");
-		}
-		return resp.data;
-	},
-	retry: false,
-});
+function isUnauthorized(err: unknown) {
+	return err instanceof AxiosError && err.response?.status === 401;
+}
 
-const account = computed(() => accountQuery.data.value ?? null);
-const isLoading = computed(() => accountQuery.isPending.value);
-const isSavingEmail = computed(() => saveEmailMutation.isPending.value);
-const isSavingPassword = computed(() => savePasswordMutation.isPending.value);
-const isSavingDiscord = computed(() => unlinkDiscordMutation.isPending.value);
+async function fetchAccount(): Promise<OttApiResponseAccount> {
+	const resp = await API.get<OttResponseBody<OttApiResponseAccount>>("/user/account");
+	const body = resp.data;
+	if (!body.success) {
+		throw new Error("Failed to load account");
+	}
+	return body;
+}
 
-watch(
-	() => accountQuery.data.value,
-	data => {
-		if (!data) {
-			return;
-		}
-		email.value = data.email ?? "";
-		if (store.state.user) {
-			store.commit("LOGIN", {
-				...store.state.user,
-				username: data.username,
-				loggedIn: true,
-				discordLinked: data.discordLinked,
-			});
-		}
-	},
-	{ immediate: true },
-);
+function applyAccount(data: OttApiResponseAccount) {
+	account.value = data;
+	email.value = data.email ?? "";
+	if (store.state.user) {
+		store.commit("LOGIN", {
+			...store.state.user,
+			username: data.username,
+			loggedIn: true,
+			discordLinked: data.discordLinked,
+		});
+	}
+}
 
-watch(
-	() => accountQuery.error.value,
-	err => {
-		if (!err) {
-			return;
-		}
-		if (err instanceof AxiosError && err.response?.status === 401) {
+async function loadAccount() {
+	if (isLoading.value) {
+		return;
+	}
+	isLoading.value = true;
+	loadFailed.value = false;
+	try {
+		applyAccount(await fetchAccount());
+	} catch (err) {
+		if (isUnauthorized(err)) {
 			router.push("/");
 			return;
 		}
-		toast.add({
-			style: ToastStyle.Error,
-			content: t("account.load-failed"),
-			duration: 4000,
-		});
-	},
-);
+		loadFailed.value = true;
+		account.value = null;
+	} finally {
+		isLoading.value = false;
+	}
+}
 
-const saveEmailMutation = useMutation({
-	mutationFn: async () => {
+/**
+ * Picks up the account details a save changed. The save already reported its own outcome, so a
+ * failed refresh must not replace the page with the error panel.
+ */
+async function refreshAccount() {
+	try {
+		applyAccount(await fetchAccount());
+	} catch {
+		// Stale details are harmless; the next page load fetches them again.
+	}
+}
+
+async function saveEmail() {
+	emailForm.value?.validate();
+	if (!emailValid.value) {
+		return;
+	}
+	isSavingEmail.value = true;
+	try {
 		const resp = await API.patch<OttResponseBody>("/user/account", {
 			email: email.value,
 		});
 		if (!resp.data.success) {
 			throw new Error("Failed to save email");
 		}
-		return resp.data;
-	},
-	onSuccess: async () => {
 		toast.add({
 			style: ToastStyle.Success,
 			content: t("account.email-saved"),
 			duration: 4000,
 		});
-		await queryClient.invalidateQueries({ queryKey: ["account"] });
-	},
-	onError: err => {
+		await refreshAccount();
+	} catch (err) {
 		toast.add({
 			style: ToastStyle.Error,
 			content: getErrorMessage(err) ?? t("account.save-failed"),
 			duration: 4000,
 		});
-	},
-});
+	} finally {
+		isSavingEmail.value = false;
+	}
+}
 
-const savePasswordMutation = useMutation({
-	mutationFn: async () => {
+async function savePassword() {
+	passwordForm.value?.validate();
+	if (!passwordValid.value) {
+		return;
+	}
+	isSavingPassword.value = true;
+	try {
 		const resp = await API.patch<OttResponseBody>("/user/account", {
 			currentPassword: currentPassword.value || undefined,
 			newPassword: newPassword.value,
@@ -334,9 +370,6 @@ const savePasswordMutation = useMutation({
 		if (!resp.data.success) {
 			throw new Error("Failed to save password");
 		}
-		return resp.data;
-	},
-	onSuccess: async () => {
 		toast.add({
 			style: ToastStyle.Success,
 			content: t("account.password-saved"),
@@ -345,64 +378,58 @@ const savePasswordMutation = useMutation({
 		newPassword.value = "";
 		newPasswordConfirm.value = "";
 		currentPassword.value = "";
-		await queryClient.invalidateQueries({ queryKey: ["account"] });
-	},
-	onError: err => {
+		await refreshAccount();
+	} catch (err) {
 		toast.add({
 			style: ToastStyle.Error,
 			content: getErrorMessage(err) ?? t("account.save-failed"),
 			duration: 4000,
 		});
-	},
-});
+	} finally {
+		isSavingPassword.value = false;
+	}
+}
 
-const unlinkDiscordMutation = useMutation({
-	mutationFn: async () => {
+async function unlinkDiscord() {
+	isSavingDiscord.value = true;
+	try {
 		const resp = await API.delete<OttResponseBody>("/user/account/discord");
 		if (!resp.data.success) {
 			throw new Error("Failed to unlink Discord");
 		}
-		return resp.data;
-	},
-	onSuccess: async () => {
 		toast.add({
 			style: ToastStyle.Success,
 			content: t("account.discord-unlinked"),
 			duration: 4000,
 		});
-		await queryClient.invalidateQueries({ queryKey: ["account"] });
-	},
-	onError: err => {
+		await refreshAccount();
+	} catch (err) {
 		toast.add({
 			style: ToastStyle.Error,
 			content: getErrorMessage(err) ?? t("account.save-failed"),
 			duration: 4000,
 		});
-	},
-});
-
-async function saveEmail() {
-	emailForm.value?.validate();
-	if (!emailValid.value) {
-		return;
+	} finally {
+		isSavingDiscord.value = false;
 	}
-	await saveEmailMutation.mutateAsync().catch(() => undefined);
 }
 
-async function savePassword() {
-	passwordForm.value?.validate();
-	if (!passwordValid.value) {
-		return;
-	}
-	await savePasswordMutation.mutateAsync().catch(() => undefined);
-}
-
-async function unlinkDiscord() {
-	await unlinkDiscordMutation.mutateAsync().catch(() => undefined);
-}
+onMounted(loadAccount);
 </script>
 
 <style lang="scss" scoped>
+.account-state {
+	display: flex;
+	min-height: 45vh;
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+	gap: 1.25rem;
+	padding: 2rem 1rem;
+	color: var(--muted-foreground);
+	text-align: center;
+}
+
 .account-row {
 	display: flex;
 	justify-content: space-between;
