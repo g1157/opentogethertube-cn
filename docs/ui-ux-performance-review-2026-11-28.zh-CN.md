@@ -602,3 +602,29 @@ i18n 复现：去掉语言包顶部的 `ott-common` import，为 `BehaviorOption
 -   没有执行生产攻击性负载、部署镜像、真实 OAuth/Discord 回调或第三方媒体端到端。
 -   Rust harness 集成测试未跑完（3 项悬挂后手动终止），因此不对 balancer/collector 的运行时行为
     下新结论；编译结论只来自 `cargo check --workspace`。
+
+## 十、修复落地记录
+
+本文的 1–10 项已全部实现，落地在 `b1785fd` 之后的提交里；上面各节描述的是修复前的基线，数字不要混用。
+
+| 项 | 落地内容 | 验证 |
+| --- | --- | --- |
+| D1 | 三套浅色主题换色（light `#a85800`/`#0b6f73`、strawberry `#c40047`/`#1c6f3e`、mint `#0a6f5f`/`#266d92`，warning 与 accent-foreground 统一 `#8a5000`），`cinema.scss` 与 `vuetify.ts` 同步 | `client/scripts/check-contrast.mjs` 进 lint-ci，10 套主题 220 对全过；最差 4.52（light） |
+| A1–A8 / U3 / U4 | 静音按钮、两个滑块、房间语音按钮拿到可访问名与 `aria-pressed`；ClickToEdit 可键盘激活；聊天用 `role="log"` 且浮层不播报；队列可菜单/Alt+↑↓ 重排并有列表语义；建房/登录表单修正 role 与 autocomplete；Account 失败态有 `role="alert"` 面板与重试；浏览页加搜索、排序、加载更多 | 上述键盘与读屏路径都有组件测试；client 1291 项通过 |
+| U1 / U2 / D2 | 首次访问按 `navigator.languages` 选语言（`zh-*` 仍落 `zh-CN`），挂载前 await 语言包；`theme-color` 跟随主题；补 OG/Twitter 基础标签；5 个部分语言包各删 12 个过期键 | 内置 `detect-locale` 单测；`main.ts` 在 mount 前加载 |
+| PF2 / PF3 / PF4 | vue-query 与 lodash 全部改为按需；入口 chunk 只保留 `en`，其余语言按需加载 | vendor **872 KB → 796 KB（289 → 264 KB gzip）**；`index.html` 不再 preload `zh-CN` |
+| PF5 / PF8 | AI 超分准备态提示（300 ms 后才出现，不假造百分比）、save-data 默认降级；PeerTube 卸载时移除监听并 `destroy()` | 新增组件测试；失败回退路径未改 |
+| PF6 | 列表查询只取 `prevQueue[0]`（sqlite/mysql `json_extract`，pg `->0`，未知方言回退），加 `limit`/`offset` 与 5 s 缓存，保留密码房脱敏 | 服务端 1267 项测试通过（含新增 18 项） |
+
+未做的三项，留在同一份清单里等人工决定：
+
+-   **Q1 Room.vue 拆分**（3333 行）：拆分本身不改变行为，但一次动 3 千行的组件在无人复核的夜里
+    风险高于收益，建议单独一条 PR、先补 e2e 再动。
+-   **D4 主题单一真源**：需要把 CSS 变量从 `vuetify.ts` 生成，属于构建链改动；当前两份文件一致性
+    已由 `check-contrast.mjs` 断言，漂移会被 CI 拦住，可以先不合并真源。
+-   **PF9 / PF10**（Roboto 未用字重、按组件引入 Vuetify 样式）：都要改构建配置并用多语言、多组件
+    页面实测，收益小于回归风险；体积账单见 PF9/PF10 分析，留待单独测量。
+
+顺带修掉的三个小问题：`client/src/plugins/vuetify.ts` 里 `VueQueryPlugin` 注册已随 PF2 移除；
+`client/tests/setup.ts` 固定测试语言，使语言检测不影响既有断言；新代码全部过了根目录 `lint-ci`
+（biome ci + prettier + 各 workspace tsc/eslint）与 `typos`。
