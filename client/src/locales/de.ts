@@ -60,30 +60,6 @@ export default {
 		},
 		features: {
 			title: "Kernfunktionen",
-			"synchronized-playback": {
-				title: "Synchrone Wiedergabe",
-				text: 'Sie drücken auf "Wiedergabe", und das Video wird für alle im Raum abgespielt. So einfach ist das.',
-			},
-			"permanent-rooms": {
-				title: "Permanente Räume",
-				text: "Sie und Ihre Truppe kommen oft hierher? Sparen Sie sich die Mühe, jedes Mal einen neuen Link zu verschicken. Permanente Räume erhalten eine benutzerdefinierte Url, die sich nicht ändert.",
-			},
-			"dark-theme": {
-				title: "Dunkles Theme",
-				text: "Schauen Sie sich Vine-Compilations spät in der Nacht an? OpenTogetherTube hat standardmäßig ein dunkles Theme, so dass Ihre Augen nicht leiden werden.",
-			},
-			"room-permissions": {
-				title: "Raum-Berechtigungen",
-				text: "Hast du es satt, dass irgendwelche Spaßvögel deinen Raum betreten und deine entspannte Lofi-Hip-Hop-Hörsession mit lauten Videos stören? Sperren Sie sie einfach für das Hinzufügen von Videos.",
-			},
-			"voting-system": {
-				title: "Abstimmungssystem",
-				text: "Sie können sich nicht entscheiden, was Sie als Nächstes sehen wollen? Schalten Sie die Warteschlange auf das Abstimmungssystem um und lassen Sie die Demokratie tun, was sie am besten kann.",
-			},
-			"playlist-copying": {
-				title: "Ganze Wiedergabelisten und Kanäle abspielen",
-				text: "Fügen Sie der Video-Warteschlange ganze Wiedergabelisten oder Kanäle auf einmal hinzu, damit Sie nicht jedes Video einzeln in die Warteschlange hinzufügen müssen.",
-			},
 		},
 		support: {
 			title: "Entwicklung unterstützen",

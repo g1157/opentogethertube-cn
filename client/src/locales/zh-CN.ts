@@ -207,6 +207,13 @@ export default {
 		"load-failed": "无法加载账户。",
 	},
 	"room-list": {
+		search: "按名称或标题搜索已加载房间",
+		sort: "已加载房间排序",
+		"sort-default": "目录顺序",
+		"sort-name": "房间名称",
+		"sort-users": "在线人数（从多到少）",
+		"no-match": "已加载房间中没有匹配结果，请加载更多或修改搜索条件。",
+		"load-more": "加载更多",
 		"browse-eyebrow": "公共放映厅",
 		"empty-eyebrow": "等你开场",
 		"load-failed": "暂时无法加载房间，请重试。",
@@ -243,6 +250,10 @@ export default {
 			"anime4k-quality-fallback": "「质量」档无法启用，已切换为「AI 超分」。",
 			"anime4k-ultra-fallback": "「极致」档无法启用，已切换为「AI 超分」。",
 			failed: "无法启用画质增强，已关闭。",
+			preparing: "正在准备 AI 超分…",
+			"preparing-hint": "首次启用需要下载并编译驱动，准备好之前画面保持原样。",
+			"savedata-sharpen":
+				"已开启省流量模式，改用「清晰化」以免下载 AI 驱动。重新选择档位即可覆盖。",
 			"source-unsupported": "当前片源不支持",
 			"source-unsupported-hint":
 				"当前播放器无法提供可用于增强的画面像素。已保留你的偏好，切到支持的片源后可继续使用；也可以在这里关闭。",

@@ -60,30 +60,6 @@ export default {
 		},
 		features: {
 			title: "Principais funcionalidades",
-			"synchronized-playback": {
-				title: "Reprodução sincronizada",
-				text: "Aperte play, e o vídeo reproduz para todos\nque estão na sala. Simples, rápido e prático.",
-			},
-			"permanent-rooms": {
-				title: "Salas permanentes",
-				text: "Você e sua tropa vem sempre aqui? Evite a inconveniência\nde mandar um link novo toda vez. Salas\npermanentes possuem um url personalizado que não muda.",
-			},
-			"dark-theme": {
-				title: "Tema escuro",
-				text: "Assistir compilados de Vine altas horas da noite?\nOpenTogetherTube tem um modo escuro como padrão, então\nseus olhos não vão sofrer.",
-			},
-			"room-permissions": {
-				title: "Permissões de sala",
-				text: "Cansado de um randola qualquer entrar na sala e adicionar\numa tonelada de videos barulhentos na sua sessão calma de lofi?\nÉ só bloquear ele de adicionar vídeos.",
-			},
-			"voting-system": {
-				title: "Sistema de votação",
-				text: "Não consegue decidir o que vai assistir depois? Mude a fila\npara sala com sistema de votação e deixa a democracia fazer o que\nela faz de melhor.",
-			},
-			"playlist-copying": {
-				title: "Cópia de playlists",
-				text: "Adicione uma playlist inteira ou canais na fila de vídeos\ntudo de uma única vez, assim você não precisa parar tudo para adicionar\ncada vídeo à fila um por um. É a melhor\nforma de curtir os vídeos daquele novo canal com seus amigos.",
-			},
 		},
 		support: {
 			title: "Apoie o desenvolvimento",

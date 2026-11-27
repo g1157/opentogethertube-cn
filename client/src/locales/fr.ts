@@ -36,30 +36,6 @@ export default {
 		},
 		features: {
 			title: "Fonctionnalités Principales",
-			"synchronized-playback": {
-				title: "Vidéo synchronisée",
-				text: "Appuies sur le bouton play et la vidéo se lance pour tout le monde dans la salle. Aussi simple que ça.",
-			},
-			"permanent-rooms": {
-				title: "Salles Permanentes",
-				text: "Toi et t'es amis êtes des utilisateurs réguliers ? Tu peux créer une salle permanente qui te permettra de conserver la même URL pour ta salle",
-			},
-			"dark-theme": {
-				title: "Theme Sombre",
-				text: "Tu regardes des vidéos tard le soir avec t'es copains ? Evitez de vous abimer les yeux avec le Theme Sombre",
-			},
-			"room-permissions": {
-				title: "Permissions de salle",
-				text: "Fini les trolls ou tout autre problème dû à des gens mal intentionnés. Gère toutes les permissions de ta salle pour qu'ils ne puissent plus vous embêter.",
-			},
-			"voting-system": {
-				title: "Système de vote",
-				text: "Vous avez du mal à choisir quelle sera la prochaine vidéo à être regardée ? Passe du mode liste de lecture au système de vote pour que la vidéo la plus votée soit visionnée avant les autres.",
-			},
-			"playlist-copying": {
-				title: "Ajoute des Playlist",
-				text: "Ajoute une playlist ou carrément une chaîne entière dans la liste de lecture afin que tu ne sois pas obligé d'ajouter une par une les vidéos, c'est le meilleur moyen de découvrir une chaîne avec t'es amis.",
-			},
 		},
 		support: {
 			title: "Soutenir le développement",

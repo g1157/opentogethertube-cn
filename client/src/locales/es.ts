@@ -60,30 +60,6 @@ export default {
 		},
 		features: {
 			title: "Características Principales",
-			"syncronized-playback": {
-				title: "Reproducción sincronizada",
-				text: "Golpea play, y el video se reproduce para todos\nen la sala. Asi de simple",
-			},
-			"permanent-rooms": {
-				title: "Salas Permanentes",
-				text: "¿Tú y el equipo vienen aquí bastante? Evite la molestia\nde enviar un enlace nuevo cada vez.  Las salas\npermanentes obtienen una URL personalizada que no cambia.",
-			},
-			"dark-theme": {
-				title: "Modo Oscuro",
-				text: "¿Estás viendo recopilaciones de Vine a altas horas de la noche?\nOpenTogetherTube tiene un modo oscuro automáticamente\npara que tus ojos no sufran.",
-			},
-			"room-permissions": {
-				title: "Permisos de sala",
-				text: "¿Cansado de desconocidos que se unen a tu sala y\ny agregando videos ruidosos a tu sesión relaja de hip-hop lofi?\nSimplemente bloquéelos para que no agreguen videos.",
-			},
-			"voting-system": {
-				title: "Sistema de votación",
-				text: "¿No puedes decidir qué ver a continuación? Cambie la cola\nal sistema de votación y deje que la democracia haga\nlo que mejor sabe hacer.",
-			},
-			"playlist-copying": {
-				title: "Copia de lista de reproducción",
-				text: "Agregue listas de reproducción o canales completos a la cola de videos\nde una vez para no tener que quedarse sentado agregando\ncada video a la cola uno por uno. Es la mejor manera\nde ver ese nuevo canal con tus amigos.",
-			},
 		},
 		support: {
 			title: "Apoyar el Desarrollo",

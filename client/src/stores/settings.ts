@@ -1,6 +1,8 @@
 import type { RoomSettings } from "ott-common";
 import type { Module } from "vuex/types";
 import vuetify from "@/plugins/vuetify";
+import { detectLocale } from "@/util/detect-locale";
+import { applyThemeColor } from "@/util/theme-color";
 
 export const CHAT_OVERLAY_SECONDS_OPTIONS = [0, 3, 5, 10, 20] as const;
 export const ROOM_NOTICE_SECONDS_OPTIONS = [0, 1, 2, 3, 5, 10, 20] as const;
@@ -380,7 +382,8 @@ export const settingsModule: Module<SettingsState, unknown> = {
 		volume: 100,
 		muted: false,
 		audioBoost: 100,
-		locale: "zh-CN",
+		// Same detection `i18n.ts` uses, so a first visit shows and stores one language (U1).
+		locale: detectLocale(),
 		roomLayout: RoomLayoutMode.default,
 		theme: Theme.teal,
 		sfxEnabled: false,
@@ -432,6 +435,8 @@ export const settingsModule: Module<SettingsState, unknown> = {
 					);
 					vuetify.theme.global.name.value = Theme.teal;
 				}
+				// The browser chrome (address bar, PWA status bar) follows the page theme.
+				applyThemeColor(settings.theme);
 			}
 		},
 		/**
@@ -473,7 +478,7 @@ export const settingsModule: Module<SettingsState, unknown> = {
 				typeof settings.locale !== "string" ||
 				settings.locale.trim() === ""
 			) {
-				settings.locale = "zh-CN";
+				settings.locale = detectLocale();
 			}
 			if (defaultSfxVersion !== DEFAULT_SFX_VERSION) {
 				settings.sfxEnabled = false;

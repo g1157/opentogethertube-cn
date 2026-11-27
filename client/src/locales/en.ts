@@ -211,6 +211,13 @@ export default {
 		"load-failed": "Unable to load account.",
 	},
 	"room-list": {
+		search: "Search loaded rooms by name or title",
+		sort: "Sort loaded rooms",
+		"sort-default": "Directory order",
+		"sort-name": "Room name (A–Z)",
+		"sort-users": "Viewers (most first)",
+		"no-match": "No loaded rooms match your filter. Load more rooms or change your search.",
+		"load-more": "Load more",
 		"browse-eyebrow": "PUBLIC SCREENINGS",
 		"empty-eyebrow": "THE SCREEN IS YOURS",
 		"load-failed": "Unable to load rooms. Please try again.",
@@ -249,6 +256,11 @@ export default {
 			"anime4k-quality-fallback":
 				"The quality tier could not start; switched to the fast AI upscale.",
 			failed: "Could not enable video enhancement; it was turned off.",
+			preparing: "Preparing AI upscale…",
+			"preparing-hint":
+				"The driver downloads and compiles on first use; the picture stays as it was until it is ready.",
+			"savedata-sharpen":
+				"Save-Data is on: switched to Sharpen so the AI driver is not downloaded. Pick a tier to override.",
 			"source-unsupported": "Unavailable for this source",
 			"source-unsupported-hint":
 				"This player cannot provide video pixels for enhancement. Your preference is kept for supported sources; you can still turn it off here.",
