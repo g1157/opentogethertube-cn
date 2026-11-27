@@ -1,12 +1,24 @@
 <template>
 	<div class="upscale-layer">
 		<div ref="canvasHost" class="upscale-canvas-host"></div>
+		<!-- The AI tiers can spend seconds downloading the driver and compiling the pipeline
+		     before the first frame lands; without this the picture just looks unchanged. -->
+		<div
+			v-if="preparing"
+			class="upscale-preparing"
+			data-cy="upscale-preparing"
+			role="status"
+			aria-live="polite"
+		>
+			<span class="upscale-preparing-label">{{ $t("room.upscale.preparing") }}</span>
+			<span class="upscale-preparing-hint">{{ $t("room.upscale.preparing-hint") }}</span>
+		</div>
 		<div ref="captionElem" class="upscale-captions" role="status" aria-live="polite"></div>
 	</div>
 </template>
 
 <script lang="ts" setup>
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { i18n } from "@/i18n";
 import { ToastStyle } from "@/models/toast";
 import { useStore } from "@/store";
@@ -117,8 +129,53 @@ function acquireCanvas(kind: CanvasKind): HTMLCanvasElement | null {
 	return element;
 }
 
+/** Tiers that pay a driver download or a large shader compile before their first frame. */
+function needsPreparation(mode: string): boolean {
+	return mode === "anime4k" || mode === "anime4k-quality" || mode === "anime4k-ultra";
+}
+
+/**
+ * Whether the save-data correction still stands. It is the reason an AI tier is not running, so
+ * it is dropped as soon as a tier is picked by hand; see `applySaveDataPreference`.
+ */
+let saveDataCorrection = false;
+
+/**
+ * The tier this layer actually builds, which is what every layout and fallback decision here
+ * has to agree with. Save-Data turns the requested AI tier into the WebGL sharpening chain —
+ * unless the visitor picked one since, which is a fresh choice and wins.
+ */
+function effectiveMode() {
+	return saveDataCorrection && needsPreparation(props.mode) ? "sharpen" : props.mode;
+}
+
+/**
+ * The badge says an AI tier is on its way, which is all that can honestly be said: the driver
+ * chunk's size is known but its progress is not, so there is no percentage to show. It waits a
+ * beat first — a warm start finishes inside a few frames and must not flash a chip over the video.
+ */
+const PREPARING_DELAY_MS = 300;
+const preparing = ref(false);
+let preparingTimer: ReturnType<typeof setTimeout> | undefined;
+
+function beginPreparing(): void {
+	endPreparing();
+	preparingTimer = setTimeout(() => {
+		preparingTimer = undefined;
+		preparing.value = true;
+	}, PREPARING_DELAY_MS);
+}
+
+function endPreparing(): void {
+	if (preparingTimer !== undefined) {
+		clearTimeout(preparingTimer);
+		preparingTimer = undefined;
+	}
+	preparing.value = false;
+}
+
 /** The CNN tiers that pay the extra pixels for Anime4K's upscale stage, on a pointer device. */
-const cnnTier = () => isCnnUpscaleTier(props.mode) && canAffordCnnUpscale();
+const cnnTier = () => isCnnUpscaleTier(effectiveMode()) && canAffordCnnUpscale();
 /**
  * Whether the running pipeline should keep the CNN's 1.25x floor. Only the WebGPU presets can
  * afford the x2 intermediates it buys (see `usesCnnSupersampling`); the WebGL2 chains re-plan
@@ -342,22 +399,22 @@ function pickDegradeStep(
 	video: HTMLVideoElement,
 	target: HTMLCanvasElement,
 ): Partial<SettingsState> {
-	if (props.mode === "anime4k-ultra") {
+	if (effectiveMode() === "anime4k-ultra") {
 		// The heavy chain gives way to the everyday AI tier first: same network family, a
 		// fraction of the passes.
 		return { upscaleMode: "anime4k" };
 	}
-	if (props.mode === "anime4k-quality") {
+	if (effectiveMode() === "anime4k-quality") {
 		// The heavy A+A chain gives way first: the fast preset keeps the same upscale
 		// for about half the GPU cost.
 		return { upscaleMode: "anime4k" };
 	}
-	if (props.mode === "anime4k") {
+	if (effectiveMode() === "anime4k") {
 		// The CNN runs at the source resolution, so shrinking the render target buys
 		// almost nothing; switching to the cheaper pass is the step that actually helps.
 		return { upscaleMode: "film" };
 	}
-	if (props.mode === "film") {
+	if (effectiveMode() === "film") {
 		// The film chain is the heavier of the two WebGL2 tiers; plain sharpening is what
 		// is left before the ladder starts shrinking the render target.
 		return { upscaleMode: "sharpen" };
@@ -455,6 +512,8 @@ function stopRenderers() {
 	generation++;
 	startAbort?.abort();
 	startAbort = undefined;
+	// Whatever was preparing is either gone or about to be replaced by the next start.
+	endPreparing();
 	if (viewportTimer !== undefined) {
 		clearTimeout(viewportTimer);
 		viewportTimer = undefined;
@@ -480,19 +539,19 @@ function stopRenderers() {
  * WebGPU tier falls back to the next lighter one before giving up the enhancement.
  */
 function failureFallback(): { settings: Partial<SettingsState>; message: string } {
-	if (props.mode === "anime4k-ultra") {
+	if (effectiveMode() === "anime4k-ultra") {
 		return {
 			settings: { upscaleMode: "anime4k" },
 			message: "room.upscale.anime4k-ultra-fallback",
 		};
 	}
-	if (props.mode === "anime4k-quality") {
+	if (effectiveMode() === "anime4k-quality") {
 		return {
 			settings: { upscaleMode: "anime4k" },
 			message: "room.upscale.anime4k-quality-fallback",
 		};
 	}
-	if (props.mode === "anime4k") {
+	if (effectiveMode() === "anime4k") {
 		return {
 			settings: { upscaleMode: "sharpen" },
 			// Only claim a missing WebGPU when it is really missing; anything else is the
@@ -503,7 +562,7 @@ function failureFallback(): { settings: Partial<SettingsState>; message: string 
 					: "room.upscale.webgpu-fallback",
 		};
 	}
-	if (props.mode === "film") {
+	if (effectiveMode() === "film") {
 		// A failed clean chain usually means the driver refused its half-float targets;
 		// the plain sharpen tier is the one that has always worked everywhere.
 		return { settings: { upscaleMode: "sharpen" }, message: "room.upscale.film-fallback" };
@@ -534,15 +593,23 @@ async function start() {
 	// Whatever the previous tier reported is stale from here on; the renderer about to be
 	// built reports its own target once it has drawn its first frame.
 	reportEnhancementTarget(null);
+	// The tier this start actually builds: Save-Data may have turned the requested AI tier into
+	// the WebGL sharpening chain.
+	const mode = effectiveMode();
+	if (needsPreparation(mode)) {
+		// First frame for this tier is a download and a pipeline compile away.
+		beginPreparing();
+	}
 	const video = props.video;
 	// Remember the size this pipeline is built for, so `onVideoResize` can tell a real
 	// variant switch from the element re-reporting the size it already has.
 	lastVideoSize = { width: video?.videoWidth ?? 0, height: video?.videoHeight ?? 0 };
 	// The WebGPU attempt needs a canvas that has never handed out a WebGL2 context, so the
 	// tier's family decides which one is taken first; a WebGL2 fallback takes its own below.
-	const aiTier = props.mode === "anime4k" || props.mode === "anime4k-quality";
+	const aiTier = mode === "anime4k" || mode === "anime4k-quality";
 	let element = acquireCanvas(aiTier ? "webgpu" : "webgl2");
 	if (!video || !element) {
+		endPreparing();
 		return;
 	}
 	// Sized optimistically: a WebGPU preset bakes this size into its pipeline, and it is the one
@@ -571,12 +638,12 @@ async function start() {
 	// Only the WebGPU presets bake the output size in; every other driver re-plans per frame.
 	let captured = false;
 	try {
-		if (props.mode === "anime4k-ultra") {
+		if (mode === "anime4k-ultra") {
 			// Offered only where WebGPU is unavailable, so this is the heavy chain on WebGL2.
 			const { startAnime4KUltraRenderer } = await import("@/util/upscale/anime4k-ultra");
 			created = startAnime4KUltraRenderer(video, element, onFatal);
-		} else if (props.mode === "anime4k" || props.mode === "anime4k-quality") {
-			const variant = props.mode === "anime4k-quality" ? "quality" : "fast";
+		} else if (mode === "anime4k" || mode === "anime4k-quality") {
+			const variant = mode === "anime4k-quality" ? "quality" : "fast";
 			// Probe the WebGPU path before importing the driver: the driver pulls a 3.4 MB chunk,
 			// and on the platforms that never hand out an adapter (Firefox outside Windows and
 			// Nightly, blocklisted drivers) — or that hand out one which cannot write the
@@ -617,6 +684,7 @@ async function start() {
 				// out one context type, so the WebGL2 chain takes the WebGL2 one.
 				const webglCanvas = acquireCanvas("webgl2");
 				if (!webglCanvas) {
+					endPreparing();
 					return;
 				}
 				// This second canvas is brand new, so it still holds the 300x150 default. The
@@ -624,7 +692,7 @@ async function start() {
 				// a 2:1 picture the browser then letterboxed over the 16:9 video. No CNN floor:
 				// this backend renders every pass of the chain at whatever the canvas holds.
 				sizeCanvas(video, webglCanvas, false);
-				if (props.mode === "anime4k-quality") {
+				if (mode === "anime4k-quality") {
 					// The heavy tier runs the same A+A (HQ) chain the WebGPU "quality" preset does,
 					// so the two AI tiers differ on WebGL2 the way they do on a WebGPU device.
 					const { startAnime4KUltraRenderer } = await import(
@@ -639,7 +707,7 @@ async function start() {
 				}
 				element = webglCanvas;
 			}
-		} else if (props.mode === "film") {
+		} else if (mode === "film") {
 			// Live action: clean the source's compression artifacts before the upscale.
 			const { startFilmRenderer } = await import("@/util/upscale/film");
 			created = startFilmRenderer(
@@ -675,6 +743,8 @@ async function start() {
 	renderer = created;
 	canvas = element;
 	capturedTarget = captured;
+	// The tier is drawing (or is about to on its next frame): nothing left to wait for.
+	endPreparing();
 	reportEnhancementBackend(captured ? "webgpu" : "webgl2");
 	if (cnnTier() && !captured) {
 		// A WebGL2 chain started after the optimistic sizing above. Take the CNN floor back
@@ -765,7 +835,14 @@ watch(
 
 watch(
 	() => props.mode,
-	() => void start(),
+	mode => {
+		// A tier picked by hand outranks the save-data correction; only the video settings ever
+		// select an AI tier, while the degrade ladder only ever steps down from one.
+		if (needsPreparation(mode)) {
+			saveDataCorrection = false;
+		}
+		void start();
+	},
 );
 
 // Firefox keeps painting the page's picture next to its PiP copy. OmniPlayer covers it, and no
@@ -820,10 +897,58 @@ watch(
 	},
 );
 
-onMounted(() => {
+/**
+ * The AI tiers are a bandwidth decision before they are a picture decision: the WebGPU driver
+ * alone is 945 KB gzipped, and the first frame waits for that download plus a pipeline compile.
+ * A visitor whose browser has been asked to save data therefore starts on the WebGL sharpening
+ * chain instead of Anime4K.
+ *
+ * The correction is transient on purpose. The stored setting keeps the tier the visitor chose on
+ * a connection where it was affordable, the video settings show the tier that actually renders,
+ * and nothing the visitor picks afterwards is overridden: this runs once, on mount, for the tier
+ * inherited from an earlier visit — a tier picked in the settings now is a fresh choice.
+ */
+let saveDataNoticeShown = false;
+
+function applySaveDataPreference(): boolean {
+	// The correction belongs to one mount: a new layer starts from the tier it was handed.
+	saveDataCorrection = false;
+	if (!needsPreparation(props.mode)) {
+		return false;
+	}
+	const connection = (navigator as Navigator & { connection?: { saveData?: boolean } })
+		.connection;
+	if (connection?.saveData !== true) {
+		return false;
+	}
+	if (!saveDataNoticeShown) {
+		// Once per session: the layer remounts with every video, and the reason does not change.
+		saveDataNoticeShown = true;
+		toast.add({
+			style: ToastStyle.Neutral,
+			level: "critical",
+			content: i18n.global.t("room.upscale.savedata-sharpen"),
+			duration: 8000,
+		});
+	}
+	saveDataCorrection = true;
+	store.commit("settings/UPDATE_TRANSIENT", { upscaleMode: "sharpen" });
+	return true;
+}
+
+onMounted(async () => {
 	attachVideo(props.video);
 	window.addEventListener("resize", handleViewportChange);
 	document.addEventListener("fullscreenchange", handleViewportChange);
+	// The correction below re-renders the parent, and the mode watcher is what starts the
+	// lighter tier; starting here first would build the AI tier we just decided against.
+	if (applySaveDataPreference()) {
+		const inherited = props.mode;
+		await nextTick();
+		if (props.mode !== inherited) {
+			return;
+		}
+	}
 	void start();
 });
 
@@ -847,6 +972,62 @@ onBeforeUnmount(() => {
 .upscale-canvas-host {
 	position: absolute;
 	inset: 0;
+}
+
+.upscale-preparing {
+	position: absolute;
+	top: 8%;
+	left: 4%;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	max-width: 70%;
+	padding: 6px 10px;
+	border-radius: 999px;
+	background: rgb(0 0 0 / 0.62);
+	color: #fff;
+	font-size: clamp(11px, 1.5vw, 14px);
+	line-height: 1.3;
+	text-shadow: 0 1px 2px rgb(0 0 0 / 0.8);
+}
+
+.upscale-preparing-label {
+	white-space: nowrap;
+}
+
+.upscale-preparing-hint {
+	color: rgb(255 255 255 / 0.78);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.upscale-preparing::before {
+	content: "";
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: currentcolor;
+	animation: upscale-preparing-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes upscale-preparing-pulse {
+	0%,
+	100% {
+		opacity: 0.3;
+	}
+
+	50% {
+		opacity: 1;
+	}
+}
+
+@media (max-width: 600px) {
+	/* The explanation turns a corner chip into a wall of text on a phone. */
+	.upscale-preparing-hint {
+		display: none;
+	}
 }
 
 .upscale-captions {

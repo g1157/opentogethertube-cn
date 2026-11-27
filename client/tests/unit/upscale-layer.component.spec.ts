@@ -339,6 +339,93 @@ describe("enhancement layer lifecycle", () => {
 		expect(store.state.settings.upscaleScale).toBe("auto");
 	});
 
+	it("shows a preparing badge while the AI driver is on its way", async () => {
+		// Enabling Anime4K downloads and compiles the driver; the picture looks unchanged until
+		// that finishes, so the wait has to be visible — without inventing a percentage for a
+		// download nobody can measure.
+		let finish: (value: unknown) => void = () => undefined;
+		drivers.anime4k.mockImplementationOnce(
+			() =>
+				new Promise(resolve => {
+					finish = resolve;
+				}),
+		);
+		const { wrapper } = mountComponent(UpscaleLayer, {
+			props: { video: fakeVideo().video, mode: "anime4k" },
+		});
+		await settle();
+		const badge = () => wrapper.find('[data-cy="upscale-preparing"]');
+		// A warm start finishes inside a few frames, so the badge waits a beat before it shows.
+		expect(badge().exists()).toBe(false);
+
+		await new Promise(resolve => setTimeout(resolve, 350));
+		expect(badge().exists()).toBe(true);
+		expect(badge().text()).toMatch(/准备|Prepar/i);
+
+		finish(renderer());
+		await settle();
+		expect(badge().exists()).toBe(false);
+		wrapper.unmount();
+	});
+
+	it("does not flash the preparing badge for the tiers that start immediately", async () => {
+		// Sharpen and film are small local chunks: a badge here would be a flicker with no wait.
+		const { wrapper } = mountComponent(UpscaleLayer, {
+			props: { video: fakeVideo().video, mode: "sharpen" },
+		});
+		await settle();
+		await new Promise(resolve => setTimeout(resolve, 350));
+		expect(wrapper.find('[data-cy="upscale-preparing"]').exists()).toBe(false);
+		wrapper.unmount();
+	});
+
+	it("starts on the WebGL sharpening chain when the browser is asked to save data", async () => {
+		// The AI driver alone is 945 KB gzipped, which a save-data visitor did not ask for.
+		Object.defineProperty(navigator, "connection", {
+			value: { saveData: true },
+			configurable: true,
+		});
+		try {
+			const { wrapper, store } = mountComponent(UpscaleLayer, {
+				props: { video: fakeVideo().video, mode: "anime4k" },
+			});
+			await settle();
+
+			expect(drivers.probe).not.toHaveBeenCalled();
+			expect(drivers.anime4k).not.toHaveBeenCalled();
+			expect(drivers.sharpen).toHaveBeenCalledTimes(1);
+			// The video settings have to show what actually renders; the stored tier survives for a
+			// session where saving data is off again.
+			expect(store.state.settings.upscaleMode).toBe("sharpen");
+			expect(wrapper.find('[data-cy="upscale-preparing"]').exists()).toBe(false);
+			wrapper.unmount();
+		} finally {
+			Reflect.deleteProperty(navigator, "connection");
+		}
+	});
+
+	it("honours an AI tier picked in the settings even with save data on", async () => {
+		// Save-Data is a default, not a lock: picking Anime4K in the video settings is a choice
+		// made now, and it wins over the correction applied when the layer mounted.
+		Object.defineProperty(navigator, "connection", {
+			value: { saveData: true },
+			configurable: true,
+		});
+		try {
+			const { wrapper } = mountComponent(UpscaleLayer, {
+				props: { video: fakeVideo().video, mode: "sharpen" },
+			});
+			await settle();
+
+			await wrapper.setProps({ mode: "anime4k" });
+			await settle();
+
+			expect(drivers.anime4k).toHaveBeenCalledTimes(1);
+		} finally {
+			Reflect.deleteProperty(navigator, "connection");
+		}
+	});
+
 	it("runs the heavy preset for the quality tier and the fast one otherwise", async () => {
 		const quality = fakeVideo();
 		mountComponent(UpscaleLayer, { props: { video: quality.video, mode: "anime4k-quality" } });
@@ -619,7 +706,9 @@ describe("enhancement layer lifecycle", () => {
 		const notices = (
 			store.state as unknown as { toast: { notifications: { content: string }[] } }
 		).toast.notifications;
-		expect(notices.map(n => n.content).join(" ")).toContain("核显");
+		// The notice is translated, and the interface language is detected per visitor now, so
+		// this checks the claim rather than one translation of it.
+		expect(notices.map(n => n.content).join(" ")).toMatch(/核显|integrated/i);
 		adapterState.current = { class: "unknown", renderer: null };
 	});
 

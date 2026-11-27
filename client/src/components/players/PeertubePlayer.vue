@@ -8,7 +8,7 @@
 </template>
 
 <script lang="ts">
-import { computed, defineComponent, onMounted } from "vue";
+import { computed, defineComponent, onMounted, onUnmounted } from "vue";
 import { PeerTubePlayer as Peertube } from "@peertube/embed-api";
 
 // CURRENTLY SOMEWHAT BROKEN
@@ -23,6 +23,7 @@ const PeertubePlayer = defineComponent({
 	emits: ["playing", "paused", "ready", "buffering", "error", "apiready"],
 	setup(props, { emit }) {
 		let player: Peertube | undefined;
+		let disposed = false;
 
 		const videoId = computed(() => props.videoId.split(":"));
 		const peertubeHost = computed(() => videoId.value[0]);
@@ -38,10 +39,33 @@ const PeertubePlayer = defineComponent({
 			}
 
 			player = new Peertube(container);
-			await player.ready;
-			player.addEventListener("playbackStatusChange", onPlaybackStatusChange);
+			const instance = player;
+			await instance.ready;
+			if (disposed) {
+				// The surface went away while the embed was still shaking hands; the teardown below
+				// already ran, so nothing else will release this instance.
+				instance.destroy();
+				return;
+			}
+			instance.addEventListener("playbackStatusChange", onPlaybackStatusChange);
 			emit("apiready");
 			emit("ready");
+		});
+
+		// The SDK keeps the handler in its own event registry, not in the iframe, so removing the
+		// iframe does not release it: every mount/unmount of the player would leave another copy of
+		// this component's closure alive for as long as the SDK instance is referenced.
+		onUnmounted(() => {
+			disposed = true;
+			if (!player) {
+				return;
+			}
+			player.removeEventListener("playbackStatusChange", onPlaybackStatusChange);
+			// The embed API does expose `destroy()`, which removes the iframe element it was given.
+			// Ours is already unmounted by now, so this only drops the SDK's own references and the
+			// jschannel the player opened for the embed.
+			player.destroy();
+			player = undefined;
 		});
 
 		function onPlaybackStatusChange(status: "playing" | "paused") {
