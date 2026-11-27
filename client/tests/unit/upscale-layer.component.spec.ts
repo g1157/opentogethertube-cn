@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import UpscaleLayer from "@/components/players/UpscaleLayer.vue";
 import { flush, mountComponent } from "./component-test-utils";
 
+// The interface language is detected per visitor now, so these check the claim rather than
+// one translation of it.
+const PREPARING_NOTICE = /准备|Prepar/i;
+const GPU_NOTICE = /核显|integrated/i;
+
 const drivers = vi.hoisted(() => ({
 	sharpen: vi.fn(),
 	film: vi.fn(),
@@ -360,7 +365,7 @@ describe("enhancement layer lifecycle", () => {
 
 		await new Promise(resolve => setTimeout(resolve, 350));
 		expect(badge().exists()).toBe(true);
-		expect(badge().text()).toMatch(/准备|Prepar/i);
+		expect(badge().text()).toMatch(PREPARING_NOTICE);
 
 		finish(renderer());
 		await settle();
@@ -708,7 +713,7 @@ describe("enhancement layer lifecycle", () => {
 		).toast.notifications;
 		// The notice is translated, and the interface language is detected per visitor now, so
 		// this checks the claim rather than one translation of it.
-		expect(notices.map(n => n.content).join(" ")).toMatch(/核显|integrated/i);
+		expect(notices.map(n => n.content).join(" ")).toMatch(GPU_NOTICE);
 		adapterState.current = { class: "unknown", renderer: null };
 	});
 

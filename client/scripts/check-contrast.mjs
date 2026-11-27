@@ -7,14 +7,14 @@ import { pathToFileURL } from "node:url";
 // Teal intentionally differs: CSS signal is #6ff0e2 (f33df4d), while Vuetify
 // secondary remains #ffd166. Check each palette's contrast independently.
 const vuetifyTokens = {
-	"primary": "primary",
-	"signal": "secondary",
-	"background": "background",
-	"card": "surface",
-	"foreground": "on-background",
+	primary: "primary",
+	signal: "secondary",
+	background: "background",
+	card: "surface",
+	foreground: "on-background",
 	"card-foreground": "on-surface",
 	"primary-foreground": "on-primary",
-	"warning": "warning",
+	warning: "warning",
 };
 
 // Only roles changed by the light-theme contrast fix must stay synchronized.
@@ -22,11 +22,11 @@ const vuetifyTokens = {
 // follows primary, and light's changed accent text shares the warning colour.
 const changedTokens = {
 	light: {
-		"primary": "primary",
-		"signal": "secondary",
-		"warning": "warning",
+		primary: "primary",
+		signal: "secondary",
+		warning: "warning",
 		"accent-foreground": "warning",
-		"ring": "primary",
+		ring: "primary",
 	},
 	strawberry: { primary: "primary", signal: "secondary", warning: "warning", ring: "primary" },
 	mint: { primary: "primary", signal: "secondary", warning: "warning", ring: "primary" },
@@ -48,12 +48,18 @@ const pairs = [
 	["ring", "background", 3],
 ];
 
+const HEX_RE = /^#(?:[\da-f]{3}|[\da-f]{6})$/i;
+const CSS_THEME_RE = /\[data-theme=["']([^"']+)["']\]\s*\{([^{}]*)\}/g;
+const CSS_VAR_RE = /--([\w-]+)\s*:\s*([^;]+);/g;
+const CSS_SCHEME_RE = /\bcolor-scheme:\s*(dark|light)\s*;/;
+const VUETIFY_DEFINITION_RE = /const\s+(\w+)\s*:\s*ThemeDefinition\s*=\s*\{([\s\S]*?)\n\};/g;
+const VUETIFY_COLORS_RE = /\bcolors:\s*\{([^{}]*)\}/;
+const VUETIFY_COLOR_ENTRY_RE = /^(?:"([\w-]+)"|'([\w-]+)'|(\w+))\s*:\s*["'](#[\da-f]+)["']$/i;
+const VUETIFY_DARK_RE = /\bdark:\s*(true|false)\s*,/;
+const VUETIFY_THEMES_RE = /\bthemes:\s*\{([^{}]*)\}/;
+const VUETIFY_THEME_ENTRY_RE = /^(\w+)\s*:\s*(\w+)$/;
 function normalizeHex(value) {
-	assert.match(
-		value ?? "",
-		/^#(?:[\da-f]{3}|[\da-f]{6})$/i,
-		`Expected opaque hex colour: ${value}`,
-	);
+	assert.match(value ?? "", HEX_RE, `Expected opaque hex colour: ${value}`);
 	const hex = value.slice(1).toLowerCase();
 	return `#${hex.length === 3 ? [...hex].map(char => char + char).join("") : hex}`;
 }
@@ -75,17 +81,12 @@ export function contrastRatio(foreground, background) {
 
 function parseCss(source) {
 	const themes = new Map();
-	for (const [, name, block] of source.matchAll(
-		/\[data-theme=["']([^"']+)["']\]\s*\{([^{}]*)\}/g,
-	)) {
+	for (const [, name, block] of source.matchAll(CSS_THEME_RE)) {
 		assert(!themes.has(name), `Duplicate CSS theme: ${name}`);
 		const colors = Object.fromEntries(
-			[...block.matchAll(/--([\w-]+)\s*:\s*([^;]+);/g)].map(([, key, value]) => [
-				key,
-				value.trim(),
-			]),
+			[...block.matchAll(CSS_VAR_RE)].map(([, key, value]) => [key, value.trim()]),
 		);
-		const scheme = block.match(/\bcolor-scheme:\s*(dark|light)\s*;/)?.[1];
+		const scheme = block.match(CSS_SCHEME_RE)?.[1];
 		assert(scheme, `Missing color-scheme: ${name}`);
 		themes.set(name, { colors, dark: scheme === "dark" });
 	}
@@ -95,38 +96,34 @@ function parseCss(source) {
 
 function parseVuetify(source) {
 	const definitions = new Map();
-	for (const [, name, block] of source.matchAll(
-		/const\s+(\w+)\s*:\s*ThemeDefinition\s*=\s*\{([\s\S]*?)\n\};/g,
-	)) {
+	for (const [, name, block] of source.matchAll(VUETIFY_DEFINITION_RE)) {
 		assert(!definitions.has(name), `Duplicate Vuetify definition: ${name}`);
-		const colorBlock = block.match(/\bcolors:\s*\{([^{}]*)\}/)?.[1];
+		const colorBlock = block.match(VUETIFY_COLORS_RE)?.[1];
 		assert(colorBlock, `Missing Vuetify colours: ${name}`);
 		const colors = {};
 		for (const entry of colorBlock
 			.split(",")
 			.map(value => value.trim())
 			.filter(Boolean)) {
-			const match = entry.match(
-				/^(?:"([\w-]+)"|'([\w-]+)'|(\w+))\s*:\s*["'](#[\da-f]+)["']$/i,
-			);
+			const match = entry.match(VUETIFY_COLOR_ENTRY_RE);
 			assert(match, `Unsupported Vuetify colour declaration: ${name}: ${entry}`);
 			const key = match[1] ?? match[2] ?? match[3];
 			assert(!(key in colors), `Duplicate Vuetify colour: ${name}.${key}`);
 			colors[key] = normalizeHex(match[4]);
 		}
-		const dark = block.match(/\bdark:\s*(true|false)\s*,/)?.[1];
+		const dark = block.match(VUETIFY_DARK_RE)?.[1];
 		assert(dark, `Missing Vuetify dark flag: ${name}`);
 		definitions.set(name, { colors, dark: dark === "true" });
 	}
 	assert(definitions.size > 0, "No Vuetify ThemeDefinition objects found");
-	const registry = source.match(/\bthemes:\s*\{([^{}]*)\}/)?.[1];
+	const registry = source.match(VUETIFY_THEMES_RE)?.[1];
 	assert(registry, "Missing Vuetify theme registry");
 	const themes = new Map();
 	for (const entry of registry
 		.split(",")
 		.map(value => value.trim())
 		.filter(Boolean)) {
-		const match = entry.match(/^(\w+)\s*:\s*(\w+)$/);
+		const match = entry.match(VUETIFY_THEME_ENTRY_RE);
 		assert(match, `Unsupported Vuetify theme registration: ${entry}`);
 		const [, name, definition] = match;
 		assert(!themes.has(name), `Duplicate Vuetify theme: ${name}`);
@@ -184,10 +181,11 @@ export function checkContrast(cssSource, vuetifySource) {
 					passed,
 				});
 				worst[theme] = Math.min(worst[theme], ratio);
-				if (!passed)
+				if (!passed) {
 					errors.push(
 						`${theme} (${source}): ${fg}/${bg} ${ratio.toFixed(4)} < ${threshold}`,
 					);
+				}
 			}
 		}
 	}
@@ -232,4 +230,6 @@ function main() {
 	}
 }
 
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) main();
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+	main();
+}

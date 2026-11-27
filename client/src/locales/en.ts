@@ -645,7 +645,7 @@ export default {
 		"play-last": "Play Last",
 		"move-up": "Move up",
 		"move-down": "Move down",
-		"reorder": "Reorder: item {position} of {total}. Alt+Arrow Up or Alt+Arrow Down moves it.",
+		reorder: "Reorder: item {position} of {total}. Alt+Arrow Up or Alt+Arrow Down moves it.",
 		"probe-series": "Find episodes in this series",
 		messages: {
 			"video-added": "Video added",

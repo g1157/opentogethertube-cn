@@ -31,7 +31,7 @@ export function normalizeRoomListPagination(limit = ROOM_LIST_DEFAULT_LIMIT, off
 			? Math.min(
 					Number.MAX_SAFE_INTEGER - ROOM_LIST_MAX_LIMIT,
 					Math.max(0, Math.floor(offset)),
-			  )
+				)
 			: 0,
 	};
 }
@@ -76,7 +76,9 @@ export async function getPermanentRoomList(
 		return structuredClone(cached.rooms);
 	}
 	for (const [key, entry] of cache.entries) {
-		if (entry.expiresAt <= now) cache.entries.delete(key);
+		if (entry.expiresAt <= now) {
+			cache.entries.delete(key);
+		}
 	}
 	const generation = cache.generation;
 	const dialect = DbRoomModel.sequelize!.getDialect();
@@ -84,16 +86,20 @@ export async function getPermanentRoomList(
 		dialect === "postgres"
 			? Sequelize.literal('"prevQueue"->0')
 			: dialect === "sqlite" || dialect === "mysql" || dialect === "mariadb"
-			? Sequelize.fn("json_extract", Sequelize.col("prevQueue"), Sequelize.literal("'$[0]'"))
-			: null;
+				? Sequelize.fn(
+						"json_extract",
+						Sequelize.col("prevQueue"),
+						Sequelize.literal("'$[0]'"),
+					)
+				: null;
 	// Room names are ASCII. Match the API's case-sensitive name ordering even on
 	// PostgreSQL/MySQL installations whose default collation ignores case/punctuation.
 	const nameOrder =
 		dialect === "postgres"
 			? Sequelize.literal('"name" COLLATE "C"')
 			: dialect === "mysql" || dialect === "mariadb"
-			? Sequelize.literal("BINARY `name`")
-			: "name";
+				? Sequelize.literal("BINARY `name`")
+				: "name";
 	const rooms = await DbRoomModel.findAll({
 		where: includeUnlisted ? {} : { visibility: Visibility.Public },
 		attributes: [

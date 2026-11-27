@@ -10,7 +10,11 @@ const { API } = vi.hoisted(() => ({
 vi.mock("@/common-http", () => ({ API }));
 
 function unauthorized() {
-	const response = { status: 401, data: {}, statusText: "Unauthorized" } as unknown as AxiosResponse;
+	const response = {
+		status: 401,
+		data: {},
+		statusText: "Unauthorized",
+	} as unknown as AxiosResponse;
 	return new AxiosError("Unauthorized", "ERR_BAD_REQUEST", undefined, undefined, response);
 }
 
@@ -35,9 +39,9 @@ describe("account view load failure", () => {
 	});
 
 	it("renders an alert panel with a retry button that refetches", async () => {
-		API.get.mockRejectedValueOnce(new Error("network down")).mockResolvedValueOnce(
-			accountResponse,
-		);
+		API.get
+			.mockRejectedValueOnce(new Error("network down"))
+			.mockResolvedValueOnce(accountResponse);
 
 		const { wrapper } = mountComponent(Account);
 		await flush();

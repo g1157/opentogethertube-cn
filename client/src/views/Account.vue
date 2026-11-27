@@ -6,12 +6,7 @@
 			</v-col>
 		</v-row>
 
-		<div
-			v-else-if="loadFailed"
-			class="account-state"
-			role="alert"
-			data-cy="account-load-error"
-		>
+		<div v-else-if="loadFailed" class="account-state" role="alert" data-cy="account-load-error">
 			<v-icon :icon="mdiAlertCircleOutline" :size="36" aria-hidden="true" />
 			<p>{{ $t("account.load-failed") }}</p>
 			<v-btn

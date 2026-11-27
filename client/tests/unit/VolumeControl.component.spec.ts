@@ -21,9 +21,7 @@ describe("volume control names", () => {
 		await button.trigger("click");
 		await flush();
 
-		expect(wrapper.get('[data-cy="volume-toggle"]').attributes("aria-label")).toBe(
-			"取消静音",
-		);
+		expect(wrapper.get('[data-cy="volume-toggle"]').attributes("aria-label")).toBe("取消静音");
 	});
 
 	it("names the slider handle and spells out its value", async () => {

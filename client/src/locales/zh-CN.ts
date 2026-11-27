@@ -621,7 +621,7 @@ export default {
 		"play-last": "最后播放",
 		"move-up": "上移一项",
 		"move-down": "下移一项",
-		"reorder": "排序手柄：第 {position} 项，共 {total} 项。按 Alt+↑ 或 Alt+↓ 移动。",
+		reorder: "排序手柄：第 {position} 项，共 {total} 项。按 Alt+↑ 或 Alt+↓ 移动。",
 		"probe-series": "探测同剧集",
 		messages: {
 			"video-added": "视频已添加",

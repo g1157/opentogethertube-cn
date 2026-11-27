@@ -196,11 +196,12 @@ const displayRooms = computed(() => {
 			room.title?.toLocaleLowerCase().includes(query),
 	);
 	if (sortOrder.value !== "default") {
-		filtered.sort(
-			(a, b) =>
-				(sortOrder.value === "users" ? b.users - a.users : 0) ||
-				a.name.localeCompare(b.name),
-		);
+		filtered.sort((left, right) => {
+			// biome-ignore lint/nursery/noVueRefAsOperand: comparator arguments are plain room rows
+			const byUsers = sortOrder.value === "users" ? right.users - left.users : 0;
+			// biome-ignore lint/nursery/noVueRefAsOperand: comparator arguments are plain room rows
+			return byUsers || left.name.localeCompare(right.name);
+		});
 	}
 	return filtered.map(toRoomCard);
 });
@@ -236,16 +237,22 @@ async function loadRooms() {
 }
 
 async function loadMoreRooms() {
-	if (isLoading.value || isLoadingMore.value || !hasMore.value) return;
+	if (isLoading.value || isLoadingMore.value || !hasMore.value) {
+		return;
+	}
 	isLoadingMore.value = true;
 	loadMoreFailed.value = false;
 	try {
 		const result = await API.get<RoomListItem[]>("/room/list", {
 			params: { limit: PAGE_SIZE, offset: nextOffset.value },
 		});
-		if (!Array.isArray(result.data)) throw new Error("Invalid room list response");
+		if (!Array.isArray(result.data)) {
+			throw new Error("Invalid room list response");
+		}
 		const merged = new Map(rooms.value.map(room => [room.name.toLowerCase(), room]));
-		for (const room of result.data) merged.set(room.name.toLowerCase(), room);
+		for (const room of result.data) {
+			merged.set(room.name.toLowerCase(), room);
+		}
 		rooms.value = [...merged.values()];
 		nextOffset.value += result.data.length;
 		hasMore.value = result.data.length >= PAGE_SIZE;

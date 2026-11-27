@@ -132,8 +132,9 @@ describe("permanent room list projection, pagination and cache", () => {
 	});
 
 	it("orders names deterministically and applies limit/offset before returning rows", async () => {
-		for (const name of ["charlie-room", "alpha-room", "bravo-room"])
+		for (const name of ["charlie-room", "alpha-room", "bravo-room"]) {
 			await DbRoom.create(attributes(name));
+		}
 		expect((await getPermanentRoomList(false, 1, 1)).map(room => room.name)).toEqual([
 			"bravo-room",
 		]);

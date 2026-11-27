@@ -74,7 +74,10 @@ export async function loadLanguageAsync(lang: string): Promise<string> {
 		// An offline first visit or a stale chunk name must not leave the app without
 		// messages: fall back to English, which is always in memory, and try again next time.
 		pendingLoads.delete(lang);
-		console.warn(`Failed to load the "${lang}" language pack, staying on ${FALLBACK_LANGUAGE}`, e);
+		console.warn(
+			`Failed to load the "${lang}" language pack, staying on ${FALLBACK_LANGUAGE}`,
+			e,
+		);
 		return setI18nLanguage(FALLBACK_LANGUAGE);
 	}
 }

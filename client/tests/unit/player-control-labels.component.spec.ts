@@ -228,8 +228,6 @@ describe("room voice button names", () => {
 		const unmute = wrapper.get('[data-cy="voice-mute"]');
 		expect(unmute.attributes("aria-label")).toBe("取消静音");
 		expect(unmute.attributes("aria-pressed")).toBe("true");
-		expect(wrapper.get('[data-cy="voice-leave"]').attributes("aria-label")).toBe(
-			"退出语音",
-		);
+		expect(wrapper.get('[data-cy="voice-leave"]').attributes("aria-label")).toBe("退出语音");
 	});
 });

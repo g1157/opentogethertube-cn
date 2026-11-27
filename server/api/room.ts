@@ -27,6 +27,9 @@ import {
 	ROOM_LIST_MAX_LIMIT,
 } from "../storage/room.js";
 import { Grants } from "ott-common/permissions.js";
+
+/** Integer query parameters: anything that is not a plain integer string is rejected. */
+const INTEGER_QUERY_RE = /^-?\d+$/;
 import type {
 	OttApiRequestAddToQueue,
 	OttApiRequestPatchRoom,
@@ -90,8 +93,12 @@ router.get("/list", async (req, res, next) => {
 		return;
 	}
 	const parsePagination = (value: unknown, fallback: number): number | null => {
-		if (value === undefined) return fallback;
-		if (typeof value !== "string" || !/^-?\d+$/.test(value)) return null;
+		if (value === undefined) {
+			return fallback;
+		}
+		if (typeof value !== "string" || !INTEGER_QUERY_RE.test(value)) {
+			return null;
+		}
 		const number = Number(value);
 		return Number.isSafeInteger(number) ? number : null;
 	};
@@ -126,7 +133,9 @@ router.get("/list", async (req, res, next) => {
 				);
 				rooms.push(...batch.filter(room => !loadedNames.has(room.name.toLowerCase())));
 				savedOffset += batch.length;
-				if (batch.length < batchLimit) break;
+				if (batch.length < batchLimit) {
+					break;
+				}
 			}
 		}
 	} catch (error) {

@@ -9,10 +9,7 @@ export type SliderInstance = { $el?: HTMLElement } | null | undefined;
  * it, so a screen reader announces an unnamed slider. The library has no prop for the
  * name either, so the attributes are written onto the handle element itself.
  */
-export function setSliderHandleAttrs(
-	slider: SliderInstance,
-	attrs: Record<string, string>,
-): void {
+export function setSliderHandleAttrs(slider: SliderInstance, attrs: Record<string, string>): void {
 	const handle = slider?.$el?.querySelector?.(".vue-slider-dot");
 	if (!handle) {
 		return;

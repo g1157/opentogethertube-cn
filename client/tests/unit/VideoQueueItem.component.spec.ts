@@ -340,7 +340,13 @@ describe("VideoQueueItem component", () => {
 		store.commit("room/SYNC", { queueMode: QueueMode.Manual });
 		// The store treats a missing self as the room owner, who holds every grant.
 		store.commit("users/INIT_USERS", [
-			{ id: "guest", name: "guest", isLoggedIn: false, status: 1, role: Role.UnregisteredUser },
+			{
+				id: "guest",
+				name: "guest",
+				isLoggedIn: false,
+				status: 1,
+				role: Role.UnregisteredUser,
+			},
 		]);
 		store.commit("users/SET_YOU", { info: { id: "guest" } });
 		store.state.room.grants.setRoleGrants(Role.UnregisteredUser, []);

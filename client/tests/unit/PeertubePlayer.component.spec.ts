@@ -51,10 +51,7 @@ describe("PeerTube embed teardown", () => {
 
 		// The SDK holds the handler in its own registry, not in the iframe: without this the
 		// closure — and this component's reactive state — outlives the embed.
-		expect(embed?.removeEventListener).toHaveBeenCalledWith(
-			"playbackStatusChange",
-			handler,
-		);
+		expect(embed?.removeEventListener).toHaveBeenCalledWith("playbackStatusChange", handler);
 		expect(embed?.listeners.has("playbackStatusChange")).toBe(false);
 		// The embed API does provide destroy(), so the teardown must use it.
 		expect(embed?.destroy).toHaveBeenCalledTimes(1);
