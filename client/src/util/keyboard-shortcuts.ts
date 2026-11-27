@@ -1,5 +1,6 @@
 import { getCurrentInstance, inject, type InjectionKey, onUnmounted } from "vue";
-import _ from "lodash";
+import defaults from "lodash/defaults";
+import isEqual from "lodash/isEqual";
 
 const BINDING_DEFAULTS = {
 	ctrlKey: false,
@@ -21,11 +22,11 @@ export class KeyboardShortcuts {
 				this.bind(b, action);
 			}
 		} else {
-			const bindStrict: KeyBindingStrict = _.defaults({ ...binding }, BINDING_DEFAULTS);
+			const bindStrict: KeyBindingStrict = defaults({ ...binding }, BINDING_DEFAULTS);
 
 			// don't allow duplicate bindings
 			for (const [b] of this.shortcuts) {
-				if (_.isEqual(b, bindStrict)) {
+				if (isEqual(b, bindStrict)) {
 					console.warn("duplicate keyboard shortcut binding", bindStrict);
 					return;
 				}
@@ -42,10 +43,10 @@ export class KeyboardShortcuts {
 	}
 
 	unbind(binding: KeyBinding) {
-		const bindStrict: KeyBindingStrict = _.defaults({ ...binding }, BINDING_DEFAULTS);
+		const bindStrict: KeyBindingStrict = defaults({ ...binding }, BINDING_DEFAULTS);
 
 		this.shortcuts = this.shortcuts.filter(s => {
-			return !_.isEqual(s[0], bindStrict);
+			return !isEqual(s[0], bindStrict);
 		});
 	}
 

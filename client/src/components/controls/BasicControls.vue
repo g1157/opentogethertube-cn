@@ -77,7 +77,7 @@
 
 <script lang="ts" setup>
 import { mdiChevronLeft, mdiPlay, mdiPause, mdiChevronRight, mdiSkipForward } from "@mdi/js";
-import _ from "lodash";
+import clamp from "lodash/clamp";
 import { computed, inject, onMounted, onUnmounted, watch } from "vue";
 import { useStore } from "@/store";
 import { useConnection } from "@/plugins/connection";
@@ -173,7 +173,7 @@ function togglePlayback() {
 function seekDelta(delta: number) {
 	const length =
 		resolveVideoLength(store.state.room.currentSource?.length, store.state.playerDuration) ?? 0;
-	const position = _.clamp(props.currentPosition + delta, 0, length);
+	const position = clamp(props.currentPosition + delta, 0, length);
 	if (actions) {
 		actions.seek(position);
 	} else {

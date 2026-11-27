@@ -1,4 +1,4 @@
-import _ from "lodash";
+import omit from "lodash/omit";
 import type { Store } from "vuex";
 import type { Module } from "vuex/types";
 import { Grants } from "ott-common/permissions";
@@ -141,7 +141,7 @@ export const roomModule: Module<RoomState, FullOTTStoreState> = {
 	actions: {
 		sync(context, message: ServerMessageSync) {
 			const stateupdate: Partial<RoomState> = {
-				..._.omit(message, ["action", "grants", "voteCounts", "votesToSkip", "serverTime"]),
+				...omit(message, ["action", "grants", "voteCounts", "votesToSkip", "serverTime"]),
 			} as any;
 			if (typeof message.name === "string" && "currentSource" in message) {
 				// Older servers omit this field; a previous visit's preparation must not survive.

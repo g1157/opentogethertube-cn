@@ -4,7 +4,7 @@ import { useConnection } from "@/plugins/connection";
 import { useStore } from "@/store";
 import { PlayerStatus } from "ott-common/models/types";
 import { PlayerActionsKey } from "@/util/player-actions";
-import _ from "lodash";
+import debounce from "lodash/debounce";
 
 const store = useStore();
 const connection = useConnection();
@@ -41,7 +41,7 @@ function sendPlaybackStatus(status: PlayerStatus) {
 	lastReported = status;
 }
 
-const sendPlaybackStatusDebounced = _.debounce(sendPlaybackStatus, 200, { maxWait: 500 });
+const sendPlaybackStatusDebounced = debounce(sendPlaybackStatus, 200, { maxWait: 500 });
 
 function reportCurrentStatus() {
 	sendPlaybackStatusDebounced.cancel();

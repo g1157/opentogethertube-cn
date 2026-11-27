@@ -227,7 +227,8 @@ import { useRoute } from "vue-router";
 import { useStore } from "@/store";
 import { useI18n } from "vue-i18n";
 import { API } from "@/common-http";
-import _ from "lodash";
+import debounce from "lodash/debounce";
+import trim from "lodash/trim";
 import VideoQueueItem from "@/components/VideoQueueItem.vue";
 import { ToastStyle } from "@/models/toast";
 import toast from "@/util/toast";
@@ -551,7 +552,7 @@ async function requestAddPreview() {
 		}
 	}
 }
-const requestAddPreviewDebounced = _.debounce(requestAddPreview, 1000);
+const requestAddPreviewDebounced = debounce(requestAddPreview, 1000);
 /**
  * Request an add preview regardless of the current input.
  */
@@ -652,7 +653,7 @@ function onInputAddPreviewChange() {
 	probingSeries.value = false;
 	seriesProbeFound.value = 0;
 	seriesProbeMissed.value = false;
-	if (!inputAddPreview.value || _.trim(inputAddPreview.value).length === 0) {
+	if (!inputAddPreview.value || trim(inputAddPreview.value).length === 0) {
 		videos.value = [];
 		highlightedAddPreviewItem.value = undefined;
 		return;
@@ -674,7 +675,7 @@ function onInputAddPreviewKeyDown(e) {
 		e.preventDefault();
 	}
 
-	if (_.trim(inputAddPreview.value).length === 0 || isLoadingAddPreview.value) {
+	if (trim(inputAddPreview.value).length === 0 || isLoadingAddPreview.value) {
 		return;
 	}
 

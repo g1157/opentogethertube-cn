@@ -280,7 +280,7 @@
 </template>
 
 <script lang="ts" setup>
-import _ from "lodash";
+import omit from "lodash/omit";
 import {
 	mdiEyeOffOutline,
 	mdiEyeOutline,
@@ -366,7 +366,7 @@ onMounted(async () => {
 
 function intoSettings(obj: OttApiResponseGetRoom): RoomSettings {
 	return {
-		..._.omit(obj, ["name", "isTemporary", "users", "queue", "hasOwner", "grants"]),
+		...omit(obj, ["name", "isTemporary", "users", "queue", "hasOwner", "grants"]),
 		grants: new Grants(obj.grants),
 		bufferGateMode: obj.bufferGateMode ?? BufferGateMode.Off,
 	};
@@ -417,7 +417,7 @@ function getRoomSettingsSubmit(): Partial<RoomSettings> {
 			blocked.push(prop as keyof typeof propsToGrants);
 		}
 	}
-	return _.omit(inputRoomSettings, blocked);
+	return omit(inputRoomSettings, blocked);
 }
 
 /** Take room settings from the UI and submit them to the server. */

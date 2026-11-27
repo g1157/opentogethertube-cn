@@ -77,7 +77,9 @@
 
 <script lang="ts" setup>
 import { computed, ref, type Ref, toRefs, watch } from "vue";
-import _ from "lodash";
+import keys from "lodash/keys";
+import min from "lodash/min";
+import pickBy from "lodash/pickBy";
 import { useI18n } from "vue-i18n";
 import { PERMISSIONS, type Permission, Grants } from "ott-common/permissions";
 import { Role } from "ott-common/models/types";
@@ -158,7 +160,7 @@ const rolePerms = {
  * Gets the id of the lowest role with this permission granted.
  */
 function getLowestGranted(permission): Role {
-	const value = _.min(_.keys(_.pickBy(permission, v => v === true)));
+	const value = min(keys(pickBy(permission, v => v === true)));
 	if (value !== undefined) {
 		return parseInt(value);
 	} else {

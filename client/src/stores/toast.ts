@@ -1,5 +1,5 @@
 import { RoomRequestType } from "ott-common/models/messages";
-import _ from "lodash";
+import findIndex from "lodash/findIndex";
 import type { Module } from "vuex/types";
 
 import type { Toast } from "../models/toast";
@@ -49,7 +49,7 @@ export const toastModule: Module<ToastState, unknown> = {
 			}
 		},
 		REMOVE_TOAST(state: ToastState, id: symbol) {
-			const idx = _.findIndex(state.notifications, { id });
+			const idx = findIndex(state.notifications, { id });
 			if (idx < 0) {
 				// A card closed twice, or after a clear, must not take the last toast with it:
 				// splice(-1, 1) deletes from the end of the array.

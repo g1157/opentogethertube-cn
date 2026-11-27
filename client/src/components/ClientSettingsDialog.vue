@@ -152,7 +152,8 @@
 
 <script lang="ts" setup>
 import { mdiChevronDown, mdiChevronUp } from "@mdi/js";
-import _ from "lodash";
+import cloneDeep from "lodash/cloneDeep";
+import omit from "lodash/omit";
 import { ALL_SKIP_CATEGORIES } from "ott-common";
 import { computed, type Ref, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -237,8 +238,8 @@ watch(autoSkipCategories, categories => {
 });
 
 function loadSettings(): ExposedSettings {
-	const copy = _.cloneDeep(store.state.settings);
-	const filtered = _.omit(copy, EXCLUDED);
+	const copy = cloneDeep(store.state.settings);
+	const filtered = omit(copy, EXCLUDED);
 	return filtered;
 }
 
