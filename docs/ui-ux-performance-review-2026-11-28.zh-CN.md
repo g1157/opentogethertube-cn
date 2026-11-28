@@ -143,6 +143,13 @@
 建议：把主题定义收敛成一份 TS 数据，构建时同时生成 CSS 变量与 Vuetify 主题；给间距/圆角/字号
 补 4–6 个 token；新增组件默认 `scoped`，全局样式只保留布局与主题层。
 
+**落地（主题单一真源）**：`client/src/styles/theme-palettes.json` 成为唯一数据源；
+`plugins/vuetify.ts` 直接由它构造 10 套 `ThemeDefinition`，`scripts/generate-theme-css.mjs`
+从同一份数据生成 `_theme-vars.generated.scss`（`cinema.scss` 用 `@use` 引入）。Mapped token
+（`primary`/`signal`/`background`/`card`/`foreground`/`warning`/`success`/`destructive`/`ring`/…）
+由 Vuetify 语义色自动派生，不再手写两份；teal 的 `--signal` 保留显式覆盖，因为它与 Vuetify
+`secondary` 有意不同。`lint-ci` 先跑生成器的 `--check`，生成文件漏更新会直接失败。
+
 ### 设计方面的优点（已核实）
 
 -   10 套主题都走 `data-theme` + `color-scheme`，Vuetify 主题与之对应，切换即时且持久化。
@@ -448,12 +455,23 @@ Edge 版本反而有 `LIMIT 200`（`packages/ott-edge/src/index.ts:232-243`）�
 建议：先查清各语言的回退链（至少在 `ru` 下用 DevTools 的 Fonts 面板确认是否请求 Roboto），
 再决定删除哪几个 `@font-face`；若只是兜底，保留 400 常规的 latin + cyrillic 两份即可。
 
+**落地**：保留 400 的 latin + cyrillic 两份，删掉 italic/500/700 六份声明与六个 woff2 文件；
+`dist` 里的 Roboto 从 8 个文件 104.3 KB 降到 2 个文件 25.4 KB。Hanken 覆盖拉丁 300–800，
+CJK 走系统字体，只有 Hanken 加载失败或缺少西里尔字形时才会请求 Roboto；500/700 的西里尔
+文本由浏览器合成粗体，与“兜底字体”的定位一致。
+
 ### PF10 Vuetify 全量 CSS（P3）
 
-`vendor-*.css` 148 KB / 20.5 KB gzip，主要是 `plugins/vuetify.ts:1` 的全局 `import "vuetify/styles"`。
-组件已按需自动导入，但样式仍是全量。`vite-plugin-vuetify`
-已经配置了 `styles.configFile`（`vite.config.js:101-109`），但变量覆盖不等于按组件裁剪。
-若改为由插件按组件引入样式，可能再省一部分；需构建实测，收益不如 JS 明显，列为低优先级。
+`vendor-*.css` 148 KB / 20.5 KB gzip。复核发现原判断需要更正：`import "vuetify/styles"` 只贡献
+共享的 reset/base 层（在关闭 `$utilities` 与 `$color-pack` 后约 17.8 KB / 2.4 KB gzip）；
+每个组件的 JS 自己 `import` 自己的 CSS，`vite-plugin-vuetify` 再把该导入按 `vuetify-settings.scss`
+编译，所以组件样式本来就是按需的。全量 `vuetify/dist/vuetify.css` 是 598 KB / 73.7 KB gzip，
+当前 vendor 是它的 25%（gzip 28%），且不含 `.v-data-table`/`.v-color-picker`/`.v-date-picker` 等
+未使用组件，也没有 `.bg-red` 这类 utilities。
+
+**落地**：不改样式入口（再拆 base 只能省约 2 KB gzip，却要自己维护 reset，风险大于收益）；
+新增 `client/scripts/check-bundle-css.mjs` 并由 `build` 调用，断言 vendor CSS ≤ 170 KB /
+24 KB gzip、未使用组件与 utilities 不出现，防止以后误引全量样式。
 
 ### 性能方面的优点（已核实）
 
@@ -504,6 +522,12 @@ Edge 版本反而有 `LIMIT 200`（`packages/ott-edge/src/index.ts:232-243`）�
 `useRoomFullscreen`（`player-fullscreen` 调用与通知）、`useRoomClock`（`timestampUpdate` 与
 滑块位置）、`useRoomGestures`（已有 `gestures` 雏形）、`useRoomNotices`（interaction/level 提示）。
 目标不是追求行数，而是让播放同步、房间 UI、权限三块可以独立测试。
+
+**落地**：四个 composable 已按上述边界拆出（`client/src/components/composables/room-{fullscreen,clock,notices,gestures}.ts`），
+`Room.vue` 3,333 → 3,179 行；时钟、全屏宿主同步、提示计时与手势接线各有一份实现，
+另补了 14 项 fake-timer 单测。`timestampUpdate` 仍走同一个 `clock.tick()`，
+`getServerClockOffsetMs()` 在读数前执行；亮度只有一份 `usePlayerBrightness()` 实例，
+由 scrim、滑动和读数共享。
 
 ### Q2 命名与历史包袱（P3）
 
@@ -572,23 +596,25 @@ Edge 版本反而有 `LIMIT 200`（`packages/ott-edge/src/index.ts:232-243`）�
 | 命令 | 结果 |
 | --- | --- |
 | `yarn workspace ott-client run lint-ci` | 退出 0 |
-| `yarn workspace ott-client run build` | 退出 0，12.93 s；产物体积见 PF1 |
-| `yarn workspace ott-client run test` | 109 文件通过 / 3 skip；1,264 项通过 / 24 skip |
+| `yarn workspace ott-client run build` | 退出 0，23.10 s（本机有并发负载）；vendor CSS 148.1 KB / 20.5 KB gzip；Roboto 2 文件 25.4 KB |
+| `yarn workspace ott-client run test` | 115 文件通过 / 3 skip；1,305 项通过 / 24 skip（本机同时有其它 Node 测试在跑，耗时约 231 s） |
 | `yarn workspace ott-server run test` | 83 文件；1,249 项通过 |
 | `yarn workspace ott-common run test` | 12 文件；103 项通过 |
 | `yarn workspace ott-edge run test` | 31 项通过 |
 | `cargo check --workspace` | 通过，14.95 s |
 | `cargo test --workspace` | `harness` 包 5 项通过；3 项依赖真实进程的用例超过 3 分钟未结束，手动终止（退出 1），本轮不据此下结论 |
 
-对比度复现：读取 `client/src/styles/cinema.scss` 的 `[data-theme="..."]` 块，按 WCAG 相对亮度
-公式计算 `--primary-foreground/--primary`、`--signal/--background`、`--warning/--card` 等组合。
-本轮脚本仅用于测量，未写入仓库。
+对比度复现：`client/src/styles/theme-palettes.json` 是唯一真源，
+`node client/scripts/check-contrast.mjs --verbose` 会按 WCAG 相对亮度公式打印 10 套 × 13 对
+`--primary-foreground/--primary`、`--signal/--background`、`--warning/--card` 等组合；
+CI 中不带 `--verbose` 只打印汇总与失败行。
 
 i18n 复现：去掉语言包顶部的 `ott-common` import，为 `BehaviorOption`/`OttWebsocketError`/`Role`
 提供 Proxy 占位，按扁平键集合与 `en.ts` 求差集。
 
 体积复现：构建后 `ls -l client/dist/assets`，gzip 用 `gzip -c <file> | wc -c`；lodash / Vue Query
-的对比用 `node_modules/.bin/esbuild` 对最小入口独立打包。
+的对比用 `node_modules/.bin/esbuild` 对最小入口独立打包。Vuetify 全量样式为
+`node_modules/vuetify/dist/vuetify.css`（598,328 B / 73,703 B gzip）。
 
 ## 九、未验证与边界
 
@@ -605,25 +631,29 @@ i18n 复现：去掉语言包顶部的 `ott-common` import，为 `BehaviorOption
 
 ## 十、修复落地记录
 
-本文的 1–10 项已全部实现，落地在 `b1785fd` 之后的提交里；上面各节描述的是修复前的基线，数字不要混用。
+本文的 1–11 项已全部实现，落地在 `b1785fd` 之后的提交里；上面各节描述的是修复前的基线，数字不要混用。
 
 | 项 | 落地内容 | 验证 |
 | --- | --- | --- |
-| D1 | 三套浅色主题换色（light `#a85800`/`#0b6f73`、strawberry `#c40047`/`#1c6f3e`、mint `#0a6f5f`/`#266d92`，warning 与 accent-foreground 统一 `#8a5000`），`cinema.scss` 与 `vuetify.ts` 同步 | `client/scripts/check-contrast.mjs` 进 lint-ci，10 套主题 220 对全过；最差 4.52（light） |
-| A1–A8 / U3 / U4 | 静音按钮、两个滑块、房间语音按钮拿到可访问名与 `aria-pressed`；ClickToEdit 可键盘激活；聊天用 `role="log"` 且浮层不播报；队列可菜单/Alt+↑↓ 重排并有列表语义；建房/登录表单修正 role 与 autocomplete；Account 失败态有 `role="alert"` 面板与重试；浏览页加搜索、排序、加载更多 | 上述键盘与读屏路径都有组件测试；client 1291 项通过 |
+| D1 | 三套浅色主题换色（light `#a85800`/`#0b6f73`、strawberry `#c40047`/`#1c6f3e`、mint `#0a6f5f`/`#266d92`，warning 与 accent-foreground 统一 `#8a5000`）；D4 后色值只在 `theme-palettes.json` 维护 | `client/scripts/check-contrast.mjs` 进 lint-ci，10 套主题 130 对全过；最差 4.5193（light） |
+| A1–A8 / U3 / U4 | 静音按钮、两个滑块、房间语音按钮拿到可访问名与 `aria-pressed`；ClickToEdit 可键盘激活；聊天用 `role="log"` 且浮层不播报；队列可菜单/Alt+↑↓ 重排并有列表语义；建房/登录表单修正 role 与 autocomplete；Account 失败态有 `role="alert"` 面板与重试；浏览页加搜索、排序、加载更多 | 上述键盘与读屏路径都有组件测试；client 全绿（最终 1,305 项通过） |
 | U1 / U2 / D2 | 首次访问按 `navigator.languages` 选语言（`zh-*` 仍落 `zh-CN`），挂载前 await 语言包；`theme-color` 跟随主题；补 OG/Twitter 基础标签；5 个部分语言包各删 12 个过期键 | 内置 `detect-locale` 单测；`main.ts` 在 mount 前加载 |
 | PF2 / PF3 / PF4 | vue-query 与 lodash 全部改为按需；入口 chunk 只保留 `en`，其余语言按需加载 | vendor **872 KB → 796 KB（289 → 264 KB gzip）**；`index.html` 不再 preload `zh-CN` |
 | PF5 / PF8 | AI 超分准备态提示（300 ms 后才出现，不假造百分比）、save-data 默认降级；PeerTube 卸载时移除监听并 `destroy()` | 新增组件测试；失败回退路径未改 |
 | PF6 | 列表查询只取 `prevQueue[0]`（sqlite/mysql `json_extract`，pg `->0`，未知方言回退），加 `limit`/`offset` 与 5 s 缓存，保留密码房脱敏 | 服务端 1267 项测试通过（含新增 18 项） |
 
-未做的三项，留在同一份清单里等人工决定：
+遗留的 Q1 / D4 / PF9 / PF10 也已落地，和上面的修复分开成两组提交：
 
--   **Q1 Room.vue 拆分**（3333 行）：拆分本身不改变行为，但一次动 3 千行的组件在无人复核的夜里
-    风险高于收益，建议单独一条 PR、先补 e2e 再动。
--   **D4 主题单一真源**：需要把 CSS 变量从 `vuetify.ts` 生成，属于构建链改动；当前两份文件一致性
-    已由 `check-contrast.mjs` 断言，漂移会被 CI 拦住，可以先不合并真源。
--   **PF9 / PF10**（Roboto 未用字重、按组件引入 Vuetify 样式）：都要改构建配置并用多语言、多组件
-    页面实测，收益小于回归风险；体积账单见 PF9/PF10 分析，留待单独测量。
+| 项 | 落地内容 | 验证 |
+| --- | --- | --- |
+| Q1 | 拆出 `room-fullscreen`（46 行）、`room-clock`（65 行）、`room-notices`（96 行）、`room-gestures`（198 行）四个 composable；`Room.vue` 3,333 → 3,179 行；`timestampUpdate` 统一走 `clock.tick()`，`getServerClockOffsetMs()` 在读数前执行；亮度只有一份 `usePlayerBrightness()` | 新增 14 项 fake-timer 单测；`RoomInteraction`/`RoomLifecycle`/`player-gestures`/`player-fullscreen` 83 项通过；tsc/eslint/prettier 全绿 |
+| D4 | `theme-palettes.json` 成为唯一真源；`vuetify.ts` 直接构造 10 套 `ThemeDefinition`；`generate-theme-css.mjs` 生成 `_theme-vars.generated.scss`（`cinema.scss` 用 `@use`），`lint-ci` 跑 `--check`；对比度脚本改为读同一份 JSON，默认只打印汇总 | 10 套主题、130 对对比度全过；生成文件与 JSON 同步检查通过 |
+| PF9 | 删除 Roboto italic/500/700 六份 `@font-face` 与六个 woff2，只保留 400 latin + cyrillic | `dist` 中 Roboto 8 文件 104.3 KB → 2 文件 25.4 KB；构建通过 |
+| PF10 | 复核确认 `vite-plugin-vuetify` 已按组件注入 CSS；保留共享 base 层，不改入口；新增 `check-bundle-css.mjs` 并挂到 `build`，断言 vendor CSS ≤ 170 KB / 24 KB gzip 且不出现未使用组件/utilities | vendor CSS 148.1 KB / 20.5 KB gzip（全量 598.3 KB / 73.7 KB gzip），无 `.v-data-table`/`.v-color-picker`/`.bg-red`；build 退出 0 |
+
+顺带修掉的两个测试稳定性问题：`RoomDisconnected` 不再为了一个 `:roomId` 参数 lazy-load 整个
+`Room.vue`（改用 stub route，单测 5.2 s → 0.09 s）；`EdgePreview` 的授权编辑用例在慢机器上
+5 s 预算不够，显式放宽到 20 s。
 
 顺带修掉的三个小问题：`client/src/plugins/vuetify.ts` 里 `VueQueryPlugin` 注册已随 PF2 移除；
 `client/tests/setup.ts` 固定测试语言，使语言检测不影响既有断言；新代码全部过了根目录 `lint-ci`
