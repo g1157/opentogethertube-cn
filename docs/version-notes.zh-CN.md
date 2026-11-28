@@ -1,5 +1,15 @@
 # 版本记录（简体中文分支）
 
+-   **v1.4.31**：Emby 兼容性与混合内容提示。播放地址分类不再只看扩展名：没有 `.m3u8`/`.mpd`
+    后缀时，先看 PlaybackInfo 的 `TranscodingSubProtocol`（hls/dash），再看 `Container`；因此
+    Emby 返回 `/videos/{id}/stream?Static=false&TranscodingProtocol=hls` 这类无后缀转码地址也能
+    正确走 HLS。HTTPS 页面尝试连接 HTTP Emby（localhost 除外）时直接给出“浏览器会拦截混合内容”
+    的提示，而不是笼统的网络错误。Edge README 补充浏览器提供元数据的路径。**验证**：`yarn lint-ci`
+    退出 0（0 error / 26 既有 warning）；`yarn build` 退出 0；`yarn test` 2790 通过 / 24 跳过
+    （客户端 1320、服务端 1283、common 103、edge 32、tooling 14、ott-vis 2、datasource 6、
+    panel 30）。**未覆盖**：这台 Emby 4.9 对 MKV 仍不返回 `TranscodingUrl`（`SupportsTranscoding`
+    为 false），所以大量 MKV 仍会提示换 MP4/WebM；需要 Emby 侧开启转码后才会自动走 HLS。
+
 -   **v1.4.30**：Edge 预览版接入 Emby，并修复 v1.4.29 的 CI 失败。**v1.4.29 的镜像没有发布**：
     CI 的 Node 26 jsdom 不提供可用的 `localStorage`，两个新测试直接调用 `localStorage.clear()`
     而全部失败；v1.4.30 改用内存 `Storage` 桩，产品代码的 `try/catch` 不变。Durable Object 的
