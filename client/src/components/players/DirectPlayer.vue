@@ -273,9 +273,13 @@ async function doApplyTrack(idx: number, enabled: boolean) {
 					return;
 				}
 				const JASSUB = await loadJassub();
+				// JASSUB's worker constructor always initializes libass via
+				// `subContent ?? fetchtext(subUrl)`. Omitting both fetches `/assets/undefined`
+				// (which returns SPA HTML and crashes libass with exit(4)).
 				jassubInstance = new JASSUB({
 					video: videoElem.value,
 					canvas,
+					subUrl: source.url,
 					workerUrl: jassubWorkerUrl,
 					wasmUrl: jassubWasmUrl,
 					modernWasmUrl: jassubModernWasmUrl,
@@ -284,9 +288,17 @@ async function doApplyTrack(idx: number, enabled: boolean) {
 					// back to the default font
 					queryFonts: "localandremote",
 				});
+				await jassubInstance.ready;
+				if (!jassubInstance.renderer) {
+					throw new Error("JASSUB worker failed to initialize renderer");
+				}
+			} else {
+				await jassubInstance.ready;
+				if (!jassubInstance.renderer) {
+					throw new Error("JASSUB worker failed to initialize renderer");
+				}
+				await jassubInstance.renderer.setTrackByUrl(source.url);
 			}
-			await jassubInstance.ready;
-			await jassubInstance.renderer.setTrackByUrl(source.url);
 		} catch (e) {
 			// The worker can resolve ready after a failed fetch; a half-working instance
 			// would then silently show nothing forever. Drop it so the next attempt rebuilds,

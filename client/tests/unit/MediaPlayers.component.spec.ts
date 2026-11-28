@@ -261,8 +261,14 @@ describe("native and HLS player reliability", () => {
 		expect(api.getPosition()).toBe(123.5);
 		expect(video.paused).toBe(false);
 		expect(jassubMock.created).toHaveLength(1);
+		expect(jassubMock.created[0].opts.subUrl).toBe("https://media.example/replacement.ass");
+		expect(jassubMock.created[0].setTrackByUrl).not.toHaveBeenCalled();
+		// Switching to a second ASS track reuses the running JASSUB worker via setTrackByUrl.
+		await wrapper.setProps({ subtitleUrl: "https://media.example/second.ass" });
+		await flushPromises();
+		expect(jassubMock.created).toHaveLength(1);
 		expect(jassubMock.created[0].setTrackByUrl).toHaveBeenCalledWith(
-			"https://media.example/replacement.ass",
+			"https://media.example/second.ass",
 		);
 		await wrapper.setProps({ subtitleUrl: undefined });
 		await flushPromises();
@@ -377,9 +383,8 @@ describe("native and HLS player reliability", () => {
 		]);
 		expect(api.isCaptionsEnabled()).toBe(true);
 		expect(jassubMock.created).toHaveLength(1);
-		expect(jassubMock.created[0].setTrackByUrl).toHaveBeenCalledWith(
-			"https://media.example/subs.ass",
-		);
+		expect(jassubMock.created[0].opts.subUrl).toBe("https://media.example/subs.ass");
+		expect(jassubMock.created[0].setTrackByUrl).not.toHaveBeenCalled();
 		expect(wrapper.find(".jassub-canvas-host").isVisible()).toBe(true);
 		expect(wrapper.find(".jassub-canvas").exists()).toBe(true);
 

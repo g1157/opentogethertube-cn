@@ -1369,6 +1369,11 @@ watch(
 	gap: 14px;
 }
 
+.emby-side .emby-panel-info {
+	flex: 0 0 auto;
+	width: 100%;
+}
+
 .emby-side .emby-panel-actions {
 	width: 100%;
 }
@@ -1608,6 +1613,8 @@ watch(
 }
 
 .emby-subtitle-select {
+	flex: 0 0 auto;
+	width: 100%;
 	margin-top: 8px;
 }
 
@@ -1671,6 +1678,8 @@ watch(
 		position: sticky;
 		bottom: -20px;
 		z-index: 3;
+		max-height: 60vh;
+		overflow-y: auto;
 		margin: 16px -20px -20px;
 		padding: 12px 20px 20px;
 		background: rgb(var(--v-theme-surface));
@@ -1687,6 +1696,11 @@ watch(
 	.emby-side-pinned .emby-panel-body {
 		flex-direction: column;
 		gap: 12px;
+	}
+
+	.emby-side-pinned .emby-panel-info {
+		flex: 0 0 auto;
+		width: 100%;
 	}
 
 	.emby-side-pinned .emby-panel-actions {
