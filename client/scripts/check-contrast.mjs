@@ -1,25 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { loadPalettes, themeCssVariables } from "./generate-theme-css.mjs";
 
 // Pair roles within Vuetify; these are not blanket cross-file equivalences.
 // Teal intentionally differs: CSS signal is #6ff0e2 (f33df4d), while Vuetify
 // secondary remains #ffd166. Check each palette's contrast independently.
-const vuetifyTokens = {
-	primary: "primary",
-	signal: "secondary",
-	background: "background",
-	card: "surface",
-	foreground: "on-background",
-	"card-foreground": "on-surface",
-	"primary-foreground": "on-primary",
-	warning: "warning",
-};
-
-// Only roles changed by the light-theme contrast fix must stay synchronized.
-// Vuetify has no ring or accent-foreground token: the changed CSS focus ring
-// follows primary, and light's changed accent text shares the warning colour.
 const changedTokens = {
 	light: {
 		primary: "primary",
@@ -49,15 +35,7 @@ const pairs = [
 ];
 
 const HEX_RE = /^#(?:[\da-f]{3}|[\da-f]{6})$/i;
-const CSS_THEME_RE = /\[data-theme=["']([^"']+)["']\]\s*\{([^{}]*)\}/g;
-const CSS_VAR_RE = /--([\w-]+)\s*:\s*([^;]+);/g;
-const CSS_SCHEME_RE = /\bcolor-scheme:\s*(dark|light)\s*;/;
-const VUETIFY_DEFINITION_RE = /const\s+(\w+)\s*:\s*ThemeDefinition\s*=\s*\{([\s\S]*?)\n\};/g;
-const VUETIFY_COLORS_RE = /\bcolors:\s*\{([^{}]*)\}/;
-const VUETIFY_COLOR_ENTRY_RE = /^(?:"([\w-]+)"|'([\w-]+)'|(\w+))\s*:\s*["'](#[\da-f]+)["']$/i;
-const VUETIFY_DARK_RE = /\bdark:\s*(true|false)\s*,/;
-const VUETIFY_THEMES_RE = /\bthemes:\s*\{([^{}]*)\}/;
-const VUETIFY_THEME_ENTRY_RE = /^(\w+)\s*:\s*(\w+)$/;
+
 function normalizeHex(value) {
 	assert.match(value ?? "", HEX_RE, `Expected opaque hex colour: ${value}`);
 	const hex = value.slice(1).toLowerCase();
@@ -79,79 +57,22 @@ export function contrastRatio(foreground, background) {
 	return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
-function parseCss(source) {
-	const themes = new Map();
-	for (const [, name, block] of source.matchAll(CSS_THEME_RE)) {
-		assert(!themes.has(name), `Duplicate CSS theme: ${name}`);
-		const colors = Object.fromEntries(
-			[...block.matchAll(CSS_VAR_RE)].map(([, key, value]) => [key, value.trim()]),
-		);
-		const scheme = block.match(CSS_SCHEME_RE)?.[1];
-		assert(scheme, `Missing color-scheme: ${name}`);
-		themes.set(name, { colors, dark: scheme === "dark" });
-	}
-	assert(themes.size > 0, "No CSS theme blocks found");
-	return themes;
-}
-
-function parseVuetify(source) {
-	const definitions = new Map();
-	for (const [, name, block] of source.matchAll(VUETIFY_DEFINITION_RE)) {
-		assert(!definitions.has(name), `Duplicate Vuetify definition: ${name}`);
-		const colorBlock = block.match(VUETIFY_COLORS_RE)?.[1];
-		assert(colorBlock, `Missing Vuetify colours: ${name}`);
-		const colors = {};
-		for (const entry of colorBlock
-			.split(",")
-			.map(value => value.trim())
-			.filter(Boolean)) {
-			const match = entry.match(VUETIFY_COLOR_ENTRY_RE);
-			assert(match, `Unsupported Vuetify colour declaration: ${name}: ${entry}`);
-			const key = match[1] ?? match[2] ?? match[3];
-			assert(!(key in colors), `Duplicate Vuetify colour: ${name}.${key}`);
-			colors[key] = normalizeHex(match[4]);
-		}
-		const dark = block.match(VUETIFY_DARK_RE)?.[1];
-		assert(dark, `Missing Vuetify dark flag: ${name}`);
-		definitions.set(name, { colors, dark: dark === "true" });
-	}
-	assert(definitions.size > 0, "No Vuetify ThemeDefinition objects found");
-	const registry = source.match(VUETIFY_THEMES_RE)?.[1];
-	assert(registry, "Missing Vuetify theme registry");
-	const themes = new Map();
-	for (const entry of registry
-		.split(",")
-		.map(value => value.trim())
-		.filter(Boolean)) {
-		const match = entry.match(VUETIFY_THEME_ENTRY_RE);
-		assert(match, `Unsupported Vuetify theme registration: ${entry}`);
-		const [, name, definition] = match;
-		assert(!themes.has(name), `Duplicate Vuetify theme: ${name}`);
-		assert(definitions.has(definition), `Missing Vuetify definition: ${definition}`);
-		themes.set(name, definitions.get(definition));
-	}
-	assert.equal(themes.size, definitions.size, "Unregistered Vuetify ThemeDefinition");
-	return themes;
-}
-
-export function checkContrast(cssSource, vuetifySource) {
-	const stripComments = source => source.replace(/\/\*[\s\S]*?\*\//g, "");
-	const css = parseCss(stripComments(cssSource));
-	const vuetify = parseVuetify(stripComments(vuetifySource).replace(/\/\/[^\n]*/g, ""));
-	assert.deepEqual(
-		[...css.keys()].sort(),
-		[...vuetify.keys()].sort(),
-		"Theme names differ between files",
-	);
+/**
+ * Check the resolved pairs for every palette in the single theme source. The CSS values
+ * are derived from the same JSON as the Vuetify colours, so this is a contrast audit
+ * rather than a drift check; the light/strawberry/mint assertions stay because those are
+ * the roles the contrast fix deliberately tied together.
+ */
+export function checkContrast(palettes) {
 	const rows = [];
 	const errors = [];
 	const worst = {};
-	for (const [theme, { colors, dark }] of css) {
-		const componentTheme = vuetify.get(theme);
-		assert.equal(dark, componentTheme.dark, `Theme mode differs: ${theme}`);
+	for (const [theme, palette] of Object.entries(palettes)) {
+		const colors = themeCssVariables(palette, theme);
+		const componentColors = palette.colors;
 		for (const [cssKey, vuetifyKey] of Object.entries(changedTokens[theme] ?? {})) {
 			const cssColor = normalizeHex(colors[cssKey]);
-			const componentColor = normalizeHex(componentTheme.colors[vuetifyKey]);
+			const componentColor = normalizeHex(componentColors[vuetifyKey]);
 			if (cssColor !== componentColor) {
 				errors.push(
 					`${theme}: CSS --${cssKey} ${cssColor} != Vuetify ${vuetifyKey} ${componentColor}`,
@@ -160,32 +81,12 @@ export function checkContrast(cssSource, vuetifySource) {
 		}
 		worst[theme] = Infinity;
 		for (const [fg, bg, threshold] of pairs) {
-			const sources = [["CSS", colors[fg], colors[bg]]];
-			if (vuetifyTokens[fg] && vuetifyTokens[bg]) {
-				sources.push([
-					"Vuetify",
-					componentTheme.colors[vuetifyTokens[fg]],
-					componentTheme.colors[vuetifyTokens[bg]],
-				]);
-			}
-			for (const [source, foreground, background] of sources) {
-				const ratio = contrastRatio(foreground, background);
-				const passed = ratio >= threshold;
-				rows.push({
-					theme,
-					source,
-					fg: `${fg} ${foreground}`,
-					bg: `${bg} ${background}`,
-					ratio,
-					threshold,
-					passed,
-				});
-				worst[theme] = Math.min(worst[theme], ratio);
-				if (!passed) {
-					errors.push(
-						`${theme} (${source}): ${fg}/${bg} ${ratio.toFixed(4)} < ${threshold}`,
-					);
-				}
+			const ratio = contrastRatio(colors[fg], colors[bg]);
+			const passed = ratio >= threshold;
+			rows.push({ theme, fg, bg, ratio, threshold, passed });
+			worst[theme] = Math.min(worst[theme], ratio);
+			if (!passed) {
+				errors.push(`${theme}: ${fg}/${bg} ${ratio.toFixed(4)} < ${threshold}`);
 			}
 		}
 	}
@@ -194,34 +95,32 @@ export function checkContrast(cssSource, vuetifySource) {
 
 function main() {
 	try {
-		const css = readFileSync(new URL("../src/styles/cinema.scss", import.meta.url), "utf8");
-		const vuetify = readFileSync(new URL("../src/plugins/vuetify.ts", import.meta.url), "utf8");
-		const { rows, errors, worst } = checkContrast(css, vuetify);
-		process.stdout.write(
-			"theme       source   fg                                  bg                            ratio  min  result\n",
-		);
-		for (const row of rows) {
+		const { rows, errors, worst } = checkContrast(loadPalettes());
+		if (process.argv.includes("--verbose")) {
 			process.stdout.write(
-				`${row.theme.padEnd(11)} ${row.source.padEnd(8)} ${row.fg.padEnd(
-					35,
-				)} ${row.bg.padEnd(29)} ${row.ratio.toFixed(4).padStart(6)} ${row.threshold.toFixed(
-					1,
-				)}  ${row.passed ? "PASS" : "FAIL"}\n`,
+				"theme       fg                                  bg                            ratio  min  result\n",
 			);
+			for (const row of rows) {
+				process.stdout.write(
+					`${row.theme.padEnd(11)} ${row.fg.padEnd(35)} ${row.bg.padEnd(
+						29,
+					)} ${row.ratio.toFixed(4).padStart(6)} ${row.threshold.toFixed(1)}  ${
+						row.passed ? "PASS" : "FAIL"
+					}\n`,
+				);
+			}
+			process.stdout.write("\n");
 		}
-		process.stdout.write(
-			`\nWorst ratio per theme: ${Object.entries(worst)
-				.map(([theme, ratio]) => `${theme} ${ratio.toFixed(4)}`)
-				.join(", ")}\n`,
-		);
 		if (errors.length) {
-			process.stderr.write(`\n${errors.join("\n")}\n`);
+			process.stderr.write(`${errors.join("\n")}\n`);
 			process.exitCode = 1;
 		} else {
 			process.stdout.write(
 				`PASS: ${Object.keys(worst).length} themes, ${
 					rows.length
-				} contrast pairs; changed light-theme colours agree (legacy teal difference preserved).\n`,
+				} contrast pairs; worst ${Object.entries(worst)
+					.map(([theme, ratio]) => `${theme} ${ratio.toFixed(4)}`)
+					.join(", ")}. Use --verbose for the table.\n`,
 			);
 		}
 	} catch (error) {

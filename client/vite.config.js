@@ -100,6 +100,11 @@ export default defineConfig({
 		dropConsoleLogs(),
 		vuetify({
 			autoImport: true,
+			// Component JS imports its own CSS and the plugin compiles that import through this
+			// settings file, so only the components actually rendered reach the bundle (PF10).
+			// `import "vuetify/styles"` contributes just the shared reset/base sheet; with
+			// $utilities and $color-pack off it is small. scripts/check-bundle-css.mjs keeps
+			// the per-component behaviour honest.
 			styles: {
 				configFile: path.resolve(
 					searchForWorkspaceRoot(process.cwd()),
