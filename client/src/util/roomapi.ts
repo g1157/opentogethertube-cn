@@ -5,7 +5,7 @@ import {
 	RoomRequestType,
 } from "ott-common/models/messages";
 import type { ClientId, Role } from "ott-common/models/types";
-import type { VideoId } from "ott-common/models/video";
+import type { VideoAdd, VideoId } from "ott-common/models/video";
 
 export function useRoomApi(connection: OttRoomConnection) {
 	return new RoomApi(connection);
@@ -107,7 +107,7 @@ class RoomApi {
 		});
 	}
 
-	playNow(video: VideoId) {
+	playNow(video: VideoAdd) {
 		this.connection.send({
 			action: "req",
 			request: {

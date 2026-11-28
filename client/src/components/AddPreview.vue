@@ -27,18 +27,30 @@
 					persistent-clear
 					data-cy="add-preview-input"
 				/>
-				<v-select
-					v-if="showAdapterSelector"
-					v-model="selectedAdapter"
-					:items="adapterOptions"
-					item-title="text"
-					item-value="value"
-					:label="$t('add-preview.adapter-selector.label')"
-					density="compact"
-					variant="outlined"
-					class="adapter-select"
-					data-cy="adapter-selector"
-				/>
+				<div class="add-source-actions">
+					<v-select
+						v-if="showAdapterSelector"
+						v-model="selectedAdapter"
+						:items="adapterOptions"
+						item-title="text"
+						item-value="value"
+						:label="$t('add-preview.adapter-selector.label')"
+						density="compact"
+						variant="outlined"
+						class="adapter-select"
+						data-cy="adapter-selector"
+					/>
+					<v-btn
+						v-if="!isEdgePreview"
+						variant="tonal"
+						:prepend-icon="mdiServerNetwork"
+						class="emby-open"
+						data-cy="emby-open"
+						@click="showEmby = true"
+					>
+						{{ $t("emby-browser.open") }}
+					</v-btn>
+				</div>
 			</v-sheet>
 		</v-row>
 		<v-row>
@@ -217,11 +229,13 @@
 				{{ $t("add-preview.same-series-add-selected", { count: seriesSelected.size }) }}
 			</v-btn>
 		</div>
+		<EmbyBrowser v-model="showEmby" />
 	</div>
 </template>
 
 <script lang="ts" setup>
-import { mdiMagnify, mdiPlus } from "@mdi/js";
+import { mdiMagnify, mdiPlus, mdiServerNetwork } from "@mdi/js";
+import EmbyBrowser from "@/components/EmbyBrowser.vue";
 import { ref, computed, watch, onBeforeUnmount, onMounted, type Ref } from "vue";
 import { useRoute } from "vue-router";
 import { useStore } from "@/store";
@@ -293,6 +307,7 @@ onMounted(async () => {
 	searchEnabled.value = await getSearchEnabled();
 });
 const isLoadingAddAll = ref(false);
+const showEmby = ref(false);
 const videosLoadFailureText = ref("");
 const selectedTestVideo = ref<string | undefined>(undefined);
 const selectedAdapter = ref<string | null>(null);
@@ -727,9 +742,20 @@ function setAddPreviewText(text: string) {
 	opacity: 0.8;
 }
 
+.add-source-actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: wrap;
+	padding: 2px 0 6px;
+}
+
 .adapter-select {
 	max-width: 200px;
-	margin-top: 8px;
+}
+
+.emby-open {
+	margin-left: auto;
 }
 
 /* A quiet suggestion of the neighbouring episodes of the link that was just resolved. */
