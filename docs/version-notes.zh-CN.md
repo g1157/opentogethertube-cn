@@ -1,5 +1,17 @@
 # 版本记录（简体中文分支）
 
+-   **v1.4.30**：Edge 预览版接入 Emby，并修复 v1.4.29 的 CI 失败。**v1.4.29 的镜像没有发布**：
+    CI 的 Node 26 jsdom 不提供可用的 `localStorage`，两个新测试直接调用 `localStorage.clear()`
+    而全部失败；v1.4.30 改用内存 `Storage` 桩，产品代码的 `try/catch` 不变。Durable Object 的
+    `videoAdd` 现在接受同一份客户端 `metadata` 边界（标题、描述、时长、MIME、封面、分辨率、
+    CORS、live）；`resolveAdd` 在 metadata 存在时直接构造队列项，不再调用 `mediaUrl`/探针，
+    因此局域网地址也不会变成 Worker 流量。没有 metadata 的公开直链仍走原来的探测、缓存和分段
+    校验路径。添加界面在 Edge 预览版里也显示 Emby 按钮。**验证**：`yarn lint-ci` 退出 0
+    （0 error / 26 既有 warning）；`yarn build` 退出 0；`yarn test` 2788 通过 / 24 跳过（客户端
+    1318、服务端 1283、common 103、edge 32、tooling 14、ott-vis 2、datasource 6、panel 30），
+    其中 Edge 新增“私有地址 + metadata 不探测”用例；`RoomLifecycle` 的重新入房用例预算 30 s，
+    避免全量并行时 5 s 默认超时误报。真实 Emby API 与 CORS 同 v1.4.29。
+
 -   **v1.4.29**：Emby 入口。**无数据库迁移；新增的 `metadata` 字段是可选的。**
     房间添加框新增 **Emby** 按钮：观众填写自己的 Emby 地址和账号，浏览器直接登录、列媒体库、
     搜索 `Movie,Episode`、取 `PlaybackInfo` 并播放。服务端不代理视频、不保存密码，只接收最终

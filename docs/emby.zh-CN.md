@@ -43,7 +43,7 @@ Emby 读媒体库、搜索并播放。OTT 服务器不代理视频，也不保�
 - 不支持 Emby 的收藏、继续观看、字幕轨、多版本手动切换；只取 PlaybackInfo 给出的第一个可用源。
 - Emby 4.9 的 `/Users/Me` 在这台服务器上会 500，所以只实现用户名+密码登录，不支持 API Key 登录。
 - 队列保存的是当时拿到的播放地址；令牌过期或被撤销后，需要重新从 Emby 添加。
-- Cloudflare Edge 预览版用的是另一套 Durable Object 队列和探针，按钮暂时隐藏；主站版本可用。
+- Cloudflare Edge 预览版使用同一份浏览器代码；它的 Durable Object 队列也接受 `metadata`，因此同样能直接播放局域网 Emby，不需要经过 Worker 探针。
 
 ## 排障
 
