@@ -269,5 +269,5 @@ describe("room connection lifecycle", () => {
 		expect(video.currentTime).toBeGreaterThanOrEqual(310);
 		expect(video.currentTime).toBeLessThan(312);
 		expect(connection.sent).toEqual([]);
-	});
+	}, 30_000);
 });

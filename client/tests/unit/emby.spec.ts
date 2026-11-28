@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	EmbyError,
 	authenticateEmby,
@@ -22,6 +22,24 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const DEVICE_ID_PATTERN = /^ott-/;
 
+function memoryStorage(): Storage {
+	const values = new Map<string, string>();
+	return {
+		get length() {
+			return values.size;
+		},
+		clear: () => values.clear(),
+		getItem: (key: string) => values.get(key) ?? null,
+		key: (index: number) => [...values.keys()][index] ?? null,
+		removeItem: (key: string) => {
+			values.delete(key);
+		},
+		setItem: (key: string, value: string) => {
+			values.set(key, String(value));
+		},
+	};
+}
+
 const ITEM: EmbyItem = {
 	Id: "item-1",
 	Name: "The Film",
@@ -33,7 +51,12 @@ const ITEM: EmbyItem = {
 
 describe("Emby client", () => {
 	beforeEach(() => {
-		localStorage.clear();
+		// Node 26's jsdom does not expose a working localStorage without a file URL.
+		vi.stubGlobal("localStorage", memoryStorage());
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
 	});
 
 	it("normalizes server addresses and rejects unsafe protocols", () => {

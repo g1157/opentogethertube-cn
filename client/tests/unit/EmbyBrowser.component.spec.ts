@@ -8,6 +8,24 @@ const { API } = vi.hoisted(() => ({
 }));
 vi.mock("@/common-http", () => ({ API }));
 
+function memoryStorage(): Storage {
+	const values = new Map<string, string>();
+	return {
+		get length() {
+			return values.size;
+		},
+		clear: () => values.clear(),
+		getItem: (key: string) => values.get(key) ?? null,
+		key: (index: number) => [...values.keys()][index] ?? null,
+		removeItem: (key: string) => {
+			values.delete(key);
+		},
+		setItem: (key: string, value: string) => {
+			values.set(key, String(value));
+		},
+	};
+}
+
 const ITEM = {
 	Id: "item-1",
 	Name: "The Film",
@@ -67,7 +85,7 @@ async function connect() {
 
 describe("EmbyBrowser component", () => {
 	beforeEach(() => {
-		localStorage.clear();
+		vi.stubGlobal("localStorage", memoryStorage());
 		vi.clearAllMocks();
 		API.post.mockResolvedValue({ data: { success: true } });
 	});
