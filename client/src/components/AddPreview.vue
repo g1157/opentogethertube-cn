@@ -41,7 +41,6 @@
 						data-cy="adapter-selector"
 					/>
 					<v-btn
-						v-if="!isEdgePreview"
 						variant="tonal"
 						:prepend-icon="mdiServerNetwork"
 						class="emby-open"

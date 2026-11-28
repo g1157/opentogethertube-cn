@@ -12,10 +12,29 @@ export const videoId = z.object({
 	service: z.enum(["direct", "hls", "dash"]),
 	id: z.string().min(1).max(4096),
 });
+const clientMetadata = z.object({
+	title: z.string().min(1).max(200),
+	description: z.string().max(2000).optional(),
+	length: finitePosition.optional(),
+	mime: z.string().min(1).max(100),
+	thumbnail: z.string().max(4096).optional(),
+	width: z.number().int().min(1).max(16384).optional(),
+	height: z.number().int().min(1).max(16384).optional(),
+	isLive: z.boolean().optional(),
+	cors: z.boolean().optional(),
+	mediaAccess: z
+		.object({
+			referrerPolicy: z.literal("no-referrer").optional(),
+			requiresOriginReferer: z.boolean().optional(),
+			containerMismatch: z.boolean().optional(),
+		})
+		.optional(),
+});
 export const videoAdd = videoId.extend({
 	startAt: finitePosition.optional(),
 	endAt: finitePosition.optional(),
 	subtitleUrl: z.union([z.string().url().max(4096), z.literal("")]).optional(),
+	metadata: clientMetadata.optional(),
 });
 const settings = RoomSettingsSchema.extend({
 	description: z.string().max(2000).optional(),

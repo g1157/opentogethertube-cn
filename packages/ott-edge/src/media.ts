@@ -541,9 +541,127 @@ export async function resolveMedia(env: Env, input: string, probe = new Probe())
 	return video;
 }
 
+const CLIENT_MIME =
+	/^(?:video\/(?!x-flv|x-matroska|x-msvideo|x-ms-wmv)[a-z0-9-]+|audio\/(?!aac|flac|x-wav|x-aiff)[a-z0-9-]+|application\/(?:x-mpegURL|dash\+xml))$/;
+
+function hasControlCharacters(value: string): boolean {
+	for (const character of value) {
+		const code = character.codePointAt(0);
+		if (code !== undefined && (code < 0x20 || code === 0x7f)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Client metadata is the Edge counterpart of server/client-media-metadata.ts: it lets a
+ * browser reach a LAN Emby server that the worker cannot. Unlike mediaUrl it accepts
+ * private hosts, but still requires a credential-free http(s) URL.
+ */
+function clientUrl(value: string, field: string): URL {
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new ApiError(400, `${field}不是有效的链接。`);
+	}
+	if (!HTTP_PROTOCOL.test(url.protocol) || url.username || url.password || value.length > 4096) {
+		throw new ApiError(400, `${field}必须是公开的 HTTP 或 HTTPS 链接。`);
+	}
+	url.hash = "";
+	return url;
+}
+
+export function clientMetadataVideo(value: VideoAdd): Video | undefined {
+	const metadata = value.metadata;
+	if (!metadata) {
+		return undefined;
+	}
+	if (!SUPPORTED.has(value.service)) {
+		throw new ApiError(400, "此测试版只支持直链视频。", "UnsupportedServiceException");
+	}
+	const url = clientUrl(value.id, "视频链接");
+	const title = metadata.title.trim();
+	if (title === "" || title.length > 200 || hasControlCharacters(metadata.title)) {
+		throw new ApiError(400, "视频标题无效。");
+	}
+	if (!CLIENT_MIME.test(metadata.mime)) {
+		throw new ApiError(400, "浏览器不能直接播放这种媒体类型。");
+	}
+	if (
+		metadata.description !== undefined &&
+		(metadata.description.length > 2000 || hasControlCharacters(metadata.description))
+	) {
+		throw new ApiError(400, "视频描述无效。");
+	}
+	const thumbnail =
+		metadata.thumbnail === undefined
+			? undefined
+			: clientUrl(metadata.thumbnail, "封面链接").href;
+	const length = metadata.isLive ? undefined : metadata.length;
+	if (length !== undefined && (!Number.isFinite(length) || length < 0 || length > 31 * 86400)) {
+		throw new ApiError(400, "片源时长无效或超出支持范围。");
+	}
+	for (const field of ["width", "height"] as const) {
+		const dimension = metadata[field];
+		if (
+			dimension !== undefined &&
+			(!Number.isInteger(dimension) || dimension < 1 || dimension > 16384)
+		) {
+			throw new ApiError(400, "视频分辨率无效。");
+		}
+	}
+	const video: Video = {
+		service: value.service,
+		id: url.href,
+		title,
+		description: metadata.description ?? "",
+		mime: metadata.mime,
+	};
+	if (length !== undefined && length > 0) {
+		video.length = Math.ceil(length);
+	}
+	if (thumbnail !== undefined) {
+		video.thumbnail = thumbnail;
+	}
+	if (metadata.width !== undefined) {
+		video.width = metadata.width;
+	}
+	if (metadata.height !== undefined) {
+		video.height = metadata.height;
+	}
+	if (metadata.isLive) {
+		video.isLive = true;
+	}
+	if (typeof metadata.cors === "boolean") {
+		video.cors = metadata.cors;
+	}
+	if (metadata.mediaAccess) {
+		const mediaAccess: NonNullable<Video["mediaAccess"]> = {};
+		if (metadata.mediaAccess.referrerPolicy === "no-referrer") {
+			mediaAccess.referrerPolicy = "no-referrer";
+		}
+		if (typeof metadata.mediaAccess.requiresOriginReferer === "boolean") {
+			mediaAccess.requiresOriginReferer = metadata.mediaAccess.requiresOriginReferer;
+		}
+		if (typeof metadata.mediaAccess.containerMismatch === "boolean") {
+			mediaAccess.containerMismatch = metadata.mediaAccess.containerMismatch;
+		}
+		if (Object.keys(mediaAccess).length > 0) {
+			video.mediaAccess = mediaAccess;
+		}
+	}
+	return video;
+}
+
 export async function resolveAdd(env: Env, value: VideoAdd, probe?: Probe): Promise<QueueItem> {
 	if (!SUPPORTED.has(value.service)) {
 		throw new ApiError(400, "此测试版只支持直链视频。", "UnsupportedServiceException");
+	}
+	const supplied = clientMetadataVideo(value);
+	if (supplied) {
+		return applyExtras(supplied, value);
 	}
 	const video = await resolveMedia(env, value.id, probe);
 	if (video.service !== value.service) {

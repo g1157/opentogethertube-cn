@@ -436,6 +436,49 @@ async function add(name, token, file = "one.mp4") {
 	assert.equal(response.status, 200, JSON.stringify(await response.json()));
 }
 
+it("queues browser-supplied Emby metadata without probing a private source", async t => {
+	const owner = await identity();
+	const name = await create(t, owner);
+	const source = "http://192.168.1.20:8096/videos/1/original.mp4?api_key=secret";
+	const before = outboundCalls.length;
+	const response = await request(`/room/${name}/queue`, owner, "POST", {
+		service: "direct",
+		id: source,
+		metadata: {
+			title: "Home movie",
+			description: "Emby · Home",
+			mime: "video/mp4",
+			length: 90.4,
+			cors: true,
+		},
+	});
+	assert.equal(response.status, 200, JSON.stringify(await response.json()));
+	assert.equal(outboundCalls.length, before, "must not probe a private source");
+	// The first add becomes the current source; a second one stays in the inspectable queue.
+	const second = "http://192.168.1.20:8096/videos/2/original.webm?api_key=secret";
+	const secondResponse = await request(`/room/${name}/queue`, owner, "POST", {
+		service: "direct",
+		id: second,
+		metadata: { title: "Second movie", mime: "video/webm", length: 30 },
+	});
+	assert.equal(secondResponse.status, 200, JSON.stringify(await secondResponse.json()));
+	assert.equal(outboundCalls.length, before, "must not probe a private source");
+	const state = await (await request(`/room/${name}`, owner)).json();
+	assert.equal(state.queue[0].id, second);
+	assert.equal(state.queue[0].title, "Second movie");
+	assert.equal(state.queue[0].length, 30);
+
+	const rejected = await request(`/room/${name}/queue`, owner, "POST", {
+		service: "direct",
+		id: "http://192.168.1.20:8096/videos/3/original.mkv",
+		metadata: { title: "MKV", mime: "video/x-matroska" },
+	});
+	assert.equal(rejected.status, 400);
+	const unchanged = await (await request(`/room/${name}`, owner)).json();
+	assert.equal(unchanged.queue.length, 1);
+	assert.equal(unchanged.queue[0].id, second);
+});
+
 it("maintenance starts from a request and cleans only expired D1 records through its own alarm", async () => {
 	const expiry = Date.now() + 60_000;
 	await db.batch([
