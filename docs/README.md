@@ -10,6 +10,7 @@
 - [播放器与房间使用说明](player-interactions.zh-CN.md) — 续播、换片、同步与常见困惑
 - [播放同步与测量记录](playback-sync.zh-CN.md) — 时钟、纠偏、换片就绪与实测数据
 - [缓冲时一起暂停](buffer-gate.zh-CN.md) — 单人/多人缓冲门控与超时
+- [Emby 入口](emby.zh-CN.md) — 浏览器直连 Emby，服务端只同步状态
 - [播放详情面板](player-stats.zh-CN.md) — 视频数据与统计项
 - [画质增强、渲染倍率与运行边界](video-enhancement.zh-CN.md) — 档位、管线与设备边界
 - [真人影视滤镜选型](upscale-for-live-action.zh-CN.md)

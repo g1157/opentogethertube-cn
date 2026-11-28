@@ -1,5 +1,21 @@
 # 版本记录（简体中文分支）
 
+-   **v1.4.29**：Emby 入口。**无数据库迁移；新增的 `metadata` 字段是可选的。**
+    房间添加框新增 **Emby** 按钮：观众填写自己的 Emby 地址和账号，浏览器直接登录、列媒体库、
+    搜索 `Movie,Episode`、取 `PlaybackInfo` 并播放。服务端不代理视频、不保存密码，只接收最终
+    加入队列的播放地址和展示元数据。`direct` / `hls` / `dash` 的添加请求可以带可选的
+    `metadata`（标题、描述、时长、MIME、封面、分辨率、CORS、live），服务端校验边界后直接入队，
+    不再调用 `ffprobe`——家庭 Emby 或局域网地址因此不会变成服务器流量。校验会拒绝非 http(s)、
+    带用户名密码、超过 2048 字符的 URL，未知 MIME 与 `video/x-matroska` 等浏览器不能直接播放的
+    类型；只有 URL 型服务接受 metadata，YouTube 等适配器仍走原路径。播放地址里的 Emby 访问令牌
+    会随队列分享给房间成员，界面和文档都明确提示。服务端日志不再打印完整视频 id（可能含令牌）。
+    **验证**：真实 Emby 4.9 上已用 curl 验证认证、Views、Items 与 PlaybackInfo（含 CORS 预检与
+    Range）；`yarn lint-ci` 退出 0；`yarn build` 退出 0；`yarn test` 2787 通过 / 24 跳过（客户端
+    1318、服务端 1283、common 103、edge 31、tooling 14、ott-vis 2、datasource 6、panel 30）。
+    **未覆盖**：CI 没有真实浏览器 + 真实 Emby 的端到端；MKV 需要 Emby 返回 HLS 转码地址才能播，
+    否则界面会提示换 MP4/WebM。Edge 预览版暂时隐藏该按钮（它的 Durable Object 探针还未接入
+    metadata）。
+
 -   **v1.4.28**：界面与构建复查的第二批落地。**无数据库迁移，无线上协议改动。**
     **主题单一真源**：十套调色板移入 `client/src/styles/theme-palettes.json`，Vuetify 的
     `ThemeDefinition` 与 `_theme-vars.generated.scss` 都由它生成；生成文件入库，`lint-ci` 在两者
