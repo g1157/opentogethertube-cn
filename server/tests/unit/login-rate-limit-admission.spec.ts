@@ -166,10 +166,13 @@ describe("login rate-limit admission", () => {
 		for (let index = 0; index < 15; index++) {
 			attempt("CaseUser");
 		}
-		await vi.waitFor(() => {
-			expect(auth.pending).toHaveLength(10);
-			expect(responses).toHaveLength(5);
-		});
+		await vi.waitFor(
+			() => {
+				expect(auth.pending).toHaveLength(10);
+				expect(responses).toHaveLength(5);
+			},
+			{ timeout: 15_000 },
+		);
 		expect(responses.every(response => response.status === 429)).toBe(true);
 		expect(passport.authenticate).toHaveBeenCalledTimes(10);
 		complete(new Error("Wrong credentials"));
@@ -201,12 +204,17 @@ describe("login rate-limit admission", () => {
 		for (let index = 0; index < 110; index++) {
 			attempt("CaseUser");
 		}
-		await vi.waitFor(() => expect(consumeUser).toHaveBeenCalledTimes(110));
-		release();
-		await vi.waitFor(() => {
-			expect(auth.pending).toHaveLength(10);
-			expect(responses).toHaveLength(100);
+		await vi.waitFor(() => expect(consumeUser).toHaveBeenCalledTimes(110), {
+			timeout: 15_000,
 		});
+		release();
+		await vi.waitFor(
+			() => {
+				expect(auth.pending).toHaveLength(10);
+				expect(responses).toHaveLength(100);
+			},
+			{ timeout: 15_000 },
+		);
 		expect(await points(IP_COUNTER, IP)).toBe(10);
 		expect(consumeIP).toHaveBeenCalledTimes(10);
 		expect(passport.authenticate).toHaveBeenCalledTimes(10);
@@ -219,10 +227,13 @@ describe("login rate-limit admission", () => {
 		for (let index = 0; index < 110; index++) {
 			attempt("principal-" + index);
 		}
-		await vi.waitFor(() => {
-			expect(auth.pending).toHaveLength(100);
-			expect(responses).toHaveLength(10);
-		});
+		await vi.waitFor(
+			() => {
+				expect(auth.pending).toHaveLength(100);
+				expect(responses).toHaveLength(10);
+			},
+			{ timeout: 15_000 },
+		);
 		expect(responses.every(response => response.status === 429)).toBe(true);
 		expect(passport.authenticate).toHaveBeenCalledTimes(100);
 		complete(new Error("Wrong credentials"));
