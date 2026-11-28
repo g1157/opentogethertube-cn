@@ -181,5 +181,5 @@ describe("Cloudflare guest identity and room ownership", () => {
 		store.state.users.users.get("owner")!.role = Role.UnregisteredUser;
 		await flushPromises();
 		expect(wrapper.findComponent(PermissionsEditor).exists()).toBe(false);
-	});
+	}, 20_000);
 });

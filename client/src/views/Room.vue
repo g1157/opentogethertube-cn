@@ -507,7 +507,6 @@ import {
 import {
 	defineComponent,
 	ref,
-	type Ref,
 	unref,
 	computed,
 	watch,
@@ -562,13 +561,15 @@ import type {
 	MediaPlayerWithQuality,
 } from "@/components/composables/media-player";
 import { useGrants } from "@/components/composables/grants";
+import { useRoomClock } from "@/components/composables/room-clock";
+import { useRoomFullscreen } from "@/components/composables/room-fullscreen";
+import { useRoomGestures } from "@/components/composables/room-gestures";
+import { useRoomNotices } from "@/components/composables/room-notices";
 import { PlayerStatus, Visibility, OttWebsocketError } from "ott-common/models/types";
-import { createPlayerFullscreen, PlayerFullscreenKey } from "@/util/player-fullscreen";
-import toast, { fullscreenNoticeHost } from "@/util/toast";
+import toast from "@/util/toast";
 import { ToastStyle } from "@/models/toast";
 import { PHONE_MAX_QUERY } from "@/util/breakpoints";
 import { PlayerControlsActivityKey, usePlayerControls } from "@/util/player-controls";
-import { createPlayerGestures, type LevelSide } from "@/util/player-gestures";
 import { usePlayerBrightness } from "@/util/player-brightness";
 import { createPlaybackSync } from "@/util/playback-sync";
 import { syncMetrics } from "@/util/playback-sync-diagnostics";
@@ -579,8 +580,6 @@ import {
 	preparationSilenceFactor,
 } from "@/util/playback-preparation";
 import type { MediaLoadingState } from "@/util/media-loading-state";
-import { useTemporaryPlaybackSpeed } from "@/util/temporary-playback-speed";
-import { TEMPORARY_PLAYBACK_SPEED } from "ott-common/constants";
 import PlayerShortcutsDialog from "@/components/PlayerShortcutsDialog.vue";
 import PlayerStatsPanel from "@/components/PlayerStatsPanel.vue";
 import AppFooter from "@/components/AppFooter.vue";
@@ -849,17 +848,8 @@ export default defineComponent({
 		const controlsVisible = controls.visible;
 		const videoControlsHideTimeout = controls.timeout;
 		provide(PlayerControlsActivityKey, controls);
-		const fullscreenContainer = useTemplateRef<HTMLDivElement>("fullscreenContainer");
-		const fullscreen = createPlayerFullscreen(
-			() => fullscreenContainer.value,
-			active => store.commit("SET_FULLSCREEN", active),
-		);
-		provide(PlayerFullscreenKey, fullscreen);
-		onUnmounted(() => fullscreen.dispose());
-		const fullscreenOverlayDefaults = computed(() => {
-			const attach = store.state.fullscreen ? fullscreenContainer.value : false;
-			return { VMenu: { attach }, VTooltip: { attach }, VDialog: { attach } };
-		});
+		const { fullscreen, fullscreenOverlayDefaults, syncFullscreenNoticeHost } =
+			useRoomFullscreen();
 		function setVideoControlsVisibility(visible: boolean) {
 			if (visible) {
 				controls.activity();
@@ -885,9 +875,6 @@ export default defineComponent({
 		);
 
 		// actively calculate the current position of the video
-		const truePosition = ref(0);
-		const sliderPosition = ref(0);
-		const iTimestampUpdater: Ref<ReturnType<typeof setInterval> | null> = ref(null);
 		let disposed = false;
 		let playbackApplication = 0;
 		/** The clock ticks at 4 Hz; a play() self-heal needs at most one attempt per second. */
@@ -1459,69 +1446,62 @@ export default defineComponent({
 		 * Refresh everything that follows the clock. Returns whether it already applied the
 		 * room's playback state, so a caller that would apply it too can skip the duplicate.
 		 */
-		function timestampUpdate(): boolean {
+		const clock = useRoomClock({
 			// Reading the offset also runs its clock-step guard. Without a read here a system
 			// clock correction would only be noticed by the next probe reply, up to a probe
 			// interval later, and the room position would be off by the step until then.
-			getServerClockOffsetMs();
-			truePosition.value = roomPosition();
-			sliderPosition.value = clamp(
-				pendingSeekTarget.value ?? truePosition.value,
-				0,
+			beforeTick: getServerClockOffsetMs,
+			roomPosition,
+			getLength: () =>
 				resolveVideoLength(
 					store.state.room.currentSource?.length,
 					store.state.playerDuration,
-				) ?? 0,
-			);
-			mediaSession.update();
-			nextPrefetch.tick();
-			void playbackPreparation.tick();
-			void playbackSync.tick();
-			// Mirror the sync engine's counters for the playback details panel.
-			const metrics = playbackSync.getMetrics();
-			if (syncMetrics.rateWrites !== metrics.rateWrites) {
-				syncMetrics.rateWrites = metrics.rateWrites;
-			}
-			if (syncMetrics.deadlineSeeks !== metrics.deadlineSeeks) {
-				syncMetrics.deadlineSeeks = metrics.deadlineSeeks;
-			}
-			if (syncMetrics.maxAbsDrift !== metrics.maxAbsDrift) {
-				syncMetrics.maxAbsDrift = metrics.maxAbsDrift;
-			}
-			// The apply chain is event-driven and can silently drop its last play()
-			// (autoplay latch, aborted by a seek, no follow-up ready event). Tick a
-			// bounded self-heal attempt so the room state cannot stay unapplied forever.
-			if (
-				store.state.room.isPlaying &&
-				!localPlaying.value &&
-				player.apiReady.value &&
-				!mediaPlaybackBlocked.value &&
-				!playbackPreparationState.value.active &&
-				!pendingLocalSeek.value &&
-				!mediaEndedRecently.value &&
-				Date.now() - lastPlaybackSelfHealAt >= PLAYBACK_SELF_HEAL_INTERVAL_MS
-			) {
-				lastPlaybackSelfHealAt = Date.now();
-				void applyIsPlaying();
-				return true;
-			}
-			return false;
+				),
+			getPendingSeekTarget: () => pendingSeekTarget.value,
+			onTick: () => {
+				mediaSession.update();
+				nextPrefetch.tick();
+				void playbackPreparation.tick();
+				void playbackSync.tick();
+				// Mirror the sync engine's counters for the playback details panel.
+				const metrics = playbackSync.getMetrics();
+				if (syncMetrics.rateWrites !== metrics.rateWrites) {
+					syncMetrics.rateWrites = metrics.rateWrites;
+				}
+				if (syncMetrics.deadlineSeeks !== metrics.deadlineSeeks) {
+					syncMetrics.deadlineSeeks = metrics.deadlineSeeks;
+				}
+				if (syncMetrics.maxAbsDrift !== metrics.maxAbsDrift) {
+					syncMetrics.maxAbsDrift = metrics.maxAbsDrift;
+				}
+				// The apply chain is event-driven and can silently drop its last play()
+				// (autoplay latch, aborted by a seek, no follow-up ready event). Tick a
+				// bounded self-heal attempt so the room state cannot stay unapplied forever.
+				if (
+					store.state.room.isPlaying &&
+					!localPlaying.value &&
+					player.apiReady.value &&
+					!mediaPlaybackBlocked.value &&
+					!playbackPreparationState.value.active &&
+					!pendingLocalSeek.value &&
+					!mediaEndedRecently.value &&
+					Date.now() - lastPlaybackSelfHealAt >= PLAYBACK_SELF_HEAL_INTERVAL_MS
+				) {
+					lastPlaybackSelfHealAt = Date.now();
+					void applyIsPlaying();
+					return true;
+				}
+				return false;
+			},
+		});
+		const { truePosition, sliderPosition } = clock;
+
+		/** Manual refreshes go through the same tick, so every caller sees one clock. */
+		function timestampUpdate(): boolean {
+			return clock.tick();
 		}
 
-		// A native fullscreen element only renders its own subtree: notices and the
-		// connection bar have to live inside the player while it is fullscreen, or they are
-		// silently lost (toasts already teleport there through this ref).
-		function syncFullscreenNoticeHost() {
-			fullscreenNoticeHost.value =
-				store.state.fullscreen && fullscreenContainer.value
-					? fullscreenContainer.value
-					: null;
-		}
-		watch([() => store.state.fullscreen, fullscreenContainer], syncFullscreenNoticeHost, {
-			flush: "post",
-		});
 		onMounted(() => {
-			iTimestampUpdater.value = setInterval(timestampUpdate, 250);
 			diagnosticsTimer = setInterval(sendPlaybackDiagnostics, 5000);
 			syncFullscreenNoticeHost();
 			playbackStatusUnsub = store.subscribe(mutation => {
@@ -1559,9 +1539,6 @@ export default defineComponent({
 			document.removeEventListener("visibilitychange", onVisibilityFlush);
 			playbackQuality.flush();
 			mediaSession.dispose();
-			if (iTimestampUpdater.value) {
-				clearInterval(iTimestampUpdater.value);
-			}
 			if (diagnosticsTimer !== null) {
 				clearInterval(diagnosticsTimer);
 				diagnosticsTimer = null;
@@ -2125,189 +2102,49 @@ export default defineComponent({
 			return end > start ? { start, end } : null;
 		}
 
-		const interactionNotice = ref("");
-		let noticeTimer: ReturnType<typeof setTimeout> | null = null;
-		function showInteractionNotice(key: string) {
-			interactionNotice.value = t(`player.interactions.${key}`);
-			if (noticeTimer !== null) {
-				clearTimeout(noticeTimer);
-			}
-			noticeTimer = setTimeout(() => {
-				interactionNotice.value = "";
-			}, 2000);
-		}
-		const temporarySpeed = useTemporaryPlaybackSpeed({
-			connected: () => connection.connected.value,
-			clientId: () => store.state.users.you.id,
-			currentVideo: () => currentSource.value,
-			roomGesture: () => store.state.room.temporaryPlaybackSpeed,
-			canStart: () => {
-				if (!granted("playback.speed")) {
-					showInteractionNotice("speed-denied");
-					return false;
-				}
-				if (store.state.room.temporaryPlaybackSpeed) {
-					showInteractionNotice("speed-busy");
-					return false;
-				}
-				if (
-					!store.state.room.isPlaying ||
-					mediaPlaybackBlocked.value ||
-					!seekBounds() ||
-					!playbackRate.availablePlaybackRates.value.includes(TEMPORARY_PLAYBACK_SPEED)
-				) {
-					showInteractionNotice("speed-unavailable");
-					return false;
-				}
-				return true;
-			},
-			send: (action, id, video) => roomapi.temporaryPlaybackRate(action, id, video),
-			onRejected: () => showInteractionNotice("speed-unavailable"),
-		});
-		// Fullscreen swipe levels: the left half dims the picture, the right half moves the
-		// volume, the way phone players do it. The gesture reports increments, so the finger
-		// can keep pulling in either direction without the screen edge being a limit.
+		// Interaction read-outs and the fullscreen swipe levels share one set of timers.
 		const playerBrightness = usePlayerBrightness();
-		const levelNotice = ref("");
-		let levelTimer: ReturnType<typeof setTimeout> | null = null;
-		function onLevelStart() {
-			if (levelTimer !== null) {
-				clearTimeout(levelTimer);
-				levelTimer = null;
-			}
-		}
-		function onLevelMove(side: LevelSide, delta: number) {
-			// A full-height drag moves the level through its whole range; the clamp discards
-			// any overshoot instead of making the user undo it before the value comes back.
-			if (side === "left") {
-				playerBrightness.setBrightness(playerBrightness.brightness.value + delta);
-				levelNotice.value = t("player.interactions.level-brightness", {
-					value: Math.round(playerBrightness.brightness.value * 100),
-				});
-			} else {
-				const next = store.state.settings.volume / 100 + delta;
-				store.commit("settings/UPDATE", {
-					volume: Math.round(Math.min(1, Math.max(0, next)) * 100),
-				});
-				levelNotice.value = t("player.interactions.level-volume", {
-					value: Math.round(store.state.settings.volume),
-				});
-			}
-		}
-		function onLevelEnd() {
-			if (levelTimer !== null) {
-				clearTimeout(levelTimer);
-			}
-			levelTimer = setTimeout(() => {
-				levelTimer = null;
-				levelNotice.value = "";
-			}, 800);
-		}
-		const gestures = createPlayerGestures({
+		const notices = useRoomNotices({
+			t,
+			brightness: playerBrightness,
+			getVolume: () => store.state.settings.volume,
+			setVolume: volume => store.commit("settings/UPDATE", { volume }),
+		});
+		const { showInteractionNotice } = notices;
+		const {
+			gestures,
+			gestureHint,
+			dimmerOpacity,
+			onSurfacePointerDown,
+			onSurfaceContextMenu,
+			temporarySpeed,
+		} = useRoomGestures({
 			getPosition: () => truePosition.value,
 			getBounds: seekBounds,
-			getSeekStep: () => store.state.settings.seekSeconds,
-			canSeek: () => connection.connected.value && granted("playback.seek"),
-			isPlaying: () => store.state.room.isPlaying && !mediaPlaybackBlocked.value,
-			onTap: onVideoTap,
-			onDoubleTap: onVideoDoubleTap,
-			onDoubleClick: () => {
+			granted,
+			connected: connection.connected,
+			store,
+			requestRoomSeek,
+			toggleFullscreen: () => {
 				void fullscreen.toggle();
 			},
-			onSeek: position => {
-				requestRoomSeek(position);
+			onTap: onVideoTap,
+			onDoubleTap: onVideoDoubleTap,
+			isPlaying: () => store.state.room.isPlaying && !mediaPlaybackBlocked.value,
+			mediaPlaybackBlocked: () => mediaPlaybackBlocked.value,
+			availablePlaybackRates: () => playbackRate.availablePlaybackRates.value,
+			roomapi,
+			currentSource,
+			brightness: playerBrightness,
+			t,
+			notices,
+			activateControls: activateVideoControls,
+			onContextMenu: toggleStats,
+			onVisibilityChange: () => {
+				// Let a hidden tab report that it cannot prime a first frame, and let a tab
+				// returning to the foreground re-check the current round.
+				void playbackPreparation.tick();
 			},
-			onSeekDenied: () => showInteractionNotice("seek-denied"),
-			onHoldStart: temporarySpeed.start,
-			onHoldEnd: temporarySpeed.stop,
-			canAdjustLevels: () => store.state.fullscreen,
-			onLevelStart,
-			onLevelMove,
-			onLevelEnd,
-		});
-		/** Black scrim over the picture standing in for the screen's own brightness. */
-		const dimmerOpacity = playerBrightness.dimmerOpacity;
-		// Android's long-press fires contextmenu while the hold gesture is already showing
-		// the 2x preview, and both used to run at once: the details panel opened on top of
-		// it. Touch keeps the hold gesture (the panel stays reachable from the settings
-		// menu); right-click is a mouse shortcut.
-		let surfacePointerType = "mouse";
-		function onSurfacePointerDown(event: PointerEvent) {
-			surfacePointerType = event.pointerType || "mouse";
-			gestures.pointerDown(event);
-		}
-		function onSurfaceContextMenu(event: MouseEvent) {
-			if (((event as PointerEvent).pointerType || surfacePointerType) === "touch") {
-				return;
-			}
-			toggleStats();
-		}
-		const gestureHint = computed(() => {
-			if (levelNotice.value) {
-				return levelNotice.value;
-			}
-			if (interactionNotice.value) {
-				return interactionNotice.value;
-			}
-			if (gestures.preview.value) {
-				const { position, delta } = gestures.preview.value;
-				return t("player.interactions.seek-preview", {
-					delta: `${delta >= 0 ? "+" : ""}${Math.round(delta)}`,
-					time: secondsToTimestamp(position),
-				});
-			}
-			if (store.state.room.temporaryPlaybackSpeed) {
-				return t(
-					temporarySpeed.gestureId.value ===
-						store.state.room.temporaryPlaybackSpeed.gestureId
-						? "player.interactions.holding"
-						: "player.interactions.room-holding",
-				);
-			}
-			return "";
-		});
-		function cancelGestures() {
-			gestures.cancel();
-			temporarySpeed.stop();
-		}
-		function onVisibilityChange() {
-			if (document.hidden) {
-				cancelGestures();
-			}
-			// Let a hidden tab report that it cannot prime a first frame, and let a tab
-			// returning to the foreground re-check the current round.
-			void playbackPreparation.tick();
-		}
-		watch(currentSource, () => {
-			cancelGestures();
-			activateVideoControls();
-		});
-		watch(
-			() => store.state.room.isPlaying,
-			playing => {
-				if (!playing) {
-					cancelGestures();
-				}
-			},
-		);
-		watch(connection.connected, connected => {
-			if (!connected) {
-				cancelGestures();
-			}
-		});
-		onMounted(() => {
-			document.addEventListener("visibilitychange", onVisibilityChange);
-			window.addEventListener("blur", cancelGestures);
-			window.addEventListener("pagehide", cancelGestures);
-		});
-		onUnmounted(() => {
-			cancelGestures();
-			if (noticeTimer !== null) {
-				clearTimeout(noticeTimer);
-			}
-			document.removeEventListener("visibilitychange", onVisibilityChange);
-			window.removeEventListener("blur", cancelGestures);
-			window.removeEventListener("pagehide", cancelGestures);
 		});
 
 		const addpreview = ref<typeof AddPreview | null>(null);

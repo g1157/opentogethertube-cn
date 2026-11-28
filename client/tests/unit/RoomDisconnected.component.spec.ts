@@ -6,7 +6,15 @@ import { mountComponent } from "./component-test-utils";
 describe("disconnected overlay", () => {
 	it("explains a generic close and offers a reconnect that reuses the room name", async () => {
 		const { wrapper, connection, router } = mountComponent(RoomDisconnected);
-		await router.push("/room/test-room");
+		// This overlay only reads :roomId from the route. Pushing the real /room route would
+		// lazy-load the whole Room.vue component, which can eat the 5 s test budget before
+		// the assertion even runs; a one-line stub keeps the test about the overlay.
+		router.addRoute({
+			path: "/test-room/:roomId",
+			name: "disconnected-room-stub",
+			component: { render: () => null },
+		});
+		await router.push("/test-room/test-room");
 		connection.kickReason.value = OttWebsocketError.UNKNOWN;
 		await wrapper.vm.$nextTick();
 
