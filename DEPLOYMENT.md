@@ -25,16 +25,16 @@
   `sudo docker system prune -f` 清掉，再改用国内镜像：
 
   ```bash
-  sudo docker pull ghcr.nju.edu.cn/g1157/opentogethertube-cn:v1.4.27
-  sudo docker tag  ghcr.nju.edu.cn/g1157/opentogethertube-cn:v1.4.27 \
-                    ghcr.io/g1157/opentogethertube-cn:v1.4.27
+  sudo docker pull ghcr.nju.edu.cn/g1157/opentogethertube-cn:v1.4.28
+  sudo docker tag  ghcr.nju.edu.cn/g1157/opentogethertube-cn:v1.4.28 \
+                    ghcr.io/g1157/opentogethertube-cn:v1.4.28
   sudo docker compose up -d
   ```
 
-  拉完核对提交，标签里的 revision 必须等于 `git rev-parse v1.4.27`：
+  拉完核对提交，标签里的 revision 必须等于 `git rev-parse v1.4.28`：
 
   ```bash
-  sudo docker image inspect ghcr.io/g1157/opentogethertube-cn:v1.4.27 \
+  sudo docker image inspect ghcr.io/g1157/opentogethertube-cn:v1.4.28 \
     --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
   ```
 

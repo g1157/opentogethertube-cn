@@ -1,5 +1,28 @@
 # 版本记录（简体中文分支）
 
+-   **v1.4.28**：界面与构建复查的第二批落地。**无数据库迁移，无线上协议改动。**
+    **主题单一真源**：十套调色板移入 `client/src/styles/theme-palettes.json`，Vuetify 的
+    `ThemeDefinition` 与 `_theme-vars.generated.scss` 都由它生成；生成文件入库，`lint-ci` 在两者
+    漂移时失败；对比度脚本读同一份来源（130 对，默认只打印汇总）。三套浅色主题的正文、按钮、
+    链接与 focus ring 全过 4.5:1 / 3:1，最差 4.5193（light）。
+    **字体与 CSS**：Roboto 只保留 400 拉丁 / 西里尔两份（dist 8 文件 104.3 KB → 2 文件 25.4 KB，
+    italic 与 500/700 从未被界面请求）；确认 `vite-plugin-vuetify` 已按组件注入 CSS，新增
+    `check-bundle-css.mjs` 挂到客户端 build，断言 vendor CSS ≤ 170 KB / 24 KB gzip 且不出现未使用
+    组件（实测 148.1 KB / 20.5 KB gzip；全量 Vuetify 为 598.3 KB / 73.7 KB gzip）。
+    **Room.vue 拆分**：时钟、全屏、提示、手势拆成 `room-clock`（65 行）、`room-fullscreen`（46 行）、
+    `room-notices`（96 行）、`room-gestures`（198 行）四个 composable，`Room.vue` 3,333 → 3,179 行，
+    行为不变；读数前仍先取服务器时钟偏移，亮度实例整个房间只有一份。新增 14 项 fake-timer 单测。
+    **文档**：新增 [文档索引](README.md) 与 [归档索引](archive/README.md)，21 份带日期的审查、诊断与
+    修复快照移入 `docs/archive/` 并带回链；根 README 的旧审查入口改指索引。
+    **测试稳定性**：`RoomDisconnected` 改用 stub route，不再为一个 `:roomId` 懒加载整个房间页
+    （单测 5.2 s → 0.09 s）；`EdgePreview` 授权用例的预算 5 → 20 s；登录限流准入的两个 100+ 并发
+    用例把 `vi.waitFor` 的 1 s 默认超时放宽到 15 s——全量并行时 110 个请求会超过 1 s，单独运行
+    1.5 s 通过，属于测试误报而不是逻辑回归。
+    **验证**：`yarn lint-ci` 退出 0（0 error / 26 既有 warning）；`yarn build` 退出 0；`yarn test`
+    2758 通过 / 24 跳过（客户端 1305、服务端 1267、common 103、edge 31、tooling 14、ott-vis 2、
+    datasource 6、panel 30）。Rust 未改动。**未覆盖**：真实浏览器与手机上的主题 / 字体渲染、生成 CSS
+    在旧版 Safari 的回退，以及 100+ 并发登录在真实 Redis 上的表现。
+
 -   **v1.4.27**：播放同步重做。**无数据库迁移；线上协议只新增可选字段，旧客户端与新服务端、
     新客户端与不发新字段的后端（Edge 预览）都按原路径工作。** 完整行为见
     [播放同步](playback-sync.zh-CN.md)。
