@@ -1,8 +1,10 @@
 # 全项目审查与完善清单（2026-11-17—18）
 
+> **已归档（历史快照）**：本文的数字、行号与结论只代表写作时的版本，当前实现请以 [文档索引](../README.md) 与代码为准。
+
 审查起点为 `e3c6e832` / `v1.4.19`。优先级由维护者确定：**性能、画质、浏览器兼容**；同时覆盖可用性、安全、同步、存储、测试与交付。本批修复用于 `v1.4.20`。发布提交、镜像摘要和部署验收数据以对应 GitHub Release 为准，历史标签不移动。
 
-本报告记录当前证据与修复，不改写旧审查。竞品的详细源码对照见 [同步观看产品与媒体管线对比](watch-party-comparison-2026-11-17.zh-CN.md)，画质机制见 [video-enhancement](video-enhancement.zh-CN.md)，播放机制见 [playback-sync](playback-sync.zh-CN.md)。
+本报告记录当前证据与修复，不改写旧审查。竞品的详细源码对照见 [同步观看产品与媒体管线对比](../watch-party-comparison-2026-11-17.zh-CN.md)，画质机制见 [video-enhancement](../video-enhancement.zh-CN.md)，播放机制见 [playback-sync](../playback-sync.zh-CN.md)。
 
 ## 1. 结论与证据口径
 
@@ -172,7 +174,7 @@ Linux 镜像按生产 focus 安装后清点为 344 个包名，锁文件 SHA-256
 
 ## 7. 从同类产品吸收的做法
 
-详细对比涵盖 CyTube、Syncplay、Jellyfin SyncPlay、VideoTogether、Metastream 历史实现、Watch2Gether、Hyperbeam，以及 mpv / Anime4K、FSR1、hls.js、dash.js。固定提交和官方资料链接见 [对比文档](watch-party-comparison-2026-11-17.zh-CN.md)。
+详细对比涵盖 CyTube、Syncplay、Jellyfin SyncPlay、VideoTogether、Metastream 历史实现、Watch2Gether、Hyperbeam，以及 mpv / Anime4K、FSR1、hls.js、dash.js。固定提交和官方资料链接见 [对比文档](../watch-party-comparison-2026-11-17.zh-CN.md)。
 
 | 学习对象 | 值得学习的机制 | 本项目判断 |
 | --- | --- | --- |

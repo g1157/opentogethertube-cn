@@ -1,5 +1,7 @@
 # 2026-09-21 对抗式审查：从第一性原理到可执行证据
 
+> **已归档（历史快照）**：本文的数字、行号与结论只代表写作时的版本，当前实现请以 [文档索引](../README.md) 与代码为准。
+
 对本仓库（OpenTogetherTube 中文 fork，`feat/upscale-quality` @ `0ff882c`）与其线上实例
 `https://openvideo.117911.xyz` 的一次全项目对抗式（红队）审查。
 
@@ -48,7 +50,7 @@ Redis 写失败可以升级为进程崩溃循环、事件循环的头阻塞没�
 3. **客户端时钟不可信**：墙钟可跳变、可被 NTP 阶跃；媒体时钟与墙钟是两个时钟。
 4. **浏览器策略**：autoplay 拦截、后台节流、解码能力差异（增强层还要 WebGPU）。
 5. **第三方源可用性**：YouTube 配额、反爬、CORS、跨境网络（国内出口访问海外源超时是常态，
-   见 `docs/ux-review-2026-09-15.zh-CN.md` 的实测）。
+   见 `docs/archive/ux-review-2026-09-15.zh-CN.md` 的实测）。
 
 **架构映射**：服务端维护权威房间时钟（锚点 + 位置 + 速度，`server/room.ts`），脏属性节流广播
 （50ms debounce + 1s tick）；客户端以 `min(RTT)/2` 补偿锚定（`client/src/util/connection-latency.ts`），

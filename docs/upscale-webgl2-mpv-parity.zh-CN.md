@@ -92,4 +92,4 @@
 - 官方文档：[Anime4K GLSL 高级用法](https://github.com/bloc97/Anime4K/blob/master/md/GLSL_Instructions_Advanced.md)
   （模式定义、Clamp_Highlights 会被 mpv 挪到链尾）。
 - 相关：`docs/video-enhancement.zh-CN.md`（档位与链路）、
-  `docs/upscale-diagnosis-2026-09-29.zh-CN.md`（Firefox 路线与暂停那批修复）。
+  `docs/archive/upscale-diagnosis-2026-09-29.zh-CN.md`（Firefox 路线与暂停那批修复）。

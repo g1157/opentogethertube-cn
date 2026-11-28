@@ -1,8 +1,10 @@
 # 2026-09-21 项目全貌：从第一性原理出发的系统审视
 
+> **已归档（历史快照）**：本文的数字、行号与结论只代表写作时的版本，当前实现请以 [文档索引](../README.md) 与代码为准。
+
 本文回答"**这个系统是什么、为什么这么设计**"。问题清单与裁决在配套文档
 [`adversarial-review-2026-09-21.zh-CN.md`](./adversarial-review-2026-09-21.zh-CN.md)；
-发布记录在 [`version-notes.zh-CN.md`](./version-notes.zh-CN.md)；fork 策略在根目录 `UPSTREAM.md`。
+发布记录在 [`version-notes.zh-CN.md`](../version-notes.zh-CN.md)；fork 策略在根目录 `UPSTREAM.md`。
 
 **版本快照**：本地 `feat/upscale-quality` @ `0ff882c`；线上 `https://openvideo.117911.xyz`
 部署于 `66ff392`（v1.1.5 发布提交，源码与本工作区一致）。

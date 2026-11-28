@@ -1,14 +1,14 @@
 # 架构总览
 
 > 2026-11-19 补充：以 `f240d98` / `v1.4.20` 为基础，以下包含尚未提交、尚未发布的工作区修复；
-> 本轮证据与剩余范围见 [审查记录](project-review-2026-11-19.zh-CN.md)。
+> 本轮证据与剩余范围见 [审查记录](archive/project-review-2026-11-19.zh-CN.md)。
 
 本文描述 OpenTogetherTube 中文版（本仓库）**当前实现**的架构：进程与组件、运行时数据流、
 同步引擎、服务端与客户端内部结构、数据与配置、测试与发布流程。面向想深入代码的贡献者与运维者；
 "改哪里、有哪些坑"的速查版见配套的 [AI 工作手册](./ai-handbook.zh-CN.md)。
 
 **版本快照**：`v1.4.20` 的实现；审查基线为 `e3c6e832`（`v1.4.19`），发布身份以 Git 标签与镜像 revision 为准。
-[本轮审查与完善清单](project-review-2026-11-17.zh-CN.md)记录验证范围与剩余风险，具体行为以代码为准。
+[本轮审查与完善清单](archive/project-review-2026-11-17.zh-CN.md)记录验证范围与剩余风险，具体行为以代码为准。
 
 ---
 
@@ -591,8 +591,8 @@ TLS 可选 Cloudflare Tunnel（`TRUST_PROXY=1`）或裸 IP 的 Caddy + ACME shor
 - **用户向**：`player-interactions`、`playback-sync`、`buffer-gate`、`player-stats`、`voice`、`room-notes`、
   `media-parsing`、`video-enhancement`、`upscale-*`。
 - **运维向**：根目录 `DEPLOYMENT.md`、`DEPLOYMENT-CLOUDFLARE.md`、`deployment-options`、`cloudflare-quotas`、`security-headers`。
-- **过程记录**：`version-notes`（逐版本）、`code-review-2026-09-30` / `fix-report-2026-09-30`（审查与修复）、
-  `project-overview-2026-09-21`、`adversarial-review-2026-09-21`、两份 `ux-review`。
+- **过程记录（已归档）**：`version-notes`（逐版本）、`archive/code-review-2026-09-30` / `archive/fix-report-2026-09-30`（审查与修复）、
+  `archive/project-overview-2026-09-21`、`archive/adversarial-review-2026-09-21`、`archive/ux-review-*`。当前索引见 [docs/README.md](./README.md)。
 - **上游遗留（英文）**：`architecture.md`（WIP 概述，本文是其详细替代）、`synchronization.md`、`api.yaml`（REST OpenAPI）、
   `config.md`、`db.md`、`custom-media-format.md`、`how-to-deploy.md`、`how-to-add-new-language.md`。
-- **AI 向**：`AGENTS.md`、[ai-handbook.zh-CN.md](./ai-handbook.zh-CN.md)。
+- **AI 向**：[ai-handbook.zh-CN.md](./ai-handbook.zh-CN.md)。

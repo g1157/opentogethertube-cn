@@ -118,8 +118,8 @@ address. The full trade-off table is in [deployment options](docs/deployment-opt
 | Deployment, upgrades, rollbacks, resource use | [DEPLOYMENT.md](DEPLOYMENT.md) · [docs/deployment-options.zh-CN.md](docs/deployment-options.zh-CN.md) |
 | Security headers and CSP | [docs/security-headers.zh-CN.md](docs/security-headers.zh-CN.md) |
 | What changed in each release | [docs/version-notes.zh-CN.md](docs/version-notes.zh-CN.md) |
-| Code review and known issues | [docs/code-review-2026-09-30.zh-CN.md](docs/code-review-2026-09-30.zh-CN.md) |
-| Development, testing and contributing | [CONTRIBUTING.md](CONTRIBUTING.md) · [AGENTS.md](AGENTS.md) |
+| Documentation index and archive | [docs/README.md](docs/README.md) · [reviews and diagnoses](docs/archive/README.md) |
+| Development, testing and contributing | [CONTRIBUTING.md](CONTRIBUTING.md) · [AI handbook](docs/ai-handbook.zh-CN.md) |
 | Upstream and porting scope | [UPSTREAM.md](UPSTREAM.md) |
 
 Most documents are written in Chinese, the project’s primary language.

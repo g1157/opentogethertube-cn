@@ -1,6 +1,6 @@
 # 同步观看产品与媒体管线对比（2026-11-17）
 
-本次研究为 [全项目审查](project-review-2026-11-17.zh-CN.md) 服务。优先目标是性能、画质和浏览器兼容，比较对象为 CyTube、Syncplay、Jellyfin SyncPlay、VideoTogether、Metastream、Watch2Gether、Hyperbeam；mpv / Anime4K、hls.js 与 dash.js 作为媒体管线参考。
+本次研究为 [全项目审查](archive/project-review-2026-11-17.zh-CN.md) 服务。优先目标是性能、画质和浏览器兼容，比较对象为 CyTube、Syncplay、Jellyfin SyncPlay、VideoTogether、Metastream、Watch2Gether、Hyperbeam；mpv / Anime4K、hls.js 与 dash.js 作为媒体管线参考。
 
 研究采用官方说明和固定提交源码。**没有在同一设备、同一片源下对这些产品完成端到端性能排名**；商业产品的价格、可用率、端到端延迟和当前平台支持均未亲测。下文把官方公开能力、源码机制和本项目实测分开。Metastream 的可审查实现是 v0.10.4 历史归档，不能代表其目前的商业实现。
 
@@ -125,4 +125,4 @@ flowchart LR
 | 独立设计 P2 | RTT 预算起播、单调截止 | 比较 fixed +1 s 与有界 RTT 预算；注入系统时钟跳变、丢包、后台成员和新加入者，验证无无限等待 |
 | 独立选项 P2 | 扩展桥接 / 云共享房间 | 先列确有需求但当前不能控制的网站，再估算桥接维护成本或云计算 / 编码 / 流量；不预设替换架构 |
 
-详细完善清单以 [全项目审查](project-review-2026-11-17.zh-CN.md) 的编号为准；这里记录学习依据与决策理由。成本估计和平台能力应在实际实施时再次核实。
+详细完善清单以 [全项目审查](archive/project-review-2026-11-17.zh-CN.md) 的编号为准；这里记录学习依据与决策理由。成本估计和平台能力应在实际实施时再次核实。

@@ -1,5 +1,7 @@
 # 画质增强为何弱于 mpv + Anime4K（调查记录）
 
+> **已归档（历史快照）**：本文的数字、行号与结论只代表写作时的版本，当前实现请以 [文档索引](../README.md) 与代码为准。
+
 现象（维护者反馈）：同一台 Windows 机器上，浏览器「AI 超分（质量）」的效果不如 mpv + Anime4K，
 GPU 占用也明显更低。本文记录代码走查得到的结论、证据与建议改动；只做调查，未改实现。
 
@@ -36,7 +38,7 @@ mpv 侧是同一套着色器跑在 **2× 源分辨率的超级采样目标**上�
 3. ~~只用中等模型~~ **已更正（2026-09-29 复核库源码）**：Mode A/A+A 的组成是
    `ClampHighlights → CNNVL → CNNx2VL → CNNM → …`，第一段就是 VL 档，第二段用 M 档抵消
    放大后的 4 倍成本——模型档位不是短板；真正差的是最终缩放、像素预算与自动降档（见
-   [画质增强诊断](upscale-diagnosis-2026-09-29.zh-CN.md#四与-mpv--anime4k-a-a-hq-的差距复核)）。
+   [画质增强诊断](./upscale-diagnosis-2026-09-29.zh-CN.md#四与-mpv--anime4k-a-a-hq-的差距复核)）。
 4. **小窗/嵌入播放器退化成 1×**：`MIN_AUTO_SCALE = 1` 让 Upscale 段空转，只剩 Restore。
 5. **默认自动降档会先牺牲画质**：一次掉帧就可能把最高档换成 `anime4k`，用户看不出。
 6. **最后一步由浏览器缩放**：画布小于框时再次软化。
@@ -67,7 +69,7 @@ mpv 侧是同一套着色器跑在 **2× 源分辨率的超级采样目标**上�
 
 - 现有效果与限制记录：`docs/video-enhancement.zh-CN.md`（含 A+A 的 pass 数、像素预算、降档阶梯、
   “画布低于源分辨率反而更软”的旧管线教训）。
-- 2026-09-29 的复核与修复：`docs/upscale-diagnosis-2026-09-29.zh-CN.md`（模型档位更正、最终缩放、
+- 2026-09-29 的复核与修复：`docs/archive/upscale-diagnosis-2026-09-29.zh-CN.md`（模型档位更正、最终缩放、
   4K 预算、自动降档、Firefox 的 WebGL2 路线等仍待决策项）。
 - 库能力表：`anime4k-webgpu` README（Restore / Upscale / Preset 全量清单）。
 

@@ -1,13 +1,13 @@
 # AI 工作手册（opentogethertube-next）
 
 > 2026-11-19 补充：以 `f240d98` / `v1.4.20` 为基础，以下包含尚未提交、尚未发布的工作区修复；
-> 本轮证据与剩余范围见 [审查记录](project-review-2026-11-19.zh-CN.md)。
+> 本轮证据与剩余范围见 [审查记录](archive/project-review-2026-11-19.zh-CN.md)。
 
 给在本仓库工作的 AI 代理的速查手册：**改哪里、怎么跑、有哪些坑**。目标是让新会话不必重新
 调查代码结构。人类可读的完整架构说明见 [architecture.zh-CN.md](./architecture.zh-CN.md)。
 
 **版本快照**：`v1.4.20` 的实现，审查基线为 `e3c6e832`（`v1.4.19`）。发布身份以 Git 标签与
-镜像 revision 为准。[本轮审查](project-review-2026-11-17.zh-CN.md)记录已修、剩余事项和实际验证范围。
+镜像 revision 为准。[本轮审查](archive/project-review-2026-11-17.zh-CN.md)记录已修、剩余事项和实际验证范围。
 **维护规则**：发版或大改后更新本文件（§9 有核查命令）；过期信息比没有信息更糟。
 
 ---
@@ -183,7 +183,7 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
   `docker/with-balancer.docker-compose.yml`（开发）会拉起它们。文档里别写"生产有负载均衡"。
 - monolith 侧开关：`server/balancer.ts` + `BALANCING_ENABLED`（默认 false）/`BALANCING_PORT`（3002）。
 - 配置样例 `env/balancer.example.toml`；全局配置 `OnceLock`，region 是可变的 `RwLock` 包装
-  （v1.2.6 修复，见 `docs/fix-report-2026-09-30.zh-CN.md` 第六节）。
+  （v1.2.6 修复，见 `docs/archive/fix-report-2026-09-30.zh-CN.md` 第六节）。
 - 改动协议类型后必须 `./scripts/codegen.sh`，否则 CI lint 作业漂移检查失败。
 
 ### 4.5 Cloudflare 预览版（`packages/ott-edge`）
@@ -282,8 +282,8 @@ docs/             中文专题文档（见 §10）；ai-handbook 与 architectur
 
 ## 8. 已知剩余项（更新至 2026-11-19）
 
-结合 [11-17 全项目完善清单](project-review-2026-11-17.zh-CN.md) 与
-[11-19 优先修复及验证记录](project-review-2026-11-19.zh-CN.md) 阅读；未复核的分区线索不能当作运行事实。
+结合 [11-17 全项目完善清单](archive/project-review-2026-11-17.zh-CN.md) 与
+[11-19 优先修复及验证记录](archive/project-review-2026-11-19.zh-CN.md) 阅读；未复核的分区线索不能当作运行事实。
 
 - 高档 GPU 成本和真实增强完成时间 / 在途提交尚未进入自动降档判据；Windows、移动设备与 HDR 缺少本轮真机验收。
 - 跨房间 tick 已隔离并限制并发；pause / seek 的 prevQueue 落盘仍存在写放大，建房 DB / 密码 / sync 失败的完整回滚待设计。
@@ -325,9 +325,9 @@ rg -n "MAX_BEND|HARD_SEEK_DRIFT|CATCHUP_FULL" client/src/util/playback-sync.ts
 - **机制专题**：`playback-sync`、`buffer-gate`、`video-enhancement`、`upscale-*`、`player-stats`、
   `media-parsing`、`voice`、`room-notes`、`security-headers`。
 - **运维**：根目录 `DEPLOYMENT.md`、`DEPLOYMENT-CLOUDFLARE.md`、`deployment-options`、`cloudflare-quotas`。
-- **本轮审查**：[project-review-2026-11-17](project-review-2026-11-17.zh-CN.md)、
+- **审查记录（已归档）**：[project-review-2026-11-17](archive/project-review-2026-11-17.zh-CN.md)、
   [watch-party-comparison-2026-11-17](watch-party-comparison-2026-11-17.zh-CN.md)。
-- **历史/审查**：`version-notes`、`code-review-2026-09-30`、`fix-report-2026-09-30`、
-  `project-overview-2026-09-21`、`adversarial-review-2026-09-21`、`ux-review-*`。
+- **历史/审查（已归档）**：`version-notes`、`archive/code-review-2026-09-30`、`archive/fix-report-2026-09-30`、
+  `archive/project-overview-2026-09-21`、`archive/adversarial-review-2026-09-21`、`archive/ux-review-*`。
 - **上游遗留（英文）**：`synchronization.md`、`api.yaml`、`config.md`、`db.md`、`custom-media-format.md`、
   `how-to-deploy.md`、`how-to-add-new-language.md`。

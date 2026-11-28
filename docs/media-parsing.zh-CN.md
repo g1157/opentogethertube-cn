@@ -41,7 +41,7 @@ Cloudflare 曾对本案例返回片源读取超时；单独诊断时同一源的
 
 ## 2026-11-17：解析与取消边界
 
-以下为 `v1.4.20` 的实现；完整审查见 [project-review-2026-11-17.zh-CN.md](project-review-2026-11-17.zh-CN.md)。
+以下为 `v1.4.20` 的实现；完整审查见 [project-review-2026-11-17.zh-CN.md](archive/project-review-2026-11-17.zh-CN.md)。
 
 直链的 MIME 可以缺失。播放器把缺失值视为未知类型并等待真实视频帧；不会调用空值的字符串方法，
 也不会仅凭视频尺寸尚未取得就把片源当作音频。显式 audio MIME 保留音频轨道的加载规则。

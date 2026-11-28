@@ -1,5 +1,7 @@
 # 2026-11-19 项目审查推进与验证记录
 
+> **已归档（历史快照）**：本文的数字、行号与结论只代表写作时的版本，当前实现请以 [文档索引](../README.md) 与代码为准。
+
 ## 范围与证据边界
 
 -   基线：`f240d98`（main）。此前执行 `git pull --ff-only`，从 `a398b0d` 更新。
@@ -13,31 +15,31 @@
 
 | 编号 | 来源分级   | 修复与条件                                                                                                                | 主要证据                                                                                                                                                              |
 | ---- | ---------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| N01  | 高         | shutdown / unload 等批量断开遍历数组快照，避免同步删除跳过相邻连接                                                        | [clientmanager](../server/clientmanager.ts)、[真实 DirectClient 回归](../server/tests/unit/client-broadcast-lifecycle.spec.ts)                                        |
+| N01  | 高         | shutdown / unload 等批量断开遍历数组快照，避免同步删除跳过相邻连接                                                        | [clientmanager](../../server/clientmanager.ts)、[真实 DirectClient 回归](../../server/tests/unit/client-broadcast-lifecycle.spec.ts)                                        |
 | N02  | 高         | 广播与心跳扫描使用快照，慢连接超过 8 MiB 积压被同步切断后不再漏掉下一位观众                                               | 同上；相关连接套件 48 项通过                                                                                                                                          |
-| N03  | 高         | PeerTube / Invidious service/id 执行实例策略；metadata 先检查公网，再按 2 MiB / 5s / 零隐式跳转抓取                       | [实例 ID 解析](../server/services/parsing/instance-video-id.ts)、[边界回归](../server/tests/unit/services/adapters-network-boundaries.spec.ts)                        |
-| N04  | 高         | Reddit 真实域名边界校验、内部入口再次验证、ID 拒绝路径注入，使用 HTTPS canonical endpoint                                 | [Reddit](../server/services/reddit.ts)、同上                                                                                                                          |
-| N05  | 高         | HLS 主清单与选中变体均用 2 MiB / 5s 的有界请求                                                                            | [HLS](../server/services/hls.ts)、[manifest helper](../server/services/parsing/manifest-fetch.ts)                                                                     |
-| N06  | 高         | 只有最高稳定标签 push 且 commit 在默认分支历史中才提升 latest；写权限仅给 publish job                                     | [workflow](../.github/workflows/publish-image.yml)、[策略](../scripts/image-release-policy.mjs)、[14 项策略/Git 回归](../scripts/tests/image-release-policy.test.mjs) |
-| N07  | 中         | recovery start / verify 被限流立即返回，不继续读账号、建验证码、发邮件或改密                                              | [usermanager](../server/usermanager.ts)、[独立边界回归](../server/tests/unit/account-recovery-rate-limit.spec.ts)                                                     |
-| N08  | 中         | 匿名列表的加载中及已保存密码房返回 currentSource: null；有效管理 API key 保留片源可见性                                   | [room API](../server/api/room.ts)、[列表/创建回归](../server/tests/unit/api/room-list-privacy.spec.ts)                                                                |
-| N09  | 中         | 建房 description 与设置接口统一为 5000 字符上限，超限在建房前拒绝                                                         | [schema](../common/models/zod-schemas.ts)、[公共校验回归](../common/tests/unit/room-validation.spec.ts)                                                               |
-| N10  | 中         | SW 拒绝缓存 HTML/XHTML/缺类型的 200 回退；v3 清理本应用旧缓存，保留其他 scope                                             | [sw.js](../client/public/sw.js)、[VM 回归](../client/tests/unit/service-worker-cache.spec.ts)                                                                         |
-| N11  | 中         | 登录前依次预占小写用户名/IP 与每日 IP 配额；拒绝用户名不扣 IP，部分失败只退款已成功预占，成功不清空其他账号的 IP 失败分数 | [usermanager](../server/usermanager.ts)、[18 项登录准入回归](../server/tests/unit/login-rate-limit-admission.spec.ts)                                                 |
-| N12  | 中         | 私有 userRoles 纳入内部脏状态，hasOwner 触发 owner 快照；正常检查点完成后恢复不再回滚角色/房主，未消除防抖与崩溃窗口      | [room](../server/room.ts)、[11 项访问状态恢复回归](../server/tests/unit/room-access-persistence.spec.ts)                                                              |
-| N13  | 中         | 批量适配器拒绝的条目不再补回；缓存仅接收 service/id，非缓存安全服务必做准入；按原服务/ID 回配并保留改 ID 别名             | [提取器](../server/infoextractor.ts)、[基础适配器](../server/serviceadapter.ts)、[14 项回归](../server/tests/unit/batch-video-admission.spec.ts)                      |
-| N14  | 中         | ffprobe 保留 4 个已占用槽位直接交接；最多 32 个排队项、5 秒等候预算；过期项不再启动，准入失败不缓存为媒体失败             | [ffprobe](../server/ffprobe.ts)、[14 项准入回归](../server/tests/unit/ffprobe-admission.spec.ts)                                                                      |
-| N15  | 中（续审） | 明示 cors/isLive:false 与 length:0 不再被合并过滤；保持原有其他空值回退、批量别名与队列 extras 行为                       | [提取器](../server/infoextractor.ts)、[16 项合并回归](../server/tests/unit/metadata-merge.spec.ts)                                                                    |
+| N03  | 高         | PeerTube / Invidious service/id 执行实例策略；metadata 先检查公网，再按 2 MiB / 5s / 零隐式跳转抓取                       | [实例 ID 解析](../../server/services/parsing/instance-video-id.ts)、[边界回归](../../server/tests/unit/services/adapters-network-boundaries.spec.ts)                        |
+| N04  | 高         | Reddit 真实域名边界校验、内部入口再次验证、ID 拒绝路径注入，使用 HTTPS canonical endpoint                                 | [Reddit](../../server/services/reddit.ts)、同上                                                                                                                          |
+| N05  | 高         | HLS 主清单与选中变体均用 2 MiB / 5s 的有界请求                                                                            | [HLS](../../server/services/hls.ts)、[manifest helper](../../server/services/parsing/manifest-fetch.ts)                                                                     |
+| N06  | 高         | 只有最高稳定标签 push 且 commit 在默认分支历史中才提升 latest；写权限仅给 publish job                                     | [workflow](../../.github/workflows/publish-image.yml)、[策略](../../scripts/image-release-policy.mjs)、[14 项策略/Git 回归](../../scripts/tests/image-release-policy.test.mjs) |
+| N07  | 中         | recovery start / verify 被限流立即返回，不继续读账号、建验证码、发邮件或改密                                              | [usermanager](../../server/usermanager.ts)、[独立边界回归](../../server/tests/unit/account-recovery-rate-limit.spec.ts)                                                     |
+| N08  | 中         | 匿名列表的加载中及已保存密码房返回 currentSource: null；有效管理 API key 保留片源可见性                                   | [room API](../../server/api/room.ts)、[列表/创建回归](../../server/tests/unit/api/room-list-privacy.spec.ts)                                                                |
+| N09  | 中         | 建房 description 与设置接口统一为 5000 字符上限，超限在建房前拒绝                                                         | [schema](../../common/models/zod-schemas.ts)、[公共校验回归](../../common/tests/unit/room-validation.spec.ts)                                                               |
+| N10  | 中         | SW 拒绝缓存 HTML/XHTML/缺类型的 200 回退；v3 清理本应用旧缓存，保留其他 scope                                             | [sw.js](../../client/public/sw.js)、[VM 回归](../../client/tests/unit/service-worker-cache.spec.ts)                                                                         |
+| N11  | 中         | 登录前依次预占小写用户名/IP 与每日 IP 配额；拒绝用户名不扣 IP，部分失败只退款已成功预占，成功不清空其他账号的 IP 失败分数 | [usermanager](../../server/usermanager.ts)、[18 项登录准入回归](../../server/tests/unit/login-rate-limit-admission.spec.ts)                                                 |
+| N12  | 中         | 私有 userRoles 纳入内部脏状态，hasOwner 触发 owner 快照；正常检查点完成后恢复不再回滚角色/房主，未消除防抖与崩溃窗口      | [room](../../server/room.ts)、[11 项访问状态恢复回归](../../server/tests/unit/room-access-persistence.spec.ts)                                                              |
+| N13  | 中         | 批量适配器拒绝的条目不再补回；缓存仅接收 service/id，非缓存安全服务必做准入；按原服务/ID 回配并保留改 ID 别名             | [提取器](../../server/infoextractor.ts)、[基础适配器](../../server/serviceadapter.ts)、[14 项回归](../../server/tests/unit/batch-video-admission.spec.ts)                      |
+| N14  | 中         | ffprobe 保留 4 个已占用槽位直接交接；最多 32 个排队项、5 秒等候预算；过期项不再启动，准入失败不缓存为媒体失败             | [ffprobe](../../server/ffprobe.ts)、[14 项准入回归](../../server/tests/unit/ffprobe-admission.spec.ts)                                                                      |
+| N15  | 中（续审） | 明示 cors/isLive:false 与 length:0 不再被合并过滤；保持原有其他空值回退、批量别名与队列 extras 行为                       | [提取器](../../server/infoextractor.ts)、[16 项合并回归](../../server/tests/unit/metadata-merge.spec.ts)                                                                    |
 
 “已修”指源码及对应自动化回归成立，可信度高；外部平台兼容性、真实浏览器、Docker 与线上效果尚未验证，不能宣称生产修复已完成。
 
 ### 既有 R04 / R06 与本机基线修复
 
--   R04：每个 Room 对象最多一项更新任务，全局并发 8，周期 tick 不再等待整个 Promise 集合。排队开始与更新返回后再次确认对象仍装载，避免卸载同名替代房间；定时启动幂等。[隔离回归](../server/tests/unit/room-update-isolation.spec.ts)。8 个槽全部长期阻塞仍会耗尽执行能力，未实现统一 DB I/O 取消。
--   R06：XML 解码最多 8 MiB、评论最多 100,000；客户端丢弃超过 2000 UTF-16 单元或含嵌套元素的单条文字。前后端各最多 4 个下载，缓存有条目及记账字节双预算。预检线性跳过注释、CDATA、处理指令；清理控制字符后再次预检，再创建 DOM。[公共预算](../common/danmaku.ts)、[有界 reader](../common/response-body.ts)、[流回归](../common/tests/unit/response-body.spec.ts)。
+-   R04：每个 Room 对象最多一项更新任务，全局并发 8，周期 tick 不再等待整个 Promise 集合。排队开始与更新返回后再次确认对象仍装载，避免卸载同名替代房间；定时启动幂等。[隔离回归](../../server/tests/unit/room-update-isolation.spec.ts)。8 个槽全部长期阻塞仍会耗尽执行能力，未实现统一 DB I/O 取消。
+-   R06：XML 解码最多 8 MiB、评论最多 100,000；客户端丢弃超过 2000 UTF-16 单元或含嵌套元素的单条文字。前后端各最多 4 个下载，缓存有条目及记账字节双预算。预检线性跳过注释、CDATA、处理指令；清理控制字符后再次预检，再创建 DOM。[公共预算](../../common/danmaku.ts)、[有界 reader](../../common/response-body.ts)、[流回归](../../common/tests/unit/response-body.spec.ts)。
 -   缓存 32 MiB / metadata 4 MiB 是 UTF-16 载荷及固定条目开销记账，不是 heap 实测。正文预算累计实际字节，不信任 Content-Length；取消不等待卡住的上游 cancel，微小同步块让出事件循环。
--   rate-limit 头采用 ASCII UTC HTTP date，避免中文 Windows 的本地时区名称使响应失败。[真实 HTTP 头回归](../server/tests/unit/rate-limit.spec.ts)。
--   Grafana 两个插件 SWC baseUrl 指向实际 workspace src；MSVC 使用系统 allocator，其他目标保持 jemalloc。[Cargo 目标依赖](../crates/ott-balancer/Cargo.toml)。
+-   rate-limit 头采用 ASCII UTC HTTP date，避免中文 Windows 的本地时区名称使响应失败。[真实 HTTP 头回归](../../server/tests/unit/rate-limit.spec.ts)。
+-   Grafana 两个插件 SWC baseUrl 指向实际 workspace src；MSVC 使用系统 allocator，其他目标保持 jemalloc。[Cargo 目标依赖](../../crates/ott-balancer/Cargo.toml)。
 -   新增 Windows / Node 22 构建、SQLite 与本地 Edge runtime CI；Rust Windows CI 明确只执行非 harness 单测。新增任务通过 YAML 与策略不变量检查，本机执行不等于已经运行 GitHub hosted runner。
 
 ## 运行验证

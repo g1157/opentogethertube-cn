@@ -1,6 +1,6 @@
 # 房间密码（可选）
 
-> 机制文档，与代码同提交维护（`feat(room): optional owner-set room password`）。相关背景：`docs/project-review-2026-10-05.zh-CN.md` 的 P1-2。
+> 机制文档，与代码同提交维护（`feat(room): optional owner-set room password`）。相关背景：`docs/archive/project-review-2026-10-05.zh-CN.md` 的 P1-2。
 
 ## 是什么
 

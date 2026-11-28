@@ -1,5 +1,7 @@
 # 2026-11-23 全项目复查：异步错误边界、CORS 判定与交付瘦身
 
+> **已归档（历史快照）**：本文的数字、行号与结论只代表写作时的版本，当前实现请以 [文档索引](../README.md) 与代码为准。
+
 ## 范围与证据边界
 
 -   基线：`eb15cf5`（`main`，工作区干净）。
@@ -13,7 +15,7 @@
 
 | 编号 | 级别 | 证据与影响 | 修复 | 验证 |
 | --- | --- | --- | --- | --- |
-| N01 | P1 | Express 4 不等待 async 路由返回的 Promise。`user`、`auth`、`danmaku`、`status`、`dev` 与 `usermanager` 里的 async 处理器在 Redis / SQL 抛错时会一直不返回，只留下 unhandled rejection；`req.login` / `req.logout` 的异步回调也在响应链之外 | 新增 [asyncHandler](../server/util/async-handler.ts) 与 [apiErrorHandler](../server/api/error-handler.ts)，把 rejection 交给路由错误中间件；`buildApiRouter` 末尾挂载统一 JSON 错误处理；登录 / 注册 / 登出改为可 await 的 `loginAsync` / `logoutAsync` / `authenticateLocal`；`main()`、SIGINT / SIGTERM 与 `passportErrorHandler` 也不再吞掉启动 / 关闭失败 | 8 项 async 错误回归；全量服务端 1237 通过 |
+| N01 | P1 | Express 4 不等待 async 路由返回的 Promise。`user`、`auth`、`danmaku`、`status`、`dev` 与 `usermanager` 里的 async 处理器在 Redis / SQL 抛错时会一直不返回，只留下 unhandled rejection；`req.login` / `req.logout` 的异步回调也在响应链之外 | 新增 [asyncHandler](../../server/util/async-handler.ts) 与 [apiErrorHandler](../../server/api/error-handler.ts)，把 rejection 交给路由错误中间件；`buildApiRouter` 末尾挂载统一 JSON 错误处理；登录 / 注册 / 登出改为可 await 的 `loginAsync` / `logoutAsync` / `authenticateLocal`；`main()`、SIGINT / SIGTERM 与 `passportErrorHandler` 也不再吞掉启动 / 关闭失败 | 8 项 async 错误回归；全量服务端 1237 通过 |
 | N02 | P2 | `body-parser` 在路由之前报错，绕过了 API 路由内的错误处理，`/api` 的坏 JSON 会得到 Express 默认 HTML 错误页；返回体形状与其余 API 不一致 | `apiErrorHandler` 识别 `error.status` 4xx（400 / 413 / 415），返回 `{ success:false, error:{ name, message } }`；`app` 在 `/api` 路径上复用同一处理器 | 新增坏 JSON 回归；`cache-headers` / `async-errors` 全绿 |
 | N03 | P2 | `corsFromHeaders` 只看 `Access-Control-Allow-Origin` 是否非空。源站只允许别的站点时，探针仍报“支持 CORS”，画质增强随后读取像素失败；探针也没发送浏览器实际发送的 `Origin` | 探针发送 `Origin`；`corsFromHeaders` 在已知请求源时要求 `*` 或与源站 origin 完全一致（scheme / host / port 归一化）；HLS 主清单、选中的媒体清单、DASH 清单都携带 app origin 后再判定 | `cors-probe` 5 项、`media-access` 13 项、`hls` 7 项通过 |
 | N04 | P2 | 永久房 `saveRoom` 成功后，密码落盘、`room.update()` 或 `room.sync()` 失败会留下数据库行；同名重试得到“已存在”，但房间从未真正加入。临时房也可能留下密码键 / Redis 快照 | `createRoomUnlocked` 在保存后的失败路径调用 `rollbackRoomCreation`：停掉计时器、清 `room:` / `room-sync:` / 临时房密码键，永久房删除数据库行；清理失败只记录日志，不覆盖原始错误 | `room-load-concurrency` 新增 1 项回滚回归；原有 4 项通过 |
@@ -78,7 +80,7 @@
 | ott-vis / datasource / panel | 2 / 6 / 30 通过 |
 | Rust | `cargo fmt --check`、`cargo clippy --workspace --no-deps --all-features --all-targets --locked -- -D warnings`、`cargo test --workspace --exclude harness --exclude harness-tests --all-features --locked` 全部退出 0；balancer 24、协议 / collector / common 共 17、doc test 1 |
 
-构建产物对照使用同一 `vite build`，不含 gzip。旧数值取 `docs/project-review-2026-11-17.zh-CN.md`
+构建产物对照使用同一 `vite build`，不含 gzip。旧数值取 `docs/archive/project-review-2026-11-17.zh-CN.md`
 记录的 1119 KB；本轮实测新 `vendor` 为 931 KB。两者都不是压缩后传输字节，也不代表首屏没有其它
 chunk 成本。
 

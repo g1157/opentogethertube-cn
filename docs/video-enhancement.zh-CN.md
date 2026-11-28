@@ -1,6 +1,6 @@
 # 画质增强、渲染倍率与运行边界
 
-本文描述 `v1.4.24` 的实现，审查基线为 `v1.4.19`；发布提交与上线验证见对应 GitHub Release。实测方法、成本和完善清单见 [全项目审查](project-review-2026-11-17.zh-CN.md)，媒体工具与产品参考见 [机制对比](watch-party-comparison-2026-11-17.zh-CN.md)。历史数据的设备、版本和目标尺寸各不相同，不与本轮数据混算。
+本文描述 `v1.4.24` 的实现，审查基线为 `v1.4.19`；发布提交与上线验证见对应 GitHub Release。实测方法、成本和完善清单见 [全项目审查](archive/project-review-2026-11-17.zh-CN.md)，媒体工具与产品参考见 [机制对比](watch-party-comparison-2026-11-17.zh-CN.md)。历史数据的设备、版本和目标尺寸各不相同，不与本轮数据混算。
 
 ## 档位、片源与能力
 
@@ -160,4 +160,4 @@ WebGL 完成等待使用同步像素读回，WebGPU 使用 queue.onSubmittedWork
 
 真实本地房间验证覆盖 MP4 / HLS / DASH、无 CORS 回退、增强切换 / 暂停 / 跳转 / 离房、Chrome / Firefox 原生全屏、Chrome 360 / 390 px 视口。Firefox 窄窗实际最低 500 px，未完成 390 px 实测；Windows、Android、iOS / Safari、低端 GPU、蓝牙输出和长时间 HDR 播放不在本轮通过范围内。
 
-历史图像对照见 [WebGL2 与 mpv 对齐](upscale-webgl2-mpv-parity.zh-CN.md)与 [早期增强诊断](upscale-diagnosis-2026-09-29.zh-CN.md)。最终主观画质结论由用户在真实片源、屏幕和设备上验收。
+历史图像对照见 [WebGL2 与 mpv 对齐](upscale-webgl2-mpv-parity.zh-CN.md)与 [早期增强诊断](archive/upscale-diagnosis-2026-09-29.zh-CN.md)。最终主观画质结论由用户在真实片源、屏幕和设备上验收。

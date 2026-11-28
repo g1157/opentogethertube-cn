@@ -1,5 +1,7 @@
 # 画质增强诊断：影视档编译失败、暂停时露出原画、Firefox 超分路线（2026-09-29）
 
+> **已归档（历史快照）**：本文的数字、行号与结论只代表写作时的版本，当前实现请以 [文档索引](../README.md) 与代码为准。
+
 四个问题的根因、证据与修复。本文的实测环境：Chromium 153（headless，ANGLE）与
 Firefox 142（macOS，headless 与有头各一次，`dom.webgpu.enabled=true`）；影视档与暂停行为
 都在两边用**仓库里真实的渲染器代码**跑过（不是复刻实现）。
@@ -169,7 +171,7 @@ mpv 的 `//!HOOK/SAVE/BIND` 体系改写成 uniform 与固定 pass 即可（本�
 只在 ≥2× 时使用。模型档位不是我们的短板。
 
 **剩下的差距（按可操作性排序）。** 其中「极致档」这一项已在同日落地并逐块对齐到 mpv——
-结论与实测见 [《WebGL2 极致档与 mpv A+A (HQ) 的逐块对齐》](upscale-webgl2-mpv-parity.zh-CN.md)。
+结论与实测见 [《WebGL2 极致档与 mpv A+A (HQ) 的逐块对齐》](../upscale-webgl2-mpv-parity.zh-CN.md)。
 
 1. **最后一级缩放交给了浏览器。** 我们渲染 2× 画布后由合成器缩到显示框（Chromium/Firefox
    的合成缩放），而 ModeAA 的 `AutoDownscalePre` 只在 `1.2× < 目标 < 2.0×` 时才插入——恰好

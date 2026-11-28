@@ -53,5 +53,5 @@ Anime4K 的前提是动画画面：色块平坦、边缘是细长线条、几乎
 ## 参考
 
 - `docs/video-enhancement.zh-CN.md`：现有三档的实现与局限（EASU 假设、A+A 定位）。
-- `docs/upscale-vs-mpv-anime4k.zh-CN.md`：与 mpv+Anime4K 的差距分析（渲染目标、模型档位）。
+- `docs/archive/upscale-vs-mpv-anime4k.zh-CN.md`：与 mpv+Anime4K 的差距分析（渲染目标、模型档位）。
 - `anime4k-webgpu` 导出：`BilateralMean`、`DoG`、`CNNx2UL`、`GANx3L`、`ModeB/BB/C/CA`。
