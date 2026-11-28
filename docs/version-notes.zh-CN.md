@@ -1,5 +1,20 @@
 # 版本记录（简体中文分支）
 
+-   **v1.4.32**：Emby 浏览器体验升级、MKV 浏览器直连兜底与外挂/内封文本字幕提取。
+    -   **MKV 浏览器直连兜底**：服务端（`server/mime.ts`）与 Edge 预览版（`packages/ott-edge/src/media.ts`）
+        放行 `video/x-matroska`；Emby 播放源选择保持 `MP4/WebM 直连 > Emby HLS/DASH 转码流 > MKV 直连兜底`
+        的优先级——第三方 Emby 关闭转码且只提供 MKV 时，不再硬性禁用添加，而是以“限 Chrome/Edge 直连”
+        零服务器流量播放（兼容桌面端与 Android 端 Chrome/Edge；Safari、Firefox 以及 iOS WebKit 版
+        Chrome/Edge 会收到明确不支持提示）。
+    -   **音视频编码预检与字幕提取**：解析 `MediaStreams` 识别默认音轨（AC3/EAC3/DTS/TrueHD 无声提醒、
+        多音轨提醒）与视频编码兼容性；自动提取公开 Emby 地址上的 ASS/SSA（保留特效交由 `jassub` 渲染）
+        和 SRT/VTT 文本字幕（跳过 PGS/VobSub 图形字幕，局域网 IP Emby 自动忽略以避免触发公开字幕校验失败），
+        并在片源详情面板提供字幕轨道选择（中文界面优先默认中文 ASS）。
+    -   **Emby 浏览器与文档**：拆分服务器协议/主机/端口表单、新增剧集层级浏览与可播性分级徽标，更新中英文
+        README。
+    -   **验证**：`yarn lint-ci` 退出 0；`yarn build` 退出 0；`ott-edge` 32/32、服务端受影响单测 60/60、
+        客户端 Emby 单测与组件测试 27/27 全部通过。
+
 -   **v1.4.31**：Emby 兼容性与混合内容提示。播放地址分类不再只看扩展名：没有 `.m3u8`/`.mpd`
     后缀时，先看 PlaybackInfo 的 `TranscodingSubProtocol`（hls/dash），再看 `Container`；因此
     Emby 返回 `/videos/{id}/stream?Static=false&TranscodingProtocol=hls` 这类无后缀转码地址也能
