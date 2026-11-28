@@ -1,7 +1,6 @@
 /* eslint-disable array-bracket-newline */
 
-const SUPPORTED_VIDEO_MIME_REGEX =
-	/^video\/(?!x-flv)(?!x-matroska)(?!x-ms-wmv)(?!x-msvideo)[a-z0-9-]+$/;
+const SUPPORTED_VIDEO_MIME_REGEX = /^video\/(?!x-flv)(?!x-ms-wmv)(?!x-msvideo)[a-z0-9-]+$/;
 const SUPPORTED_AUDIO_MIME_REGEX = /^audio\/(?!x-aiff)(?!x-wav)(?!aac)(?!flac)[a-z0-9-]+$/;
 
 const mimeTypes = {

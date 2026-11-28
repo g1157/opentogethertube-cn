@@ -542,7 +542,7 @@ export async function resolveMedia(env: Env, input: string, probe = new Probe())
 }
 
 const CLIENT_MIME =
-	/^(?:video\/(?!x-flv|x-matroska|x-msvideo|x-ms-wmv)[a-z0-9-]+|audio\/(?!aac|flac|x-wav|x-aiff)[a-z0-9-]+|application\/(?:x-mpegURL|dash\+xml))$/;
+	/^(?:video\/(?!x-flv|x-msvideo|x-ms-wmv)[a-z0-9-]+|audio\/(?!aac|flac|x-wav|x-aiff)[a-z0-9-]+|application\/(?:x-mpegURL|dash\+xml))$/;
 
 function hasControlCharacters(value: string): boolean {
 	for (const character of value) {

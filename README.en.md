@@ -1,92 +1,30 @@
-# OpenTogetherTube (Simplified Chinese edition)
+# 🎬 OpenTogetherTube (Simplified Chinese edition)
 
-Watch videos together, in sync: one room, many links. Play, pause, seek and speed changes apply to
-**everyone in the room**. Ships in Simplified Chinese by default, needs no sign-up to start, and
-offers low-latency sync, chat, voice and AI video upscaling (Anime4K); run it self-hosted
-(**Docker / Node.js**) or as a **serverless Cloudflare preview**.
+**One room, one timeline.** Play, pause, seek and speed changes apply to **everyone in the room**.
 
-[中文文档](README.md) · [Deployment](DEPLOYMENT.md) · [Cloudflare preview](DEPLOYMENT-CLOUDFLARE.md) · [Release notes](docs/version-notes.zh-CN.md)
+Simplified Chinese by default · No sign-up to open a room · Self-hosted or serverless
 
-## What makes this fork different
+![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)
+![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&logoColor=white)
+![Node](https://img.shields.io/badge/node-22%20%7C%2024%20%7C%2026-5FA04E?logo=nodedotjs&logoColor=white)
+![Cloudflare](https://img.shields.io/badge/cloudflare-workers.dev-F38020?logo=cloudflare&logoColor=white)
 
-### Sync is treated as an engineering problem, not a slider
+[中文](README.md) · [Deployment](DEPLOYMENT.md) · [Cloudflare preview](DEPLOYMENT-CLOUDFLARE.md) · [Release notes](docs/version-notes.zh-CN.md)
 
-- **A new source waits for its first frame.** Auto-next, skip and “play now” park the room at the
-  start of the new video and start the room clock only once the first viewer has a picture — no
-  more missing the opening ten seconds. Embedded players and live sources still start immediately.
-- **Empty-room resume, and pauses that survive.** The room pauses when the last viewer leaves and,
-  on return, loads the saved position and waits for that device before starting the clock. A room
-  restored from the database alone stays paused: entering it never auto-plays the queue.
-- **Buffer gate (optional).** When someone explicitly reports buffering the whole room waits —
-  15 s maximum, 30 s cooldown, background tabs excluded, controlled by a room setting.
-- **Drift is corrected with rate, not with repeated seeking.** A ±8% rate bend converges over
-  8–30 s before falling back to a hard seek; seeks have a cooldown, the keyboard and touch swipes
-  share one step, and holding → temporarily doubles the room’s speed.
-- **When something is off, you can see it.** The playback details panel shows resolution, buffer
-  ahead, dropped frames, measured frame rate, drift from the room clock, enhancement state and the
-  WebGPU adapter — refreshed every second without interrupting playback.
+## ✨ At a glance
 
-### In-browser video enhancement: four tiers, each aimed at different content
+- 🔄 **Sync**: clock starts on the first frame · buffer gate · ±8% rate convergence · drift and dropped frames on screen
+- 📚 **Sources**: direct MP4/HLS/DASH/custom manifests · **Emby library** (direct or server-side HLS transcode) · neighbouring episodes probed automatically
+- 🎞️ **Picture**: four enhancement tiers — sharpen / film / AI upscale / AI upscale ultra, **no GPU on the server**
+- 💬 **Together**: chat · append-only room notes · peer-to-peer voice (optional Cloudflare TURN relay)
+- 📱 **Chinese-first & mobile**: IME-safe chat · slim portrait controls · gestures and hold for room-wide 2×
+- 🚀 **Deploy**: image prebuilt on GHCR · one `deploy/init.sh` command · upgrade is one line
 
-| Tier | Best for | How it works |
-| --- | --- | --- |
-| Sharpen | Anything, cheapest | FSR1's EASU edge-adaptive upscale plus CAS contrast-adaptive sharpening (WebGL2) |
-| **Film (denoise, deband)** | **Live-action shows and movies** | Edge-preserving denoise/deblock, banding flattening where a neighborhood spans a few code values, LSB dither, then EASU and sharpening at 0.6 strength |
-| AI upscale / AI upscale (quality) | Anime | Anime4K Mode A / A+A (WebGPU); the quality tier costs about twice the fast one |
-| **AI upscale (ultra)** | Anime, on devices with no WebGPU | mpv's A+A (HQ) chain run on WebGL2: the official v4.0.1 GLSL with its weights untouched, statistics first and the clamp last, 46 passes a frame at a 2× target |
+## 🚀 Quick start
 
-On a pointer device the automatic scale renders at **2× the source** and lets the screen
-downsample, which is what makes the AI tier’s upscale stages run at all; touch devices keep the
-display-sized target to save power. Slow devices step down tier by tier, then by render scale.
-Browsers without a usable WebGPU adapter (Firefox outside Windows, Safari before 26, GPUs on the
-driver blocklist) run the same Anime4K networks on WebGL2; the ultra tier only shows up there,
-since on WebGPU the quality tier already is that chain. All of it runs on the client —
-**the server needs no GPU**.
+### 🐳 Option 1: Docker (recommended, full feature set)
 
-### Sources are broad, and hotlink guards have a fallback
-
-- Direct MP4 / HLS / DASH / custom media manifests; adding a direct link probes neighbouring
-  episodes and offers a one-click “same series” queue add.
-- **Sources that only reject a foreign Referer are retried**: the probe tries the app’s own origin
-  first, then no Referer, and only records the policy it measured. Sources that require their own
-  site’s Referer or a cookie are flagged when the link is added, instead of “adds fine, fails to
-  play”.
-- **Subtitles**: custom manifests and direct sources both accept WebVTT and ASS/SSA tracks (ASS
-  styling and effects are rendered by libass in the browser); cross-origin subtitle files need
-  `Access-Control-Allow-Origin`.
-- Upstream platform adapters (YouTube, Bilibili, Vimeo, PeerTube, Odysee, … depending on your
-  configuration).
-
-### Talk, note and speak together
-
-- **Chat**: live messages, an emoji panel, and a mobile composer with a send button and IME
-  handling (picking a candidate with a Chinese IME never sends by accident).
-- **Room notes**: a shared append-only list everyone can add to and delete from, never edit.
-- **Room voice**: peer-to-peer audio; the server relays signaling only and never carries media.
-  The UI reports each peer's actual path (direct, relayed, connecting or failed); Cloudflare TURN
-  credentials are minted automatically when a key is configured, and the phone bar can collapse.
-
-### Chinese-first, with phone details worked out
-
-- Simplified Chinese by default (other locales available), no account needed to create a room.
-  Permissions are per-role (owner / administrator / moderator / trusted / registered /
-  unregistered) and per-permission, with vote-to-skip.
-- On a phone: slim portrait controls (volume and speed move into the settings menu), tap to
-  toggle controls, double-tap to play or pause, full controls in landscape or fullscreen,
-  selectable swipe-seek step, and a chat composer that keeps the keyboard open while sending.
-
-### Self-hosting without ceremony
-
-- GitHub Actions builds and pushes the image to GHCR on a tag, so **the server only pulls and
-  never compiles**; `deploy/init.sh` writes `compose.yml` and `.env`, and an upgrade is one line
-  of `OTT_IMAGE`.
-- A **Cloudflare preview** deployment needs no server at all — a good fit for small watch parties
-  that mostly use direct video links. Trade-offs, quotas and cost live in the deployment docs.
-
-## Quick start
-
-**Self-hosted Docker / Node.js (full feature set, recommended)** — on any Linux server
-(2 vCPU / 2 GiB is a starting point):
+Any Linux server, **2 vCPU / 2 GiB** as a starting point:
 
 ```sh
 git clone https://github.com/g1157/opentogethertube-cn.git source
@@ -95,67 +33,115 @@ bash source/deploy/init.sh          # writes compose.yml and .env
 sudo docker compose up -d           # pulls the image, migrates the database, starts the app
 ```
 
-Upgrades, rollbacks, a Cloudflare Tunnel entry point and capacity notes live in the
-[deployment guide](DEPLOYMENT.md).
+> 💡 The image comes from `ghcr.io/g1157/opentogethertube-cn`, so the server only pulls and never
+> compiles. Upgrading = change the version in `OTT_IMAGE`, then `docker compose pull && up -d`.
 
-**Cloudflare preview (no server)** — follow the
-[step-by-step guide](DEPLOYMENT-CLOUDFLARE.md) to publish on Cloudflare with a free `workers.dev`
-address. The full trade-off table is in [deployment options](docs/deployment-options.zh-CN.md).
+### ☁️ Option 2: Cloudflare preview (no server)
 
-## Documentation
+Follow the [step-by-step guide](DEPLOYMENT-CLOUDFLARE.md) to publish on Cloudflare with a free
+`workers.dev` address; a good fit for small watch parties built on direct links. Trade-offs, quotas
+and cost are in [deployment options](docs/deployment-options.zh-CN.md).
+
+> ⚠️ A LAN Emby only works when the page itself can reach that address. Sharing `192.168.x.x` with
+> friends outside the network leaves them buffering forever.
+
+---
+
+## 🔄 Sync is treated as an engineering problem
+
+- **A new source waits for its first frame.** Auto-next, skip and “play now” park the room at the start of the new video and start the clock only once the first viewer has a picture; embedded players and live sources still start immediately.
+- **Empty room pauses, return resumes.** The room pauses when the last viewer leaves; on return it loads the saved position and waits for that device before starting the clock. A room restored from the database alone stays paused and never auto-plays.
+- **Buffer gate (room setting).** When someone explicitly reports buffering the whole room waits: 15 s maximum, 30 s cooldown, background tabs excluded.
+- **Drift is corrected with rate, not repeated seeking.** A ±8% bend converges over 8–30 s before a hard seek; seeks have a cooldown, keyboard and swipes share one step, and holding doubles the room’s speed temporarily.
+- **When something is off, you can see it.** The playback panel shows resolution, buffer ahead, dropped frames, measured frame rate, drift from the room clock, enhancement state and the WebGPU adapter — refreshed every second without interrupting playback.
+
+## 🎞️ In-browser video enhancement: four tiers for different content
+
+| Tier | Best for | How it works |
+| --- | --- | --- |
+| Sharpen | Anything, cheapest | FSR1's EASU edge-adaptive upscale plus CAS contrast-adaptive sharpening (WebGL2) |
+| **Film (denoise, deband)** | **Live-action shows and films** | Edge-preserving denoise/deblock → banding flattened and dithered → EASU → sharpening at 0.6 strength |
+| AI upscale / AI upscale (quality) | Anime | Anime4K Mode A / A+A (WebGPU); the quality tier costs about twice the fast one |
+| **AI upscale (ultra)** | Anime, on devices without WebGPU | mpv's A+A (HQ) chain on WebGL2: official v4.0.1 GLSL with weights untouched, 46 passes a frame at a 2× target |
+
+On a pointer device the automatic scale renders at **2× the source** and lets the screen downsample —
+that is what makes the AI tier's upscale stages run; touch devices stay at display size to save power.
+Slow devices step down tier by tier, then by render scale.
+
+> 🖥️ Without a usable WebGPU adapter (Firefox outside Windows, Safari before 26, blocklisted drivers)
+> the same networks run on WebGL2: the ultra tier only appears there, since on WebGPU the quality tier
+> already is that chain. Everything runs on the client — **the server needs no GPU**.
+
+## 📚 Sources: direct links, Emby, hotlink guards
+
+- **Direct** MP4 / HLS / DASH / custom media manifests; adding a link probes neighbouring episodes and offers a one-click “same series” queue add.
+- **Hotlink guards have a fallback**: the probe tries the app's own origin first, then no Referer, and records only the policy it measured; sources needing their own site's Referer or a cookie are flagged when the link is added.
+- **Subtitles**: WebVTT and ASS/SSA, styled by libass in the browser; cross-origin subtitle files need `Access-Control-Allow-Origin`.
+
+### 🎬 Emby: browser-direct, the server never touches video
+
+Enter address, port and account, then browse and search:
+
+- 🔍 Search finds the **series itself**; open it and episodes are listed by season, not as an unidentifiable wall of single episodes.
+- 🏷️ Every tile is labelled **direct / needs transcoding / unverified / unsupported** with resolution and codecs; selecting one confirms it with Emby.
+- 🔁 **MKV is not a dead end**: when Emby offers a transcode URL the room plays its HLS stream (TS / H264 / AAC) — the transcoding load sits on Emby.
+- 🔒 The OTT server never proxies video and never stores the password; only the playback URL and display metadata enter the queue, **token included and visible**.
+
+## 💬 Together
+
+- **Chat**: live messages, emoji panel, mobile send button; picking a candidate with a Chinese IME never sends by accident.
+- **Room notes**: an append-only shared list everyone can add to and delete from, never edit.
+- **Room voice**: peer-to-peer audio, the server relays signalling only; the UI reports each peer's real path (direct, relayed, connecting, failed), and Cloudflare TURN credentials are minted automatically when a key is configured.
+- **Chinese-first and mobile**: Simplified Chinese by default (locales switchable); per-role permissions (owner / administrator / moderator / trusted / registered / unregistered) with vote-to-skip; portrait keeps volume and speed in the settings, tap toggles controls, double-tap pauses, landscape or fullscreen restores the full bar.
+
+---
+
+## 📖 Documentation
+
+<details>
+<summary>Architecture, troubleshooting, design notes and deployment details (click to expand)</summary>
 
 | What you need | Where to look |
 | --- | --- |
-| Architecture overview (components, sync engine, data flows) | [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md) (Chinese) |
-| Player controls, chat and “always buffering” | [docs/player-interactions.zh-CN.md](docs/player-interactions.zh-CN.md) |
-| Playback sync and rate bending | [docs/playback-sync.zh-CN.md](docs/playback-sync.zh-CN.md) |
-| “Pause while others buffer” | [docs/buffer-gate.zh-CN.md](docs/buffer-gate.zh-CN.md) |
-| Enhancement tiers, render scale and the film tier | [docs/video-enhancement.zh-CN.md](docs/video-enhancement.zh-CN.md) · [live-action filter survey](docs/upscale-for-live-action.zh-CN.md) · [ultra tier vs mpv, block by block](docs/upscale-webgl2-mpv-parity.zh-CN.md) |
-| Playback details panel | [docs/player-stats.zh-CN.md](docs/player-stats.zh-CN.md) |
-| Room voice (P2P, cost brake) | [docs/voice.zh-CN.md](docs/voice.zh-CN.md) · [voice stability survey](docs/voice-stability-2026-11-05.zh-CN.md) · [Cloudflare TURN assessment](docs/cloudflare-turn-2026-11-05.zh-CN.md) |
-| Room notes (append-only, permissions, migration) | [docs/room-notes.zh-CN.md](docs/room-notes.zh-CN.md) |
-| Large MP4 probing | [docs/media-parsing.zh-CN.md](docs/media-parsing.zh-CN.md) |
-| Deployment, upgrades, rollbacks, resource use | [DEPLOYMENT.md](DEPLOYMENT.md) · [docs/deployment-options.zh-CN.md](docs/deployment-options.zh-CN.md) |
-| Security headers and CSP | [docs/security-headers.zh-CN.md](docs/security-headers.zh-CN.md) |
-| What changed in each release | [docs/version-notes.zh-CN.md](docs/version-notes.zh-CN.md) |
-| Documentation index and archive | [docs/README.md](docs/README.md) · [reviews and diagnoses](docs/archive/README.md) |
-| Development, testing and contributing | [CONTRIBUTING.md](CONTRIBUTING.md) · [AI handbook](docs/ai-handbook.zh-CN.md) |
-| Upstream and porting scope | [UPSTREAM.md](UPSTREAM.md) |
+| Architecture, sync engine, data flow | [architecture](docs/architecture.zh-CN.md) · [sync](docs/playback-sync.zh-CN.md) · [buffer gate](docs/buffer-gate.zh-CN.md) |
+| Player controls, “always buffering” | [player-interactions](docs/player-interactions.zh-CN.md) · [playback panel](docs/player-stats.zh-CN.md) |
+| Enhancement tiers and design notes | [video-enhancement](docs/video-enhancement.zh-CN.md) · [live-action filters](docs/upscale-for-live-action.zh-CN.md) · [ultra tier vs mpv](docs/upscale-webgl2-mpv-parity.zh-CN.md) |
+| Emby entry | [emby](docs/emby.zh-CN.md) |
+| Voice, notes, passwords | [voice](docs/voice.zh-CN.md) · [room notes](docs/room-notes.zh-CN.md) · [room password](docs/room-password.zh-CN.md) |
+| Media probing | [media parsing](docs/media-parsing.zh-CN.md) · [custom media format](docs/custom-media-format.md) |
+| Deployment and security | [DEPLOYMENT](DEPLOYMENT.md) · [deployment options](docs/deployment-options.zh-CN.md) · [security headers](docs/security-headers.zh-CN.md) |
+| Development and contributing | [CONTRIBUTING](CONTRIBUTING.md) · [AI handbook](docs/ai-handbook.zh-CN.md) |
+| Releases and index | [release notes](docs/version-notes.zh-CN.md) · [docs/README](docs/README.md) · [archive](docs/archive/README.md) · [upstream](UPSTREAM.md) |
 
-Most documents are written in Chinese, the project’s primary language.
+Most documents are written in Chinese, the project's primary language.
 
-## License and credits
+</details>
+
+## 📄 License and credits
 
 [AGPL-3.0-or-later](LICENSE). This is a Simplified Chinese edition of
-[OpenTogetherTube](https://github.com/dyc3/opentogethertube) (v0.15.0), keeping the original
-authors’ and contributors’ attribution; see [UPSTREAM.md](UPSTREAM.md) for provenance and porting
-scope, and the [font licenses](client/src/assets/fonts/vendor/LICENSES.md).
+[OpenTogetherTube](https://github.com/dyc3/opentogethertube) (v0.15.0), keeping the original authors'
+and contributors' attribution; provenance and porting scope are in [UPSTREAM.md](UPSTREAM.md), font
+licenses in the [font sources](client/src/assets/fonts/vendor/LICENSES.md).
 
-This fork stands on a lot of open-source work — in particular:
-
-- **[Anime4K](https://github.com/bloc97/Anime4K)** (bloc97 and contributors): the AI upscale tiers
-  run its Mode A / A+A shader chain. The WebGPU side calls an existing port; the WebGL2 side is
-  generated from the official v4.0.1 GLSL with its convolution weights untouched — what this
-  project adds is the driver, the tiers and the coordinate semantics.
-- **[anime4k-webgpu](https://github.com/Anime4KWebBoost/anime4k-webgpu)**: the WebGPU port of those
-  models, which we call directly (`ModeA`, `ModeAA`, restore and upscale pipelines).
-- **[AMD FidelityFX Super Resolution 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR)**:
-  EASU (the 12-tap edge-adaptive upscale) and CAS sharpening in the Sharpen and Film tiers are
-  ported from `ffx_fsr1.h`.
-- **[hls.js](https://github.com/video-dev/hls.js) and [dash.js](https://github.com/Dash-Industry-Forum/dash.js)**:
-  HLS / DASH playback, buffering and ABR — the buffering strategy is built on their configuration.
-- **[Vue 3](https://github.com/vuejs/core), [Vuetify](https://github.com/vuetifyjs/vuetify) and
-  [MDI](https://github.com/Templarian/MaterialDesign)**: UI, components and icons.
-- **[PostgreSQL](https://www.postgresql.org/), [Redis](https://redis.io/), [Caddy](https://caddyserver.com/)
-  and [Docker](https://www.docker.com/)**: persistence, room state, HTTPS entry and deployment; plus
+- **[Anime4K](https://github.com/bloc97/Anime4K) / [anime4k-webgpu](https://github.com/Anime4KWebBoost/anime4k-webgpu)** —
+  the Mode A / A+A chains behind the AI upscale tiers: WebGPU calls an existing port, WebGL2 is
+  generated from the official v4.0.1 GLSL with its convolution weights untouched. This project adds
+  the driver, the tiers and the coordinate semantics.
+- **[AMD FidelityFX Super Resolution 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR)** — EASU and
+  CAS in the Sharpen and Film tiers are ported from `ffx_fsr1.h`.
+- **[hls.js](https://github.com/video-dev/hls.js) / [dash.js](https://github.com/Dash-Industry-Forum/dash.js)** —
+  HLS / DASH playback, buffering and ABR.
+- **[Vue 3](https://github.com/vuejs/core) / [Vuetify](https://github.com/vuetifyjs/vuetify) / [MDI](https://github.com/Templarian/MaterialDesign)** —
+  UI, components and icons; plus [PostgreSQL](https://www.postgresql.org/), [Redis](https://redis.io/),
+  [Caddy](https://caddyserver.com/), [Docker](https://www.docker.com/),
   [sponsorblock-api](https://github.com/ajayyy/SponsorBlock) and the
-  [Vimeo](https://github.com/vimeo/player.js) / [PeerTube](https://github.com/Chocobozzz/PeerTube)
-  embed SDKs.
+  [Vimeo](https://github.com/vimeo/player.js) / [PeerTube](https://github.com/Chocobozzz/PeerTube) SDKs.
 
-We especially thank **[girigiri](https://girigirilove.com/)**: the **video sources this project is
-developed and tested against come from that site** (`ani.girigirilove.com` with its `ana.` / `akua.` /
-`danmu.` subdomains, and the bullet-comment data follows the same public API and file naming). This
-project is not affiliated with the site — the integration is client-side compatibility only, and the
-content belongs to the site and its rights holders.
+We especially thank **[girigiri](https://girigirilove.com/)**: the video sources this project is
+developed and tested against come from that site (`ani.girigirilove.com` with its `ana.` / `akua.` /
+`danmu.` subdomains, the bullet-comment data from the same public API). This project is not affiliated
+with the site — the integration is client-side compatibility only, and the content belongs to the
+site and its rights holders.
 
 Each dependency carries its own license; see the upstream repositories and `node_modules/*/LICENSE`.

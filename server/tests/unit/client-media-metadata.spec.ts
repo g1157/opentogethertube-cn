@@ -88,8 +88,32 @@ describe("client-supplied media metadata", () => {
 		expect(() => videoFromClientMetadata(add({ id }))).toThrow(BadApiArgumentException);
 	});
 
+	it("accepts MKV direct streams for Chromium/Edge direct playback", () => {
+		const mkv = videoFromClientMetadata({
+			...add(),
+			id: "https://media.example.invalid/episode.mkv?token=abc",
+			metadata: {
+				title: "Episode 1",
+				mime: "video/x-matroska",
+				length: 1440,
+			},
+		});
+		expect(mkv).toMatchObject({
+			service: "direct",
+			id: "https://media.example.invalid/episode.mkv?token=abc",
+			mime: "video/x-matroska",
+			length: 1440,
+		});
+	});
+
 	it("refuses unsupported or lying MIME types", () => {
-		for (const mime of ["video/x-matroska", "text/html", "application/octet-stream", ""]) {
+		for (const mime of [
+			"video/x-flv",
+			"video/x-msvideo",
+			"text/html",
+			"application/octet-stream",
+			"",
+		]) {
 			expect(() =>
 				videoFromClientMetadata({
 					...add(),

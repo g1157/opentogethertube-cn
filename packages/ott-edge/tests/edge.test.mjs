@@ -468,15 +468,23 @@ it("queues browser-supplied Emby metadata without probing a private source", asy
 	assert.equal(state.queue[0].title, "Second movie");
 	assert.equal(state.queue[0].length, 30);
 
-	const rejected = await request(`/room/${name}/queue`, owner, "POST", {
+	const mkv = await request(`/room/${name}/queue`, owner, "POST", {
 		service: "direct",
 		id: "http://192.168.1.20:8096/videos/3/original.mkv",
 		metadata: { title: "MKV", mime: "video/x-matroska" },
 	});
+	assert.equal(mkv.status, 200, JSON.stringify(await mkv.json()));
+
+	const rejected = await request(`/room/${name}/queue`, owner, "POST", {
+		service: "direct",
+		id: "http://192.168.1.20:8096/videos/4/original.avi",
+		metadata: { title: "AVI", mime: "video/x-msvideo" },
+	});
 	assert.equal(rejected.status, 400);
 	const unchanged = await (await request(`/room/${name}`, owner)).json();
-	assert.equal(unchanged.queue.length, 1);
+	assert.equal(unchanged.queue.length, 2);
 	assert.equal(unchanged.queue[0].id, second);
+	assert.equal(unchanged.queue[1].mime, "video/x-matroska");
 });
 
 it("maintenance starts from a request and cleans only expired D1 records through its own alarm", async () => {

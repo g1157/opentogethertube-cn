@@ -1,14 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	EmbyError,
+	analyzeEmbyCompatibility,
 	authenticateEmby,
 	embyDeviceId,
 	embyItemImageUrl,
 	embyItemToVideoAdd,
+	extractEmbySubtitles,
+	formatEmbyEpisodeCode,
 	formatEmbyRuntime,
 	getEmbyPlaybackInfo,
+	isCurrentBrowserLikelyNonChromium,
 	normalizeEmbyServer,
+	pickDefaultEmbySubtitle,
 	pickPlayableEmbySource,
+	summarizeEmbyPlaybackMedia,
 	type EmbyItem,
 	type EmbyPlaybackInfo,
 } from "@/util/emby";
@@ -157,7 +163,70 @@ describe("Emby client", () => {
 			],
 		};
 		const result = pickPlayableEmbySource("https://example.com", playback, ITEM);
-		expect(result.source).toMatchObject({ service: "hls", mime: "application/x-mpegURL" });
+		expect(result.source).toMatchObject({
+			service: "hls",
+			mime: "application/x-mpegURL",
+			// The direct MKV must not win: Emby flags `TranscodingSubProtocol` on the whole
+			// MediaSource, so classifying the direct URL with it would send the MKV file to
+			// hls.js as if it were a playlist.
+			url: "https://example.com/videos/1/master.m3u8?api_key=token",
+		});
+	});
+
+	it("classifies a direct-only MKV as direct video/x-matroska even when the source declares an HLS subprotocol", () => {
+		const playback: EmbyPlaybackInfo = {
+			MediaSources: [
+				{
+					Container: "mkv",
+					DirectStreamUrl: "/videos/1/original.mkv?api_key=token",
+					TranscodingSubProtocol: "hls",
+					MediaStreams: [
+						{ Type: "Video", Codec: "hevc" },
+						{ Type: "Audio", Codec: "aac", IsDefault: true },
+					],
+				},
+			],
+		};
+		const result = pickPlayableEmbySource("https://example.com", playback, ITEM);
+		// Must NOT be misclassified as HLS (which would feed MKV bytes to hls.js).
+		expect(result.source).toMatchObject({
+			service: "direct",
+			mime: "video/x-matroska",
+			container: "mkv",
+			limitedCompatibility: true,
+			url: "https://example.com/videos/1/original.mkv?api_key=token",
+			compatibility: {
+				chromiumOnly: true,
+				audioStatus: "compatible",
+			},
+		});
+		const summary = summarizeEmbyPlaybackMedia(ITEM, playback, result);
+		expect(summary.status).toBe("direct-limited");
+	});
+
+	it("synthesizes a static direct MKV URL when Emby omits DirectStreamUrl on a direct-play source", () => {
+		const playback: EmbyPlaybackInfo = {
+			MediaSources: [
+				{
+					Id: "ms-1",
+					Container: "matroska,webm",
+					SupportsDirectPlay: true,
+					MediaStreams: [
+						{ Type: "Video", Codec: "h264" },
+						{ Type: "Audio", Codec: "flac" },
+					],
+				},
+			],
+		};
+		const result = pickPlayableEmbySource("https://example.com/emby", playback, ITEM, {
+			token: "tok-1",
+		});
+		expect(result.source).toMatchObject({
+			service: "direct",
+			mime: "video/x-matroska",
+			limitedCompatibility: true,
+			url: "https://example.com/emby/Videos/item-1/stream.mkv?Static=true&mediaSourceId=ms-1&api_key=tok-1",
+		});
 	});
 
 	it("recognizes an extensionless HLS transcode URL", () => {
@@ -188,12 +257,138 @@ describe("Emby client", () => {
 	it("reports the container when no browser-playable source exists", () => {
 		const playback: EmbyPlaybackInfo = {
 			MediaSources: [
-				{ Container: "mkv", DirectStreamUrl: "/videos/1/original.mkv?api_key=t" },
+				{ Container: "avi", DirectStreamUrl: "/videos/1/original.avi?api_key=t" },
 			],
 		};
 		const result = pickPlayableEmbySource("https://example.com", playback, ITEM);
 		expect(result.source).toBeUndefined();
-		expect(result.reason).toBe("mkv");
+		expect(result.reason).toBe("avi");
+		// A direct-only answer means the server refuses to transcode; the UI says so instead
+		// of telling the user to switch on a setting they may not control.
+		expect(result.directOnly).toBe(true);
+	});
+
+	it("analyzes MKV video and audio codec compatibility accurately", () => {
+		expect(
+			analyzeEmbyCompatibility("mkv", [
+				{ Type: "Video", Codec: "hevc" },
+				{ Type: "Audio", Codec: "dts", IsDefault: true },
+			]),
+		).toEqual({
+			chromiumOnly: true,
+			audioStatus: "incompatible",
+			audioCodec: "DTS",
+		});
+
+		expect(
+			analyzeEmbyCompatibility("mkv", [
+				{ Type: "Video", Codec: "vc1" },
+				{ Type: "Audio", Codec: "ac3", IsDefault: true },
+				{ Type: "Audio", Codec: "aac", IsDefault: false },
+			]),
+		).toEqual({
+			chromiumOnly: true,
+			audioStatus: "fallback-track",
+			audioCodec: "AC3",
+			compatibleAudioCodec: "AAC",
+			unsupportedVideoCodec: "VC1",
+		});
+	});
+
+	it("extracts public ASS/VTT subtitles, skips bitmap tracks, and picks Chinese ASS by default", () => {
+		const mediaSource = {
+			Id: "ms-1",
+			Container: "mkv",
+			MediaStreams: [
+				{ Type: "Video", Codec: "hevc", Index: 0 },
+				{ Type: "Audio", Codec: "aac", Index: 1 },
+				{
+					Type: "Subtitle",
+					Codec: "pgssub",
+					Index: 2,
+					DisplayTitle: "Chinese PGS",
+					IsTextSubtitleStream: false,
+				},
+				{
+					Type: "Subtitle",
+					Codec: "srt",
+					Index: 3,
+					Language: "eng",
+					DisplayTitle: "English",
+					DeliveryUrl: "/Videos/item-1/ms-1/Subtitles/3/0/Stream.srt",
+				},
+				{
+					Type: "Subtitle",
+					Codec: "ass",
+					Index: 4,
+					Language: "chi",
+					DisplayTitle: "简体中文",
+					IsDefault: true,
+					DeliveryUrl: "/Videos/item-1/ms-1/Subtitles/4/0/Stream.ass",
+				},
+			],
+		};
+
+		const tracks = extractEmbySubtitles(
+			"https://emby.example.com/emby",
+			"tok-1",
+			ITEM,
+			mediaSource,
+		);
+		expect(tracks).toHaveLength(2);
+		expect(tracks[0]).toMatchObject({
+			format: "vtt",
+			url: "https://emby.example.com/emby/Videos/item-1/ms-1/Subtitles/3/Stream.vtt?api_key=tok-1",
+		});
+		expect(tracks[1]).toMatchObject({
+			format: "ass",
+			label: "简体中文 · ASS",
+			url: "https://emby.example.com/emby/Videos/item-1/ms-1/Subtitles/4/0/Stream.ass?api_key=tok-1",
+		});
+
+		expect(pickDefaultEmbySubtitle(tracks, "zh-CN")?.format).toBe("ass");
+		// LAN IP servers must yield no subtitle URLs because the room enforces public subtitle URLs.
+		expect(
+			extractEmbySubtitles("http://192.168.1.10:8096", "tok-1", ITEM, mediaSource),
+		).toEqual([]);
+	});
+
+	it("detects Safari, Firefox, and iOS WebKit browsers as non-Chromium, while allowing Android/desktop Chrome and Edge", () => {
+		expect(
+			isCurrentBrowserLikelyNonChromium(
+				"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+			),
+		).toBe(true);
+		expect(
+			isCurrentBrowserLikelyNonChromium(
+				"Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.0.0 Mobile/15E148 Safari/604.1",
+			),
+		).toBe(true);
+		expect(
+			isCurrentBrowserLikelyNonChromium(
+				"Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 EdgiOS/126.0.0.0 Mobile/15E148 Safari/605.1.15",
+			),
+		).toBe(true);
+		expect(
+			isCurrentBrowserLikelyNonChromium(
+				"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
+			),
+		).toBe(true);
+		expect(
+			isCurrentBrowserLikelyNonChromium(
+				"Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36",
+			),
+		).toBe(false);
+		expect(
+			isCurrentBrowserLikelyNonChromium(
+				"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+			),
+		).toBe(false);
+		expect(
+			isCurrentBrowserLikelyNonChromium(
+				"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 Edg/128.0.0.0",
+			),
+		).toBe(false);
 	});
 
 	it("builds a queue payload without leaking the token into text", () => {
@@ -213,10 +408,14 @@ describe("Emby client", () => {
 			token: "token",
 			item: ITEM,
 			source,
+			subtitleUrl:
+				"https://example.com/Videos/item-1/ms-1/Subtitles/2/Stream.ass?api_key=token",
 		});
 		expect(video).toMatchObject({
 			service: "direct",
 			id: "https://example.com/videos/1/original.mp4?api_key=token",
+			subtitleUrl:
+				"https://example.com/Videos/item-1/ms-1/Subtitles/2/Stream.ass?api_key=token",
 			metadata: {
 				title: "The Film",
 				description: "Emby · Home",
@@ -241,5 +440,22 @@ describe("Emby client", () => {
 		expect(embyItemImageUrl("https://example.com", "token", { ...ITEM, ImageTags: {} })).toBe(
 			undefined,
 		);
+	});
+
+	it("labels an episode with its season and episode number", () => {
+		expect(
+			formatEmbyEpisodeCode({
+				...ITEM,
+				Type: "Episode",
+				ParentIndexNumber: 2,
+				IndexNumber: 5,
+			}),
+		).toBe("S02E05");
+		expect(formatEmbyEpisodeCode({ ...ITEM, ParentIndexNumber: 12, IndexNumber: 103 })).toBe(
+			"S12E103",
+		);
+		// Movies and unnumbered items must not render an "S00E00" that means nothing.
+		expect(formatEmbyEpisodeCode(ITEM)).toBe("");
+		expect(formatEmbyEpisodeCode({ ...ITEM, ParentIndexNumber: 0, IndexNumber: 0 })).toBe("");
 	});
 });
