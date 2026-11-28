@@ -583,6 +583,8 @@ export default {
 			"账号密码只用于本次连接，不会发送到本服务器；服务器地址和用户名会保存在这个浏览器里。",
 		note: "播放地址会包含本次 Emby 访问令牌，房间成员都能看到并使用它。",
 		errors: {
+			"mixed-content":
+				"当前页面是 HTTPS，浏览器会拦截 HTTP 的 Emby。请给 Emby 配置 HTTPS，或改用 HTTP 访问本站。",
 			"invalid-server": "服务器地址无效，请填写 http(s):// 开头的地址。",
 			unauthorized: "用户名或密码错误。",
 			timeout: "连接 Emby 超时。",

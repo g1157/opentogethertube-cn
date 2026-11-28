@@ -602,6 +602,8 @@ export default {
 			"Your password is used only for this connection and is never sent to this server. The server address and username are remembered in this browser.",
 		note: "The playback URL contains this Emby access token, so everyone in the room can see and use it.",
 		errors: {
+			"mixed-content":
+				"This page is HTTPS, so the browser blocks a plain-HTTP Emby. Give Emby HTTPS, or open this site over HTTP.",
 			"invalid-server": "That server address is invalid. Use an http(s):// address.",
 			unauthorized: "The username or password is wrong.",
 			timeout: "Connecting to Emby timed out.",

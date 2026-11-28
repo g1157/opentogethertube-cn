@@ -393,6 +393,15 @@ async function connect(): Promise<void> {
 	connecting.value = true;
 	try {
 		const normalized = normalizeEmbyServer(serverInput.value);
+		const parsed = new URL(normalized);
+		const loopback =
+			parsed.hostname === "localhost" ||
+			parsed.hostname === "127.0.0.1" ||
+			parsed.hostname === "[::1]";
+		if (window.location.protocol === "https:" && parsed.protocol === "http:" && !loopback) {
+			error.value = t("emby-browser.errors.mixed-content");
+			return;
+		}
 		const deviceId = embyDeviceId();
 		const auth = await authenticateEmby(
 			normalized,
