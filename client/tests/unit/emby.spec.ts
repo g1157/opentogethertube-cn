@@ -160,6 +160,31 @@ describe("Emby client", () => {
 		expect(result.source).toMatchObject({ service: "hls", mime: "application/x-mpegURL" });
 	});
 
+	it("recognizes an extensionless HLS transcode URL", () => {
+		const playback: EmbyPlaybackInfo = {
+			MediaSources: [
+				{
+					Container: "mkv",
+					TranscodingUrl:
+						"/videos/1/stream?Static=false&MediaSourceId=m&TranscodingProtocol=hls&api_key=t",
+					TranscodingSubProtocol: "hls",
+				},
+			],
+		};
+		const result = pickPlayableEmbySource("https://example.com", playback, ITEM);
+		expect(result.source).toMatchObject({ service: "hls", mime: "application/x-mpegURL" });
+	});
+
+	it("falls back to the declared container for an extensionless direct URL", () => {
+		const playback: EmbyPlaybackInfo = {
+			MediaSources: [
+				{ Container: "mp4", DirectStreamUrl: "/videos/1/stream?Static=true&api_key=t" },
+			],
+		};
+		const result = pickPlayableEmbySource("https://example.com", playback, ITEM);
+		expect(result.source).toMatchObject({ service: "direct", mime: "video/mp4" });
+	});
+
 	it("reports the container when no browser-playable source exists", () => {
 		const playback: EmbyPlaybackInfo = {
 			MediaSources: [

@@ -466,23 +466,34 @@ function playableFromUrl(
 		return undefined;
 	}
 	const extension = extensionOf(url);
-	const mime = MIME_BY_EXTENSION[extension];
-	if (mime === undefined) {
-		return undefined;
-	}
-	let service: PlayableEmbySource["service"];
-	if (extension === "m3u8") {
+	const protocol = source.TranscodingSubProtocol?.toLowerCase();
+	let service: PlayableEmbySource["service"] | undefined;
+	let mime = MIME_BY_EXTENSION[extension];
+	if (mime !== undefined) {
+		service = extension === "m3u8" ? "hls" : extension === "mpd" ? "dash" : "direct";
+	} else if (protocol === "hls") {
+		// Some Emby versions return an extensionless /videos/{id}/stream URL for HLS.
 		service = "hls";
-	} else if (extension === "mpd") {
+		mime = "application/x-mpegURL";
+	} else if (protocol === "dash") {
 		service = "dash";
+		mime = "application/dash+xml";
 	} else {
-		service = "direct";
+		// A static direct URL may also omit the extension; trust its declared container.
+		const container = source.Container?.toLowerCase().split(",")[0] ?? "";
+		mime = MIME_BY_EXTENSION[container];
+		if (mime !== undefined && container !== "m3u8" && container !== "mpd") {
+			service = "direct";
+		}
+	}
+	if (service === undefined || mime === undefined) {
+		return undefined;
 	}
 	return {
 		service,
 		url: absolute,
 		mime,
-		container: extension,
+		container: extension || source.Container?.toLowerCase() || "unknown",
 		source,
 	};
 }
