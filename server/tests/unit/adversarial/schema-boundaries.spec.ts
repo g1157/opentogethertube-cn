@@ -201,6 +201,35 @@ describe("REST request boundaries", () => {
 		).toBe(false);
 	});
 
+	it("accepts bounded client metadata and drops unknown fields", () => {
+		const video = {
+			service: "direct",
+			id: "https://emby.example/videos/1/original.mp4?api_key=t",
+			metadata: {
+				title: "Movie",
+				mime: "video/mp4",
+				length: 7200,
+				cors: true,
+				unknown: "ignored",
+			},
+		};
+		const parsed = OttApiRequestAddToQueueSchema.parse(video) as any;
+		expect(parsed.metadata).toMatchObject({ title: "Movie", mime: "video/mp4" });
+		expect(parsed.metadata.unknown).toBeUndefined();
+		expect(
+			OttApiRequestAddToQueueSchema.safeParse({
+				...video,
+				metadata: { ...video.metadata, title: "x".repeat(201) },
+			}).success,
+		).toBe(false);
+		expect(
+			OttApiRequestAddToQueueSchema.safeParse({
+				...video,
+				metadata: { ...video.metadata, length: 7 * 24 * 60 * 60 + 1 },
+			}).success,
+		).toBe(false);
+	});
+
 	it("caps batch adds", () => {
 		const videos = Array.from({ length: 10_000 }, (_, index) => ({
 			service: "direct",

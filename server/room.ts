@@ -42,6 +42,7 @@ import type {
 import { RoomRequestType } from "ott-common/models/messages.js";
 import _ from "lodash";
 import InfoExtract from "./infoextractor.js";
+import { videoFromClientMetadata } from "./client-media-metadata.js";
 import usermanager from "./usermanager.js";
 import {
 	type ClientInfo,
@@ -61,7 +62,13 @@ import {
 	type PlaybackDiagnostics,
 } from "ott-common/models/types.js";
 import type { User } from "./models/user.js";
-import type { QueueItem, QueueItemExtras, Video, VideoId } from "ott-common/models/video.js";
+import type {
+	QueueItem,
+	QueueItemExtras,
+	Video,
+	VideoAdd,
+	VideoId,
+} from "ott-common/models/video.js";
 import dayjs, { type Dayjs } from "dayjs";
 import type { PickFunctions } from "ott-common/typeutils.js";
 import { replacer } from "ott-common/serialize.js";
@@ -2223,6 +2230,28 @@ export class Room implements RoomState {
 	}
 
 	/**
+	 * Resolve a batch without losing the request order. Metadata-bearing items skip the
+	 * adapter entirely; everyone else still goes through the same admission path as before.
+	 */
+	private async resolveAddedVideos(videos: VideoAdd[]): Promise<Video[]> {
+		const supplied = videos.map(video => videoFromClientMetadata(video));
+		if (supplied.every(video => video === undefined)) {
+			return InfoExtract.getManyVideoInfo(videos);
+		}
+		return Promise.all(
+			videos.map(async (request, index) => {
+				const video =
+					supplied[index] ??
+					(await InfoExtract.getVideoInfo(request.service, request.id));
+				if (supplied[index] && request.subtitleUrl) {
+					video.subtitleUrl = request.subtitleUrl;
+				}
+				return video;
+			}),
+		);
+	}
+
+	/**
 	 * Add the video to the queue. Should only be called after permissions have been checked.
 	 * @param request
 	 */
@@ -2269,10 +2298,12 @@ export class Room implements RoomState {
 				throw new VideoAlreadyQueuedException();
 			}
 
-			const video: Video = await InfoExtract.getVideoInfo(
-				request.video.service,
-				request.video.id,
-			);
+			// A browser that can reach the source itself (a LAN Emby server, a signed URL)
+			// supplies the metadata; never make the server fetch a source it cannot reach.
+			const suppliedVideo = videoFromClientMetadata(request.video);
+			const video: Video =
+				suppliedVideo ??
+				(await InfoExtract.getVideoInfo(request.video.service, request.video.id));
 			if (video === undefined) {
 				this.log.error("video was undefined, which is bad");
 				throw new Error("video was undefined");
@@ -2282,12 +2313,13 @@ export class Room implements RoomState {
 				video.subtitleUrl = request.video.subtitleUrl;
 			}
 			await this.queue.enqueue(video);
-			this.log.info(`Video added: ${JSON.stringify(request.video)}`);
+			// Do not log the id: client-supplied playback URLs may contain access tokens.
+			this.log.info(`Video added: ${video.service} (${video.id.length} chars)`);
 			this.prevQueue = null;
 			await this.publishRoomEvent(request, context, { video });
 			counterMediaQueued.labels({ service: video.service }).inc();
 		} else if (request.videos) {
-			const videos: Video[] = await InfoExtract.getManyVideoInfo(request.videos);
+			const videos = await this.resolveAddedVideos(request.videos);
 
 			for (let i = 0; i < videos.length; i++) {
 				const video = videos[i];
@@ -2343,7 +2375,10 @@ export class Room implements RoomState {
 			// Extras do not select a new source: keep the clock and preparation generation.
 			this.markDirty("currentSource");
 		}
-		this.log.info(`Queue item updated: ${JSON.stringify(request.video)}`);
+		// Same reason as addToQueue: the id may be a token-bearing playback URL.
+		this.log.info(
+			`Queue item updated: ${request.video.service} (${request.video.id.length} chars)`,
+		);
 		await this.publishRoomEvent(request, context);
 	}
 
@@ -3047,13 +3082,16 @@ export class Room implements RoomState {
 		if (request.video.subtitleUrl) {
 			await this.assertUsableSubtitleUrl(request.video.subtitleUrl);
 		}
+		const suppliedVideo = videoFromClientMetadata(request.video);
 
 		let videoToPlay: Video;
 		if (alreadyInQueue) {
 			const [_, item] = await this.queue.evict(request.video);
 			videoToPlay = item;
 		} else {
-			videoToPlay = await InfoExtract.getVideoInfo(request.video.service, request.video.id);
+			videoToPlay =
+				suppliedVideo ??
+				(await InfoExtract.getVideoInfo(request.video.service, request.video.id));
 		}
 		if (request.video.subtitleUrl) {
 			videoToPlay.subtitleUrl = request.video.subtitleUrl;

@@ -569,6 +569,9 @@ const addToQueue: RequestHandler<
 		if (body.subtitleUrl != null) {
 			video.subtitleUrl = body.subtitleUrl;
 		}
+		if (body.metadata != null) {
+			video.metadata = body.metadata;
+		}
 		roomRequest = {
 			type: RoomRequestType.AddRequest,
 			video,

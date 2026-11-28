@@ -1,5 +1,9 @@
 import {
 	ALL_VIDEO_SERVICES,
+	MAX_CLIENT_METADATA_DESCRIPTION_LENGTH,
+	MAX_CLIENT_METADATA_LENGTH_SECONDS,
+	MAX_CLIENT_METADATA_THUMBNAIL_LENGTH,
+	MAX_CLIENT_METADATA_TITLE_LENGTH,
 	MAX_QUEUE_ITEMS,
 	MAX_VIDEO_ID_LENGTH,
 	ROOM_NAME_REGEX,
@@ -69,7 +73,33 @@ const QueueItemExtrasSchema = z.object({
 	subtitleUrl: SubtitleUrlSchema.nullable().optional(),
 });
 
-const VideoAddSchema = VideoIdSchema.extend(QueueItemExtrasSchema.shape);
+/**
+ * Bounds only; the room validates the URLs and MIME types itself, because a WebSocket
+ * playNow request never passes through this schema. Keeping the limits here too gives
+ * REST callers a clear 400 before a request reaches the room.
+ */
+const ClientVideoMetadataSchema = z.object({
+	title: z.string().min(1).max(MAX_CLIENT_METADATA_TITLE_LENGTH),
+	description: z.string().max(MAX_CLIENT_METADATA_DESCRIPTION_LENGTH).optional(),
+	length: z.number().finite().min(0).max(MAX_CLIENT_METADATA_LENGTH_SECONDS).optional(),
+	mime: z.string().min(1).max(100),
+	thumbnail: z.string().max(MAX_CLIENT_METADATA_THUMBNAIL_LENGTH).optional(),
+	width: z.number().int().min(1).max(16384).optional(),
+	height: z.number().int().min(1).max(16384).optional(),
+	isLive: z.boolean().optional(),
+	cors: z.boolean().optional(),
+	mediaAccess: z
+		.object({
+			referrerPolicy: z.literal("no-referrer").optional(),
+			requiresOriginReferer: z.boolean().optional(),
+			containerMismatch: z.boolean().optional(),
+		})
+		.optional(),
+});
+
+const VideoAddSchema = VideoIdSchema.extend(QueueItemExtrasSchema.shape).extend({
+	metadata: ClientVideoMetadataSchema.optional(),
+});
 
 export const OttApiRequestVoteSchema = z.object({
 	...VideoIdSchema.shape,

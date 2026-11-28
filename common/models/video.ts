@@ -48,11 +48,31 @@ export interface VideoMetadata {
 }
 
 export type Video = VideoId & Partial<VideoMetadata>;
+
+/**
+ * Metadata the browser already knows about a source it can reach but the server cannot
+ * (a home Emby server, a token-gated direct link). The server validates and stores it
+ * instead of probing the source, so playback never depends on the server's reachability.
+ * Only URL-addressed services (`direct`, `hls`, `dash`) may use it.
+ */
+export interface ClientVideoMetadata {
+	title: string;
+	description?: string;
+	length?: number;
+	mime: string;
+	thumbnail?: string;
+	width?: number;
+	height?: number;
+	isLive?: boolean;
+	cors?: boolean;
+	mediaAccess?: MediaAccess;
+}
+
 export interface QueueItemExtras {
 	startAt?: number;
 	endAt?: number;
 	subtitleUrl?: string;
 }
 
-export type VideoAdd = VideoId & QueueItemExtras;
+export type VideoAdd = VideoId & QueueItemExtras & { metadata?: ClientVideoMetadata };
 export interface QueueItem extends Video, QueueItemExtras {}

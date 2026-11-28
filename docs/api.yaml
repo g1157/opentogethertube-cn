@@ -690,6 +690,51 @@ components:
           type: string
           format: uri
           description: URL to a WebVTT subtitle file.
+        metadata:
+          type: object
+          description: >-
+            Metadata already known by the browser for a source only it can reach
+            (direct, hls and dash only). The server validates and stores it instead of
+            probing the source, so a LAN Emby server never becomes server traffic.
+          properties:
+            title:
+              type: string
+              maxLength: 200
+            description:
+              type: string
+              maxLength: 2000
+            length:
+              type: number
+              minimum: 0
+              description: Duration in seconds; omitted for live sources.
+            mime:
+              type: string
+              example: video/mp4
+            thumbnail:
+              type: string
+              format: uri
+              maxLength: 2048
+            width:
+              type: integer
+            height:
+              type: integer
+            isLive:
+              type: boolean
+            cors:
+              type: boolean
+            mediaAccess:
+              type: object
+              properties:
+                referrerPolicy:
+                  type: string
+                  enum: [no-referrer]
+                requiresOriginReferer:
+                  type: boolean
+                containerMismatch:
+                  type: boolean
+          required:
+            - title
+            - mime
       required:
         - service
         - id

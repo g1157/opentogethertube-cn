@@ -134,6 +134,43 @@ describe("batch media admission", () => {
 		expect(room.queue.length).toBe(0);
 	});
 
+	it("queues browser-supplied metadata without asking the adapter", async () => {
+		const room = new Room({ name: "batch-client-metadata-" + nextRoom++, isTemporary: true });
+		rooms.push(room);
+		room.throttledSync.cancel();
+		vi.spyOn(room, "throttledSync").mockReturnValue(undefined);
+		vi.spyOn(room, "publish").mockResolvedValue(undefined);
+		const fetch = vi.spyOn(direct, "fetchVideoInfo");
+
+		await room.addToQueue(
+			{
+				type: RoomRequestType.AddRequest,
+				video: {
+					service: "direct",
+					id: "http://192.168.1.20:8096/videos/1/original.mp4?api_key=secret",
+					metadata: {
+						title: "Home movie",
+						mime: "video/mp4",
+						length: 90.4,
+						cors: true,
+					},
+				},
+			},
+			{ clientId: "owner", username: "owner", role: Role.Owner },
+		);
+
+		expect(fetch).not.toHaveBeenCalled();
+		expect(room.queue.length).toBe(1);
+		expect(room.queue.items[0]).toMatchObject({
+			service: "direct",
+			id: "http://192.168.1.20:8096/videos/1/original.mp4?api_key=secret",
+			title: "Home movie",
+			mime: "video/mp4",
+			length: 91,
+			cors: true,
+		});
+	});
+
 	it("does not let complete client metadata bypass non-cache-safe admission", async () => {
 		const fetch = vi.spyOn(direct, "fetchVideoInfo");
 		const clientVideo = completeVideo("direct", LOCAL_FILE_ID);

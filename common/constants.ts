@@ -91,6 +91,15 @@ export const ADD_PREVIEW_HTTP_TIMEOUT_MS = 15000;
 export const MAX_VIDEO_ID_LENGTH = 2048;
 /** Upper bound for a room-clock seek; longer sources can still seek within this. */
 export const MAX_SEEK_SECONDS = 24 * 60 * 60;
+/**
+ * Metadata a browser learned from a source only it can reach (a LAN Emby server, a
+ * short-lived signed URL). It is display and planning data, never a reason to fetch the
+ * source from the server, so it is bounded here and validated again in the room.
+ */
+export const MAX_CLIENT_METADATA_TITLE_LENGTH = 200;
+export const MAX_CLIENT_METADATA_DESCRIPTION_LENGTH = 2000;
+export const MAX_CLIENT_METADATA_THUMBNAIL_LENGTH = 2048;
+export const MAX_CLIENT_METADATA_LENGTH_SECONDS = 7 * 24 * 60 * 60;
 
 export const ALL_SKIP_CATEGORIES: Category[] = [
 	"sponsor",
