@@ -1,5 +1,17 @@
 # 版本记录（简体中文分支）
 
+-   **v1.4.33**：修复 ASS 字幕首次初始化崩溃与 Emby 移动端字幕选择框拉伸问题。
+    -   **ASS 字幕（JASSUB）修复**：`DirectPlayer.vue` 首次创建 `JASSUB` 实例时必须传入 `subUrl`；
+        此前漏传导致 worker 启动时拉取 `/assets/undefined` 并喂给 libass，触发 `exit(4)` 进而报
+        “字幕轨道加载失败”。现在首轨走构造参数 `subUrl`，后续切轨复用 worker 调 `setTrackByUrl`，
+        并在 `ready` 后校验 `renderer` 非空。
+    -   **Emby 浏览器移动端 UI 修复**：侧栏与底部固定详情面板在 `flex-direction: column` 下将
+        `.emby-panel-info` 与 `.emby-subtitle-select` 设为 `flex: 0 0 auto; width: 100%`，消除
+        `flex-basis: 320px` 导致的字幕下拉框纵向异常拉伸，并为移动端底部面板加 `max-height: 60vh`
+        可滚动上限。
+    -   **验证**：真实 Chrome 无头验证 Emby ASS 字幕成功加载 365 条事件；`yarn lint-ci`、`yarn build`
+        与客户端 `MediaPlayers` / `EmbyBrowser` / `emby` 测试全部通过。
+
 -   **v1.4.32**：Emby 浏览器体验升级、MKV 浏览器直连兜底与外挂/内封文本字幕提取。
     -   **MKV 浏览器直连兜底**：服务端（`server/mime.ts`）与 Edge 预览版（`packages/ott-edge/src/media.ts`）
         放行 `video/x-matroska`；Emby 播放源选择保持 `MP4/WebM 直连 > Emby HLS/DASH 转码流 > MKV 直连兜底`
